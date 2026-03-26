@@ -1,0 +1,1008 @@
+# AriaAI 代码问题与待提升清单
+
+> **版本**: v1.0  
+> **更新日期**: 2026-03-26  
+> **分析范围**: 前端 SwiftUI + 后端 Python FastAPI  
+
+---
+
+## 📊 问题统计
+
+| 类别 | 数量 | 严重程度 |
+|------|------|----------|
+| 🔴 严重问题 | 8 | 可能导致崩溃或数据丢失 |
+| 🟠 中等问题 | 15 | 影响功能或体验 |
+| 🟡 轻微问题 | 22 | 代码质量或优化建议 |
+| 🔵 功能缺失 | 18 | 待实现功能 |
+| 🟢 优化建议 | 12 | 性能/架构改进 |
+
+---
+
+## 🔴 严重问题 (Critical)
+
+### 1. 后端 CORS 配置过于宽松
+**位置**: `ConsultantAI/backend/main.py:79-85`
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ❌ 允许所有来源
+    allow_methods=["*"],
+    allow_headers=["*", "X-Auth-Token"],
+    expose_headers=["*"],
+)
+```
+
+**问题**: 
+- 生产环境允许所有跨域请求，存在安全风险
+- 应限制为特定域名
+
+**修复建议**:
+```python
+allow_origins=["http://localhost:3000", "https://yourdomain.com"]
+```
+
+---
+
+### 2. 认证中间件逻辑漏洞
+**位置**: `ConsultantAI/backend/main.py:87-107`
+
+**问题**:
+- 当 `any_user` 不存在时自动放行，存在逻辑漏洞
+- 没有用户时任何请求都能通过
+- Token 验证失败后没有中断请求
+
+**修复建议**:
+```python
+# 应该严格验证每个请求
+if not user:
+    return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+```
+
+---
+
+### 3. API Key 明文日志输出
+**位置**: `ConsultantAI/backend/app/services/claude.py:104-105`
+
+```python
+masked_key = api_key[:8] + "••••" + api_key[-4:] if len(api_key) > 12 else "••••"
+logger.info(f"[Claude API] SDK mode - API Key: {masked_key}")
+```
+
+**问题**:
+- 即使部分掩码，前8位和后4位仍可能泄露
+- 日志中不应包含任何密钥信息
+
+**修复建议**:
+```python
+logger.info(f"[Claude API] SDK mode - API Key configured: {bool(api_key)}")
+```
+
+---
+
+### 4. 文件路径遍历风险
+**位置**: `ConsultantAI/backend/app/routers/chat.py:34-56`
+
+```python
+def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
+    if not path.exists():  # ❌ 没有验证路径是否在允许范围内
+        return "[File not found]"
+```
+
+**问题**:
+- 没有验证 `path` 是否在 `UPLOADS_DIR` 范围内
+- 可能导致目录遍历攻击
+
+**修复建议**:
+```python
+from pathlib import Path
+ALLOWED_DIR = Path(UPLOADS_DIR).resolve()
+file_path = (ALLOWED_DIR / path).resolve()
+if not str(file_path).startswith(str(ALLOWED_DIR)):
+    return "[Access denied]"
+```
+
+---
+
+### 5. 前端内存泄漏风险
+**位置**: `ConsultantAI/ConsultantAI/Views/Chat/ChatView.swift`
+
+**问题**:
+- `AsyncThrowingStream` 没有正确取消
+- 页面关闭时 SSE 连接可能仍在后台运行
+- 大量消息时 `messages` 数组无限增长
+
+**修复建议**:
+```swift
+@State private var streamTask: Task<Void, Never>?
+
+// 在 onDisappear 中取消
+.onDisappear {
+    streamTask?.cancel()
+}
+```
+
+---
+
+### 6. 数据库连接池未配置
+**位置**: `ConsultantAI/backend/app/database.py`
+
+**问题**:
+- 使用默认连接池配置
+- 高并发时可能耗尽连接
+
+**修复建议**:
+```python
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=3600
+)
+```
+
+---
+
+### 7. 文件上传没有大小限制
+**位置**: `ConsultantAI/backend/app/routers/projects.py` 等多个文件
+
+**问题**:
+- 没有设置 `UploadFile` 的大小限制
+- 可能导致内存溢出或磁盘占满
+
+**修复建议**:
+```python
+from fastapi import Request
+
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    if request.method == "POST":
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 100 * 1024 * 1024:  # 100MB
+            return JSONResponse(status_code=413, content={"detail": "File too large"})
+```
+
+---
+
+### 8. 定时任务执行没有超时控制
+**位置**: `ConsultantAI/backend/app/services/task_runner.py`
+
+**问题**:
+- AI 任务可能无限期运行
+- 没有超时机制
+
+**修复建议**:
+```python
+async with asyncio.timeout(300):  # 5分钟超时
+    result = await run_task()
+```
+
+---
+
+## 🟠 中等问题 (Major)
+
+### 9. 错误处理不完善
+**位置**: 多个文件
+
+**问题**:
+- 大量 `try-except` 捕获后仅打印日志
+- 没有统一的错误响应格式
+- 前端无法区分不同类型的错误
+
+**示例**:
+```python
+# DataStore.swift
+catch {
+    self.error = error.localizedDescription  # ❌ 太笼统
+}
+```
+
+**修复建议**:
+- 定义统一的错误类型枚举
+- 后端返回结构化错误码
+- 前端根据错误码显示不同提示
+
+---
+
+### 10. 没有请求重试机制
+**位置**: `ConsultantAI/ConsultantAI/Services/APIClient.swift`
+
+**问题**:
+- 网络波动时请求直接失败
+- 没有自动重试逻辑
+
+**修复建议**:
+```swift
+func get<T: Decodable>(_ path: String, retries: Int = 3) async throws -> T {
+    for attempt in 1...retries {
+        do {
+            return try await perform(req)
+        } catch where attempt < retries {
+            try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
+        }
+    }
+    throw APIError.maxRetriesExceeded
+}
+```
+
+---
+
+### 11. 消息列表性能问题
+**位置**: `ConsultantAI/ConsultantAI/Views/Chat/ChatView.swift:206-247`
+
+**问题**:
+- 使用 `LazyVStack` 但消息多时没有分页
+- 长时间对话会导致性能下降
+- 每次新增消息都全量渲染
+
+**修复建议**:
+- 实现消息分页加载
+- 虚拟列表只渲染可见消息
+- 使用 `id` 优化 Diff 算法
+
+---
+
+### 12. 并发请求没有限制
+**位置**: `ConsultantAI/backend/app/routers/chat.py:133-430`
+
+**问题**:
+- 没有限制同时处理的 SSE 连接数
+- 可能导致服务器资源耗尽
+
+**修复建议**:
+```python
+import asyncio
+from contextlib import asynccontextmanager
+
+semaphore = asyncio.Semaphore(10)  # 最多10个并发
+
+@router.post("/send")
+async def send_message(...):
+    async with semaphore:
+        # 处理请求
+```
+
+---
+
+### 13. 前端状态管理混乱
+**位置**: `ConsultantAI/ConsultantAI/Services/DataStore.swift`
+
+**问题**:
+- 同时维护 `projects` 和 `apiProjects` 两套数据
+- 数据同步逻辑复杂
+- 容易出现数据不一致
+
+**修复建议**:
+- 统一使用 API 模型
+- 添加数据验证层
+- 使用单一数据源原则
+
+---
+
+### 14. RAG 检索没有缓存
+**位置**: `ConsultantAI/backend/app/services/rag.py:47-75`
+
+**问题**:
+- 每次查询都重新计算 Embedding
+- 相似文档查询没有缓存
+
+**修复建议**:
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1000)
+def get_cached_embedding(text: str) -> tuple:
+    return tuple(embed_texts([text])[0])
+```
+
+---
+
+### 15. 文档解析异常处理不足
+**位置**: `ConsultantAI/backend/app/services/parser.py`
+
+**问题**:
+- PDF 解析失败没有降级方案
+- 复杂格式文档可能解析错误
+
+**修复建议**:
+- 添加多种解析器 fallback
+- 解析失败时返回友好提示
+- 记录解析失败的文档类型
+
+---
+
+### 16. 前端缺少离线支持
+**位置**: 整个 SwiftUI 项目
+
+**问题**:
+- 没有本地缓存机制
+- 离线时无法查看历史数据
+
+**修复建议**:
+- 使用 CoreData 或 SQLite 本地缓存
+- 实现请求队列，恢复网络后同步
+
+---
+
+### 17. 技能模板没有版本控制
+**位置**: `ConsultantAI/backend/app/routers/skills.py`
+
+**问题**:
+- 修改 skill 后无法回滚
+- 没有版本历史记录
+
+**修复建议**:
+- 添加 `version` 字段
+- 保存历史版本到单独表
+- 支持版本对比和回滚
+
+---
+
+### 18. 定时任务没有持久化
+**位置**: `ConsultantAI/backend/app/services/scheduler.py`
+
+**问题**:
+- 服务重启后任务状态丢失
+- 正在执行的任务中断
+
+**修复建议**:
+- 使用 Redis/RabbitMQ 作为任务队列
+- 或定期持久化任务状态到数据库
+
+---
+
+### 19. 聊天记录没有软删除
+**位置**: `ConsultantAI/backend/app/routers/chat.py:433-442`
+
+```python
+@router.delete("/conversations/{conv_id}")
+def delete_conversation(...):
+    for m in session.exec(...).all():
+        session.delete(m)  # ❌ 硬删除
+    session.delete(conv)
+```
+
+**问题**:
+- 直接物理删除
+- 无法恢复误删数据
+
+**修复建议**:
+- 添加 `deleted_at` 字段实现软删除
+- 定期清理已软删除的数据
+
+---
+
+### 20. API 没有限流
+**位置**: 整个后端项目
+
+**问题**:
+- 没有 Rate Limiting
+- 可能被恶意攻击
+
+**修复建议**:
+```python
+from slowapi import Limiter
+
+limiter = Limiter(key_func=lambda: request.headers.get("x-auth-token"))
+
+@router.post("/chat/send")
+@limiter.limit("10/minute")
+async def send_message(...):
+    ...
+```
+
+---
+
+### 21. 前端没有输入验证
+**位置**: `ConsultantAI/ConsultantAI/Views/Chat/ChatTextField.swift`
+
+**问题**:
+- 没有长度限制
+- 特殊字符未转义
+- 可能发送空消息
+
+**修复建议**:
+```swift
+// 添加输入验证
+private func validateInput(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !trimmed.isEmpty && trimmed.count <= 10000
+}
+```
+
+---
+
+### 22. 后端没有输入清洗
+**位置**: 多个路由文件
+
+**问题**:
+- 用户输入直接拼接到 prompt
+- 存在 Prompt Injection 风险
+
+**修复建议**:
+```python
+import re
+
+def sanitize_input(text: str) -> str:
+    # 移除可能的注入字符
+    text = re.sub(r'[<>\"\']', '', text)
+    # 限制长度
+    return text[:10000]
+```
+
+---
+
+### 23. 文件上传没有病毒扫描
+**位置**: 所有文件上传接口
+
+**问题**:
+- 可能上传恶意文件
+- 没有文件类型白名单验证
+
+**修复建议**:
+- 使用 `python-magic` 验证文件类型
+- 集成杀毒软件扫描
+- 文件隔离存储
+
+---
+
+## 🟡 轻微问题 (Minor)
+
+### 24. 代码重复
+**位置**: 多处
+
+**问题**:
+- `DataStore.swift` 中大量相似的 CRUD 代码
+- 后端路由中重复的 error handling
+
+**修复建议**:
+- 提取通用基类或协议
+- 使用泛型简化重复代码
+
+---
+
+### 25. 魔法字符串
+**位置**: 多处
+
+**示例**:
+```swift
+if skill.category == "quick_tool" { ... }  // ❌ 魔法字符串
+```
+
+**修复建议**:
+```swift
+enum SkillCategory: String {
+    case quickTool = "quick_tool"
+    case deepTask = "deep_task"
+}
+```
+
+---
+
+### 26. 缺少文档注释
+**位置**: 大部分函数
+
+**问题**:
+- 复杂函数没有文档说明
+- 参数和返回值未标注
+
+**修复建议**:
+- 添加 Swift DocC 注释
+- Python 添加 Docstring
+
+---
+
+### 27. 硬编码配置
+**位置**: 多处
+
+**示例**:
+```python
+CHUNK_SIZE = 500  # 应该可配置
+TOP_K_RESULTS = 5
+```
+
+**修复建议**:
+- 移到配置文件
+- 支持运行时调整
+
+---
+
+### 28. 测试缺失
+**位置**: 整个项目
+
+**问题**:
+- 没有单元测试
+- 没有集成测试
+- 没有 E2E 测试
+
+**修复建议**:
+- Swift: XCTest
+- Python: pytest
+- 覆盖率目标: 80%+
+
+---
+
+### 29. 日志格式不统一
+**位置**: 后端多个文件
+
+**问题**:
+- 有的用 print，有的用 logging
+- 日志格式不一致
+- 没有结构化日志
+
+**修复建议**:
+```python
+import structlog
+
+logger = structlog.get_logger()
+logger.info("event", key="value", user_id=123)
+```
+
+---
+
+### 30. 前端强制解包风险
+**位置**: `ConsultantAI/ConsultantAI/Views/Chat/ChatView.swift:125-128`
+
+```swift
+private var selectedProjectId: Int? {
+    guard let proj = appState.selectedProject,
+          let api = dataStore.apiProjects.first(where: { $0.name == proj.name })
+    else { return nil }
+    return api.id
+}
+```
+
+**问题**:
+- 使用 `first(where:)` 后强制解包风险较低，但仍依赖数据一致性
+
+---
+
+### 31. 数据库事务使用不当
+**位置**: 后端多个路由
+
+**问题**:
+- 多处操作没有使用事务
+- 部分成功可能导致数据不一致
+
+**修复建议**:
+```python
+with session.begin():
+    # 多个操作在一个事务中
+    session.add(obj1)
+    session.add(obj2)
+```
+
+---
+
+### 32. 前端图片资源未优化
+**位置**: `AppIcons/` 目录
+
+**问题**:
+- 图标尺寸可能过大
+- 没有使用 Asset Catalog 优化
+
+---
+
+### 33. 后端路由命名不一致
+**位置**: 多个路由文件
+
+**问题**:
+- 有的用复数，有的用单数
+- 动词使用不一致
+
+**示例**:
+```python
+# 不一致
+@router.post("/skills/seed")  # 动词
+@router.get("/conversations")  # 名词
+```
+
+---
+
+### 34. 前端颜色使用不一致
+**位置**: DesignSystem.swift
+
+**问题**:
+- 部分颜色硬编码
+- 没有统一的设计令牌
+
+---
+
+### 35. 环境变量缺乏验证
+**位置**: `ConsultantAI/backend/app/config.py`
+
+**问题**:
+- 启动时不验证必需的环境变量
+- 运行时可能报错
+
+---
+
+### 36. 前端没有加载状态管理
+**位置**: 多个视图
+
+**问题**:
+- 多处重复实现 ProgressView
+- 没有统一的加载状态组件
+
+---
+
+### 37. 后端序列化效率低
+**位置**: `ConsultantAI/backend/app/models/db.py`
+
+**问题**:
+- 使用 JSON 字符串存储 embedding
+- 没有使用二进制格式
+
+---
+
+### 38. 前端 ObservableObject 过多
+**位置**: 整个 SwiftUI 项目
+
+**问题**:
+- 可能导致不必要的重绘
+- 应该使用 `@Observable` (iOS 17+)
+
+---
+
+### 39. 后端没有健康检查
+**位置**: `main.py`
+
+**问题**:
+- `/health` 只返回简单状态
+- 没有检查数据库、AI 服务等依赖
+
+---
+
+### 40. 前端缺少 Accessibility
+**位置**: 整个 SwiftUI 项目
+
+**问题**:
+- 没有添加 accessibility 标签
+- 不支持 VoiceOver
+
+---
+
+### 41. 后端没有指标监控
+**位置**: 整个后端项目
+
+**问题**:
+- 没有 Prometheus 指标
+- 无法监控性能和错误率
+
+---
+
+### 42. 前端没有崩溃上报
+**位置**: 整个 SwiftUI 项目
+
+**问题**:
+- 没有集成崩溃上报工具
+- 无法追踪线上问题
+
+---
+
+### 43. 后端没有请求追踪
+**位置**: 整个后端项目
+
+**问题**:
+- 没有 request ID
+- 难以追踪跨服务调用
+
+---
+
+### 44. 前端没有数据持久化
+**位置**: 整个 SwiftUI 项目
+
+**问题**:
+- 应用重启后状态丢失
+- 应该使用 UserDefaults 或 CoreData
+
+---
+
+### 45. 后端没有备份机制
+**位置**: SQLite 数据库
+
+**问题**:
+- 没有自动备份
+- 数据丢失风险
+
+---
+
+## 🔵 功能缺失 (Missing Features)
+
+### 46. 前端 - 文件上传 UI 未实现
+**位置**: `ChatView.swift`, `KnowledgeBaseView.swift`, `ProjectSpaceView.swift`
+
+**状态**: 按钮存在，功能未实现
+
+**实现建议**:
+```swift
+.fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .plainText]) { result in
+    // 处理文件选择和上传
+}
+```
+
+---
+
+### 47. 前端 - 新建项目弹窗未实现
+**位置**: `ProjectsView.swift`
+
+**状态**: 按钮存在，无表单
+
+---
+
+### 48. 前端 - 技能选择器未完善
+**位置**: `ChatView.swift`
+
+**问题**: 
+- `@` 触发后没有完整的技能选择浮层
+- 只能通过点击按钮选择
+
+---
+
+### 49. 前端 - 定时任务创建表单未实现
+**位置**: `SchedulesView.swift`
+
+**状态**: 无新建任务表单
+
+---
+
+### 50. 前端 - 模板上传未实现
+**位置**: `TemplatesView.swift`
+
+**状态**: 按钮存在，无实现
+
+---
+
+### 51. 后端 - 消息编辑功能缺失
+**位置**: `chat.py`
+
+**问题**: 无法编辑已发送的消息
+
+---
+
+### 52. 后端 - 消息搜索功能缺失
+**位置**: 整个项目
+
+**问题**: 无法搜索历史对话内容
+
+---
+
+### 53. 后端 - 批量操作缺失
+**位置**: 多个路由
+
+**问题**: 
+- 无法批量删除对话
+- 无法批量上传文档
+
+---
+
+### 54. 后端 - WebSocket 支持缺失
+**位置**: 整个项目
+
+**问题**: 仅使用 SSE，无法实现双向实时通信
+
+---
+
+### 55. 后端 - 消息推送缺失
+**位置**: 整个项目
+
+**问题**: 
+- 定时任务完成没有推送通知
+- 无法实时通知客户端
+
+---
+
+### 56. 前端 - 深色模式支持缺失
+**位置**: 整个 SwiftUI 项目
+
+**问题**: 仅支持浅色模式
+
+---
+
+### 57. 前端 - 国际化不完整
+**位置**: `Localization.swift`
+
+**问题**: 
+- 部分文本未国际化
+- 只有中英双语
+
+---
+
+### 58. 后端 - 多租户支持缺失
+**位置**: 整个后端项目
+
+**问题**: 数据没有按用户隔离
+
+---
+
+### 59. 后端 - 数据导出功能缺失
+**位置**: 整个后端项目
+
+**问题**: 
+- 无法导出对话记录
+- 无法导出项目数据
+
+---
+
+### 60. 后端 - API 文档缺失
+**位置**: 整个后端项目
+
+**问题**: 
+- 虽然有 FastAPI 自动文档，但不完整
+- 缺少使用示例
+
+---
+
+### 61. 前端 - 快捷键支持不完整
+**位置**: 整个 SwiftUI 项目
+
+**问题**: 
+- 只有基本快捷键
+- 缺少 ⌘+K 全局搜索等高级快捷键
+
+---
+
+### 62. 后端 - 权限控制不完整
+**位置**: `auth.py`
+
+**问题**: 
+- 角色权限过于简单
+- 缺少资源级别的权限控制
+
+---
+
+### 63. 前端 - 拖拽排序未实现
+**位置**: `ProjectsView.swift`, `KnowledgeBaseView.swift`
+
+**问题**: 无法拖拽调整顺序
+
+---
+
+## 🟢 优化建议 (Optimizations)
+
+### 64. 架构 - 前后端类型共享
+**建议**: 使用 GraphQL 或 OpenAPI 生成类型定义，避免手动维护两套模型
+
+---
+
+### 65. 性能 - RAG 向量数据库升级
+**建议**: 从 SQLite + numpy 迁移到专门的向量数据库
+
+| 选项 | 优点 | 缺点 |
+|------|------|------|
+| ChromaDB | 轻量、易用 | 性能一般 |
+| Milvus | 高性能、分布式 | 部署复杂 |
+| Pinecone | 托管、高性能 | 付费 |
+| Qdrant | 开源、性能好 | 较新 |
+
+---
+
+### 66. 性能 - Embedding 模型优化
+**建议**: 
+- 当前使用 `all-MiniLM-L6-v2` (384维)
+- 可考虑更大的模型提升质量
+- 或使用多语言模型支持中文
+
+---
+
+### 67. 架构 - 微服务拆分
+**建议**: 当前单体架构，可考虑拆分为：
+- API Gateway
+- Chat Service
+- File Service
+- RAG Service
+- Task Scheduler
+
+---
+
+### 68. 性能 - 前端列表虚拟化
+**建议**: 使用 `LazyVStack` + `Identifiable` 优化长列表
+
+---
+
+### 69. 性能 - 图片懒加载
+**建议**: 项目封面、头像等实现懒加载
+
+---
+
+### 70. 架构 - 使用事件驱动
+**建议**: 使用 Kafka/RabbitMQ 解耦服务
+
+---
+
+### 71. 性能 - 数据库索引优化
+**建议**: 
+```python
+# 添加常用查询索引
+Index("idx_project_status", Project.status)
+Index("idx_conversation_updated", Conversation.updated_at.desc())
+```
+
+---
+
+### 72. 性能 - CDN 加速
+**建议**: 静态资源使用 CDN
+
+---
+
+### 73. 架构 - 容器化部署
+**建议**: 
+- 提供 Dockerfile
+- docker-compose.yml 一键启动
+- Kubernetes Helm Chart
+
+---
+
+### 74. 性能 - 前端编译优化
+**建议**: 
+- Swift 编译优化级别
+- 资源文件压缩
+- 二进制瘦身
+
+---
+
+### 75. 安全 - 添加 CSP
+**建议**: 添加 Content Security Policy 头
+
+---
+
+## 📋 修复优先级建议
+
+### Phase 1 (立即修复) - 安全问题
+- [ ] 🔴 #1 CORS 配置
+- [ ] 🔴 #2 认证中间件
+- [ ] 🔴 #3 API Key 日志
+- [ ] 🔴 #4 路径遍历
+- [ ] 🔴 #7 文件大小限制
+
+### Phase 2 (本周修复) - 稳定性
+- [ ] 🔴 #5 内存泄漏
+- [ ] 🔴 #6 数据库连接池
+- [ ] 🔴 #8 任务超时
+- [ ] 🟠 #10 请求重试
+- [ ] 🟠 #12 并发限制
+
+### Phase 3 (本月修复) - 功能完善
+- [ ] 🔵 #46 文件上传 UI
+- [ ] 🔵 #47 新建项目
+- [ ] 🔵 #48 技能选择器
+- [ ] 🟠 #9 错误处理
+- [ ] 🟠 #14 RAG 缓存
+
+### Phase 4 (长期规划) - 架构优化
+- [ ] 🟢 #65 向量数据库
+- [ ] 🟢 #67 微服务
+- [ ] 🟢 #73 容器化
+- [ ] 🟡 #28 测试覆盖
+
+---
+
+## 🔧 开发规范建议
+
+### 代码风格
+1. **Swift**: 使用 SwiftLint 统一风格
+2. **Python**: 使用 Black + isort + flake8
+3. **提交信息**: 遵循 Conventional Commits
+
+### 代码审查清单
+- [ ] 是否有安全风险？
+- [ ] 是否有性能问题？
+- [ ] 是否有重复代码？
+- [ ] 是否有测试覆盖？
+- [ ] 是否有文档更新？
+
+### CI/CD 建议
+```yaml
+# 建议添加的 CI 流程
+1. 代码风格检查
+2. 单元测试
+3. 集成测试
+4. 安全扫描 (SAST)
+5. 依赖漏洞扫描
+6. 构建和部署
+```
+
+---
+
+*本文档应定期更新，修复完成后及时标注。*
