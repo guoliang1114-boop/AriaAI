@@ -1,4 +1,4 @@
-# Claude Function Calling (Tool Use) 架构
+﻿# Claude Function Calling (Tool Use) 架构
 
 本文档介绍 ConsultantAI 的 Claude Function Calling 实现，支持通过对话自动生成 PPT、Word、Excel、PDF 等文件。
 

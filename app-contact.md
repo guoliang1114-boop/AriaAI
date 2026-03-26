@@ -1,4 +1,4 @@
-# AriaAI 技能清单 (Skills Catalog)
+﻿# AriaAI 技能清单 (Skills Catalog)
 
 > **版本**: v1.0  
 > **更新日期**: 2026-03-26  

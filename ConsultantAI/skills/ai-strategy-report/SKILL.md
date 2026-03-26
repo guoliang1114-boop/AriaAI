@@ -1,4 +1,4 @@
----
+﻿---
 name: ai-strategy-report
 argument-hint: "[company name] [industry] [focus area] e.g. ABC Manufacturing, Auto Parts, Cost Reduction"
 description: "Generate comprehensive AI strategy reports (15+ slides) in PowerPoint format. Analyzes company's digital readiness, identifies high-value AI use cases, creates implementation roadmaps, and provides ROI projections. Designed for consulting firm quality deliverables."

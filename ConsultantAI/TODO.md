@@ -1,4 +1,4 @@
-# ConsultantAI 工作台 — 功能清单 & 开发状态
+﻿# ConsultantAI 工作台 — 功能清单 & 开发状态
 
 > 更新于 2026-03-21
 > 架构：SwiftUI (macOS 13+) + Python FastAPI + SQLite + Claude API

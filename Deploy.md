@@ -1,4 +1,4 @@
-# Terminal 1 — backend
+﻿# Terminal 1 — backend
 cd /Users/geguo/Desktop/AP/ConsultantAI/backend
 ./start.sh
 

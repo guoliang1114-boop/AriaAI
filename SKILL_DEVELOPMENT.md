@@ -1,4 +1,4 @@
-# ConsultantAI Skill 开发指南
+﻿# ConsultantAI Skill 开发指南
 
 本指南面向希望为 ConsultantAI 平台开发新 Skill 的开发者，涵盖 Skill 设计标准、工具开发规范、提交流程和最佳实践。
 
