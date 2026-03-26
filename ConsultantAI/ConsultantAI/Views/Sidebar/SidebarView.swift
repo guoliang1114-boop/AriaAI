@@ -7,6 +7,7 @@ struct SidebarView: View {
     @Environment(\.appLanguage) var lang
     @State private var hoveredScreen: AppScreen? = nil
     @State private var showHelp = false
+    @State private var showStatus = false
 
     // Project-context state
     @State private var milestones: [APIMilestone] = []
@@ -133,18 +134,23 @@ struct SidebarView: View {
             Divider().opacity(0.4).padding(.vertical, Spacing.sm)
 
             VStack(alignment: .leading, spacing: 2) {
+                sidebarFooterItem(icon: "dot.radiowaves.left.and.right", label: lang.t("连接状态", "Connection Status")) { showStatus = true }
+                    .popover(isPresented: $showStatus, arrowEdge: .trailing) { StatusPopoverContent() }
                 sidebarFooterItem(icon: "questionmark.circle", label: lang.t("帮助中心", "Help Center")) { showHelp = true }
                     .popover(isPresented: $showHelp, arrowEdge: .trailing) { helpPopover }
-                sidebarFooterItem(icon: "rectangle.portrait.and.arrow.right", label: lang.t("退出登录", "Sign Out")) {
-                    Task {
-                        await dataStore.logout()
-                        appState.isAuthenticated = false
-                    }
-                }
             }
             .padding(.horizontal, Spacing.sm)
 
-            navItem(.settings).padding(.horizontal, Spacing.sm).padding(.bottom, Spacing.lg)
+            navItem(.settings).padding(.horizontal, Spacing.sm)
+
+            sidebarFooterItem(icon: "rectangle.portrait.and.arrow.right", label: lang.t("退出登录", "Sign Out")) {
+                Task {
+                    await dataStore.logout()
+                    appState.isAuthenticated = false
+                }
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.bottom, Spacing.lg)
         }
     }
 

@@ -22,6 +22,7 @@ let package = Package(
                 "Views/Auth/LoginView.swift",
                 "Views/Sidebar/SidebarView.swift",
                 "Views/Sidebar/TopBarView.swift",
+                "Views/Sidebar/GlobalStatusBar.swift",
                 "Views/Projects/ProjectsView.swift",
                 "Views/Chat/ChatView.swift",
                 "Views/Chat/ChatTextField.swift",

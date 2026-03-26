@@ -74,25 +74,42 @@ struct AIConfigView: View {
     // MARK: - Load Settings
     @MainActor
     private func loadSettings() async {
-        llmProvider = await dataStore.loadLLMProvider()
-        
-        // Load Claude settings
-        claudeModel = await dataStore.loadSelectedModel()
-        if claudeModel.isEmpty || !claudeModels.contains(where: { $0.0 == claudeModel }) {
-            claudeModel = "claude-sonnet-4"
-        }
-        claudeProxyURL = await dataStore.loadClaudeProxyURL()
-        claudeHttpMode = await dataStore.loadClaudeHttpMode()
-        
-        // Load Kimi settings
-        let selectedModel = await dataStore.loadSelectedModel()
-        kimiModel = selectedModel
-        if kimiModel.isEmpty || !kimiModels.contains(where: { $0.0 == kimiModel }) {
-            kimiModel = "moonshot-v1-32k"
-        }
-        let kimiStatus = await dataStore.kimiApiKeyStatus()
-        kimiKeyConfigured = kimiStatus.configured
-        kimiKeyMasked = kimiStatus.masked
+        // Step 1: 从缓存立即渲染（0 延迟）
+        let cached = dataStore.readCachedAISettings()
+        applySettings(
+            provider: cached.provider,
+            model:    cached.model,
+            proxy:    cached.proxyURL,
+            mode:     cached.httpMode,
+            kimiConfigured: cached.kimiConfigured,
+            kimiMasked:     cached.kimiMasked
+        )
+
+        // Step 2: 后台并行刷新（1 次 GET /settings/ + 1 次 kimi-status）
+        async let fresh     = dataStore.refreshAISettingsFromAPI()
+        async let kimiStatus = dataStore.kimiApiKeyStatus()
+        let (f, kimi) = await (fresh, kimiStatus)
+
+        applySettings(
+            provider: f.provider,
+            model:    f.model,
+            proxy:    f.proxyURL,
+            mode:     f.httpMode,
+            kimiConfigured: kimi.configured,
+            kimiMasked:     kimi.masked
+        )
+    }
+
+    @MainActor
+    private func applySettings(provider: String, model: String, proxy: String, mode: String,
+                                kimiConfigured: Bool, kimiMasked: String) {
+        llmProvider       = provider
+        claudeProxyURL    = proxy
+        claudeHttpMode    = mode
+        kimiKeyConfigured = kimiConfigured
+        kimiKeyMasked     = kimiMasked
+        claudeModel = claudeModels.contains(where: { $0.0 == model }) ? model : "claude-sonnet-4"
+        kimiModel   = kimiModels.contains(where:   { $0.0 == model }) ? model : "moonshot-v1-32k"
     }
     
     // MARK: - Provider Card

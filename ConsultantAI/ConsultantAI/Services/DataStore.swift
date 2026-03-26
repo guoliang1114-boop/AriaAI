@@ -577,17 +577,56 @@ final class DataStore: ObservableObject {
         UserDefaults.standard.set(url, forKey: "apiBaseURL")
     }
 
-    func loadClaudeProxyURL() async -> String {
-        struct SettingResponse: Decodable { let key: String; let value: String }
+    // MARK: - AI Settings cache keys
+    private enum AISettingsCache {
+        static let llmProvider   = "cache_llm_provider"
+        static let selectedModel = "cache_selected_model"
+        static let proxyURL      = "cache_api_base_url"
+        static let httpMode      = "cache_claude_http_mode"
+        static let kimiConfigured = "cache_kimi_configured"
+        static let kimiMasked    = "cache_kimi_masked"
+    }
+
+    /// Read all AI settings from local cache — returns instantly, no network.
+    func readCachedAISettings() -> (provider: String, model: String, proxyURL: String, httpMode: String, kimiConfigured: Bool, kimiMasked: String) {
+        let ud = UserDefaults.standard
+        return (
+            provider:       ud.string(forKey: AISettingsCache.llmProvider)   ?? "claude",
+            model:          ud.string(forKey: AISettingsCache.selectedModel)  ?? "",
+            proxyURL:       ud.string(forKey: AISettingsCache.proxyURL)       ?? "",
+            httpMode:       ud.string(forKey: AISettingsCache.httpMode)       ?? "auto",
+            kimiConfigured: ud.bool(forKey: AISettingsCache.kimiConfigured),
+            kimiMasked:     ud.string(forKey: AISettingsCache.kimiMasked)     ?? ""
+        )
+    }
+
+    /// Fetch all DB-stored settings in ONE request, then return the relevant fields.
+    func refreshAISettingsFromAPI() async -> (provider: String, model: String, proxyURL: String, httpMode: String) {
         do {
-            let s: SettingResponse = try await APIClient.shared.get("/settings/api_base_url")
-            return s.value
+            let all: [String: String] = try await APIClient.shared.get("/settings/")
+            let provider = all["llm_provider"]    ?? "claude"
+            let model    = all["selected_model"]  ?? ""
+            let proxy    = all["api_base_url"]    ?? ""
+            let mode     = all["claude_http_mode"] ?? "auto"
+            let ud = UserDefaults.standard
+            ud.set(provider, forKey: AISettingsCache.llmProvider)
+            ud.set(model,    forKey: AISettingsCache.selectedModel)
+            ud.set(proxy,    forKey: AISettingsCache.proxyURL)
+            ud.set(mode,     forKey: AISettingsCache.httpMode)
+            return (provider, model, proxy, mode)
         } catch {
-            return ""
+            let c = readCachedAISettings()
+            return (c.provider, c.model, c.proxyURL, c.httpMode)
         }
     }
 
+    func loadClaudeProxyURL() async -> String {
+        let all = await refreshAISettingsFromAPI()
+        return all.proxyURL
+    }
+
     func saveClaudeProxyURL(_ url: String) async {
+        UserDefaults.standard.set(url, forKey: AISettingsCache.proxyURL)
         struct Body: Encodable { let value: String }
         do {
             struct SettingOut: Decodable { let key: String; let value: String }
@@ -598,16 +637,12 @@ final class DataStore: ObservableObject {
     }
 
     func loadClaudeHttpMode() async -> String {
-        struct SettingResponse: Decodable { let key: String; let value: String }
-        do {
-            let s: SettingResponse = try await APIClient.shared.get("/settings/claude_http_mode")
-            return s.value
-        } catch {
-            return "auto"  // Default to auto mode
-        }
+        let all = await refreshAISettingsFromAPI()
+        return all.httpMode
     }
 
     func saveClaudeHttpMode(_ mode: String) async {
+        UserDefaults.standard.set(mode, forKey: AISettingsCache.httpMode)
         struct Body: Encodable { let value: String }
         do {
             struct SettingOut: Decodable { let key: String; let value: String }
@@ -623,6 +658,9 @@ final class DataStore: ObservableObject {
         struct StatusResponse: Decodable { let configured: Bool; let masked: String? }
         do {
             let s: StatusResponse = try await APIClient.shared.get("/settings/kimi-api-key-status")
+            let ud = UserDefaults.standard
+            ud.set(s.configured,    forKey: AISettingsCache.kimiConfigured)
+            ud.set(s.masked ?? "", forKey: AISettingsCache.kimiMasked)
             return (s.configured, s.masked ?? "")
         } catch {
             return (false, "")
@@ -641,16 +679,12 @@ final class DataStore: ObservableObject {
     }
 
     func loadLLMProvider() async -> String {
-        struct SettingResponse: Decodable { let key: String; let value: String }
-        do {
-            let s: SettingResponse = try await APIClient.shared.get("/settings/llm_provider")
-            return s.value
-        } catch {
-            return "claude"
-        }
+        let all = await refreshAISettingsFromAPI()
+        return all.provider
     }
 
     func saveLLMProvider(_ provider: String) async {
+        UserDefaults.standard.set(provider, forKey: AISettingsCache.llmProvider)
         struct Body: Encodable { let value: String }
         do {
             struct SettingOut: Decodable { let key: String; let value: String }
@@ -661,16 +695,12 @@ final class DataStore: ObservableObject {
     }
 
     func loadSelectedModel() async -> String {
-        struct SettingResponse: Decodable { let key: String; let value: String }
-        do {
-            let s: SettingResponse = try await APIClient.shared.get("/settings/selected_model")
-            return s.value
-        } catch {
-            return ""
-        }
+        let all = await refreshAISettingsFromAPI()
+        return all.model
     }
 
     func saveSelectedModel(_ model: String) async {
+        UserDefaults.standard.set(model, forKey: AISettingsCache.selectedModel)
         struct Body: Encodable { let value: String }
         do {
             struct SettingOut: Decodable { let key: String; let value: String }

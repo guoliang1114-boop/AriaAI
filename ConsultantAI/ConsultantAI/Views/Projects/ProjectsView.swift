@@ -8,14 +8,6 @@ struct ProjectsView: View {
     // "bd" | "delivery" | "archive"
     @State private var selectedStage: Project.ProjectStatus.Stage = .bd
     @State private var showNewProject = false
-    @State private var apiLatencyMs: Int? = nil
-
-    var syncPercentage: Int {
-        let docs = dataStore.apiDocuments
-        guard !docs.isEmpty else { return 100 }
-        let synced = docs.filter { $0.vectorStatus == "synced" }.count
-        return Int(Double(synced) / Double(docs.count) * 100)
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,36 +40,7 @@ struct ProjectsView: View {
             .transition(.opacity)
             .animation(.easeInOut(duration: 0.15), value: selectedStage)
 
-            // Status bar
-            HStack(spacing: Spacing.xl) {
-                let syncPct = syncPercentage
-                statusChip(
-                    lang.t("全局同步", "GLOBAL SYNC"),
-                    value: syncPct == 100 ? lang.t("已同步", "Synced") : lang.t("同步中 (\(syncPct)%)", "In progress (\(syncPct)%)"),
-                    valueColor: syncPct == 100 ? .statusActive : .primary500
-                )
-                statusChip(
-                    lang.t("API 延迟", "API LATENCY"),
-                    value: apiLatencyMs.map { "\($0)ms" } ?? "–",
-                    valueColor: apiLatencyMs.map { $0 < 500 ? Color.statusActive : Color.statusOnHold } ?? .onSurfaceVariant
-                )
-                Spacer()
-                statusChip(lang.t("模型版本", "MODEL VERSION"),
-                           value: UserDefaults.standard.string(forKey: "selectedModel") ?? "Claude Sonnet 4.6",
-                           valueColor: .onSurfaceVariant)
-            }
-            .padding(.horizontal, Spacing.xxl)
-            .padding(.vertical, Spacing.md)
-            .background(.surfaceContainerLowest)
         }
-        .task { await measureLatency() }
-    }
-
-    private func measureLatency() async {
-        let start = Date()
-        _ = try? await APIClient.shared.get("/projects") as [APIProject]
-        let ms = Int(Date().timeIntervalSince(start) * 1000)
-        apiLatencyMs = ms
     }
 
     @ViewBuilder
@@ -103,16 +66,9 @@ struct ProjectsView: View {
         }
         .buttonStyle(.plain)
     }
-
-    @ViewBuilder private func statusChip(_ label: String, value: String, valueColor: Color) -> some View {
-        HStack(spacing: Spacing.xs) {
-            Text(label).font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant)
-            Text(value).font(TextStyle.labelSM).fontWeight(.semibold).foregroundColor(valueColor)
-        }
-    }
 }
 
-// MARK: - BD Kanban (线索 | 商机 | 中标)
+// MARK: - BD Kanban
 
 struct BDKanbanView: View {
     @EnvironmentObject var appState: AppStateManager

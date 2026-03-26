@@ -111,7 +111,12 @@ struct ProjectSpaceView: View {
         ) { result in
             handleFileImport(result)
         }
-        .task { await loadDetail(); await loadProjectChat(); await loadFinancials() }
+        .task {
+            await loadDetail()
+            async let chat = loadProjectChat()
+            async let fin  = loadFinancials()
+            _ = await (chat, fin)
+        }
     }
 
     // MARK: - Load data

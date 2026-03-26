@@ -44,9 +44,9 @@ struct SettingsView: View {
             sidebar
                 .frame(width: 220)
                 .background(Color.surfaceContainerLow)
-            
+
             Divider()
-            
+
             // Content
             contentView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
