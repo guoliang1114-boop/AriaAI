@@ -12,7 +12,7 @@ struct SettingsView: View {
     @State private var saveError: String? = nil
     @State private var isSavingURL = false
     @State private var urlSaveSuccess = false
-    @State private var selectedModel = UserDefaults.standard.string(forKey: "selectedModel") ?? "Claude Sonnet 4.6 (Fast)"
+    // Model selection - now synced with backend
     @State private var claudeProxyURL = ""
     @State private var backendBaseURL = ""
     @State private var isSavingBackendURL = false
@@ -65,8 +65,21 @@ struct SettingsView: View {
     @State private var isResettingPwd = false
     @State private var resetPwdError: String? = nil
 
-    let models = ["Claude Opus 4.6 (Balanced)", "Claude Sonnet 4.6 (Fast)", "Claude Haiku 4.5 (Efficient)"]
-    let kimiModels = ["moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"]
+    let claudeModels = [
+        ("claude-opus-4", "Claude Opus 4.6 (Balanced - 最强大)"),
+        ("claude-sonnet-4", "Claude Sonnet 4.6 (Fast - 推荐)"),
+        ("claude-haiku-4", "Claude Haiku 4.5 (Efficient - 最快)")
+    ]
+    let kimiModels = [
+        ("moonshot-v1-32k", "Moonshot v1 32K (推荐 - 平衡)"),
+        ("moonshot-v1-128k", "Moonshot v1 128K (长文档)"),
+        ("moonshot-v1-8k", "Moonshot v1 8K (轻量快速)"),
+        ("kimi-k2.5", "Kimi K2.5 (最新模型)")
+    ]
+    
+    @State private var selectedModelId = ""
+    @State private var isSavingModel = false
+    @State private var modelSaveSuccess = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -175,17 +188,40 @@ struct SettingsView: View {
                     }
                 }
 
-                // Model picker
+                // Model picker - dynamic based on provider
                 settingsField(lang.t("默认模型", "DEFAULT MODEL")) {
-                    Picker("", selection: $selectedModel) {
-                        ForEach(models, id: \.self) { Text($0) }
+                    Picker("", selection: $selectedModelId) {
+                        if llmProvider == "kimi" {
+                            ForEach(kimiModels, id: \.0) { id, name in
+                                Text(name).tag(id)
+                            }
+                        } else {
+                            ForEach(claudeModels, id: \.0) { id, name in
+                                Text(name).tag(id)
+                            }
+                        }
                     }
                     .pickerStyle(.menu)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .onChange(of: selectedModel) { _, newValue in
-                        UserDefaults.standard.set(newValue, forKey: "selectedModel")
+                }
+
+                SecondaryButton(
+                    modelSaveSuccess
+                        ? lang.t("已保存 ✓", "Saved ✓")
+                        : (isSavingModel ? lang.t("保存中…", "Saving…") : lang.t("保存模型选择", "Save Model")),
+                    icon: "checkmark.circle"
+                ) {
+                    isSavingModel = true
+                    modelSaveSuccess = false
+                    Task {
+                        await dataStore.saveSelectedModel(selectedModelId)
+                        isSavingModel = false
+                        modelSaveSuccess = true
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        modelSaveSuccess = false
                     }
                 }
+                .disabled(isSavingModel || selectedModelId.isEmpty)
 
                 PrimaryButton(isSavingKey ? lang.t("保存中…", "Saving…") : lang.t("保存 API Key", "Save API Key"), icon: "key") {
                     saveError = nil
@@ -279,6 +315,13 @@ struct SettingsView: View {
                     providerSaveSuccess = false
                     Task {
                         await dataStore.saveLLMProvider(llmProvider)
+                        // Auto-switch default model when provider changes
+                        if llmProvider == "kimi" && !kimiModels.contains(where: { $0.0 == selectedModelId }) {
+                            selectedModelId = "moonshot-v1-32k"
+                        } else if llmProvider == "claude" && !claudeModels.contains(where: { $0.0 == selectedModelId }) {
+                            selectedModelId = "claude-sonnet-4"
+                        }
+                        await dataStore.saveSelectedModel(selectedModelId)
                         isSavingProvider = false
                         providerSaveSuccess = true
                         try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -384,6 +427,11 @@ struct SettingsView: View {
             claudeHttpMode = await dataStore.loadClaudeHttpMode()
             backendBaseURL = UserDefaults.standard.string(forKey: "apiBaseURL") ?? "https://aria.d2cgo.co"
             llmProvider = await dataStore.loadLLMProvider()
+            selectedModelId = await dataStore.loadSelectedModel()
+            // Set default model if none selected
+            if selectedModelId.isEmpty {
+                selectedModelId = llmProvider == "kimi" ? "moonshot-v1-32k" : "claude-sonnet-4"
+            }
             let kimiStatus = await dataStore.kimiApiKeyStatus()
             kimiKeyConfigured = kimiStatus.configured
             kimiKeyMasked = kimiStatus.masked

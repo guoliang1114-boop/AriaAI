@@ -68,6 +68,17 @@ def _get_llm(session: Session):
     return claude
 
 
+def _get_selected_model(session: Session, provider: str) -> str:
+    """Get the selected model for the given provider."""
+    setting = session.get(_Setting, "selected_model")
+    if setting and setting.value:
+        return setting.value
+    # Return default model based on provider
+    if provider == "kimi":
+        return "moonshot-v1-32k"
+    return "claude-sonnet-4"
+
+
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class SendMessageRequest(BaseModel):
@@ -257,6 +268,8 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                                if project_context else "## Attached Files\n" + attachment_block)
 
     llm = _get_llm(session)
+    provider = "kimi" if llm == openai_compat else "claude"
+    selected_model = _get_selected_model(session, provider)
     system = llm.build_system_prompt(skill_prompt, rag_context, project_context)
 
     # Build message history — skip empty assistant messages (from prior failures)
@@ -286,7 +299,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             print(f"[P1] starting stream, tools={[t.get('name') for t in (tools or [])]}", flush=True)
 
             async for chunk in llm.stream_response(
-                api_messages, system=system, tools=tools, max_tokens=max_tokens
+                api_messages, system=system, model=selected_model, tools=tools, max_tokens=max_tokens
             ):
                 stripped = chunk.strip()
                 # 检查是否是提前通知前端工具正在生成的 marker
@@ -395,7 +408,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                 print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
                 # Stream follow-up response (no tools needed)
                 async for chunk in llm.stream_response(
-                    continuation_messages, system=system,
+                    continuation_messages, system=system, model=selected_model,
                     tools=None, max_tokens=max_tokens
                 ):
                     follow_up_text += chunk

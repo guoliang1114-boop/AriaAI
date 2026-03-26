@@ -660,6 +660,26 @@ final class DataStore: ObservableObject {
         }
     }
 
+    func loadSelectedModel() async -> String {
+        struct SettingResponse: Decodable { let key: String; let value: String }
+        do {
+            let s: SettingResponse = try await APIClient.shared.get("/settings/selected_model")
+            return s.value
+        } catch {
+            return ""
+        }
+    }
+
+    func saveSelectedModel(_ model: String) async {
+        struct Body: Encodable { let value: String }
+        do {
+            struct SettingOut: Decodable { let key: String; let value: String }
+            let _: SettingOut = try await APIClient.shared.put("/settings/selected_model", body: Body(value: model))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     // MARK: - Auth / User Management
 
     struct AppUser: Codable, Identifiable, Equatable {

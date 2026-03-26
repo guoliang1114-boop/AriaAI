@@ -43,8 +43,25 @@ def _get_setting(key: str, default: str = "") -> str:
 
 
 def get_kimi_api_key() -> str | None:
+    """Retrieve Kimi API key: Keychain → SQLite → env var."""
+    # 1. Try Keychain first
+    try:
+        import keyring
+        from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI)
+        if key:
+            return key
+    except Exception:
+        pass
+    
+    # 2. Try database
     key = _get_setting(SETTING_KIMI_API_KEY)
-    return key if key else None
+    if key:
+        return key
+    
+    # 3. Try environment variable
+    import os
+    return os.environ.get("MOONSHOT_API_KEY")
 
 
 # =============================================================================
