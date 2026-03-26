@@ -12,13 +12,19 @@ _scheduler = BackgroundScheduler()
 
 
 def start() -> None:
-    if not _scheduler.running:
-        _scheduler.start()
+    try:
+        if not _scheduler.running:
+            _scheduler.start()
+    except Exception:
+        pass  # Serverless env — scheduler not supported
 
 
 def shutdown() -> None:
-    if _scheduler.running:
-        _scheduler.shutdown(wait=False)
+    try:
+        if _scheduler.running:
+            _scheduler.shutdown(wait=False)
+    except Exception:
+        pass
 
 
 def next_run_from_frequency(frequency: str, cron_expr: str = "") -> Optional[datetime]:
