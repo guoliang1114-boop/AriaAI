@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-low": "#f3f3f5",
+                        "primary-container": "#1a56db",
+                        "outline": "#737686",
+                        "secondary-fixed": "#dae4ee",
+                        "secondary": "#566068",
+                        "on-background": "#1a1c1d",
+                        "surface-container-highest": "#e2e2e4",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "primary": "#003fb1",
+                        "on-surface-variant": "#434654",
+                        "tertiary-fixed-dim": "#ffb59a",
+                        "error": "#ba1a1a",
+                        "on-secondary": "#ffffff",
+                        "surface-dim": "#d9dadc",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#dae4ee",
+                        "on-primary-fixed": "#00174d",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#5c666e",
+                        "surface-variant": "#e2e2e4",
+                        "on-primary-container": "#d4dcff",
+                        "on-primary-fixed-variant": "#003dab",
+                        "outline-variant": "#c3c5d7",
+                        "on-secondary-fixed": "#131d24",
+                        "primary-fixed-dim": "#b5c4ff",
+                        "inverse-surface": "#2f3132",
+                        "surface-tint": "#1353d8",
+                        "on-tertiary-container": "#ffd4c5",
+                        "inverse-primary": "#b5c4ff",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "tertiary": "#852b00",
+                        "secondary-fixed-dim": "#bec8d1",
+                        "on-secondary-fixed-variant": "#3e4850",
+                        "background": "#f9f9fb",
+                        "surface": "#f9f9fb",
+                        "on-tertiary-fixed-variant": "#802a00",
+                        "tertiary-container": "#ad3b00",
+                        "on-surface": "#1a1c1d",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-on-surface": "#f0f0f2",
+                        "surface-bright": "#f9f9fb",
+                        "surface-container": "#eeeef0",
+                        "surface-container-high": "#e8e8ea",
+                        "primary-fixed": "#dbe1ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "PingFang SC", "sans-serif"],
+                        "body": ["Inter", "PingFang SC", "sans-serif"],
+                        "label": ["Inter", "PingFang SC", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', 'PingFang SC', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-effect {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased overflow-hidden">
+<!-- SideNavBar (Authority: JSON & Design System) -->
+<aside class="w-[220px] h-full fixed left-0 top-0 bg-slate-100 dark:bg-slate-900 font-sans antialiased text-sm tracking-tight flex flex-col p-4 overflow-y-auto z-50">
+<div class="mb-8 px-2">
+<h1 class="text-lg font-bold text-slate-900 dark:text-slate-100">AI Workbench</h1>
+<p class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">Elite Consulting Edition</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="bg-blue-600 text-white rounded-lg shadow-sm px-3 py-2 flex items-center gap-3 opacity-90 transition-all" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="chat">chat</span>
+<span>Chat</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="extension">extension</span>
+<span>Skills</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="folder_open">folder_open</span>
+<span>Projects</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="database">database</span>
+<span>Knowledge Base</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1 border-t border-slate-200/50 pt-4">
+<button class="w-full mb-4 py-2.5 px-4 bg-gradient-to-br from-primary to-primary-container text-white rounded-xl text-xs font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all">
+                New Workstream
+            </button>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="help">help</span>
+<span>Help</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar (Authority: JSON) -->
+<header class="fixed top-0 right-0 left-[220px] h-14 px-6 flex justify-between items-center bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 z-40">
+<div class="flex items-center gap-6">
+<span class="text-xl font-black text-slate-900 dark:text-slate-50 tracking-tight">AI Workbench</span>
+<nav class="hidden md:flex items-center gap-4">
+<a class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-blue-500 transition-all" href="#">Drafts</a>
+<a class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-blue-500 transition-all" href="#">Shared</a>
+<a class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-blue-500 transition-all" href="#">Archived</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative flex items-center group">
+<span class="material-symbols-outlined absolute left-3 text-slate-400 text-[18px]" data-icon="search">search</span>
+<input class="bg-surface-container-highest border-none rounded-full py-1.5 pl-10 pr-4 text-xs w-48 focus:ring-2 focus:ring-primary/20 focus:w-64 transition-all outline-none" placeholder="Search workbench..." type="text"/>
+</div>
+<div class="flex items-center gap-2 text-slate-500">
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="notifications">notifications</span></button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="settings">settings</span></button>
+</div>
+<img alt="Consultant User Profile" class="w-8 h-8 rounded-full border border-outline-variant bg-surface-container-low" data-alt="Professional consultant headshot avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAggo8xZGKjbDE0moxDhMtEhVHzvpkz3bA2V-3H5PHx1drQswuYJG-jX14bV9HDc4X1X1XU5WIRUuo9fxEtOxX6GR7mLp5StSCQcR-9D7OW8EW8r9pc7pOrK9-Lk9mtxr4l3-d9xYP3rTBF71JWRIkDxv4qT2xo2FYRXXgMdP1u-MMq8goGbCpbrZVJWj7v8cf346zlhpQs3V4boj24nQhorgQY1tpSGfyVnBPCwJA5oBpAKK-5ZA5WmPxtnfp1oiMhNlufoigJeOg"/>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="ml-[220px] pt-14 pb-32 h-screen overflow-y-auto bg-surface">
+<div class="max-w-5xl mx-auto px-8 py-16">
+<!-- Hero Illustration & Slogan -->
+<section class="text-center mb-16">
+<div class="relative w-full h-48 mb-8 flex items-center justify-center">
+<div class="absolute inset-0 opacity-10 blur-3xl bg-gradient-to-tr from-primary to-tertiary"></div>
+<!-- Minimal Architectural Style Illustration -->
+<div class="relative z-10 flex gap-4 items-end">
+<div class="w-12 h-32 bg-primary-container rounded-t-lg opacity-20"></div>
+<div class="w-12 h-40 bg-primary rounded-t-lg shadow-xl"></div>
+<div class="w-12 h-24 bg-primary-container rounded-t-lg opacity-40"></div>
+<div class="w-12 h-36 bg-primary-container rounded-t-lg opacity-60"></div>
+</div>
+</div>
+<h2 class="text-4xl md:text-5xl font-black text-on-surface tracking-tighter mb-4">
+                    不止聊天，搞定一切
+                </h2>
+<div class="flex items-center justify-center gap-4 text-on-surface-variant font-medium text-lg">
+<span>本地运行</span>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<span>自主规划</span>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<span>安全可控</span>
+</div>
+</section>
+<!-- Main Entrance Grid -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+<!-- Quick Tools -->
+<div class="group bg-surface-container-lowest p-6 rounded-2xl shadow-sm border border-transparent hover:border-primary/10 hover:bg-surface-bright transition-all cursor-pointer">
+<div class="w-12 h-12 bg-secondary-container text-on-secondary-container rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[28px]" data-icon="edit_note">edit_note</span>
+</div>
+<h3 class="text-lg font-bold text-on-surface mb-2">📝 快速工具</h3>
+<p class="text-sm text-on-surface-variant mb-4 leading-relaxed">Meeting Minutes, PPT Polish, Email Drafts.</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-surface-container rounded text-[10px] font-bold uppercase tracking-wider text-outline">Utility</span>
+</div>
+</div>
+<!-- Deep Tasks -->
+<div class="group bg-surface-container-lowest p-6 rounded-2xl shadow-sm border border-transparent hover:border-primary/10 hover:bg-surface-bright transition-all cursor-pointer">
+<div class="w-12 h-12 bg-primary-fixed text-on-primary-fixed rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[28px]" data-icon="psychology">psychology</span>
+</div>
+<h3 class="text-lg font-bold text-on-surface mb-2">🤖 深度任务</h3>
+<p class="text-sm text-on-surface-variant mb-4 leading-relaxed">Market Research, Strategy Formulation, Analysis.</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-primary/10 text-primary rounded text-[10px] font-bold uppercase tracking-wider">Deep Task</span>
+</div>
+</div>
+<!-- Project Spaces -->
+<div class="group bg-surface-container-lowest p-6 rounded-2xl shadow-sm border border-transparent hover:border-primary/10 hover:bg-surface-bright transition-all cursor-pointer">
+<div class="w-12 h-12 bg-tertiary-fixed text-on-tertiary-fixed rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[28px]" data-icon="inventory_2">inventory_2</span>
+</div>
+<h3 class="text-lg font-bold text-on-surface mb-2">📁 项目空间</h3>
+<p class="text-sm text-on-surface-variant mb-4 leading-relaxed">Access active workstreams and archived context.</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-surface-container rounded text-[10px] font-bold uppercase tracking-wider text-outline">Workspace</span>
+</div>
+</div>
+</section>
+<!-- Recently Used Skills -->
+<section class="px-2">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-4">Recently Used Skills</h4>
+<div class="flex flex-wrap gap-3">
+<button class="px-4 py-2 bg-surface-container-low hover:bg-surface-container-highest text-sm font-medium text-on-surface-variant rounded-full flex items-center gap-2 transition-all">
+<span class="text-primary">@</span>市场研究
+                    </button>
+<button class="px-4 py-2 bg-surface-container-low hover:bg-surface-container-highest text-sm font-medium text-on-surface-variant rounded-full flex items-center gap-2 transition-all">
+<span class="text-primary">@</span>会议纪要
+                    </button>
+<button class="px-4 py-2 bg-surface-container-low hover:bg-surface-container-highest text-sm font-medium text-on-surface-variant rounded-full flex items-center gap-2 transition-all">
+<span class="text-primary">@</span>pitch
+                    </button>
+<button class="w-8 h-8 rounded-full border border-dashed border-outline-variant flex items-center justify-center text-outline-variant hover:border-primary hover:text-primary transition-all">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+</button>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar / Input Shell (Authority: JSON) -->
+<div class="fixed bottom-6 left-[240px] right-6 z-50">
+<div class="max-w-4xl mx-auto w-full glass-effect bg-white/90 dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl shadow-blue-900/10 dark:shadow-none flex items-center px-4 py-3 gap-4 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
+<button class="text-slate-400 hover:text-blue-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="attachment">attachment</span>
+</button>
+<input class="flex-1 bg-transparent border-none text-sm focus:ring-0 placeholder:text-slate-400 text-on-surface font-sans" placeholder="描述任务，@ 调用技能，# 切换模式，/ 搜索项目上下文" type="text"/>
+<div class="flex items-center gap-2 border-l border-slate-200 dark:border-slate-800 pl-4">
+<button class="p-1 text-slate-400 hover:text-blue-600 transition-all">
+<span class="material-symbols-outlined" data-icon="alternate_email">alternate_email</span>
+</button>
+<button class="p-1 text-slate-400 hover:text-blue-600 transition-all">
+<span class="material-symbols-outlined" data-icon="tag">tag</span>
+</button>
+<button class="ml-2 w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_upward">arrow_upward</span>
+</button>
+</div>
+</div>
+<!-- Tab Indicators beneath Input Shell as defined in JSON -->
+<div class="flex justify-center gap-8 mt-3">
+<div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="extension">extension</span>
+<span>Skills</span>
+</div>
+<div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="layers">layers</span>
+<span>Modes</span>
+</div>
+<div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="search">search</span>
+<span>Search</span>
+</div>
+<div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="description">description</span>
+<span>Context</span>
+</div>
+</div>
+</div>
+</body></html>

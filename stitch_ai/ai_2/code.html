@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#1353d8",
+              "on-background": "#1a1c1d",
+              "surface-container-low": "#f3f3f5",
+              "on-primary-fixed": "#00174d",
+              "inverse-primary": "#b5c4ff",
+              "surface-container-high": "#e8e8ea",
+              "outline-variant": "#c3c5d7",
+              "primary-fixed-dim": "#b5c4ff",
+              "primary-container": "#1a56db",
+              "secondary-fixed-dim": "#bec8d1",
+              "tertiary-fixed-dim": "#ffb59a",
+              "surface-container": "#eeeef0",
+              "error": "#ba1a1a",
+              "on-primary-fixed-variant": "#003dab",
+              "background": "#f9f9fb",
+              "on-secondary-container": "#5c666e",
+              "tertiary": "#852b00",
+              "surface-dim": "#d9dadc",
+              "primary": "#003fb1",
+              "on-tertiary-container": "#ffd4c5",
+              "secondary": "#566068",
+              "on-surface": "#1a1c1d",
+              "surface-container-lowest": "#ffffff",
+              "surface": "#f9f9fb",
+              "secondary-fixed": "#dae4ee",
+              "on-tertiary-fixed": "#380d00",
+              "on-tertiary-fixed-variant": "#802a00",
+              "tertiary-fixed": "#ffdbcf",
+              "surface-container-highest": "#e2e2e4",
+              "secondary-container": "#dae4ee",
+              "on-surface-variant": "#434654",
+              "on-secondary": "#ffffff",
+              "tertiary-container": "#ad3b00",
+              "error-container": "#ffdad6",
+              "primary-fixed": "#dbe1ff",
+              "on-secondary-fixed-variant": "#3e4850",
+              "on-primary": "#ffffff",
+              "inverse-surface": "#2f3132",
+              "on-tertiary": "#ffffff",
+              "on-error-container": "#93000a",
+              "surface-variant": "#e2e2e4",
+              "inverse-on-surface": "#f0f0f2",
+              "outline": "#737686",
+              "on-secondary-fixed": "#131d24",
+              "surface-bright": "#f9f9fb",
+              "on-primary-container": "#d4dcff",
+              "on-error": "#ffffff"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+      }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-fixed">
+<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-slate-100 border-r border-slate-200 z-50">
+<div class="flex flex-col h-full p-4 gap-2">
+<div class="flex flex-col gap-1 mb-6 px-2">
+<span class="text-lg font-bold text-slate-900">Consultant AI</span>
+<span class="text-xs font-medium tracking-tight text-slate-500 uppercase">Elite Workspace</span>
+</div>
+<nav class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 hover:bg-slate-200 transition-colors duration-200 rounded-lg font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="folder_managed">folder_managed</span>
+                    Projects
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 hover:bg-slate-200 transition-colors duration-200 rounded-lg font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="event_upcoming">event_upcoming</span>
+                    Schedules
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined text-white" data-icon="description">description</span>
+                    Templates
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 hover:bg-slate-200 transition-colors duration-200 rounded-lg font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                    Settings
+                </a>
+</nav>
+<div class="mt-auto flex flex-col gap-1 border-t border-slate-200 pt-4">
+<button class="w-full bg-primary text-on-primary py-2.5 rounded-lg font-sans text-sm font-bold flex items-center justify-center gap-2 mb-4 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+                    New Project
+                </button>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 hover:bg-slate-200 transition-colors duration-200 rounded-lg font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                    Help Center
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 hover:bg-slate-200 transition-colors duration-200 rounded-lg font-sans text-sm font-medium tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+                    Sign Out
+                </a>
+</div>
+</div>
+</aside>
+<header class="h-14 w-[calc(100%-16rem)] ml-64 sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200">
+<div class="flex items-center justify-between px-8 h-full">
+<div class="flex items-center gap-8 h-full">
+<div class="flex items-center gap-6 h-full font-sans text-xs font-semibold uppercase tracking-widest">
+<a class="text-slate-500 hover:text-blue-600 transition-opacity opacity-80 hover:opacity-100" href="#">Dashboard</a>
+<a class="text-slate-500 hover:text-blue-600 transition-opacity opacity-80 hover:opacity-100" href="#">Analytics</a>
+<a class="text-slate-500 hover:text-blue-600 transition-opacity opacity-80 hover:opacity-100" href="#">Reports</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]" data-icon="search">search</span>
+<input class="bg-surface-container-highest border-none rounded-md pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-primary/10 w-64 transition-all" placeholder="Search templates..." type="text"/>
+</div>
+<button class="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Consultant profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqlJ5fyDnSYzzyXYceV-XTDVKmWLQi-gZacrDH1cOCFRipum3tFlIQ6gvarvuDh3lZWD8Xpdh9LgsIGko3Gd0z-B8OoqAgzrTsyR5uWVrLianqjKqi52uQu_ZMmzn3KFFRKHKS3ZEC2svGRp32xfUXjUu5akLfhoI7-o5NBGr3Utp49KQ1TLVChHqX_Vp_DxhHUCc76zGhW8NHP-ocilh1whbNMCR-6Tl1fa4IBihp8LNm-3rKOlauJDiMVURVLkuSWkOEGhXwuPM"/>
+</div>
+</div>
+</div>
+</header>
+<main class="ml-64 p-8 min-h-screen bg-surface">
+<div class="max-w-7xl mx-auto">
+<div class="flex justify-between items-end mb-10">
+<div>
+<h1 class="text-3xl font-extrabold tracking-tight text-on-surface mb-2">Template Library</h1>
+<p class="text-on-surface-variant font-medium">Manage and deploy professional PPTX and DOCX document frameworks.</p>
+</div>
+<div class="flex gap-3">
+<button class="px-5 py-2.5 bg-surface-container-lowest border border-outline-variant text-on-surface-variant rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-surface-bright transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="filter_list">filter_list</span>
+                        Filter
+                    </button>
+<button class="px-5 py-2.5 bg-primary text-on-primary rounded-lg font-bold text-sm flex items-center gap-2 hover:opacity-95 transition-opacity shadow-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="upload_file">upload_file</span>
+                        Upload Template
+                    </button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 border border-transparent hover:border-primary/10">
+<div class="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Blue professional board deck template preview" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzM7CYNcRm4BB2DcwW4SKs9RK5sBm2wWjo6dgrkMSTYDVLBs2oi5UVmljz2l7917YOmbAifp53O2sr5HgLehlfG5LlOjTgwvr7GLnfXKjpdlZ3qtHzxl9s4_8FKTOhiI5cj9kdrrEGE600BsEKRuf2KgAmbHwX3lMR83v7vBzSN-KQWHVS3DAQR9tWBYvOAwWTcwQ20b9_sdCJDyXUk_uuhDXaezQk-s6CkxuAWlNZkDFreg2IOm7vGiv0SdpWJyrqjt_DnDlQr5o"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+<span class="text-white text-xs font-bold uppercase tracking-widest">Preview Style</span>
+</div>
+</div>
+<div class="p-5">
+<div class="flex justify-between items-start mb-3">
+<h3 class="font-bold text-lg text-on-surface leading-tight">Elite Board Deck 2024</h3>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors" data-icon="ppt">present_to_all</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="px-2 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold uppercase tracking-wider rounded">Board Deck</span>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wider rounded">Strategic</span>
+</div>
+<div class="flex items-center justify-between gap-4">
+<button class="flex-1 py-2 text-xs font-bold bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-dim transition-colors">Details</button>
+<button class="flex-[2] py-2 text-xs font-bold bg-primary text-on-primary rounded hover:opacity-90 transition-opacity">Assign to Project</button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 border border-transparent hover:border-primary/10">
+<div class="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Clean corporate market research document preview" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwkOlxa3eroeennKPly49DwqsI-y9V8KuaMw5nYU15Hwi8JSGLC-05fo_BaAQeM5jor8zQVBQGS3TNZj264GMnS0SYgVmHHI52B_2bnpL42zAf3ConlHW0Ng6Na07U3iIl14r8IQyUQtf3CA78J7fEshpPPG90LI4ZF8OxNYkshGtz4qXXe4Gf_qjxyfuvh9ot51sAWtlCyMyH16dKx_ENdvOAsB6uqcbgcMxoEZmfqcsJWqXbVLfyAM0pYOFk0YvuYfCI47c352M"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+<span class="text-white text-xs font-bold uppercase tracking-widest">Preview Style</span>
+</div>
+</div>
+<div class="p-5">
+<div class="flex justify-between items-start mb-3">
+<h3 class="font-bold text-lg text-on-surface leading-tight">Global Market Insights</h3>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors" data-icon="docx">description</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="px-2 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold uppercase tracking-wider rounded">Market Research</span>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wider rounded">Analytical</span>
+</div>
+<div class="flex items-center justify-between gap-4">
+<button class="flex-1 py-2 text-xs font-bold bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-dim transition-colors">Details</button>
+<button class="flex-[2] py-2 text-xs font-bold bg-primary text-on-primary rounded hover:opacity-90 transition-opacity">Assign to Project</button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 border border-transparent hover:border-primary/10">
+<div class="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Client specific brand identity presentation" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWJ1tSyWcmYKl9U9l6U4jIcSC48cIBXBSK5Aen7WdC15W5wNhCFHVWTpRYc51NuWF4_zfSgsw0_ltuVTLXmBeU__56kjtSelbz-Htl5P5pZ-EjIMZG1SsDt-G64tBXW1OSatoTlBjzy5O3VU01JnE6mOhfuIoHDbDsndf2A-CmfYWDSgNUMrdJOQSFLhRNAysdZLRiU7h9Ros_3_LuDTFYSEg_RzCeqBM10zMiuCoKUOokBnfSrs68Y5z_5B-1A_3qQVj8Abyco8k"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+<span class="text-white text-xs font-bold uppercase tracking-widest">Preview Style</span>
+</div>
+</div>
+<div class="p-5">
+<div class="flex justify-between items-start mb-3">
+<h3 class="font-bold text-lg text-on-surface leading-tight">Fortune 500 Styleguide</h3>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors" data-icon="brand">style</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="px-2 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold uppercase tracking-wider rounded">Client A Style</span>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wider rounded">Branding</span>
+</div>
+<div class="flex items-center justify-between gap-4">
+<button class="flex-1 py-2 text-xs font-bold bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-dim transition-colors">Details</button>
+<button class="flex-[2] py-2 text-xs font-bold bg-primary text-on-primary rounded hover:opacity-90 transition-opacity">Assign to Project</button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 border border-transparent hover:border-primary/10">
+<div class="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Pitch deck presentation template preview" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCsMNq6LvfmHb4FjqkIdCaLLrV7DrT2FCOeYmPDC199TeqoYjQUtjKTrB0Jhkh1Vmj2GRl4wKpuio7XPuVxoChOYNDioQ12GW2L-3n2kQ7Hgiw0BfFTOmn8cE8bpyyp9ySr1oJbdKF9GeR5slIjOywVthVkJcRaFZqsqSEwBLXlr3U4qWI9VIU6hU8D1fEZS5dvCURhg0WoQ-KHxtQMy8-3mBb-tLkZ0temLoA0ky-88U_vIOnFL7ybAMAQDWndzzDWwVRhvM3yZzc"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+<span class="text-white text-xs font-bold uppercase tracking-widest">Preview Style</span>
+</div>
+</div>
+<div class="p-5">
+<div class="flex justify-between items-start mb-3">
+<h3 class="font-bold text-lg text-on-surface leading-tight">Investment Pitch Deck</h3>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors" data-icon="ppt">present_to_all</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="px-2 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold uppercase tracking-wider rounded">Finance</span>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wider rounded">High Impact</span>
+</div>
+<div class="flex items-center justify-between gap-4">
+<button class="flex-1 py-2 text-xs font-bold bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-dim transition-colors">Details</button>
+<button class="flex-[2] py-2 text-xs font-bold bg-primary text-on-primary rounded hover:opacity-90 transition-opacity">Assign to Project</button>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden group hover:shadow-lg transition-all duration-300 border border-transparent hover:border-primary/10">
+<div class="aspect-[16/10] bg-slate-100 relative overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="Minimalist financial report document" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAtkq6fukOlyAJBdhHjY_6TKlo7BIebsPD6crQhM1npTd3YADGR8-Ft7gHkDreKIvtVmv6ksqoFUz35-9q6FF8jNxyTLmgHoEbIjJjq0PXopnnb5BHsJJ3k0K1DHSJhVvuTfeJbijuE_no1eLBbR9FBFzuzZwXJHrM3sBuvRoEh1O_HzRjNpeAHBkifNC-k52gaHw_b-6iohj2rtzbLRhsLlHYK95EBwH7eWmNNV5BIq4QH6hNvA2ThOy-GoGZtQNOdZhSvDsivC1Q"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+<span class="text-white text-xs font-bold uppercase tracking-widest">Preview Style</span>
+</div>
+</div>
+<div class="p-5">
+<div class="flex justify-between items-start mb-3">
+<h3 class="font-bold text-lg text-on-surface leading-tight">Executive Summary Frame</h3>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors" data-icon="docx">description</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="px-2 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold uppercase tracking-wider rounded">Executive</span>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wider rounded">Standard</span>
+</div>
+<div class="flex items-center justify-between gap-4">
+<button class="flex-1 py-2 text-xs font-bold bg-surface-container-high text-on-surface-variant rounded hover:bg-surface-dim transition-colors">Details</button>
+<button class="flex-[2] py-2 text-xs font-bold bg-primary text-on-primary rounded hover:opacity-90 transition-opacity">Assign to Project</button>
+</div>
+</div>
+</div>
+<div class="border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center p-8 group hover:border-primary/40 hover:bg-surface-container-low transition-all cursor-pointer">
+<div class="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
+<span class="material-symbols-outlined text-3xl text-slate-400 group-hover:text-primary transition-colors" data-icon="add_circle">add_circle</span>
+</div>
+<h3 class="font-bold text-lg text-slate-600 group-hover:text-primary transition-colors">Add New Template</h3>
+<p class="text-slate-400 text-sm text-center mt-1">Drag and drop PPTX or DOCX files here to expand your library.</p>
+</div>
+</div>
+<section class="mt-16">
+<h2 class="text-xl font-bold tracking-tight text-on-surface mb-6">Recent Activity</h2>
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm border border-outline-variant/10">
+<div class="grid grid-cols-4 px-6 py-4 bg-surface-container-low font-sans text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+<div>Template Name</div>
+<div>Last Modified</div>
+<div>Assigned Projects</div>
+<div>Status</div>
+</div>
+<div class="divide-y divide-surface-container">
+<div class="grid grid-cols-4 px-6 py-4 items-center bg-surface-container-lowest hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-blue-600" data-icon="article">article</span>
+<span class="text-sm font-semibold text-on-surface">Client A Strategy Master</span>
+</div>
+<div class="text-sm text-on-surface-variant">2h ago by Sarah J.</div>
+<div class="text-sm text-on-surface-variant">Project Aurora, Project Helios</div>
+<div>
+<span class="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold uppercase rounded">Active</span>
+</div>
+</div>
+<div class="grid grid-cols-4 px-6 py-4 items-center bg-surface-container-low hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-orange-600" data-icon="slideshow">slideshow</span>
+<span class="text-sm font-semibold text-on-surface">Annual Report Visuals</span>
+</div>
+<div class="text-sm text-on-surface-variant">Yesterday by Mike R.</div>
+<div class="text-sm text-on-surface-variant">FY24 Governance</div>
+<div>
+<span class="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase rounded">Archived</span>
+</div>
+</div>
+<div class="grid grid-cols-4 px-6 py-4 items-center bg-surface-container-lowest hover:bg-surface-bright transition-colors">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-blue-600" data-icon="article">article</span>
+<span class="text-sm font-semibold text-on-surface">Internal Research Draft</span>
+</div>
+<div class="text-sm text-on-surface-variant">3 days ago by AI Assistant</div>
+<div class="text-sm text-on-surface-variant">None</div>
+<div>
+<span class="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold uppercase rounded">Draft</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

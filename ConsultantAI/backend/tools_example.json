@@ -1,0 +1,162 @@
+{
+  "description": "示例：带有文件生成工具的 Consultant 报告技能",
+  "skill": {
+    "name": "咨询报告生成器",
+    "category": "提案与项目交付",
+    "description": "生成完整的咨询报告，包括 PPT 演示文稿、Word 文档和 Excel 数据表",
+    "system_prompt": "你是一位资深咨询顾问。使用可用工具生成专业的客户交付物。根据用户需求选择适当的文件格式。",
+    "tools_definition_json": [
+      {
+        "name": "generate_ppt",
+        "description": "生成 PowerPoint (.pptx) 演示文稿，支持标题页、内容页和双栏布局",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "演示文稿标题"
+            },
+            "subtitle": {
+              "type": "string",
+              "description": "副标题（可选）"
+            },
+            "slides": {
+              "type": "array",
+              "description": "幻灯片数组",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["title", "content", "two_column", "image"],
+                    "description": "幻灯片布局类型"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "幻灯片标题"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "主要内容（支持 - 或 * 开头的列表项）"
+                  },
+                  "left_content": {
+                    "type": "string",
+                    "description": "左栏内容（两栏布局时）"
+                  },
+                  "right_content": {
+                    "type": "string",
+                    "description": "右栏内容（两栏布局时）"
+                  }
+                },
+                "required": ["type", "title"]
+              }
+            }
+          },
+          "required": ["title", "slides"]
+        }
+      },
+      {
+        "name": "generate_docx",
+        "description": "生成 Word (.docx) 文档，支持多章节和格式化内容",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "文档标题"
+            },
+            "sections": {
+              "type": "array",
+              "description": "文档章节",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "description": "章节标题"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "章节内容（支持 Markdown 风格）"
+                  },
+                  "level": {
+                    "type": "integer",
+                    "enum": [1, 2, 3],
+                    "description": "标题级别"
+                  }
+                },
+                "required": ["heading", "content"]
+              }
+            }
+          },
+          "required": ["title", "sections"]
+        }
+      },
+      {
+        "name": "generate_xlsx",
+        "description": "生成 Excel (.xlsx) 电子表格，支持多工作表",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "sheets": {
+              "type": "array",
+              "description": "工作表数组",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "工作表名称"
+                  },
+                  "headers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "列标题"
+                  },
+                  "data": {
+                    "type": "array",
+                    "description": "行数据数组",
+                    "items": {
+                      "type": "array",
+                      "items": {"type": ["string", "number", "boolean"]}
+                    }
+                  }
+                },
+                "required": ["name", "headers", "data"]
+              }
+            }
+          },
+          "required": ["sheets"]
+        }
+      },
+      {
+        "name": "save_json",
+        "description": "将结构化数据保存为 JSON 文件",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "filename": {
+              "type": "string",
+              "description": "文件名（不含扩展名）"
+            },
+            "data": {
+              "type": "object",
+              "description": "要保存的 JSON 数据"
+            }
+          },
+          "required": ["filename", "data"]
+        }
+      }
+    ]
+  },
+  "usage_example": {
+    "user_message": "帮我生成一个关于数字化转型的咨询报告，包括PPT演示文稿、详细分析文档和数据表",
+    "expected_flow": [
+      "Claude 分析用户需求",
+      "Claude 调用 generate_ppt 创建演示文稿",
+      "Claude 调用 generate_docx 创建分析文档",
+      "Claude 调用 generate_xlsx 创建数据表",
+      "返回所有文件的下载链接"
+    ]
+  }
+}

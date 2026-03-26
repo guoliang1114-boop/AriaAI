@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); if echo \"$f\" | grep -qE '\\.swift$'; then cd /Users/geguo/Desktop/AP/ConsultantAI && swift build > /tmp/.consultantai_build_out 2>&1; code=$?; if [ $code -ne 0 ]; then count=$(grep -c ' error:' /tmp/.consultantai_build_out 2>/dev/null || echo 0); cp /tmp/.consultantai_build_out /tmp/.consultantai_build_error; echo \"{\\\"systemMessage\\\": \\\"❌ 编译失败 ($count 个错误)，请检查代码\\\"}\"; else rm -f /tmp/.consultantai_build_error; echo \"{\\\"systemMessage\\\": \\\"✅ 编译通过\\\"}\"; fi; fi",
+            "timeout": 120,
+            "statusMessage": "🔨 验证编译…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f /tmp/.consultantai_build_error ]; then count=$(grep -c ' error:' /tmp/.consultantai_build_error 2>/dev/null || echo 0); echo \"{\\\"systemMessage\\\": \\\"⚠️ 仍有 $count 个编译错误未修复\\\"}\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

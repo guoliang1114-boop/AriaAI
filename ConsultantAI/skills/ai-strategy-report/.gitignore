@@ -1,0 +1,22 @@
+# Generated outputs
+writing_outputs/
+*.pptx
+*.json
+*.pdf
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/

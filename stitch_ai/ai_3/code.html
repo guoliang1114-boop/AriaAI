@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-low": "#f3f3f5",
+              "primary-container": "#1a56db",
+              "outline": "#737686",
+              "secondary-fixed": "#dae4ee",
+              "secondary": "#566068",
+              "on-background": "#1a1c1d",
+              "surface-container-highest": "#e2e2e4",
+              "on-tertiary": "#ffffff",
+              "tertiary-fixed": "#ffdbcf",
+              "on-tertiary-fixed": "#380d00",
+              "primary": "#003fb1",
+              "on-surface-variant": "#434654",
+              "tertiary-fixed-dim": "#ffb59a",
+              "error": "#ba1a1a",
+              "on-secondary": "#ffffff",
+              "surface-dim": "#d9dadc",
+              "error-container": "#ffdad6",
+              "secondary-container": "#dae4ee",
+              "on-primary-fixed": "#00174d",
+              "on-error-container": "#93000a",
+              "on-secondary-container": "#5c666e",
+              "surface-variant": "#e2e2e4",
+              "on-primary-container": "#d4dcff",
+              "on-primary-fixed-variant": "#003dab",
+              "outline-variant": "#c3c5d7",
+              "on-secondary-fixed": "#131d24",
+              "primary-fixed-dim": "#b5c4ff",
+              "inverse-surface": "#2f3132",
+              "surface-tint": "#1353d8",
+              "on-tertiary-container": "#ffd4c5",
+              "inverse-primary": "#b5c4ff",
+              "on-primary": "#ffffff",
+              "on-error": "#ffffff",
+              "tertiary": "#852b00",
+              "secondary-fixed-dim": "#bec8d1",
+              "on-secondary-fixed-variant": "#3e4850",
+              "background": "#f9f9fb",
+              "surface": "#f9f9fb",
+              "on-tertiary-fixed-variant": "#802a00",
+              "tertiary-container": "#ad3b00",
+              "on-surface": "#1a1c1d",
+              "surface-container-lowest": "#ffffff",
+              "inverse-on-surface": "#f0f0f2",
+              "surface-bright": "#f9f9fb",
+              "surface-container": "#eeeef0",
+              "surface-container-high": "#e8e8ea",
+              "primary-fixed": "#dbe1ff"
+            },
+            fontFamily: {
+              "headline": ["Inter", "PingFang SC", "sans-serif"],
+              "body": ["Inter", "PingFang SC", "sans-serif"],
+              "label": ["Inter", "PingFang SC", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', 'PingFang SC', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- SideNavBar (from JSON: SideNavBar) -->
+<aside class="w-[220px] h-full fixed left-0 top-0 bg-slate-100 dark:bg-slate-900 flex flex-col p-4 overflow-y-auto z-50">
+<div class="mb-8">
+<h1 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1">AI Workbench</h1>
+<p class="text-xs text-slate-500 font-medium">Elite Consulting Edition</p>
+</div>
+<button class="mb-6 w-full py-2.5 bg-primary text-on-primary rounded-lg font-semibold text-sm shadow-sm hover:opacity-90 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-lg" data-icon="add">add</span>
+            New Workstream
+        </button>
+<nav class="space-y-1 flex-1">
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+                Chat
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+                Skills
+            </a>
+<a class="bg-blue-600 text-white rounded-lg shadow-sm px-3 py-2 flex items-center gap-3 opacity-90 transition-all text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+                Projects
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+                Knowledge Base
+            </a>
+</nav>
+<div class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                Settings
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors text-sm font-sans antialiased tracking-tight" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                Help
+            </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-[220px] min-h-screen flex flex-col">
+<!-- TopNavBar (from JSON: TopNavBar) -->
+<header class="fixed top-0 right-0 left-[220px] z-40 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex justify-between items-center h-14 px-6 w-full shadow-sm dark:shadow-none">
+<div class="flex items-center gap-8">
+<span class="text-xl font-black text-slate-900 dark:text-slate-50">AI Workbench</span>
+<nav class="flex gap-6">
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 font-sans text-xs font-semibold uppercase tracking-widest" href="#">Drafts</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 font-sans text-xs font-semibold uppercase tracking-widest" href="#">Shared</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 font-sans text-xs font-semibold uppercase tracking-widest" href="#">Archived</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<span class="absolute inset-y-0 left-3 flex items-center text-slate-400">
+<span class="material-symbols-outlined text-sm" data-icon="search">search</span>
+</span>
+<input class="pl-9 pr-4 py-1.5 bg-surface-container-highest border-none rounded-md text-xs w-64 focus:ring-2 focus:ring-primary/20 transition-all" placeholder="Global Search..." type="text"/>
+</div>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-full"><span class="material-symbols-outlined text-xl" data-icon="notifications">notifications</span></button>
+<button class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-full"><span class="material-symbols-outlined text-xl" data-icon="settings">settings</span></button>
+</div>
+<img alt="User Profile Avatar" class="w-8 h-8 rounded-full bg-slate-200" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDou8qw8_EcjFyFBeRg--cWkj2LZLgMD2ye2sqXtsNlX-m16xYdQ1utkGQhRmkJd8o3TlfucyNQBJcCDvrncLjrkoOF2roTX_ljHe48ybEa4KQX0-bBEgi2QMTdv0_j-kVOqMG8dHFCtTqaV8oHuhthpu9L6a-SMAO1DsohUEYwbxfwYyvy8rpsjGtThKHUaPIcHn83wxor4xiK9CPxtO3xN5vas47plA6yDT87d__RTnWJQQg0BPIsUt1XpvnP62A2fl6-Z2yKp64"/>
+</div>
+</header>
+<!-- Workbench Canvas -->
+<div class="mt-14 p-8 flex flex-col gap-8 max-w-7xl mx-auto w-full flex-1 mb-24">
+<!-- Project Header -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3">
+<span class="px-2 py-0.5 bg-primary text-white text-[10px] font-bold tracking-tighter rounded uppercase">Active Workstream</span>
+<span class="text-outline-variant text-sm">/ Project Catalog / Tech Sector</span>
+</div>
+<h2 class="text-3xl font-extrabold tracking-tight text-on-surface leading-tight">项目 A: 某科技公司 5 年战略规划</h2>
+</div>
+<!-- Bento Layout Content -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Left Sidebar: Project Profile & Context -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<!-- Project Profile Card -->
+<section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm ring-1 ring-outline-variant/15">
+<h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-5 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="info">info</span>
+                            Project Profile
+                        </h3>
+<dl class="space-y-4">
+<div class="flex justify-between items-center py-2 border-b border-surface-container">
+<dt class="text-xs text-on-surface-variant font-medium">Client</dt>
+<dd class="text-sm font-semibold text-on-surface">Tech Corp Ltd.</dd>
+</div>
+<div class="flex justify-between items-center py-2 border-b border-surface-container">
+<dt class="text-xs text-on-surface-variant font-medium">Type</dt>
+<dd class="text-sm font-semibold text-on-surface">Strategic Planning</dd>
+</div>
+<div class="flex justify-between items-center py-2 border-b border-surface-container">
+<dt class="text-xs text-on-surface-variant font-medium">Period</dt>
+<dd class="text-sm font-semibold text-on-surface">2024 - 2029</dd>
+</div>
+<div class="flex justify-between items-center py-2">
+<dt class="text-xs text-on-surface-variant font-medium">Status</dt>
+<dd class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="text-sm font-semibold text-on-surface">In Progress</span>
+</dd>
+</div>
+</dl>
+</section>
+<!-- AI Context Summary -->
+<section class="bg-primary/5 rounded-xl p-6 border border-primary/10">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-xs font-bold text-primary uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="auto_awesome">auto_awesome</span>
+                                Context Summary
+                            </h3>
+<span class="text-[10px] text-primary/60 font-medium">Updated 2m ago</span>
+</div>
+<ul class="space-y-4">
+<li class="flex gap-3">
+<span class="text-primary text-xs mt-1">•</span>
+<p class="text-sm leading-relaxed text-on-surface-variant">Focus on <span class="font-bold text-on-surface">semiconductor supply chain</span> resilience and AI integration over next 36 months.</p>
+</li>
+<li class="flex gap-3">
+<span class="text-primary text-xs mt-1">•</span>
+<p class="text-sm leading-relaxed text-on-surface-variant">Client prioritizes <span class="font-bold text-on-surface">APAC market expansion</span> with a target revenue growth of 15% YoY.</p>
+</li>
+<li class="flex gap-3">
+<span class="text-primary text-xs mt-1">•</span>
+<p class="text-sm leading-relaxed text-on-surface-variant">Identified key risks in <span class="font-bold text-on-surface">regulatory compliance</span> for cross-border data transfers.</p>
+</li>
+</ul>
+</section>
+</div>
+<!-- Right Content Area: Files & Tasks -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<!-- File Library -->
+<section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm ring-1 ring-outline-variant/15">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="folder">folder</span>
+                                File Library
+                            </h3>
+<button class="text-xs font-bold text-primary hover:underline">Upload Files</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- File Item -->
+<div class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-10 h-10 bg-red-50 text-red-600 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-on-surface truncate">Q3 Market Analysis.pdf</p>
+<p class="text-[10px] text-on-surface-variant">PDF • 4.2 MB</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" data-icon="more_vert">more_vert</span>
+</div>
+<!-- File Item -->
+<div class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-10 h-10 bg-blue-50 text-blue-600 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined" data-icon="table_chart">table_chart</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-on-surface truncate">Financial Projection v2.xlsx</p>
+<p class="text-[10px] text-on-surface-variant">XLSX • 1.8 MB</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" data-icon="more_vert">more_vert</span>
+</div>
+<!-- File Item -->
+<div class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-10 h-10 bg-orange-50 text-orange-600 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined" data-icon="slideshow">slideshow</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-on-surface truncate">Stakeholder Pitch Deck.pptx</p>
+<p class="text-[10px] text-on-surface-variant">PPTX • 12.4 MB</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" data-icon="more_vert">more_vert</span>
+</div>
+<!-- File Item -->
+<div class="flex items-center gap-4 p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="w-10 h-10 bg-slate-50 text-slate-600 flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined" data-icon="article">article</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-on-surface truncate">Interview Transcripts.docx</p>
+<p class="text-[10px] text-on-surface-variant">DOCX • 850 KB</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" data-icon="more_vert">more_vert</span>
+</div>
+</div>
+</section>
+<!-- Task List & Milestones -->
+<section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm ring-1 ring-outline-variant/15 flex-1">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="checklist">checklist</span>
+                                Milestones &amp; Checklist
+                            </h3>
+<div class="flex items-center gap-2">
+<div class="w-32 h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="w-[65%] h-full bg-emerald-500"></div>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant">65%</span>
+</div>
+</div>
+<div class="space-y-1">
+<!-- Task Row -->
+<div class="flex items-center gap-4 py-3 border-b border-surface-container last:border-0 group">
+<button class="w-5 h-5 border-2 border-primary rounded flex items-center justify-center bg-primary text-white">
+<span class="material-symbols-outlined text-xs" style="font-variation-settings: 'FILL' 1;">check</span>
+</button>
+<div class="flex-1">
+<p class="text-sm font-medium text-on-surface-variant line-through opacity-50">Preliminary Data Gathering &amp; Client Interviews</p>
+<p class="text-[10px] text-on-surface-variant">Completed Oct 12</p>
+</div>
+</div>
+<!-- Task Row -->
+<div class="flex items-center gap-4 py-3 border-b border-surface-container last:border-0 group">
+<button class="w-5 h-5 border-2 border-primary rounded flex items-center justify-center bg-primary text-white">
+<span class="material-symbols-outlined text-xs" style="font-variation-settings: 'FILL' 1;">check</span>
+</button>
+<div class="flex-1">
+<p class="text-sm font-medium text-on-surface-variant line-through opacity-50">SWOT Analysis for Tech Sector APAC</p>
+<p class="text-[10px] text-on-surface-variant">Completed Oct 15</p>
+</div>
+</div>
+<!-- Task Row -->
+<div class="flex items-center gap-4 py-3 border-b border-surface-container last:border-0 group">
+<button class="w-5 h-5 border-2 border-outline-variant rounded flex items-center justify-center hover:border-primary transition-colors"></button>
+<div class="flex-1">
+<p class="text-sm font-bold text-on-surface">Financial Modeling: 5-Year Forecast Scenarios</p>
+<p class="text-[10px] text-primary font-bold">Priority • Due in 2 days</p>
+</div>
+<img alt="Team member avatar" class="w-6 h-6 rounded-full border border-white" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhbr2mXTDy38SqGWkbgTev-2ldGaeu_AnuEZ0399_JgHsvIcAI89kB6rGfToVBGxJgBWfSH6-L-qlHLpmMsYRo6h-Ub0JlFQ6Snf8qs3NSo4kz3fYQywoAboCEZS_NOCWuqon7EYchi_rniAo0quVe3J-KmQIIT8Jqse_Jsbl1x1sbAWCF8HJ1fYFEmEKiI1FCPi5iUCmBk-uC8D0cU_qPJopPwJIyCr0wugKyqhDQw0UrcQok8xFL0WfdIbWVtVaIJmRhu-iRd68"/>
+</div>
+<!-- Task Row -->
+<div class="flex items-center gap-4 py-3 border-b border-surface-container last:border-0 group">
+<button class="w-5 h-5 border-2 border-outline-variant rounded flex items-center justify-center hover:border-primary transition-colors"></button>
+<div class="flex-1">
+<p class="text-sm font-medium text-on-surface">Final Strategy Roadmap Presentation</p>
+<p class="text-[10px] text-on-surface-variant">Scheduled Oct 28</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</div>
+<!-- Bottom Jump back into Chat (Modified BottomNavBar style) -->
+<div class="fixed bottom-6 left-[240px] right-6 z-50">
+<div class="max-w-5xl mx-auto w-full flex items-center px-4 py-3 gap-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl shadow-blue-900/10 dark:shadow-none transition-all focus-within:ring-2 focus-within:ring-blue-500/20">
+<div class="flex-1 flex items-center gap-3 px-3 py-2 bg-surface-container-low rounded-xl text-on-surface-variant italic text-sm">
+<span class="material-symbols-outlined text-primary/50" data-icon="chat_bubble">chat_bubble</span>
+                    Ask AI anything about Project A...
+                </div>
+<button class="flex items-center gap-2 px-6 py-2 bg-primary text-white font-bold text-sm rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="rocket_launch">rocket_launch</span>
+                    Jump back into Chat
+                </button>
+<div class="h-6 w-[1px] bg-slate-200 dark:bg-slate-800 mx-2"></div>
+<div class="flex gap-4">
+<button class="text-slate-400 hover:text-primary transition-colors flex flex-col items-center gap-0.5">
+<span class="material-symbols-outlined text-xl" data-icon="search">search</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Search</span>
+</button>
+<button class="text-slate-400 hover:text-primary transition-colors flex flex-col items-center gap-0.5">
+<span class="material-symbols-outlined text-xl" data-icon="attachment">attachment</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Context</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</body></html>

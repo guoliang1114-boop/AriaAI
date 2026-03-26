@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Login | Consultant AI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#1353d8",
+              "surface": "#f9f9fb",
+              "on-secondary-fixed-variant": "#3e4850",
+              "on-tertiary-fixed": "#380d00",
+              "on-background": "#1a1c1d",
+              "primary-container": "#1a56db",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary-fixed-variant": "#802a00",
+              "error": "#ba1a1a",
+              "primary": "#003fb1",
+              "on-error-container": "#93000a",
+              "secondary-fixed-dim": "#bec8d1",
+              "error-container": "#ffdad6",
+              "on-surface": "#1a1c1d",
+              "on-secondary-fixed": "#131d24",
+              "outline": "#737686",
+              "outline-variant": "#c3c5d7",
+              "surface-container-high": "#e8e8ea",
+              "primary-fixed-dim": "#b5c4ff",
+              "on-error": "#ffffff",
+              "inverse-on-surface": "#f0f0f2",
+              "inverse-primary": "#b5c4ff",
+              "surface-container-highest": "#e2e2e4",
+              "tertiary": "#852b00",
+              "on-primary-fixed-variant": "#003dab",
+              "surface-container": "#eeeef0",
+              "on-tertiary-container": "#ffd4c5",
+              "on-primary-fixed": "#00174d",
+              "surface-bright": "#f9f9fb",
+              "on-secondary": "#ffffff",
+              "on-primary": "#ffffff",
+              "tertiary-fixed": "#ffdbcf",
+              "primary-fixed": "#dbe1ff",
+              "surface-variant": "#e2e2e4",
+              "on-tertiary": "#ffffff",
+              "background": "#f9f9fb",
+              "surface-dim": "#d9dadc",
+              "tertiary-container": "#ad3b00",
+              "surface-container-low": "#f3f3f5",
+              "secondary-fixed": "#dae4ee",
+              "secondary-container": "#dae4ee",
+              "on-primary-container": "#d4dcff",
+              "on-surface-variant": "#434654",
+              "secondary": "#566068",
+              "tertiary-fixed-dim": "#ffb59a",
+              "on-secondary-container": "#5c666e",
+              "inverse-surface": "#2f3132"
+            },
+            fontFamily: {
+              "headline": ["Inter", "sans-serif"],
+              "body": ["Inter", "sans-serif"],
+              "label": ["Inter", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at top left, #f3f3f5 0%, #f9f9fb 100%);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col items-center justify-center p-6 antialiased">
+<!-- Top Navigation (Shell suppressed for Transactional Login context) -->
+<main class="w-full max-w-[440px] flex flex-col items-center gap-12">
+<!-- Brand Identity Section -->
+<header class="flex flex-col items-center text-center space-y-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-4xl" style="font-variation-settings: 'FILL' 1;">analytics</span>
+<h1 class="text-2xl font-extrabold tracking-tight text-on-surface uppercase">Consultant AI</h1>
+</div>
+<div class="inline-flex items-center px-3 py-1 bg-primary-fixed text-on-primary-fixed text-[10px] font-bold tracking-[0.1em] uppercase rounded-full">
+                Elite Consulting Edition
+            </div>
+</header>
+<!-- Login Card -->
+<div class="w-full glass-panel rounded-xl shadow-[0_40px_100px_-20px_rgba(0,63,177,0.08)] border border-outline-variant/15 p-10 flex flex-col gap-8">
+<div class="space-y-2">
+<h2 class="text-xl font-bold tracking-tight">Access Your Workspace</h2>
+<p class="text-on-surface-variant text-sm">Enter your credentials to manage your workstreams.</p>
+</div>
+<!-- Login Form -->
+<form class="space-y-6">
+<div class="space-y-4">
+<!-- Email Field -->
+<div class="space-y-2">
+<label class="block text-[11px] font-bold uppercase tracking-widest text-on-surface-variant" for="email">Professional Email</label>
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm transition-colors group-focus-within:text-primary">mail</span>
+<input class="w-full pl-10 pr-4 py-3 bg-surface-container-highest border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-outline/60" id="email" placeholder="name@firm.com" type="email"/>
+</div>
+</div>
+<!-- Password Field -->
+<div class="space-y-2">
+<div class="flex justify-between items-center">
+<label class="block text-[11px] font-bold uppercase tracking-widest text-on-surface-variant" for="password">Password</label>
+<a class="text-[11px] font-semibold text-primary hover:underline" href="#">Forgot?</a>
+</div>
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm transition-colors group-focus-within:text-primary">lock</span>
+<input class="w-full pl-10 pr-4 py-3 bg-surface-container-highest border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-outline/60" id="password" placeholder="••••••••" type="password"/>
+</div>
+</div>
+</div>
+<!-- Primary Action -->
+<button class="w-full bg-primary-container text-white font-semibold py-3.5 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-primary transition-all active:scale-[0.98]" type="submit">
+<span>Sign In</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+<!-- Divider -->
+<div class="relative flex items-center py-2">
+<div class="flex-grow border-t border-outline-variant/30"></div>
+<span class="flex-shrink mx-4 text-[10px] font-bold text-outline uppercase tracking-widest">or</span>
+<div class="flex-grow border-t border-outline-variant/30"></div>
+</div>
+<!-- Secondary SSO Action -->
+<button class="w-full bg-surface-container-low border border-outline-variant/20 text-on-surface font-semibold py-3.5 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-surface-container-high transition-all active:scale-[0.98]" type="button">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+<span>Sign in with SSO</span>
+</button>
+</form>
+<!-- Security Architecture Info -->
+<div class="flex items-start gap-3 p-4 bg-primary/5 rounded-lg border border-primary/10">
+<span class="material-symbols-outlined text-primary text-lg" style="font-variation-settings: 'FILL' 1;">security</span>
+<p class="text-[11px] leading-relaxed text-on-surface-variant">
+<strong class="text-primary font-bold">Enterprise-grade security.</strong> All data processed locally for maximum privacy. Encryption keys managed via your SSO provider.
+                </p>
+</div>
+</div>
+<!-- App Metadata -->
+<footer class="flex flex-col items-center gap-4">
+<div class="flex items-center gap-6 text-[11px] uppercase tracking-[0.15em] font-bold text-outline">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<a class="hover:text-primary transition-colors" href="#">Security Architecture</a>
+<span class="w-1 h-1 bg-outline-variant rounded-full"></span>
+<a class="hover:text-primary transition-colors" href="#">Contact Support</a>
+</div>
+<p class="text-[10px] text-outline/60 font-medium">© 2024 Consultant AI. Version 4.2.0-Production</p>
+</footer>
+</main>
+<!-- Shared Footer Component Logic (Applied for Shell context) -->
+<footer class="fixed bottom-0 w-full flex flex-col items-center justify-center gap-2 pb-8 w-full">
+<div class="flex flex-row items-center gap-6">
+<a class="text-[11px] uppercase tracking-widest font-medium text-slate-400 hover:text-[#1A56DB] transition-colors opacity-80 hover:opacity-100" href="#">Privacy Policy</a>
+<a class="text-[11px] uppercase tracking-widest font-medium text-slate-400 hover:text-[#1A56DB] transition-colors opacity-80 hover:opacity-100" href="#">Terms of Service</a>
+<a class="text-[11px] uppercase tracking-widest font-medium text-slate-400 hover:text-[#1A56DB] transition-colors opacity-80 hover:opacity-100" href="#">Security Architecture</a>
+</div>
+<p class="text-[11px] uppercase tracking-widest font-medium text-slate-400">© 2024 Consultant AI. Enterprise Grade Security. All data processed locally.</p>
+</footer>
+</body></html>

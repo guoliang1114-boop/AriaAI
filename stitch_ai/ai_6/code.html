@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI Workbench - Elite Consulting Edition</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-low": "#f3f3f5",
+                        "primary-container": "#1a56db",
+                        "outline": "#737686",
+                        "secondary-fixed": "#dae4ee",
+                        "secondary": "#566068",
+                        "on-background": "#1a1c1d",
+                        "surface-container-highest": "#e2e2e4",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-tertiary-fixed": "#380d00",
+                        "primary": "#003fb1",
+                        "on-surface-variant": "#434654",
+                        "tertiary-fixed-dim": "#ffb59a",
+                        "error": "#ba1a1a",
+                        "on-secondary": "#ffffff",
+                        "surface-dim": "#d9dadc",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#dae4ee",
+                        "on-primary-fixed": "#00174d",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#5c666e",
+                        "surface-variant": "#e2e2e4",
+                        "on-primary-container": "#d4dcff",
+                        "on-primary-fixed-variant": "#003dab",
+                        "outline-variant": "#c3c5d7",
+                        "on-secondary-fixed": "#131d24",
+                        "primary-fixed-dim": "#b5c4ff",
+                        "inverse-surface": "#2f3132",
+                        "surface-tint": "#1353d8",
+                        "on-tertiary-container": "#ffd4c5",
+                        "inverse-primary": "#b5c4ff",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "tertiary": "#852b00",
+                        "secondary-fixed-dim": "#bec8d1",
+                        "on-secondary-fixed-variant": "#3e4850",
+                        "background": "#f9f9fb",
+                        "surface": "#f9f9fb",
+                        "on-tertiary-fixed-variant": "#802a00",
+                        "tertiary-container": "#ad3b00",
+                        "on-surface": "#1a1c1d",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-on-surface": "#f0f0f2",
+                        "surface-bright": "#f9f9fb",
+                        "surface-container": "#eeeef0",
+                        "surface-container-high": "#e8e8ea",
+                        "primary-fixed": "#dbe1ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-fixed-dim antialiased">
+<!-- SideNavBar (Authority: JSON & Design System) -->
+<aside class="w-[220px] h-full fixed left-0 top-0 bg-slate-100 dark:bg-slate-900 font-sans antialiased text-sm tracking-tight flex flex-col p-4 overflow-y-auto z-50">
+<div class="mb-8 px-2">
+<h1 class="text-lg font-bold text-slate-900 dark:text-slate-100">AI Workbench</h1>
+<p class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mt-0.5">Elite Consulting Edition</p>
+</div>
+<button class="mb-6 w-full py-2.5 bg-primary text-white font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined text-sm">add</span>
+            New Workstream
+        </button>
+<nav class="flex-1 space-y-1">
+<a class="bg-blue-600 text-white rounded-lg shadow-sm px-3 py-2 flex items-center gap-3 active:opacity-90 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+                Chat
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+                Skills
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+                Projects
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+                Knowledge Base
+            </a>
+</nav>
+<div class="mt-auto pt-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                Settings
+            </a>
+<a class="text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-3 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                Help
+            </a>
+</div>
+</aside>
+<!-- TopNavBar (Authority: JSON) -->
+<header class="fixed top-0 right-0 left-[220px] z-40 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex justify-between items-center h-14 px-6 w-full">
+<div class="flex items-center gap-4">
+<span class="text-slate-400 font-medium text-xs">WORKSTREAM</span>
+<span class="text-slate-900 dark:text-white font-bold text-sm">Semiconductor Sector Deep Dive</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4">
+<a class="text-blue-600 border-b-2 border-blue-600 pb-2 font-sans text-xs font-semibold uppercase tracking-widest" href="#">Drafts</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 font-sans text-xs font-semibold uppercase tracking-widest transition-all" href="#">Shared</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 font-sans text-xs font-semibold uppercase tracking-widest transition-all" href="#">Archived</a>
+</div>
+<div class="flex items-center gap-3 text-slate-400">
+<span class="material-symbols-outlined hover:text-blue-500 cursor-pointer text-xl" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined hover:text-blue-500 cursor-pointer text-xl" data-icon="help">help</span>
+<span class="material-symbols-outlined hover:text-blue-500 cursor-pointer text-xl" data-icon="settings">settings</span>
+<div class="h-8 w-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300">
+<img alt="Consultant User Profile" class="h-full w-full object-cover" data-alt="Close-up portrait of a professional male consultant" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlwLX47uOcve6SEC8VY2MRNKHz0qnILRE-c2cM-CTe24wpoxe6XJtetSROXedsKdSQe0Mc_l3gEja6baOYyYI3gmwh3G0_cnz8fMb23PKx5RWGNd52GclnmbzJBt3DqMbhWpHFrESGgyACPlrm1lzjXTFqhvgRSJiaJ5Wbyxv32rEXiLbUA9gzAymvyjVfDW4xhPrcUDhOUjKtqQRJiiZ0QkwUpbp_Zs14bpYTIysIPt3UBOzxbvF77iIfTkTyrpJBLeGM8yI22m0"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-[220px] mt-14 mb-24 min-h-screen bg-surface p-8 max-w-5xl mx-auto flex flex-col gap-8">
+<!-- User Message -->
+<div class="flex justify-end w-full group">
+<div class="max-w-[80%] flex flex-col gap-2">
+<div class="bg-surface-container-high text-on-surface px-5 py-4 rounded-xl rounded-tr-none shadow-sm text-sm leading-relaxed font-medium">
+                    帮我分析一下最近上传的某半导体行业行研报告，提取关键增长驱动因素。
+                </div>
+<div class="flex items-center justify-end gap-3">
+<!-- File Preview Card -->
+<div class="flex items-center gap-3 bg-surface-container-lowest border border-outline-variant/30 p-2 rounded-lg shadow-sm">
+<div class="w-10 h-10 bg-error-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-error" data-icon="picture_as_pdf">picture_as_pdf</span>
+</div>
+<div class="flex flex-col pr-4">
+<span class="text-xs font-bold text-on-surface">半导体行业报告.pdf</span>
+<span class="text-[10px] text-primary font-bold flex items-center gap-1 uppercase tracking-tighter">
+<span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                Analyzed
+                            </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Response (Claude style) -->
+<div class="flex gap-4 w-full">
+<div class="w-8 h-8 flex-shrink-0 bg-primary-fixed text-primary rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="flex-1 space-y-6 max-w-[85%]">
+<div class="prose prose-slate max-w-none text-on-surface font-body text-md leading-[1.6]">
+<p class="mb-4">根据您提供的<strong>《2024年全球半导体行业趋势与前瞻报告》</strong>，我已完成深度扫描。以下是该行业未来 18-24 个月内最具影响力的四个关键增长驱动因素：</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+<!-- Bento Style Insight Cards -->
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/15 hover:bg-surface-bright transition-all">
+<div class="flex items-center gap-3 mb-3">
+<span class="material-symbols-outlined text-primary" data-icon="memory">memory</span>
+<h4 class="font-bold text-sm text-on-surface">生成式 AI 引发的算力革命</h4>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                大规模语言模型（LLM）的训练与推理需求直接拉动了 <b>High-End GPUs</b> 和 <b>HBM3 内存</b> 的出货量。预计到 2025 年，AI 相关芯片产值将占据行业总量的 35%。
+                            </p>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/15 hover:bg-surface-bright transition-all">
+<div class="flex items-center gap-3 mb-3">
+<span class="material-symbols-outlined text-primary" data-icon="electric_car">electric_car</span>
+<h4 class="font-bold text-sm text-on-surface">汽车电子化与智能座舱</h4>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                随着 L3+ 级自动驾驶的普及，单车半导体价值量（BOM）预计将从当前的 $700 跃升至 <b>$1,500</b> 以上，特别是功率半导体（SiC/GaN）。
+                            </p>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/15 hover:bg-surface-bright transition-all">
+<div class="flex items-center gap-3 mb-3">
+<span class="material-symbols-outlined text-primary" data-icon="factory">factory</span>
+<h4 class="font-bold text-sm text-on-surface">供应链多元化与本土化布局</h4>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                全球政经局势推动半导体制造进入“主权竞争时代”，各国政府的补贴政策（如 <i>Chips Act</i>）正刺激成熟工艺与先进制程的同步扩产。
+                            </p>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/15 hover:bg-surface-bright transition-all">
+<div class="flex items-center gap-3 mb-3">
+<span class="material-symbols-outlined text-primary" data-icon="microchip">location_chip</span>
+<h4 class="font-bold text-sm text-on-surface">Chiplet 工艺与异构集成</h4>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                在摩尔定律放缓的背景下，通过 2.5D/3D 封装实现的 Chiplet 技术成为降低成本并维持性能提升的核心路径，带动封装产业链价值重构。
+                            </p>
+</div>
+</div>
+<p class="text-on-surface-variant italic text-sm">需要我针对其中某个驱动因素（例如：汽车 SiC 供应链）进行更详细的竞对格局分析吗？</p>
+</div>
+<div class="flex items-center gap-4 text-slate-400">
+<button class="hover:text-primary transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-sm">content_copy</span> Copy
+                    </button>
+<button class="hover:text-primary transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-sm">refresh</span> Regenerate
+                    </button>
+<button class="hover:text-primary transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-sm">thumb_up</span>
+</button>
+<button class="hover:text-primary transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-sm">thumb_down</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar / Input Shell (Authority: JSON & Context) -->
+<footer class="fixed bottom-6 left-[240px] right-6 rounded-2xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border border-slate-200 dark:border-slate-800 shadow-2xl shadow-blue-900/10 flex items-center px-4 py-3 gap-4 max-w-5xl mx-auto w-full group focus-within:ring-2 focus-within:ring-blue-500/20 transition-all z-50">
+<div class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="alternate_email">alternate_email</span>
+<span class="text-xs font-bold text-on-surface">Project Delta</span>
+</div>
+<div class="flex-1 relative">
+<input class="w-full bg-transparent border-none focus:ring-0 text-sm py-2 placeholder:text-slate-400 font-body" placeholder="Ask AI anything about this workstream..." type="text"/>
+</div>
+<div class="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-4">
+<button class="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-all" title="Add Skills">
+<span class="material-symbols-outlined" data-icon="tag">tag</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-all" title="Attach Files">
+<span class="material-symbols-outlined" data-icon="attachment">attachment</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-all" title="Search Knowledge Base">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<button class="ml-2 w-10 h-10 bg-primary text-white rounded-xl shadow-lg shadow-blue-600/20 flex items-center justify-center hover:scale-105 transition-transform active:scale-95 duration-100">
+<span class="material-symbols-outlined" data-icon="send" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</footer>
+</body></html>
