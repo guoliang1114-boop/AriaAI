@@ -32,6 +32,12 @@ let package = Package(
                 "Views/Schedules/SchedulesView.swift",
                 "Views/Templates/TemplatesView.swift",
                 "Views/Settings/SettingsView.swift",
+                "Views/Settings/AIConfigView.swift",
+                "Views/Settings/ServerConfigView.swift",
+                "Views/Settings/ProfileView.swift",
+                "Views/Settings/LanguageView.swift",
+                "Views/Settings/UserManagementView.swift",
+                "Views/Settings/AboutView.swift",
                 "Views/Clients/ClientsView.swift"
             ],
             resources: [
