@@ -617,6 +617,49 @@ final class DataStore: ObservableObject {
         }
     }
 
+    // MARK: - Kimi / Provider
+
+    func kimiApiKeyStatus() async -> (configured: Bool, masked: String) {
+        struct StatusResponse: Decodable { let configured: Bool; let masked: String? }
+        do {
+            let s: StatusResponse = try await APIClient.shared.get("/settings/kimi-api-key-status")
+            return (s.configured, s.masked ?? "")
+        } catch {
+            return (false, "")
+        }
+    }
+
+    func saveKimiApiKey(_ key: String) async -> Bool {
+        struct Body: Encodable { let apiKey: String }
+        do {
+            try await APIClient.shared.post("/settings/kimi-api-key", body: Body(apiKey: key))
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    func loadLLMProvider() async -> String {
+        struct SettingResponse: Decodable { let key: String; let value: String }
+        do {
+            let s: SettingResponse = try await APIClient.shared.get("/settings/llm_provider")
+            return s.value
+        } catch {
+            return "claude"
+        }
+    }
+
+    func saveLLMProvider(_ provider: String) async {
+        struct Body: Encodable { let value: String }
+        do {
+            struct SettingOut: Decodable { let key: String; let value: String }
+            let _: SettingOut = try await APIClient.shared.put("/settings/llm_provider", body: Body(value: provider))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     // MARK: - Auth / User Management
 
     struct AppUser: Codable, Identifiable, Equatable {

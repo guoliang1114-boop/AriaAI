@@ -28,6 +28,23 @@ struct SettingsView: View {
         ("http", "HTTP 模式 (无 Stainless Headers)")
     ]
 
+    // LLM Provider
+    @State private var llmProvider = "claude"
+    @State private var isSavingProvider = false
+    @State private var providerSaveSuccess = false
+    let llmProviders = [
+        ("claude", "Claude (Anthropic)"),
+        ("kimi",   "Kimi (Moonshot AI)")
+    ]
+
+    // Kimi
+    @State private var kimiApiKey = ""
+    @State private var showKimiKey = false
+    @State private var isSavingKimiKey = false
+    @State private var kimiKeySaveSuccess = false
+    @State private var kimiKeyConfigured = false
+    @State private var kimiKeyMasked = ""
+
     // Profile fields
     @State private var displayName = UserDefaults.standard.string(forKey: "profileDisplayName") ?? "Active Profile"
     @State private var email = UserDefaults.standard.string(forKey: "profileEmail") ?? ""
@@ -49,6 +66,7 @@ struct SettingsView: View {
     @State private var resetPwdError: String? = nil
 
     let models = ["Claude Opus 4.6 (Balanced)", "Claude Sonnet 4.6 (Fast)", "Claude Haiku 4.5 (Efficient)"]
+    let kimiModels = ["moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -240,6 +258,101 @@ struct SettingsView: View {
 
                 Divider().opacity(0.4)
 
+                // LLM Provider
+                settingsField(lang.t("LLM 底座模型", "LLM PROVIDER")) {
+                    Picker("", selection: $llmProvider) {
+                        ForEach(llmProviders, id: \.0) { id, label in
+                            Text(label).tag(id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                SecondaryButton(
+                    providerSaveSuccess
+                        ? lang.t("已保存 ✓", "Saved ✓")
+                        : (isSavingProvider ? lang.t("保存中…", "Saving…") : lang.t("保存底座选择", "Save Provider")),
+                    icon: "cpu"
+                ) {
+                    isSavingProvider = true
+                    providerSaveSuccess = false
+                    Task {
+                        await dataStore.saveLLMProvider(llmProvider)
+                        isSavingProvider = false
+                        providerSaveSuccess = true
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        providerSaveSuccess = false
+                    }
+                }
+                .disabled(isSavingProvider)
+
+                // Kimi section (only shown when Kimi is selected)
+                if llmProvider == "kimi" {
+                    Divider().opacity(0.4)
+
+                    HStack(spacing: Spacing.sm) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orange.opacity(0.1))
+                                .frame(width: 32, height: 32)
+                            Text("K").font(.system(size: 14, weight: .bold)).foregroundColor(.orange)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(lang.t("Kimi 配置", "Kimi Configuration")).font(TextStyle.titleSM).foregroundColor(.onSurface)
+                            Text(lang.t("Moonshot AI API 密钥", "Moonshot AI API key")).font(TextStyle.bodySM).foregroundColor(.onSurfaceVariant)
+                        }
+                        Spacer()
+                        if kimiKeyConfigured {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.seal.fill").foregroundColor(.statusActive).font(.system(size: 11))
+                                Text(kimiKeyMasked).font(TextStyle.labelSM).foregroundColor(.statusActive)
+                            }
+                        }
+                    }
+
+                    settingsField(lang.t("KIMI API 密钥", "KIMI API KEY")) {
+                        HStack {
+                            if showKimiKey {
+                                TextField("sk-...", text: $kimiApiKey)
+                                    .textFieldStyle(.plain).font(TextStyle.bodyMD)
+                            } else {
+                                SecureField("sk-...", text: $kimiApiKey)
+                                    .textFieldStyle(.plain).font(TextStyle.bodyMD)
+                            }
+                            Button {
+                                showKimiKey.toggle()
+                            } label: {
+                                Image(systemName: showKimiKey ? "eye.slash" : "eye")
+                                    .font(.system(size: 13)).foregroundColor(.onSurfaceVariant)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    PrimaryButton(
+                        kimiKeySaveSuccess ? lang.t("已保存 ✓", "Saved ✓") : (isSavingKimiKey ? lang.t("保存中…", "Saving…") : lang.t("保存 Kimi Key", "Save Kimi Key")),
+                        icon: "key"
+                    ) {
+                        kimiKeySaveSuccess = false
+                        isSavingKimiKey = true
+                        Task {
+                            let ok = await dataStore.saveKimiApiKey(kimiApiKey)
+                            isSavingKimiKey = false
+                            if ok {
+                                kimiKeySaveSuccess = true
+                                kimiKeyConfigured = true
+                                kimiApiKey = ""
+                                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                                kimiKeySaveSuccess = false
+                            }
+                        }
+                    }
+                    .disabled(kimiApiKey.isEmpty || isSavingKimiKey)
+                }
+
+                Divider().opacity(0.4)
+
                 // Backend Server URL
                 settingsField(lang.t("后端服务器地址", "BACKEND SERVER URL")) {
                     TextField("https://aria.d2cgo.co", text: $backendBaseURL)
@@ -270,6 +383,10 @@ struct SettingsView: View {
             claudeProxyURL = await dataStore.loadClaudeProxyURL()
             claudeHttpMode = await dataStore.loadClaudeHttpMode()
             backendBaseURL = UserDefaults.standard.string(forKey: "apiBaseURL") ?? "https://aria.d2cgo.co"
+            llmProvider = await dataStore.loadLLMProvider()
+            let kimiStatus = await dataStore.kimiApiKeyStatus()
+            kimiKeyConfigured = kimiStatus.configured
+            kimiKeyMasked = kimiStatus.masked
         }
     }
 

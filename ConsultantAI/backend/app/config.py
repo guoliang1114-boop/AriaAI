@@ -12,11 +12,15 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # 优先读环境变量 DATABASE_URL，其次用默认 PG 连接
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:4LsPEyLFeaj3ZdAy@localhost/aria"
+    "postgresql://postgres.csczkuuyaehbhpprabao:Qweruiop%40123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 )
 
 KEYCHAIN_SERVICE = "ConsultantAI"
 KEYCHAIN_KEY_CLAUDE = "claude_api_key"
+KEYCHAIN_KEY_KIMI = "kimi_api_key"
+
+# LLM provider: "claude" | "kimi"
+DEFAULT_PROVIDER = "claude"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100

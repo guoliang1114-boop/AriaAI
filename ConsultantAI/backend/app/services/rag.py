@@ -5,19 +5,19 @@ import json
 from typing import List, Optional
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from sqlmodel import Session, select
 
 from app.config import CHUNK_SIZE, CHUNK_OVERLAP, TOP_K_RESULTS, EMBEDDING_MODEL
 from app.models.db import DocumentChunk, KnowledgeDocument
 
-_model: Optional[SentenceTransformer] = None
+_model: Optional[TextEmbedding] = None
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model() -> TextEmbedding:
     global _model
     if _model is None:
-        _model = SentenceTransformer(EMBEDDING_MODEL)
+        _model = TextEmbedding(f"sentence-transformers/{EMBEDDING_MODEL}")
     return _model
 
 
@@ -32,8 +32,7 @@ def chunk_text(text: str) -> List[str]:
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
     model = _get_model()
-    embeddings = model.encode(texts, normalize_embeddings=True)
-    return embeddings.tolist()
+    return [emb.tolist() for emb in model.embed(texts)]
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:

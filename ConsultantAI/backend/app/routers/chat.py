@@ -14,7 +14,8 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.database import get_session
 from app.models.db import Conversation, Message, Milestone, Project, ProjectFile, ProjectPayment, Skill
-from app.services import claude, rag
+from app.services import claude, rag, openai_compat
+from app.models.db import Setting as _Setting
 from app.services.tool_executor import format_tools_for_claude
 from app.tools import registry
 
@@ -56,6 +57,15 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         return f"[Could not extract text: {exc}]"
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+def _get_llm(session: Session):
+    """Return the active LLM service module based on the llm_provider setting."""
+    setting = session.get(_Setting, "llm_provider")
+    provider = (setting.value if setting and setting.value else "claude").lower().strip()
+    if provider == "kimi":
+        return openai_compat
+    return claude
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -246,7 +256,8 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             project_context = (project_context + "\n\n## Attached Files\n" + attachment_block
                                if project_context else "## Attached Files\n" + attachment_block)
 
-    system = claude.build_system_prompt(skill_prompt, rag_context, project_context)
+    llm = _get_llm(session)
+    system = llm.build_system_prompt(skill_prompt, rag_context, project_context)
 
     # Build message history — skip empty assistant messages (from prior failures)
     history = session.exec(
@@ -274,7 +285,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
 
             print(f"[P1] starting stream, tools={[t.get('name') for t in (tools or [])]}", flush=True)
 
-            async for chunk in claude.stream_response(
+            async for chunk in llm.stream_response(
                 api_messages, system=system, tools=tools, max_tokens=max_tokens
             ):
                 stripped = chunk.strip()
@@ -383,7 +394,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
 
                 print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
                 # Stream follow-up response (no tools needed)
-                async for chunk in claude.stream_response(
+                async for chunk in llm.stream_response(
                     continuation_messages, system=system,
                     tools=None, max_tokens=max_tokens
                 ):

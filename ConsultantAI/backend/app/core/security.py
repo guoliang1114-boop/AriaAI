@@ -2,7 +2,7 @@
 import os
 from typing import Optional
 import keyring
-from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE
+from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI
 
 
 def _db_get_api_key() -> Optional[str]:
@@ -69,6 +69,70 @@ def delete_api_key() -> None:
         from app.models.db import Setting
         with Session(engine) as session:
             existing = session.get(Setting, "api_key")
+            if existing:
+                session.delete(existing)
+                session.commit()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Kimi API key
+# ---------------------------------------------------------------------------
+
+def get_kimi_api_key() -> Optional[str]:
+    """Retrieve Kimi API key: Keychain → SQLite → env var."""
+    try:
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI)
+        if key:
+            return key
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            setting = session.get(Setting, "kimi_api_key")
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    return os.environ.get("MOONSHOT_API_KEY")
+
+
+def set_kimi_api_key(api_key: str) -> None:
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI, api_key)
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "kimi_api_key")
+            if existing:
+                existing.value = api_key
+                session.add(existing)
+            else:
+                session.add(Setting(key="kimi_api_key", value=api_key))
+            session.commit()
+    except Exception:
+        pass
+
+
+def delete_kimi_api_key() -> None:
+    try:
+        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "kimi_api_key")
             if existing:
                 session.delete(existing)
                 session.commit()
