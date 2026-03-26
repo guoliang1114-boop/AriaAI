@@ -1,6 +1,6 @@
-﻿# ConsultantAI Skill 开发指南
+﻿# AriaAI Skill 开发指南
 
-本指南面向希望为 ConsultantAI 平台开发新 Skill 的开发者，涵盖 Skill 设计标准、工具开发规范、提交流程和最佳实践。
+本指南面向希望为 AriaAI 平台开发新 Skill 的开发者，涵盖 Skill 设计标准、工具开发规范、提交流程和最佳实践。
 
 ---
 
@@ -21,7 +21,7 @@
 
 ### 什么是 Skill？
 
-Skill 是 ConsultantAI 平台的核心功能单元，是一个**针对特定咨询场景的 AI 工作流**，包含：
+Skill 是 AriaAI 平台的核心功能单元，是一个**针对特定咨询场景的 AI 工作流**，包含：
 - 系统提示词（System Prompt）：定义 AI 的角色和行为
 - 用户模板（User Template）：引导用户提供必要信息
 - 工具定义（Tools）：允许 AI 生成文件、执行计算等操作
@@ -517,3 +517,4 @@ from app.tools import my_custom_tool    # noqa: F401  # 新增
 ---
 
 **问题反馈**：如有问题，请提交 Issue 或联系维护团队。
+
