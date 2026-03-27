@@ -108,18 +108,39 @@ final class DataStore: ObservableObject {
         }
     }
 
+    /// Create a new conversation with optimistic local update for instant UI feedback
     func createConversation(projectId: Int? = nil, skillId: Int? = nil) async -> APIConversation? {
+        // Create optimistic local conversation for instant display
+        let tempId = -Int.random(in: 1000...9999)  // Temporary negative ID
+        let optimisticConv = APIConversation(
+            id: tempId,
+            title: "New Workstream",
+            projectId: projectId,
+            skillId: skillId,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        
+        // Insert immediately for instant UI feedback
+        conversations.insert(optimisticConv, at: 0)
+        
+        // API call in background
         var query: [String: String] = [:]
         if let p = projectId { query["project_id"] = "\(p)" }
         if let s = skillId { query["skill_id"] = "\(s)" }
+        
         do {
             let conv: APIConversation = try await APIClient.shared.post("/chat/conversations", query: query)
-            // Optimistically insert at the top for instant UI feedback
-            conversations.insert(conv, at: 0)
-            // Background refresh to sync with server
+            // Replace optimistic conversation with real one
+            if let idx = conversations.firstIndex(where: { $0.id == tempId }) {
+                conversations[idx] = conv
+            }
+            // Background refresh to ensure sync
             Task { await loadConversations() }
             return conv
         } catch {
+            // Remove optimistic conversation on error
+            conversations.removeAll { $0.id == tempId }
             self.error = error.localizedDescription
             return nil
         }

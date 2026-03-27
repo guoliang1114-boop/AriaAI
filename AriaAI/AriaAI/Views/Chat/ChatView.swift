@@ -594,14 +594,28 @@ struct ChatView: View {
     }
 
     private func newConversation() async {
-        currentConversationId = nil
+        // Clear current state but keep UI responsive
         messages = []
         inputText = ""
         selectedSkillId = nil
         selectedMode = nil
         selectedDocIds = []
-        if let conv = await dataStore.createConversation() {
-            currentConversationId = conv.id
+        
+        // Start conversation creation (optimistically inserts into list immediately)
+        let createTask = Task { await dataStore.createConversation() }
+        
+        // Immediately select the optimistic conversation from the list
+        // This ensures list and detail appear simultaneously
+        if let firstConv = dataStore.conversations.first {
+            currentConversationId = firstConv.id
+        }
+        
+        // Wait for API to complete and get real conversation
+        if let conv = await createTask.value {
+            // Update to the real conversation ID if it changed
+            if currentConversationId != conv.id {
+                currentConversationId = conv.id
+            }
         }
     }
 
