@@ -104,10 +104,8 @@ struct SidebarView: View {
 
             // New Chat Button
             Button {
-                Task {
-                    appState.selectedScreen = .chat
-                    _ = await dataStore.createConversation()
-                }
+                appState.selectedScreen = .chat
+                appState.pendingNewConversation = true
             } label: {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: "plus").font(.system(size: 12, weight: .bold))

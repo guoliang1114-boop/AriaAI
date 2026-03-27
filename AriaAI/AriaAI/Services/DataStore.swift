@@ -114,7 +114,10 @@ final class DataStore: ObservableObject {
         if let s = skillId { query["skill_id"] = "\(s)" }
         do {
             let conv: APIConversation = try await APIClient.shared.post("/chat/conversations", query: query)
-            await loadConversations()
+            // Optimistically insert at the top for instant UI feedback
+            conversations.insert(conv, at: 0)
+            // Background refresh to sync with server
+            Task { await loadConversations() }
             return conv
         } catch {
             self.error = error.localizedDescription
