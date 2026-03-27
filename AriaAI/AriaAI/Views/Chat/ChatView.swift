@@ -266,7 +266,13 @@ struct ChatView: View {
                 inputBar
             }
         }
-        .task { await dataStore.loadConversations() }
+        .task {
+            await dataStore.loadConversations()
+            // Auto-select first conversation if none selected
+            if currentConversationId == nil, let first = dataStore.conversations.first {
+                currentConversationId = first.id
+            }
+        }
         .onChange(of: appState.pendingNewConversation) {
             if appState.pendingNewConversation {
                 appState.pendingNewConversation = false
