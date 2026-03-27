@@ -248,6 +248,67 @@ actor APIClient {
                                         continuation.yield(.toolResult(result))
                                     }
                                 case "done":
+                                    if let t = json["title"] as? String {
+                                        continuation.yield(.title(t))
+                                    }
+                                    continuation.finish()
+                                    return
+                                default:
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Streams project context generation as SSE, yielding text chunks.
+    /// The stream finishes when the server sends `{"type":"done"}`.
+    func streamContextGenerate(projectId: Int) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                var req = URLRequest(url: url("/projects/\(projectId)/generate-context"), timeoutInterval: 600)
+                req.httpMethod = "POST"
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                req.httpBody = "{}".data(using: .utf8)
+                self.addAuthHeader(&req)
+
+                do {
+                    let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+                    if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        var body = ""
+                        for try await line in bytes.lines { body += line }
+                        continuation.finish(throwing: APIError.networkError(
+                            NSError(domain: "HTTP", code: http.statusCode,
+                                    userInfo: [NSLocalizedDescriptionKey: body.isEmpty ? "HTTP \(http.statusCode)" : body])
+                        ))
+                        return
+                    }
+                    for try await line in bytes.lines {
+                        if line.hasPrefix("data: ") {
+                            let payload = String(line.dropFirst(6))
+                            if let data = payload.data(using: .utf8),
+                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                let type_ = json["type"] as? String ?? ""
+                                switch type_ {
+                                case "text":
+                                    if let chunk = json["content"] as? String {
+                                        continuation.yield(chunk)
+                                    }
+                                case "error":
+                                    let msg = json["message"] as? String ?? "Unknown error"
+                                    continuation.finish(throwing: APIError.networkError(
+                                        NSError(domain: "ContextGen", code: 0,
+                                                userInfo: [NSLocalizedDescriptionKey: msg])
+                                    ))
+                                    return
+                                case "done":
                                     continuation.finish()
                                     return
                                 default:
@@ -285,6 +346,7 @@ actor APIClient {
 enum ChatChunk {
     case conversationId(Int)
     case text(String)
+    case title(String)
     case toolExecuting(String, message: String?, total: Int?, current: Int?)  // tool_name with progress info
     case toolResult(ToolResult)
 }

@@ -83,6 +83,14 @@ struct APIProjectFinancials: Codable {
     var payments: [APIProjectPayment]
 }
 
+struct APIProjectDetail: Decodable {
+    var project: APIProject
+    var files: [APIProjectFile]
+    var milestones: [APIMilestone]
+    var folders: [APIProjectFolder]
+    var financials: APIProjectFinancials
+}
+
 // MARK: - Chat
 
 struct APIConversation: Codable, Identifiable {

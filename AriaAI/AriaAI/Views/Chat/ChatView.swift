@@ -533,14 +533,6 @@ struct ChatView: View {
                 Text(lang.t("对话历史", "Conversations"))
                     .font(TextStyle.labelMD).foregroundColor(.onSurface)
                 Spacer()
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.primary500)
-                    .padding(6)
-                    .background(Color.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { Task { await newConversation() } }
-                    .help(lang.t("新建对话", "New Chat"))
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
@@ -1366,6 +1358,8 @@ struct ChatView: View {
                         generatedFiles.append(file)
                         if selectedSkillId != nil { skillStage = .done }
                     }
+                case .title:
+                    break  // title updates handled in ProjectSpaceView
                 }
             }
         } catch {

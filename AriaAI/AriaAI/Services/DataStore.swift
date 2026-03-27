@@ -98,9 +98,11 @@ final class DataStore: ObservableObject {
 
     // MARK: - Conversations
 
-    func loadConversations() async {
+    func loadConversations(projectId: Int? = nil) async {
+        var path = "/chat/conversations"
+        if let pid = projectId { path += "?project_id=\(pid)" }
         do {
-            conversations = try await APIClient.shared.get("/chat/conversations")
+            conversations = try await APIClient.shared.get(path)
         } catch {
             self.error = error.localizedDescription
         }
@@ -825,26 +827,43 @@ final class DataStore: ObservableObject {
         struct Response: Decodable { let contextSummary: String }
         do {
             let res: Response = try await APIClient.shared.post("/projects/\(apiProjectId)/generate-context", body: EmptyBody())
-            print("[DEBUG] Generated context: \(res.contextSummary.prefix(100))...")
-            // Refresh projects so the new contextSummary is visible immediately
+            // Reload first, then patch — so our value wins over any stale decoded data
             await loadProjects()
-            // Verify the project was updated (check apiProjects since projects has UUID ids)
-            if let updated = apiProjects.first(where: { $0.id == apiProjectId }) {
-                print("[DEBUG] Project contextSummary after reload: '\(updated.contextSummary.prefix(100))...'")
+            if let idx = apiProjects.firstIndex(where: { $0.id == apiProjectId }) {
+                apiProjects[idx].contextSummary = res.contextSummary
             }
             return res.contextSummary
         } catch {
-            print("[DEBUG] generateProjectContext error: \(error)")
+            print("[DataStore] generateProjectContext error: \(error)")
             return nil
+        }
+    }
+
+    func loadProjectDetail(apiProjectId: Int) async -> APIProjectDetail? {
+        do {
+            return try await APIClient.shared.get("/projects/\(apiProjectId)/detail")
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    func patchProjectContextSummary(apiProjectId: Int, summary: String) {
+        if let idx = apiProjects.firstIndex(where: { $0.id == apiProjectId }) {
+            apiProjects[idx].contextSummary = summary
         }
     }
 
     @discardableResult
     func saveProjectNote(apiProjectId: Int, content: String, append: Bool = true) async -> Bool {
         struct Body: Encodable { let content: String; let append: Bool }
+        struct NoteResponse: Decodable { let notes: String }
         do {
-            try await APIClient.shared.post("/projects/\(apiProjectId)/notes", body: Body(content: content, append: append))
+            let res: NoteResponse = try await APIClient.shared.post("/projects/\(apiProjectId)/notes", body: Body(content: content, append: append))
             await loadProjects()
+            if let idx = apiProjects.firstIndex(where: { $0.id == apiProjectId }) {
+                apiProjects[idx].notes = res.notes
+            }
             return true
         } catch {
             return false

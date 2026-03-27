@@ -16,7 +16,7 @@ struct ProjectSpaceView: View {
     @State private var apiFiles: [APIProjectFile] = []
     @State private var apiFolders: [APIProjectFolder] = []
     @State private var apiMilestones: [APIMilestone] = []
-    @State private var isLoadingDetail = true
+    @State private var isLoadingContent = true   // drives skeleton in right panel
 
     // Folder state
     @State private var expandedFolderIds: Set<Int> = []
@@ -62,6 +62,8 @@ struct ProjectSpaceView: View {
 
     @State private var cachedApiProjectId: Int? = nil
     @State private var isGeneratingContext = false
+    @State private var contextExpanded = true
+    @State private var streamingContextDraft = ""
     @State private var savedNoteMessageId: Int? = nil
 
     private var apiProjectId: Int? {
@@ -76,33 +78,33 @@ struct ProjectSpaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isLoadingDetail {
-                Spacer()
-                ProgressView().controlSize(.large)
-                Spacer()
-            } else {
-                HStack(alignment: .top, spacing: 0) {
-                    // ── Chat column (fills all available space) ────────
-                    inlineChatPanel
-                        .frame(maxWidth: .infinity)
+            HStack(alignment: .top, spacing: 0) {
+                // ── Chat column (fills all available space) ────────
+                inlineChatPanel
+                    .frame(maxWidth: .infinity)
 
-                    Divider()
+                Divider()
 
-                    // ── Right column ───────────────────────────────────
-                    ScrollView {
-                        VStack(spacing: Spacing.lg) {
-                            contextCard
+                // ── Right column ───────────────────────────────────
+                ScrollView {
+                    VStack(spacing: Spacing.lg) {
+                        contextCard
+                        if isLoadingContent {
+                            skeletonCard
+                        } else {
                             financialCard
+                        }
+                        if !isLoadingContent {
                             aiSuggestionsCard
                             projectStatsCard
                         }
-                        .padding(Spacing.lg)
                     }
-                    .frame(width: 260)
-                    .background(.surfaceContainerLowest)
+                    .padding(Spacing.lg)
                 }
-                .background(.surfaceBase)
+                .frame(width: 260)
+                .background(.surfaceContainerLowest)
             }
+            .background(.surfaceBase)
         }
         .fileImporter(
             isPresented: $isImportingFiles,
@@ -115,48 +117,52 @@ struct ProjectSpaceView: View {
             handleFileImport(result)
         }
         .task {
-            await loadDetail()
-            async let chat = loadProjectChat()
-            async let fin  = loadFinancials()
-            _ = await (chat, fin)
+            await loadAllData()
         }
     }
 
     // MARK: - Load data
 
-    private func loadDetail() async {
-        isLoadingDetail = true
-        // Ensure apiProjects is loaded before resolving the project ID
+    private func loadAllData() async {
+        // Step 1: Resolve project ID — fast if apiProjects already cached
         if dataStore.apiProjects.isEmpty {
             await dataStore.loadProjects()
         }
-        let pid = dataStore.apiProjects.first { $0.name == project.name }?.id
+        guard let pid = dataStore.apiProjects.first(where: { $0.name == project.name })?.id else {
+            isLoadingContent = false
+            return
+        }
         cachedApiProjectId = pid
-        guard let pid else { isLoadingDetail = false; return }
-        async let files = dataStore.loadProjectFiles(apiProjectId: pid)
-        async let milestones = dataStore.loadProjectMilestones(apiProjectId: pid)
-        async let folders = dataStore.loadProjectFolders(apiProjectId: pid)
-        apiFiles = await files
-        apiMilestones = await milestones
-        apiFolders = await folders
-        expandedFolderIds = Set(apiFolders.map { $0.id })
-        isLoadingDetail = false
+
+        // Step 2: Combined detail call + chat in parallel — 1 round-trip instead of 4-5
+        async let detail = dataStore.loadProjectDetail(apiProjectId: pid)
+        async let chat: Void = loadProjectChatDirect(pid: pid)
+
+        if let d = await detail {
+            apiFiles          = d.files
+            apiMilestones     = d.milestones
+            apiFolders        = d.folders
+            expandedFolderIds = Set(d.folders.map { $0.id })
+            financials        = d.financials
+        }
+        isLoadingContent = false
+
+        _ = await chat
+    }
+
+    private func loadProjectChatDirect(pid: Int) async {
+        // Load only this project's conversations (backend supports ?project_id=)
+        await dataStore.loadConversations(projectId: pid)
+        projectConversations = dataStore.conversations
+        if let first = dataStore.conversations.first {
+            activeConversationId = first.id
+            chatMessages = await dataStore.loadMessages(conversationId: first.id)
+        }
     }
 
     private func loadFinancials() async {
         guard let pid = apiProjectId else { return }
         financials = await dataStore.loadProjectFinancials(apiProjectId: pid)
-    }
-
-    private func loadProjectChat() async {
-        guard let pid = apiProjectId else { return }
-        await dataStore.loadConversations()
-        let convs = dataStore.conversations.filter { $0.projectId == pid }
-        projectConversations = convs
-        if let first = convs.first {
-            activeConversationId = first.id
-            chatMessages = await dataStore.loadMessages(conversationId: first.id)
-        }
     }
 
     private func sendInlineMessage() {
@@ -216,6 +222,15 @@ struct ProjectSpaceView: View {
                         assembled += t
                         let snapshot = assembled
                         await MainActor.run { streamingContent = snapshot }
+                    } else if case .title(let t) = chunk {
+                        await MainActor.run {
+                            if let idx = projectConversations.firstIndex(where: { $0.id == convId }) {
+                                projectConversations[idx].title = t
+                            }
+                            if let idx = dataStore.conversations.firstIndex(where: { $0.id == convId }) {
+                                dataStore.conversations[idx].title = t
+                            }
+                        }
                     }
                 }
                 if assembled.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1344,24 +1359,47 @@ struct ProjectSpaceView: View {
         }
     }
 
+    // Skeleton placeholder shown in right panel while detail data loads
+    private var skeletonCard: some View {
+        CardContainer {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                // Fake header
+                HStack(spacing: Spacing.sm) {
+                    RoundedRectangle(cornerRadius: 3).fill(Color.onSurface.opacity(0.07)).frame(width: 14, height: 14)
+                    RoundedRectangle(cornerRadius: 3).fill(Color.onSurface.opacity(0.07)).frame(width: 80, height: 10)
+                    Spacer()
+                }
+                Divider().opacity(0.3)
+                // Fake rows
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(0..<3, id: \.self) { i in
+                        HStack(spacing: Spacing.sm) {
+                            RoundedRectangle(cornerRadius: 3).fill(Color.onSurface.opacity(0.07))
+                                .frame(width: i == 0 ? 90 : (i == 1 ? 70 : 110), height: 10)
+                            Spacer()
+                            RoundedRectangle(cornerRadius: 3).fill(Color.onSurface.opacity(0.07))
+                                .frame(width: 50, height: 10)
+                        }
+                    }
+                }
+                .padding(.horizontal, Spacing.sm)
+            }
+            .padding(Spacing.lg)
+        }
+    }
+
     private var contextCard: some View {
         let apiProj = dataStore.apiProjects.first { $0.name == project.name }
-        let summary = apiProj?.contextSummary ?? ""
+        let savedSummary = apiProj?.contextSummary ?? ""
         let notes = apiProj?.notes ?? ""
-        let hasSummary = !summary.isEmpty
+        // During streaming show the live draft; after done show the saved value
+        let displaySummary = isGeneratingContext ? streamingContextDraft : savedSummary
+        let hasSummary = !displaySummary.isEmpty
         let hasNotes = !notes.isEmpty
-        
-        // Debug
-        print("[DEBUG] contextCard: apiProjects.count=\(dataStore.apiProjects.count), apiProjectId=\(apiProjectId ?? -1)")
-        if let ap = apiProj {
-            print("[DEBUG] Found project id=\(ap.id), contextSummary length=\(ap.contextSummary.count)")
-        } else {
-            print("[DEBUG] Project not found by name '\(project.name)'")
-        }
 
         return CardContainer {
             VStack(alignment: .leading, spacing: 0) {
-                // Header
+                // ── Header ────────────────────────────────────────────────────
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: "brain")
                         .font(.system(size: 10, weight: .semibold))
@@ -1369,13 +1407,33 @@ struct ProjectSpaceView: View {
                     Text(lang.t("项目记忆", "PROJECT MEMORY"))
                         .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.5)
                     Spacer()
+
+                    // Copy button — only when there's content
+                    if hasSummary {
+                        Button {
+                            let clean = displaySummary
+                                .components(separatedBy: "\n")
+                                .map { line -> String in
+                                    let t = line.trimmingCharacters(in: .whitespaces)
+                                    return t.hasPrefix("•") ? String(t.dropFirst()).trimmingCharacters(in: .whitespaces) : t
+                                }
+                                .filter { !$0.isEmpty }
+                                .joined(separator: "\n")
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(clean, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10))
+                                .foregroundColor(.onSurfaceVariant.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
+                        .help(lang.t("复制内容", "Copy content"))
+                    }
+
+                    // Refresh button
                     Button {
                         guard let pid = apiProjectId else { return }
-                        isGeneratingContext = true
-                        Task {
-                            await dataStore.generateProjectContext(apiProjectId: pid)
-                            isGeneratingContext = false
-                        }
+                        streamContextSummary(pid: pid)
                     } label: {
                         HStack(spacing: 3) {
                             if isGeneratingContext {
@@ -1394,76 +1452,108 @@ struct ProjectSpaceView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isGeneratingContext || apiProjectId == nil)
+
+                    // Collapse / expand chevron
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { contextExpanded.toggle() }
+                    } label: {
+                        Image(systemName: contextExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.onSurfaceVariant.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(Spacing.lg)
 
-                Divider().opacity(0.4)
+                if contextExpanded {
+                    Divider().opacity(0.4)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    if !hasSummary && !hasNotes {
-                        // Empty state — tappable to trigger generation
-                        Button {
-                            guard let pid = apiProjectId else { return }
-                            isGeneratingContext = true
-                            Task {
-                                await dataStore.generateProjectContext(apiProjectId: pid)
-                                isGeneratingContext = false
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !hasSummary && !hasNotes {
+                            // Empty state — tappable to trigger generation
+                            Button {
+                                guard let pid = apiProjectId else { return }
+                                streamContextSummary(pid: pid)
+                            } label: {
+                                VStack(spacing: Spacing.sm) {
+                                    Image(systemName: isGeneratingContext ? "sparkles" : "doc.badge.plus")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(isGeneratingContext ? .primary500.opacity(0.5) : .onSurfaceVariant.opacity(0.3))
+                                    Text(lang.t(
+                                        isGeneratingContext ? "AI 正在生成摘要…" : "点击生成项目 AI 摘要",
+                                        isGeneratingContext ? "Generating summary…" : "Click to generate AI summary"
+                                    ))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.onSurfaceVariant.opacity(0.5))
+                                    .multilineTextAlignment(.center)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(Spacing.lg)
                             }
-                        } label: {
-                            VStack(spacing: Spacing.sm) {
-                                Image(systemName: isGeneratingContext ? "sparkles" : "doc.badge.plus")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(isGeneratingContext ? .primary500.opacity(0.5) : .onSurfaceVariant.opacity(0.3))
-                                Text(lang.t(
-                                    isGeneratingContext ? "AI 正在生成摘要…" : "点击生成项目 AI 摘要",
-                                    isGeneratingContext ? "Generating summary…" : "Click to generate AI summary"
-                                ))
-                                .font(.system(size: 11))
-                                .foregroundColor(.onSurfaceVariant.opacity(0.5))
-                                .multilineTextAlignment(.center)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(Spacing.lg)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isGeneratingContext || apiProjectId == nil)
-                    } else {
-                        // AI-generated summary
-                        if hasSummary {
-                            VStack(alignment: .leading, spacing: Spacing.sm) {
-                                Text(lang.t("AI 摘要", "AI SUMMARY"))
-                                    .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
-                                ForEach(summary.components(separatedBy: "\n").filter { !$0.isEmpty }, id: \.self) { line in
-                                    let cleaned = line.hasPrefix("•") ? String(line.dropFirst()).trimmingCharacters(in: .whitespaces) : line
-                                    HStack(alignment: .top, spacing: 5) {
-                                        Circle().fill(Color.primary500).frame(width: 4, height: 4).padding(.top, 6)
-                                        Text(cleaned)
+                            .buttonStyle(.plain)
+                            .disabled(isGeneratingContext || apiProjectId == nil)
+                        } else {
+                            // AI-generated summary
+                            if hasSummary {
+                                VStack(alignment: .leading, spacing: Spacing.sm) {
+                                    Text(lang.t("AI 摘要", "AI SUMMARY"))
+                                        .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
+                                    ForEach(displaySummary.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }, id: \.self) { line in
+                                        let cleaned = line.hasPrefix("•") ? String(line.dropFirst()).trimmingCharacters(in: .whitespaces) : line
+                                        HStack(alignment: .top, spacing: 5) {
+                                            Circle().fill(Color.primary500).frame(width: 4, height: 4).padding(.top, 6)
+                                            Group {
+                                                if let attr = try? AttributedString(markdown: cleaned) {
+                                                    Text(attr)
+                                                } else {
+                                                    Text(cleaned)
+                                                }
+                                            }
                                             .font(.system(size: 11)).foregroundColor(.onSurface)
                                             .fixedSize(horizontal: false, vertical: true)
+                                            .textSelection(.enabled)
+                                        }
                                     }
                                 }
+                                .padding(Spacing.lg)
                             }
-                            .padding(Spacing.lg)
-                        }
 
-                        // Accumulated notes
-                        if hasNotes {
-                            if hasSummary { Divider().opacity(0.3) }
-                            VStack(alignment: .leading, spacing: Spacing.sm) {
-                                Text(lang.t("项目笔记", "PROJECT NOTES"))
-                                    .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
-                                VStack(alignment: .leading, spacing: 6) {
-                                    let entries = notes.components(separatedBy: "\n\n---\n").reversed()
-                                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                                        noteEntryView(for: entry)
+                            // Accumulated notes
+                            if hasNotes {
+                                if hasSummary { Divider().opacity(0.3) }
+                                VStack(alignment: .leading, spacing: Spacing.sm) {
+                                    Text(lang.t("项目笔记", "PROJECT NOTES"))
+                                        .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        let entries = notes.components(separatedBy: "\n\n---\n").reversed()
+                                        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                                            noteEntryView(for: entry)
+                                        }
                                     }
                                 }
+                                .padding(Spacing.lg)
                             }
-                            .padding(Spacing.lg)
                         }
                     }
                 }
             }
+        }
+    }
+
+    private func streamContextSummary(pid: Int) {
+        guard !isGeneratingContext else { return }
+        isGeneratingContext = true
+        streamingContextDraft = ""
+        Task {
+            do {
+                for try await chunk in await APIClient.shared.streamContextGenerate(projectId: pid) {
+                    let c = chunk
+                    await MainActor.run { streamingContextDraft += c }
+                }
+                let final = await MainActor.run { streamingContextDraft }
+                await MainActor.run { dataStore.patchProjectContextSummary(apiProjectId: pid, summary: final) }
+            } catch {}
+            await MainActor.run { isGeneratingContext = false }
         }
     }
 

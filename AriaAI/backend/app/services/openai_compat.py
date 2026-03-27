@@ -320,6 +320,9 @@ async def complete(
             parts: list[str] = []
 
             text = message.get("content") or ""
+            # kimi-k2.5 is a reasoning model — content may be empty while reasoning_content has the output
+            if not text:
+                text = message.get("reasoning_content") or ""
             if text:
                 parts.append(text)
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -19,7 +20,7 @@ from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 
 
-async def _complete(messages: list[dict], max_tokens: int = 600) -> str:
+async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
     """Call the active LLM provider using the user's selected model."""
     from app.database import engine
     from sqlmodel import Session as _S
@@ -30,6 +31,22 @@ async def _complete(messages: list[dict], max_tokens: int = 600) -> str:
     if provider.lower() == "kimi":
         return await _kimi_svc.complete(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens)
     return await _claude_svc.complete(messages, model=model or "claude-sonnet-4", max_tokens=max_tokens)
+
+async def _stream(messages: list[dict], max_tokens: int = 4000):
+    """Stream response chunks from the active LLM provider."""
+    from app.database import engine
+    from sqlmodel import Session as _S
+    with _S(engine) as s:
+        provider = (s.get(_Setting, "llm_provider") or type("", (), {"value": "claude"})()).value or "claude"
+        model_row = s.get(_Setting, "selected_model")
+        model = (model_row.value if model_row and model_row.value else None)
+    if provider.lower() == "kimi":
+        async for chunk in _kimi_svc.stream_response(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens):
+            yield chunk
+    else:
+        async for chunk in _claude_svc.stream_response(messages, model=model or "claude-sonnet-4", max_tokens=max_tokens):
+            yield chunk
+
 
 DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
 
@@ -172,6 +189,57 @@ def get_project(project_id: int, session: Session = Depends(get_session)):
     if not project:
         raise HTTPException(404, "Project not found")
     return project
+
+
+@router.get("/{project_id}/detail")
+def get_project_detail(project_id: int, session: Session = Depends(get_session)):
+    """Single-request combined endpoint: project + files + milestones + folders + financials.
+
+    Reduces 4-5 round trips to Supabase down to 1 HTTP call with 5 fast local queries.
+    """
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    files = session.exec(
+        select(ProjectFile).where(ProjectFile.project_id == project_id)
+    ).all()
+    milestones = session.exec(
+        select(Milestone).where(Milestone.project_id == project_id)
+    ).all()
+    folders = session.exec(
+        select(ProjectFolder)
+        .where(ProjectFolder.project_id == project_id)
+        .order_by(ProjectFolder.sort_order)
+    ).all()
+    if not folders:
+        folders = _init_default_folders(project_id, session)
+
+    payments = session.exec(
+        select(ProjectPayment)
+        .where(ProjectPayment.project_id == project_id)
+        .order_by(ProjectPayment.payment_date)
+    ).all()
+    received = sum(p.amount for p in payments if p.payment_type in ("received", "milestone_payment"))
+    expenses = sum(abs(p.amount) for p in payments if p.payment_type == "expense")
+    invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
+    contract = project.contract_amount or 0.0
+
+    return {
+        "project": project,
+        "files": files,
+        "milestones": milestones,
+        "folders": folders,
+        "financials": {
+            "contract_amount": contract,
+            "total_received": received,
+            "total_expense": expenses,
+            "total_invoiced": invoiced,
+            "uncollected": invoiced - received,
+            "remaining": contract - received,
+            "payments": payments,
+        },
+    }
 
 
 @router.patch("/{project_id}")
@@ -429,9 +497,9 @@ Rules:
 - Return pure JSON array only"""
 
     try:
-        raw = await complete(
+        raw = await _complete(
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=600,
+            max_tokens=4000,
         )
         text = raw.strip()
         if text.startswith("```"):
@@ -463,9 +531,9 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
         f"Document excerpt:\n{text}"
     )
     try:
-        summary = await complete(
+        summary = await _complete(
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            max_tokens=2000,
         )
         summary = summary.strip()
         if summary:
@@ -483,7 +551,7 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
 
 @router.post("/{project_id}/generate-context")
 async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
-    """Ask LLM to generate a structured context summary for the project and save it."""
+    """Ask LLM to generate a structured context summary (SSE streaming)."""
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -517,31 +585,43 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
         "the project's core objective, current stage, key risks or open questions, "
         "critical milestones, and important context a consultant should always remember. "
         "Each bullet should be specific and actionable, not generic. "
+        "Use **bold** for key terms or milestones within each bullet. "
         "Return ONLY the bullet points, one per line, starting with '•'. "
         "Write in the same language as the project name (Chinese if Chinese, English if English).\n\n"
         f"Project data:\n{project_data}"
     )
 
-    try:
-        raw = await _complete(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=500,
-        )
-        summary = raw.strip()
-        print(f"[DEBUG] Generated summary for project {project_id}: {summary[:100]}...")
-        project.context_summary = summary
-        project.updated_at = datetime.utcnow()
-        session.add(project)
-        session.commit()
-        print(f"[DEBUG] Committed project {project_id}, context_summary={repr(project.context_summary[:100] if project.context_summary else None)}")
-        session.refresh(project)
-        print(f"[DEBUG] Refreshed project {project_id}, context_summary={repr(project.context_summary[:100] if project.context_summary else None)}")
-        return {"context_summary": summary}
-    except Exception as e:
-        import traceback
-        print(f"[DEBUG] Error in generate_project_context: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Context generation failed: {e}")
+    messages = [{"role": "user", "content": prompt}]
+
+    async def event_stream():
+        accumulated: list[str] = []
+        try:
+            async for chunk in _stream(messages, max_tokens=4000):
+                # Skip tool_use JSON blobs and TOOL_START markers
+                if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
+                    continue
+                accumulated.append(chunk)
+                yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            return
+
+        summary = "".join(accumulated).strip()
+
+        # Save to DB with a fresh session
+        from app.database import engine as _engine
+        from sqlmodel import Session as _S
+        with _S(_engine) as write_session:
+            p = write_session.get(Project, project_id)
+            if p:
+                p.context_summary = summary
+                p.updated_at = datetime.utcnow()
+                write_session.add(p)
+                write_session.commit()
+
+        yield f"data: {json.dumps({'type': 'done', 'context_summary': summary}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────

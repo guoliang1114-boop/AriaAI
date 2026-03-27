@@ -432,6 +432,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                 full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
 
             print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
+            new_title: str | None = None
             if full_text:
                 with Session(session.get_bind()) as new_session:
                     asst_msg = Message(
@@ -444,7 +445,21 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     if c:
                         c.updated_at = datetime.utcnow()
                         if c.title == "New Workstream":
-                            c.title = req.content[:50] + ("…" if len(req.content) > 50 else "")
+                            # Generate a concise title from the first exchange
+                            try:
+                                raw_title = await _complete(
+                                    messages=[{"role": "user", "content": (
+                                        f"Write a short title for this conversation (max 12 Chinese characters "
+                                        f"or 6 English words, no quotes, no punctuation at end).\n"
+                                        f"User said: {req.content[:200]}\n"
+                                        f"Return ONLY the title."
+                                    )}],
+                                    max_tokens=20,
+                                )
+                                c.title = raw_title.strip().strip('"').strip("'")[:60] or req.content[:40]
+                            except Exception:
+                                c.title = req.content[:40] + ("…" if len(req.content) > 40 else "")
+                            new_title = c.title
                         new_session.add(c)
                     new_session.commit()
 
@@ -454,7 +469,10 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        done_payload: dict = {"type": "done"}
+        if new_title:
+            done_payload["title"] = new_title
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
