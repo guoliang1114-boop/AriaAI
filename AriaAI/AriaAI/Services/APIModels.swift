@@ -16,30 +16,8 @@ struct APIProject: Codable, Identifiable {
     let createdAt: Date
     var updatedAt: Date
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, client, description, status
-        case contextFreshness = "context_freshness"
-        case contractAmount = "contract_amount"
-        case contextSummary = "context_summary"
-        case notes
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(Int.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        client = try c.decode(String.self, forKey: .client)
-        description = try c.decode(String.self, forKey: .description)
-        status = try c.decode(String.self, forKey: .status)
-        contextFreshness = try c.decode(Double.self, forKey: .contextFreshness)
-        contractAmount = try c.decode(Double.self, forKey: .contractAmount)
-        contextSummary = (try? c.decode(String.self, forKey: .contextSummary)) ?? ""
-        notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
-    }
+    // Note: APIClient uses keyDecodingStrategy = .convertFromSnakeCase
+    // So backend's context_summary automatically maps to contextFreshness
 }
 
 struct APIMilestone: Codable, Identifiable {
@@ -69,17 +47,7 @@ struct APIProjectFile: Codable, Identifiable {
     var summary: String
     let uploadedAt: Date
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case projectId = "project_id"
-        case folderId = "folder_id"
-        case name
-        case fileType = "file_type"
-        case path
-        case sizeBytes = "size_bytes"
-        case summary
-        case uploadedAt = "uploaded_at"
-    }
+    // Note: APIClient uses keyDecodingStrategy = .convertFromSnakeCase
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -148,14 +116,7 @@ struct APIMessage: Codable, Identifiable {
     let metadataJson: String?  // JSON string from backend
     let createdAt: Date
     
-    enum CodingKeys: String, CodingKey {
-        case id
-        case conversationId = "conversation_id"
-        case role
-        case content
-        case metadataJson = "metadata_json"
-        case createdAt = "created_at"
-    }
+    // Note: APIClient uses keyDecodingStrategy = .convertFromSnakeCase
     
     var metadata: APIMessageMetadata? {
         guard let jsonString = metadataJson,
