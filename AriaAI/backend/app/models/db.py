@@ -27,6 +27,8 @@ class Project(SQLModel, table=True):
     status: str = "lead"            # lead | opportunity | won | delivering | archived
     context_freshness: float = 1.0  # 0–1
     contract_amount: float = 0.0    # total contract value
+    context_summary: str = ""       # AI-generated project context summary
+    notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -64,6 +66,7 @@ class ProjectFile(SQLModel, table=True):
     file_type: str                  # pdf | docx | xlsx | pptx | other
     path: str                       # relative to UPLOADS_DIR
     size_bytes: int = 0
+    summary: str = ""               # AI-generated file summary (auto-generated on upload)
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
 
     project: Optional[Project] = Relationship(back_populates="files")

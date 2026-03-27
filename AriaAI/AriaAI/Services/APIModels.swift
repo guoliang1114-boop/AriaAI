@@ -11,8 +11,35 @@ struct APIProject: Codable, Identifiable {
     var status: String
     var contextFreshness: Double
     var contractAmount: Double
+    var contextSummary: String
+    var notes: String
     let createdAt: Date
     var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, client, description, status
+        case contextFreshness = "context_freshness"
+        case contractAmount = "contract_amount"
+        case contextSummary = "context_summary"
+        case notes
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        client = try c.decode(String.self, forKey: .client)
+        description = try c.decode(String.self, forKey: .description)
+        status = try c.decode(String.self, forKey: .status)
+        contextFreshness = try c.decode(Double.self, forKey: .contextFreshness)
+        contractAmount = try c.decode(Double.self, forKey: .contractAmount)
+        contextSummary = (try? c.decode(String.self, forKey: .contextSummary)) ?? ""
+        notes = (try? c.decode(String.self, forKey: .notes)) ?? ""
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 struct APIMilestone: Codable, Identifiable {
@@ -39,7 +66,33 @@ struct APIProjectFile: Codable, Identifiable {
     var fileType: String
     var path: String
     var sizeBytes: Int
+    var summary: String
     let uploadedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case projectId = "project_id"
+        case folderId = "folder_id"
+        case name
+        case fileType = "file_type"
+        case path
+        case sizeBytes = "size_bytes"
+        case summary
+        case uploadedAt = "uploaded_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        projectId = try c.decode(Int.self, forKey: .projectId)
+        folderId = try? c.decode(Int.self, forKey: .folderId)
+        name = try c.decode(String.self, forKey: .name)
+        fileType = try c.decode(String.self, forKey: .fileType)
+        path = try c.decode(String.self, forKey: .path)
+        sizeBytes = try c.decode(Int.self, forKey: .sizeBytes)
+        summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
+        uploadedAt = try c.decode(Date.self, forKey: .uploadedAt)
+    }
 }
 
 struct APIProjectPayment: Codable, Identifiable {
@@ -97,11 +150,11 @@ struct APIMessage: Codable, Identifiable {
     
     enum CodingKeys: String, CodingKey {
         case id
-        case conversationId
+        case conversationId = "conversation_id"
         case role
         case content
         case metadataJson = "metadata_json"
-        case createdAt
+        case createdAt = "created_at"
     }
     
     var metadata: APIMessageMetadata? {

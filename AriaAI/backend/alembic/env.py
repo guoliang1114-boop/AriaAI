@@ -10,7 +10,7 @@ from app.config import DATABASE_URL
 import app.models.db  # noqa: F401 — registers all models in metadata
 
 config = context.config
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

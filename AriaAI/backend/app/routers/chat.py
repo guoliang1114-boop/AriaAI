@@ -216,6 +216,14 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             if project.contract_amount:
                 lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
 
+            # AI-generated context summary (V1.1)
+            if project.context_summary:
+                lines.append(f"\n**Project Context Summary:**\n{project.context_summary}")
+
+            # Accumulated project notes (V1.1)
+            if project.notes:
+                lines.append(f"\n**Project Notes:**\n{project.notes}")
+
             milestones = session.exec(
                 select(Milestone).where(Milestone.project_id == project.id)
             ).all()
@@ -233,7 +241,8 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             if files:
                 lines.append("\n**Uploaded Documents:**")
                 for f in files:
-                    lines.append(f"  - {f.name} ({f.file_type.upper()})")
+                    summary_hint = f" — {f.summary[:80]}" if f.summary else ""
+                    lines.append(f"  - {f.name} ({f.file_type.upper()}){summary_hint}")
 
             payments = session.exec(
                 select(ProjectPayment).where(ProjectPayment.project_id == project.id)

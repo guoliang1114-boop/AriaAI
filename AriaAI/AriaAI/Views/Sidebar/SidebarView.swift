@@ -134,8 +134,25 @@ struct SidebarView: View {
             Divider().opacity(0.4).padding(.vertical, Spacing.sm)
 
             VStack(alignment: .leading, spacing: 2) {
-                sidebarFooterItem(icon: "dot.radiowaves.left.and.right", label: lang.t("连接状态", "Connection Status")) { showStatus = true }
-                    .popover(isPresented: $showStatus, arrowEdge: .trailing) { StatusPopoverContent() }
+                Button { showStatus = true } label: {
+                    HStack(spacing: Spacing.md) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 14))
+                            .foregroundColor(.onSurfaceVariant)
+                            .frame(width: 18)
+                        Text(lang.t("连接状态", "Connection Status"))
+                            .font(TextStyle.bodySM)
+                            .foregroundColor(.onSurfaceVariant)
+                        Spacer()
+                        Circle()
+                            .fill(sidebarSyncDotColor)
+                            .frame(width: 6, height: 6)
+                    }
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm + 1)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showStatus, arrowEdge: .trailing) { StatusPopoverContent() }
                 sidebarFooterItem(icon: "questionmark.circle", label: lang.t("帮助中心", "Help Center")) { showHelp = true }
                     .popover(isPresented: $showHelp, arrowEdge: .trailing) { helpPopover }
             }
@@ -708,6 +725,16 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         .onHover { h in hoveredScreen = h ? screen : nil }
         .animation(.easeInOut(duration: 0.15), value: isActive)
+    }
+
+    private var sidebarSyncDotColor: Color {
+        let docs = dataStore.apiDocuments
+        guard !docs.isEmpty else { return dataStore.isLoading ? .onSurfaceVariant : .statusActive }
+        let failed = docs.filter { $0.vectorStatus == "failed" }.count
+        let synced = docs.filter { $0.vectorStatus == "synced" }.count
+        if failed > 0 && synced + failed == docs.count { return .statusFailed }
+        if synced == docs.count { return .statusActive }
+        return .primary500
     }
 
     @ViewBuilder

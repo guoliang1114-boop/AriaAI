@@ -61,6 +61,8 @@ struct ProjectSpaceView: View {
     @State private var showSkillPicker = false
 
     @State private var cachedApiProjectId: Int? = nil
+    @State private var isGeneratingContext = false
+    @State private var savedNoteMessageId: Int? = nil
 
     private var apiProjectId: Int? {
         // Use cached value first (set after loadDetail); fall back to live lookup
@@ -89,6 +91,7 @@ struct ProjectSpaceView: View {
                     // ── Right column ───────────────────────────────────
                     ScrollView {
                         VStack(spacing: Spacing.lg) {
+                            contextCard
                             financialCard
                             aiSuggestionsCard
                             projectStatsCard
@@ -850,7 +853,13 @@ struct ProjectSpaceView: View {
                             .onDisappear { suggestionsVisible = false }
                         } else {
                             ForEach(chatMessages) { msg in
-                                InlineChatBubble(message: msg).id(msg.id)
+                                InlineChatBubble(
+                                    message: msg,
+                                    onSaveToProject: msg.role == "assistant" ? { content in
+                                        guard let pid = apiProjectId else { return }
+                                        Task { await dataStore.saveProjectNote(apiProjectId: pid, content: content) }
+                                    } : nil
+                                ).id(msg.id)
                             }
                             if isStreaming {
                                 InlineStreamingBubble(content: streamingContent).id("streaming")
@@ -1292,6 +1301,160 @@ struct ProjectSpaceView: View {
         panel.begin { resp in
             if resp == .OK, let url = panel.url {
                 try? content.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    // MARK: - Context & Notes card (right column)
+
+    /// Renders a single note entry, detecting `[YYYY-MM-DD HH:MM]` timestamp headers.
+    @ViewBuilder
+    private func noteEntryView(for entry: String) -> some View {
+        let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            let lines = trimmed.components(separatedBy: "\n")
+            let firstLine = lines.first ?? ""
+            let isTimestamped = firstLine.hasPrefix("[") && firstLine.hasSuffix("]") && firstLine.count <= 20
+            if isTimestamped {
+                let timestamp = String(firstLine.dropFirst().dropLast())
+                let body = lines.dropFirst().joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(timestamp)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.onSurfaceVariant.opacity(0.45))
+                        .tracking(0.3)
+                    Text(body)
+                        .font(.system(size: 11))
+                        .foregroundColor(.onSurface.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
+                }
+                .padding(Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.surfaceContainerLow.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            } else {
+                Text(trimmed)
+                    .font(.system(size: 11))
+                    .foregroundColor(.onSurface.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
+            }
+        }
+    }
+
+    private var contextCard: some View {
+        let apiProj = dataStore.apiProjects.first { $0.name == project.name }
+        let summary = apiProj?.contextSummary ?? ""
+        let notes = apiProj?.notes ?? ""
+        let hasSummary = !summary.isEmpty
+        let hasNotes = !notes.isEmpty
+
+        return CardContainer {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.onSurfaceVariant)
+                    Text(lang.t("项目记忆", "PROJECT MEMORY"))
+                        .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.5)
+                    Spacer()
+                    Button {
+                        guard let pid = apiProjectId else { return }
+                        isGeneratingContext = true
+                        Task {
+                            await dataStore.generateProjectContext(apiProjectId: pid)
+                            isGeneratingContext = false
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            if isGeneratingContext {
+                                ProgressView().controlSize(.mini).scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 9))
+                            }
+                            Text(lang.t("刷新摘要", "Refresh"))
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(.primary500)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Color.primary500.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isGeneratingContext || apiProjectId == nil)
+                }
+                .padding(Spacing.lg)
+
+                Divider().opacity(0.4)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    if !hasSummary && !hasNotes {
+                        // Empty state — tappable to trigger generation
+                        Button {
+                            guard let pid = apiProjectId else { return }
+                            isGeneratingContext = true
+                            Task {
+                                await dataStore.generateProjectContext(apiProjectId: pid)
+                                isGeneratingContext = false
+                            }
+                        } label: {
+                            VStack(spacing: Spacing.sm) {
+                                Image(systemName: isGeneratingContext ? "sparkles" : "doc.badge.plus")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(isGeneratingContext ? .primary500.opacity(0.5) : .onSurfaceVariant.opacity(0.3))
+                                Text(lang.t(
+                                    isGeneratingContext ? "AI 正在生成摘要…" : "点击生成项目 AI 摘要",
+                                    isGeneratingContext ? "Generating summary…" : "Click to generate AI summary"
+                                ))
+                                .font(.system(size: 11))
+                                .foregroundColor(.onSurfaceVariant.opacity(0.5))
+                                .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(Spacing.lg)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isGeneratingContext || apiProjectId == nil)
+                    } else {
+                        // AI-generated summary
+                        if hasSummary {
+                            VStack(alignment: .leading, spacing: Spacing.sm) {
+                                Text(lang.t("AI 摘要", "AI SUMMARY"))
+                                    .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
+                                ForEach(summary.components(separatedBy: "\n").filter { !$0.isEmpty }, id: \.self) { line in
+                                    let cleaned = line.hasPrefix("•") ? String(line.dropFirst()).trimmingCharacters(in: .whitespaces) : line
+                                    HStack(alignment: .top, spacing: 5) {
+                                        Circle().fill(Color.primary500).frame(width: 4, height: 4).padding(.top, 6)
+                                        Text(cleaned)
+                                            .font(.system(size: 11)).foregroundColor(.onSurface)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .padding(Spacing.lg)
+                        }
+
+                        // Accumulated notes
+                        if hasNotes {
+                            if hasSummary { Divider().opacity(0.3) }
+                            VStack(alignment: .leading, spacing: Spacing.sm) {
+                                Text(lang.t("项目笔记", "PROJECT NOTES"))
+                                    .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.4)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    let entries = notes.components(separatedBy: "\n\n---\n").reversed()
+                                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                                        noteEntryView(for: entry)
+                                    }
+                                }
+                            }
+                            .padding(Spacing.lg)
+                        }
+                    }
+                }
             }
         }
     }
@@ -2428,10 +2591,20 @@ struct FolderFileRow: View {
                     .font(.system(size: 11))
                     .foregroundColor(.onSurface)
                     .lineLimit(1)
-                Text("\(file.fileType.uppercased()) · \(sizeLabel)")
-                    .font(.system(size: 10))
-                    .foregroundColor(.onSurfaceVariant)
+                if !file.summary.isEmpty && isHovered {
+                    Text(file.summary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.onSurfaceVariant)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    Text("\(file.fileType.uppercased()) · \(sizeLabel)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.onSurfaceVariant)
+                }
             }
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
 
             Spacer()
 
@@ -2478,8 +2651,10 @@ struct FileChip: View {
 
 struct InlineChatBubble: View {
     let message: APIMessage
+    var onSaveToProject: ((String) -> Void)? = nil
     @Environment(\.appLanguage) var lang
     @State private var isCopied = false
+    @State private var isSaved = false
 
     var isUser: Bool { message.role == "user" }
 
@@ -2539,6 +2714,30 @@ struct InlineChatBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
+
+                    if let save = onSaveToProject {
+                        Button {
+                            save(message.content)
+                            withAnimation(.easeInOut(duration: 0.15)) { isSaved = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation(.easeInOut(duration: 0.15)) { isSaved = false }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: isSaved ? "checkmark" : "tray.and.arrow.down")
+                                    .font(.system(size: 10))
+                                Text(isSaved ? lang.t("已沉淀", "Saved") : lang.t("沉淀到项目", "Save to Project"))
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(isSaved ? .statusActive : .onSurfaceVariant)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.surfaceContainerLow)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     Spacer()
                 }
             }

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -15,7 +15,62 @@ import json
 from app.config import UPLOADS_DIR
 from app.database import get_session
 from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment
-from app.services.claude import complete
+from app.services import claude as _claude_svc, openai_compat as _kimi_svc
+from app.models.db import Setting as _Setting
+
+
+async def _complete(messages: list[dict], max_tokens: int = 600) -> str:
+    """Call the active LLM provider using the user's selected model."""
+    from app.database import engine
+    from sqlmodel import Session as _S
+    with _S(engine) as s:
+        provider = (s.get(_Setting, "llm_provider") or type("", (), {"value": "claude"})()).value or "claude"
+        model_row = s.get(_Setting, "selected_model")
+        model = (model_row.value if model_row and model_row.value else None)
+    if provider.lower() == "kimi":
+        return await _kimi_svc.complete(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens)
+    return await _claude_svc.complete(messages, model=model or "claude-sonnet-4", max_tokens=max_tokens)
+
+DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
+
+# ── Shared file text extraction ────────────────────────────────────────────────
+
+try:
+    import pdfplumber as _pdfplumber
+    _HAS_PDF = True
+except ImportError:
+    _HAS_PDF = False
+
+try:
+    from docx import Document as _DocxDocument
+    _HAS_DOCX = True
+except ImportError:
+    _HAS_DOCX = False
+
+
+def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
+    """Extract plain text from a project file for AI context injection."""
+    if not path.exists():
+        return "[File not found]"
+    try:
+        ft = file_type.lower()
+        if ft == "pdf" and _HAS_PDF:
+            with _pdfplumber.open(path) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages[:15]]
+            text = "\n".join(pages)
+        elif ft == "docx" and _HAS_DOCX:
+            doc = _DocxDocument(str(path))
+            text = "\n".join(p.text for p in doc.paragraphs)
+        elif ft in ("txt", "md", "csv", "json"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+        else:
+            return ""  # Binary — skip auto-summary
+        text = text.strip()
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n…[truncated]"
+        return text if text else ""
+    except Exception:
+        return ""
 
 DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
 
@@ -57,6 +112,13 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     context_freshness: Optional[float] = None
     contract_amount: Optional[float] = None
+    context_summary: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class NoteBody(BaseModel):
+    content: str
+    append: bool = True   # True = append to existing notes; False = overwrite
 
 
 class PaymentCreate(BaseModel):
@@ -185,6 +247,7 @@ def list_files(project_id: int, session: Session = Depends(get_session)):
 @router.post("/{project_id}/files", status_code=201)
 async def upload_file(
     project_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     folder_id: Optional[int] = Form(None),
     session: Session = Depends(get_session),
@@ -213,6 +276,10 @@ async def upload_file(
     session.add(pf)
     session.commit()
     session.refresh(pf)
+
+    # Auto-generate file summary in the background
+    background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), suffix.lstrip("."))
+
     return pf
 
 
@@ -375,3 +442,119 @@ Rules:
         return [ProjectAISuggestion(**s) for s in suggestions[:3]]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI suggestion failed: {e}")
+
+
+# ── Background: auto-summarize uploaded file ──────────────────────────────────
+
+async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> None:
+    """Generate a 2-3 sentence summary for an uploaded project file and persist it."""
+    from app.database import engine
+    from sqlmodel import Session as _Session
+
+    text = _extract_file_text(Path(file_path), file_type, max_chars=3000)
+    if not text or text.startswith("["):
+        return  # Nothing to summarize
+
+    prompt = (
+        "You are a professional consultant analyst. "
+        "Read the following document excerpt and write a concise 2-3 sentence summary "
+        "covering: what this document is, its main purpose, and the most important information it contains. "
+        "Be specific and professional. Return ONLY the summary, no preamble.\n\n"
+        f"Document excerpt:\n{text}"
+    )
+    try:
+        summary = await complete(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+        )
+        summary = summary.strip()
+        if summary:
+            with _Session(engine) as session:
+                pf = session.get(ProjectFile, file_id)
+                if pf:
+                    pf.summary = summary
+                    session.add(pf)
+                    session.commit()
+    except Exception:
+        pass  # Best-effort — don't break the upload flow
+
+
+# ── Generate project context summary ──────────────────────────────────────────
+
+@router.post("/{project_id}/generate-context")
+async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
+    """Ask LLM to generate a structured context summary for the project and save it."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    milestones = session.exec(select(Milestone).where(Milestone.project_id == project_id)).all()
+    files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+
+    # Build project data block
+    lines = [
+        f"Project: {project.name}",
+        f"Client: {project.client}",
+        f"Status: {project.status}",
+    ]
+    if project.description:
+        lines.append(f"Description: {project.description}")
+    if milestones:
+        lines.append(f"Milestones ({len(milestones)} total, {sum(1 for m in milestones if m.is_done)} completed):")
+        for m in milestones:
+            status = "✓" if m.is_done else "○"
+            lines.append(f"  {status} {m.title}" + (f" [{m.priority}]" if m.priority == "high" else ""))
+    if files:
+        lines.append(f"Uploaded files ({len(files)}):")
+        for f in files:
+            lines.append(f"  - {f.name}" + (f": {f.summary[:120]}" if f.summary else ""))
+
+    project_data = "\n".join(lines)
+
+    prompt = (
+        "You are an AI consultant assistant. Based on the project data below, "
+        "generate a concise context summary of 3-5 bullet points that capture: "
+        "the project's core objective, current stage, key risks or open questions, "
+        "critical milestones, and important context a consultant should always remember. "
+        "Each bullet should be specific and actionable, not generic. "
+        "Return ONLY the bullet points, one per line, starting with '•'. "
+        "Write in the same language as the project name (Chinese if Chinese, English if English).\n\n"
+        f"Project data:\n{project_data}"
+    )
+
+    try:
+        raw = await _complete(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+        )
+        summary = raw.strip()
+        project.context_summary = summary
+        project.updated_at = datetime.utcnow()
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        return {"context_summary": summary}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Context generation failed: {e}")
+
+
+# ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
+
+@router.post("/{project_id}/notes")
+def save_project_note(project_id: int, body: NoteBody, session: Session = Depends(get_session)):
+    """Append or overwrite project notes."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    if body.append and project.notes:
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        project.notes = f"{project.notes}\n\n---\n[{timestamp}]\n{body.content}"
+    else:
+        project.notes = body.content
+
+    project.updated_at = datetime.utcnow()
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    return {"notes": project.notes}

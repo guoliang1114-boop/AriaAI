@@ -812,6 +812,33 @@ final class DataStore: ObservableObject {
             return e.localizedDescription
         } catch { return error.localizedDescription }
     }
+
+    // MARK: - V1.1 Project context & notes
+
+    @discardableResult
+    func generateProjectContext(apiProjectId: Int) async -> String? {
+        struct Response: Decodable { let contextSummary: String }
+        do {
+            let res: Response = try await APIClient.shared.post("/projects/\(apiProjectId)/generate-context", body: EmptyBody())
+            // Refresh projects so the new contextSummary is visible immediately
+            await loadProjects()
+            return res.contextSummary
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func saveProjectNote(apiProjectId: Int, content: String, append: Bool = true) async -> Bool {
+        struct Body: Encodable { let content: String; let append: Bool }
+        do {
+            try await APIClient.shared.post("/projects/\(apiProjectId)/notes", body: Body(content: content, append: append))
+            await loadProjects()
+            return true
+        } catch {
+            return false
+        }
+    }
 }
 
 private struct EmptyBody: Encodable {}
