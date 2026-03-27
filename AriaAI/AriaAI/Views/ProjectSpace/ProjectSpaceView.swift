@@ -2791,7 +2791,12 @@ struct InlineChatBubble: View {
                     .padding(.top, 2)
                     .frame(width: 26)
 
-                    MarkdownView(text: message.content)
+                    markdownAsSingleText(message.content)
+                        .font(TextStyle.bodyMD)
+                        .foregroundColor(.onSurface)
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -2846,7 +2851,7 @@ struct InlineChatBubble: View {
 
     private func copyContent() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.content, forType: .string)
+        NSPasteboard.general.setString(markdownToPlainText(message.content), forType: .string)
         withAnimation(.easeInOut(duration: 0.15)) { isCopied = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation(.easeInOut(duration: 0.15)) { isCopied = false }

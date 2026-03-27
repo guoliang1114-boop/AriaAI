@@ -32,13 +32,13 @@ struct MarkdownView: View {
 
     private func blockSpacing(_ block: MDBlock, next: MDBlock?) -> CGFloat {
         switch block {
-        case .heading: return 10
-        case .table:   return 14
-        case .divider: return 12
+        case .heading: return 6
+        case .table:   return 8
+        case .divider: return 8
         default:
             switch next {
-            case .heading: return 14
-            default:       return 7
+            case .heading: return 8
+            default:       return 4
             }
         }
     }
@@ -47,79 +47,82 @@ struct MarkdownView: View {
 
     @ViewBuilder
     private func blockView(_ block: MDBlock) -> some View {
-        switch block {
+        Group {
+            switch block {
 
-        // ── Headings ────────────────────────────────────────────────────────
-        case .heading(let level, let raw):
-            headingView(level: level, text: raw)
+            // ── Headings ────────────────────────────────────────────────────────
+            case .heading(let level, let raw):
+                headingView(level: level, text: raw)
 
-        // ── Paragraph ───────────────────────────────────────────────────────
-        case .paragraph(let raw):
-            inlineText(raw)
-                .font(TextStyle.bodyMD)
-                .foregroundColor(.onSurface)
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
-
-        // ── Code block ──────────────────────────────────────────────────────
-        case .codeBlock(let lang, let code):
-            codeBlockView(lang: lang, code: code)
-
-        // ── Bullet ──────────────────────────────────────────────────────────
-        case .bulletItem(let indent, let raw):
-            HStack(alignment: .top, spacing: 8) {
-                Text(indent == 0 ? "•" : "◦")
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary500)
-                    .frame(width: 14)
-                    .padding(.top, 1)
+            // ── Paragraph ───────────────────────────────────────────────────────
+            case .paragraph(let raw):
                 inlineText(raw)
                     .font(TextStyle.bodyMD)
                     .foregroundColor(.onSurface)
-                    .lineSpacing(4)
+                    .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.leading, CGFloat(indent) * 16)
 
-        // ── Numbered ────────────────────────────────────────────────────────
-        case .numberedItem(let n, let indent, let raw):
-            HStack(alignment: .top, spacing: 8) {
-                Text("\(n).")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.primary500)
-                    .frame(minWidth: 18, alignment: .trailing)
-                    .padding(.top, 1)
-                inlineText(raw)
-                    .font(TextStyle.bodyMD)
-                    .foregroundColor(.onSurface)
+            // ── Code block ──────────────────────────────────────────────────────
+            case .codeBlock(let lang, let code):
+                codeBlockView(lang: lang, code: code)
+
+            // ── Bullet ──────────────────────────────────────────────────────────
+            case .bulletItem(let indent, let raw):
+                HStack(alignment: .top, spacing: 8) {
+                    Text(indent == 0 ? "•" : "◦")
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary500)
+                        .frame(width: 14)
+                        .padding(.top, 1)
+                    inlineText(raw)
+                        .font(TextStyle.bodyMD)
+                        .foregroundColor(.onSurface)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.leading, CGFloat(indent) * 16)
+
+            // ── Numbered ────────────────────────────────────────────────────────
+            case .numberedItem(let n, let indent, let raw):
+                HStack(alignment: .top, spacing: 8) {
+                    Text("\(n).")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary500)
+                        .frame(minWidth: 18, alignment: .trailing)
+                        .padding(.top, 1)
+                    inlineText(raw)
+                        .font(TextStyle.bodyMD)
+                        .foregroundColor(.onSurface)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.leading, CGFloat(indent) * 16)
+
+            // ── Table ────────────────────────────────────────────────────────────
+            case .table(let headers, let aligns, let rows):
+                MarkdownTableView(headers: headers, aligns: aligns, rows: rows)
+
+            // ── Divider ──────────────────────────────────────────────────────────
+            case .divider:
+                Divider().opacity(0.35)
+
+            // ── Blockquote ───────────────────────────────────────────────────────
+            case .blockquote(let raw):
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.primary400)
+                        .frame(width: 3)
+                    inlineText(raw)
+                        .font(TextStyle.bodyMD)
+                        .foregroundColor(.onSurfaceVariant)
                     .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
             }
-            .padding(.leading, CGFloat(indent) * 16)
-
-        // ── Table ────────────────────────────────────────────────────────────
-        case .table(let headers, let aligns, let rows):
-            MarkdownTableView(headers: headers, aligns: aligns, rows: rows)
-
-        // ── Divider ──────────────────────────────────────────────────────────
-        case .divider:
-            Divider().opacity(0.35)
-
-        // ── Blockquote ───────────────────────────────────────────────────────
-        case .blockquote(let raw):
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.primary400)
-                    .frame(width: 3)
-                inlineText(raw)
-                    .font(TextStyle.bodyMD)
-                    .foregroundColor(.onSurfaceVariant)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 2)
         }
+        .textSelection(.enabled)
     }
 
     // MARK: - Heading view
@@ -128,40 +131,19 @@ struct MarkdownView: View {
     private func headingView(level: Int, text: String) -> some View {
         switch level {
         case 1:
-            VStack(alignment: .leading, spacing: 5) {
-                Text(text)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.onSurface)
-                    .lineSpacing(2)
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.primary500, Color.primary500.opacity(0)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(height: 1.5)
-            }
-            .padding(.top, 4)
+            Text(text)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.onSurface)
 
         case 2:
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.primary500)
-                    .frame(width: 3, height: 18)
-                Text(text)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.onSurface)
-            }
-            .padding(.top, 2)
+            Text(text)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.onSurface)
 
         default:
             Text(text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.onSurfaceVariant)
-                .tracking(0.3)
-                .padding(.top, 1)
         }
     }
 
@@ -170,44 +152,31 @@ struct MarkdownView: View {
     @ViewBuilder
     private func codeBlockView(lang: String, code: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header bar
-            HStack {
-                HStack(spacing: 5) {
-                    ForEach([Color(red: 1, green: 0.37, blue: 0.34),
-                             Color(red: 1, green: 0.73, blue: 0.18),
-                             Color(red: 0.18, green: 0.78, blue: 0.44)], id: \.self) { c in
-                        Circle().fill(c).frame(width: 8, height: 8)
-                    }
+            // 简化的代码块头部
+            if !lang.isEmpty {
+                HStack {
+                    Text(lang.lowercased())
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.onSurfaceVariant.opacity(0.6))
+                    Spacer()
                 }
-                Spacer()
-                if !lang.isEmpty {
-                    Text(lang.uppercased())
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.onSurfaceVariant)
-                        .tracking(0.8)
-                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.surfaceContainerHighest.opacity(0.5))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.surfaceContainerHighest)
-
-            Divider().opacity(0.4)
 
             // Code content
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundColor(Color(red: 0.18, green: 0.55, blue: 0.34))
-                    .padding(14)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(Color(red: 0.2, green: 0.5, blue: 0.3))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(Color(red: 0.97, green: 0.98, blue: 0.97))
+            .background(Color.surfaceContainerHighest.opacity(0.3))
         }
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .strokeBorder(Color.outlineVariant.opacity(0.4), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     }
 
     // MARK: - Inline markdown
@@ -239,36 +208,35 @@ private struct MarkdownTableView: View {
                 GridRow {
                     ForEach(Array(headers.enumerated()), id: \.offset) { idx, header in
                         Text(header)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.onSurfaceVariant)
-                            .tracking(0.5)
-                            .lineLimit(2)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .frame(minWidth: 60, minHeight: 38, alignment: alignment(for: idx))
-                            .background(Color.surfaceContainerHighest)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(minWidth: 50, minHeight: 28, alignment: alignment(for: idx))
+                            .background(Color.surfaceContainerHighest.opacity(0.7))
                     }
                 }
 
                 Rectangle()
-                    .fill(Color.outlineVariant.opacity(0.6))
-                    .frame(height: 1)
+                    .fill(Color.outlineVariant.opacity(0.4))
+                    .frame(height: 0.5)
 
                 // Data rows
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                     GridRow {
                         ForEach(0..<headers.count, id: \.self) { col in
                             cellText(col < row.count ? row[col] : "")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundColor(.onSurface)
-                                .lineSpacing(2)
+                                .lineSpacing(1)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .frame(minWidth: 60, minHeight: 36, alignment: alignment(for: col))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .frame(minWidth: 50, minHeight: 28, alignment: alignment(for: col))
                                 .background(rowIdx % 2 == 0
                                     ? Color.clear
-                                    : Color.primary600.opacity(0.025))
+                                    : Color.primary600.opacity(0.02))
                         }
                     }
 
@@ -279,15 +247,10 @@ private struct MarkdownTableView: View {
                     }
                 }
             }
-            .background(Color.outlineVariant.opacity(0.35)) // shows through 1pt gaps → column lines
-            .fixedSize()                                     // size to content, not parent width
+            .background(Color.outlineVariant.opacity(0.25))
+            .fixedSize()
         }
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .strokeBorder(Color.outlineVariant.opacity(0.5), lineWidth: 1)
-        )
-        .shadow(color: Color.primary600.opacity(0.04), radius: 8, x: 0, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     }
 
     private func cellText(_ raw: String) -> Text {
@@ -484,4 +447,98 @@ private func parseNumberedItem(_ line: String) -> (Int, String)? {
 
 private extension Color {
     static var primary400: Color { Color(red: 0.46, green: 0.62, blue: 0.98) }
+}
+
+// MARK: - Plain text conversion (for clipboard)
+
+/// Converts markdown content to clean plain text suitable for pasting.
+/// Strips syntax markers, preserves structure with indentation and bullets.
+func markdownToPlainText(_ markdown: String) -> String {
+    let blocks = parse(markdown)
+    var lines: [String] = []
+    for block in blocks {
+        switch block {
+        case .heading(_, let text):
+            lines.append(stripInline(text))
+        case .paragraph(let text):
+            lines.append(stripInline(text))
+        case .codeBlock(_, let code):
+            lines.append(code)
+        case .bulletItem(let indent, let text):
+            lines.append(String(repeating: "  ", count: indent) + "• " + stripInline(text))
+        case .numberedItem(let n, let indent, let text):
+            lines.append(String(repeating: "  ", count: indent) + "\(n). " + stripInline(text))
+        case .table(let headers, _, let rows):
+            lines.append(headers.joined(separator: "\t"))
+            for row in rows { lines.append(row.joined(separator: "\t")) }
+        case .divider:
+            lines.append("———")
+        case .blockquote(let text):
+            lines.append(stripInline(text))
+        }
+    }
+    return lines.joined(separator: "\n")
+}
+
+private func stripInline(_ text: String) -> String {
+    var s = text
+    // **bold** / __bold__
+    s = s.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "$1", options: .regularExpression)
+    s = s.replacingOccurrences(of: #"__(.+?)__"#,    with: "$1", options: .regularExpression)
+    // *italic* / _italic_
+    s = s.replacingOccurrences(of: #"\*(.+?)\*"#,    with: "$1", options: .regularExpression)
+    s = s.replacingOccurrences(of: #"_(.+?)_"#,      with: "$1", options: .regularExpression)
+    // `code`
+    s = s.replacingOccurrences(of: #"`(.+?)`"#,      with: "$1", options: .regularExpression)
+    // [link](url) → link
+    s = s.replacingOccurrences(of: #"\[(.+?)\]\(.+?\)"#, with: "$1", options: .regularExpression)
+    return s
+}
+
+// MARK: - Single-Text rendering (enables cross-block mouse selection)
+
+/// Renders markdown as ONE concatenated Text view so the user can
+/// drag-select across paragraphs, bullet points, headings, etc.
+func markdownAsSingleText(_ content: String) -> Text {
+    let blocks = parse(content)
+    var result = Text("")
+    for (i, block) in blocks.enumerated() {
+        if i > 0 { result = result + Text("\n") }
+        switch block {
+        case .heading(let level, let raw):
+            let t: Text
+            switch level {
+            case 1:  t = Text(inlineAttr(raw)).font(.system(size: 16, weight: .bold))
+            case 2:  t = Text(inlineAttr(raw)).font(.system(size: 14, weight: .semibold))
+            default: t = Text(inlineAttr(raw)).font(.system(size: 12, weight: .semibold))
+            }
+            result = result + t
+        case .paragraph(let raw):
+            result = result + Text(inlineAttr(raw))
+        case .bulletItem(let indent, let raw):
+            let pad = String(repeating: "  ", count: indent)
+            result = result + Text(pad + "• ") + Text(inlineAttr(raw))
+        case .numberedItem(let n, let indent, let raw):
+            let pad = String(repeating: "  ", count: indent)
+            result = result + Text(pad + "\(n). ") + Text(inlineAttr(raw))
+        case .codeBlock(_, let code):
+            result = result + Text(code).font(.system(.body, design: .monospaced))
+        case .blockquote(let raw):
+            result = result + Text(inlineAttr(raw)).italic()
+        case .table(let headers, _, let rows):
+            let tableText = ([headers] + rows).map { $0.joined(separator: "  |  ") }.joined(separator: "\n")
+            result = result + Text(tableText).font(.system(.body, design: .monospaced))
+        case .divider:
+            result = result + Text("──────────────────────")
+        }
+    }
+    return result
+}
+
+private func inlineAttr(_ raw: String) -> AttributedString {
+    if let attr = try? AttributedString(
+        markdown: raw,
+        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+    ) { return attr }
+    return AttributedString(raw)
 }

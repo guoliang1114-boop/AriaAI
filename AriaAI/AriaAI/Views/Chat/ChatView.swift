@@ -101,6 +101,8 @@ struct ChatView: View {
     @State private var currentConversationId: Int? = nil
     @State private var selectedSkillId: Int? = nil
     @State private var isLoadingHistory = false
+    @State private var hasLoadedInitially = false  // 标记是否完成初始加载
+    @State private var isNewConversation = false   // 标记是否是新建对话（显示欢迎页）
 
     // Export
     @State private var showExportPanel = false
@@ -192,17 +194,18 @@ struct ChatView: View {
                 // Messages
                 ScrollViewReader { proxy in
                     ZStack {
-                        if messages.isEmpty && !isStreaming && !isLoadingHistory {
+                        // 只有新建对话时显示欢迎页面，加载已有对话不显示
+                        if isNewConversation && !isStreaming {
                             welcomeView
                         } else {
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: Spacing.xl) {
+                                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
                                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                                         MessageRow(
                                             message: message,
                                             onCopy: {
                                                 NSPasteboard.general.clearContents()
-                                                NSPasteboard.general.setString(message.content, forType: .string)
+                                                NSPasteboard.general.setString(markdownToPlainText(message.content), forType: .string)
                                             },
                                             onRetry: {
                                                 guard message.role == .assistant else { return }
@@ -272,6 +275,7 @@ struct ChatView: View {
             if currentConversationId == nil, let first = dataStore.conversations.first {
                 await loadConversation(first)
             }
+            hasLoadedInitially = true
         }
         .onChange(of: appState.pendingNewConversation) {
             if appState.pendingNewConversation {
@@ -285,6 +289,7 @@ struct ChatView: View {
                 currentConversationId = convId
                 messages = []
                 inputText = ""
+                isNewConversation = true  // 通过按钮新建对话，显示欢迎页
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NewConversation"))) { _ in
@@ -550,6 +555,7 @@ struct ChatView: View {
     private func loadConversation(_ conv: APIConversation) async {
         guard currentConversationId != conv.id else { return }
         isLoadingHistory = true
+        isNewConversation = false  // 加载已有对话，不显示欢迎页
         currentConversationId = conv.id
         let apiMessages = await dataStore.loadMessages(conversationId: conv.id)
         messages = apiMessages.map { $0.toLocal() }
@@ -557,28 +563,20 @@ struct ChatView: View {
     }
 
     private func newConversation() async {
-        // Clear current state but keep UI responsive
         messages = []
         inputText = ""
         selectedSkillId = nil
         selectedMode = nil
         selectedDocIds = []
-        
-        // Start conversation creation (optimistically inserts into list immediately)
-        let createTask = Task { await dataStore.createConversation() }
-        
-        // Immediately select the optimistic conversation from the list
-        // This ensures list and detail appear simultaneously
-        if let firstConv = dataStore.conversations.first {
-            currentConversationId = firstConv.id
-        }
-        
-        // Wait for API to complete and get real conversation
-        if let conv = await createTask.value {
-            // Update to the real conversation ID if it changed
-            if currentConversationId != conv.id {
-                currentConversationId = conv.id
-            }
+        isNewConversation = true
+
+        // Insert optimistic entry synchronously, then select it immediately
+        let tempConv = dataStore.createOptimisticConversation()
+        currentConversationId = tempConv.id
+
+        // Finalize with API; update to real ID when done
+        if let conv = await dataStore.finalizeConversation(tempId: tempConv.id) {
+            currentConversationId = conv.id
         }
     }
 
@@ -2238,12 +2236,14 @@ struct MessageRow: View {
             }
             
             HStack {
-                Spacer(minLength: 100)
+                Spacer(minLength: 60)
                 Text(message.content)
-                    .font(TextStyle.bodyMD).foregroundColor(.onSurface)
-                    .padding(.horizontal, Spacing.lg).padding(.vertical, Spacing.md)
-                    .background(Color.surfaceContainerHigh)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                    .font(TextStyle.bodyMD)
+                    .foregroundColor(.onSurface)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .background(Color.surfaceContainerHigh.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
                     .textSelection(.enabled)
                     .contextMenu {
                         Button {
@@ -2258,89 +2258,82 @@ struct MessageRow: View {
     
     @ViewBuilder
     private func attachmentTag(_ attachment: ChatAttachment) -> some View {
-        let (icon, label, color): (String, String, Color) = {
+        let (icon, label): (String, String) = {
             switch attachment {
             case .skill(let id):
                 if let skill = dataStore.apiSkills.first(where: { $0.id == id }) {
-                    return ("puzzlepiece.extension", skill.localizedName(for: lang), .primary500)
+                    return ("puzzlepiece.extension", skill.localizedName(for: lang))
                 }
-                return ("puzzlepiece.extension", "Skill", .primary500)
+                return ("puzzlepiece.extension", "Skill")
             case .document(let id):
                 if let doc = dataStore.apiDocuments.first(where: { $0.id == id }) {
-                    return ("doc.text", doc.name, .secondary)
+                    return ("doc.text", doc.name)
                 }
-                return ("doc.text", "Doc", .secondary)
+                return ("doc.text", "Doc")
             case .file(_):
-                return ("paperclip", "File", .secondary)
+                return ("paperclip", "File")
             case .project(_):
-                return ("folder", "Project", .secondary)
+                return ("folder", "Project")
             }
         }()
         
         HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 9))
-            Text(label).font(TextStyle.labelSM)
+            Image(systemName: icon).font(.system(size: 8))
+            Text(label).font(.system(size: 10))
         }
-        .foregroundColor(color)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(color.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.pill))
+        .foregroundColor(.onSurfaceVariant.opacity(0.7))
     }
 
     @ViewBuilder
     private var assistantMessage: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [.primary600, .primary500], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 32, height: 32)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
-            }
-            .frame(width: 32)
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            // 简化 AI 头像
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.primary500)
+                .frame(width: 24, height: 24)
 
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                MarkdownView(text: message.content)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                // 消息内容 - 支持文本选择
+                markdownAsSingleText(message.content)
+                    .font(TextStyle.bodyMD)
+                    .foregroundColor(.onSurface)
+                    .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let cards = message.cards {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Spacing.md) {
-                        ForEach(cards) { InsightCardView(card: $0) }
-                    }
-                }
-
-                HStack(spacing: Spacing.sm) {
-                    // Copy
-                    HStack(spacing: 4) {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
-                        Text(copied ? lang.t("已复制", "Copied") : lang.t("复制", "Copy"))
-                            .font(TextStyle.labelSM)
-                    }
-                    .foregroundColor(copied ? .statusActive : .onSurfaceVariant)
-                    .padding(.horizontal, Spacing.sm).padding(.vertical, 4)
-                    .background(Color.surfaceContainerHigh)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .contentShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .onTapGesture {
+                // 操作按钮 - 简化样式
+                HStack(spacing: Spacing.md) {
+                    Button {
                         onCopy()
                         copied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10))
+                            Text(copied ? lang.t("已复制", "Copied") : lang.t("复制", "Copy"))
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(copied ? .statusActive : .onSurfaceVariant.opacity(0.7))
                     }
+                    .buttonStyle(.plain)
 
-                    // Retry
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 11))
-                        Text(lang.t("重试", "Retry")).font(TextStyle.labelSM)
+                    Button {
+                        onRetry()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                            Text(lang.t("重试", "Retry")).font(.system(size: 11))
+                        }
+                        .foregroundColor(.onSurfaceVariant.opacity(0.7))
                     }
-                    .foregroundColor(.onSurfaceVariant)
-                    .padding(.horizontal, Spacing.sm).padding(.vertical, 4)
-                    .background(Color.surfaceContainerHigh)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .contentShape(RoundedRectangle(cornerRadius: Radius.md))
-                    .onTapGesture { onRetry() }
+                    .buttonStyle(.plain)
 
                     Spacer()
                 }
+                .padding(.top, Spacing.xs)
             }
             .contextMenu {
                 Button {
