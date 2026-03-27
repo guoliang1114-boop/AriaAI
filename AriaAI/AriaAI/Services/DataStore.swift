@@ -49,9 +49,14 @@ final class DataStore: ObservableObject {
     func loadProjects() async {
         do {
             let raw: [APIProject] = try await APIClient.shared.get("/projects")
+            print("[DEBUG] Loaded \(raw.count) projects")
+            for p in raw {
+                print("[DEBUG] Project id=\(p.id), name='\(p.name)', contextSummary length=\(p.contextSummary.count)")
+            }
             apiProjects = raw
             projects = raw.map { $0.toLocal() }
         } catch {
+            print("[DEBUG] loadProjects error: \(error)")
             self.error = error.localizedDescription
         }
     }

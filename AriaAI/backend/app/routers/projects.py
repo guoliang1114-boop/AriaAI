@@ -528,13 +528,19 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
             max_tokens=500,
         )
         summary = raw.strip()
+        print(f"[DEBUG] Generated summary for project {project_id}: {summary[:100]}...")
         project.context_summary = summary
         project.updated_at = datetime.utcnow()
         session.add(project)
         session.commit()
+        print(f"[DEBUG] Committed project {project_id}, context_summary={repr(project.context_summary[:100] if project.context_summary else None)}")
         session.refresh(project)
+        print(f"[DEBUG] Refreshed project {project_id}, context_summary={repr(project.context_summary[:100] if project.context_summary else None)}")
         return {"context_summary": summary}
     except Exception as e:
+        import traceback
+        print(f"[DEBUG] Error in generate_project_context: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Context generation failed: {e}")
 
 
