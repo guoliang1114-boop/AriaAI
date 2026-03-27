@@ -1350,6 +1350,14 @@ struct ProjectSpaceView: View {
         let notes = apiProj?.notes ?? ""
         let hasSummary = !summary.isEmpty
         let hasNotes = !notes.isEmpty
+        
+        // Debug
+        print("[DEBUG] contextCard: apiProjects.count=\(dataStore.apiProjects.count), apiProjectId=\(apiProjectId ?? -1)")
+        if let ap = apiProj {
+            print("[DEBUG] Found project id=\(ap.id), contextSummary length=\(ap.contextSummary.count)")
+        } else {
+            print("[DEBUG] Project not found by name '\(project.name)'")
+        }
 
         return CardContainer {
             VStack(alignment: .leading, spacing: 0) {

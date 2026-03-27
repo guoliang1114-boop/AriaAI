@@ -259,7 +259,7 @@ extension APIProject {
             contextFreshness: contextFreshness,
             filesCount: 0,
             taskType: .deepTask,
-            contextSummary: [],
+            contextSummary: contextSummary.components(separatedBy: "\n").filter { !$0.isEmpty },
             milestones: [],
             files: []
         )

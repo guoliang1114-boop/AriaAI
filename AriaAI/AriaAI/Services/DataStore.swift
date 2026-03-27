@@ -820,10 +820,16 @@ final class DataStore: ObservableObject {
         struct Response: Decodable { let contextSummary: String }
         do {
             let res: Response = try await APIClient.shared.post("/projects/\(apiProjectId)/generate-context", body: EmptyBody())
+            print("[DEBUG] Generated context: \(res.contextSummary.prefix(100))...")
             // Refresh projects so the new contextSummary is visible immediately
             await loadProjects()
+            // Verify the project was updated (check apiProjects since projects has UUID ids)
+            if let updated = apiProjects.first(where: { $0.id == apiProjectId }) {
+                print("[DEBUG] Project contextSummary after reload: '\(updated.contextSummary.prefix(100))...'")
+            }
             return res.contextSummary
         } catch {
+            print("[DEBUG] generateProjectContext error: \(error)")
             return nil
         }
     }
