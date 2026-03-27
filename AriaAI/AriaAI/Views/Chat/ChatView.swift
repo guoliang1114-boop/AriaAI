@@ -259,11 +259,8 @@ struct ChatView: View {
                             .background(.surfaceContainerLowest)
                             .clipShape(RoundedRectangle(cornerRadius: Radius.md))
                             .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
                         }
                     }
-                    .animation(.easeInOut(duration: 0.25), value: messages.isEmpty && !isStreaming)
-                    .animation(.easeInOut(duration: 0.2), value: isLoadingHistory)
                 }
 
                 inputBar
