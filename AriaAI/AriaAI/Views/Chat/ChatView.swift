@@ -133,10 +133,8 @@ struct ChatView: View {
             // Left — conversation history sidebar
             if sidebarCollapsed {
                 collapsedSidebarStrip
-                    .transition(.move(edge: .leading).combined(with: .opacity))
             } else {
                 conversationSidebar
-                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
             Divider()
@@ -147,9 +145,7 @@ struct ChatView: View {
                 HStack(spacing: Spacing.xs) {
                     // 折叠/展开按钮
                     Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            sidebarCollapsed.toggle()
-                        }
+                        sidebarCollapsed.toggle()
                     } label: {
                         Image(systemName: sidebarCollapsed ? "sidebar.left" : "sidebar.left")
                             .font(.system(size: 13, weight: .medium))
@@ -173,7 +169,6 @@ struct ChatView: View {
                             ProgressView().controlSize(.mini)
                             Text(lang.t("思考中…", "Thinking…")).font(TextStyle.labelSM).foregroundColor(.primary500)
                         }
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     // Export button
                     Button { showExportPanel = true } label: {
@@ -193,14 +188,12 @@ struct ChatView: View {
                 .padding(.vertical, Spacing.sm)
                 .background(.surfaceContainerLowest)
                 .overlay(Divider(), alignment: .bottom)
-                .animation(.easeInOut(duration: 0.2), value: isStreaming)
 
                 // Messages
                 ScrollViewReader { proxy in
                     ZStack {
                         if messages.isEmpty && !isStreaming && !isLoadingHistory {
                             welcomeView
-                                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
                         } else {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: Spacing.xl) {
@@ -225,16 +218,10 @@ struct ChatView: View {
                                             }
                                         )
                                         .id(message.id)
-                                        .transition(.asymmetric(
-                                            insertion: .move(edge: message.role == .user ? .trailing : .leading)
-                                                .combined(with: .opacity),
-                                            removal: .opacity
-                                        ))
                                     }
                                     if isStreaming && !streamingText.isEmpty {
                                         streamingRow
                                             .id("streaming")
-                                            .transition(.move(edge: .leading).combined(with: .opacity))
                                     }
                                     
                                     // 输出被截断提示
@@ -244,25 +231,19 @@ struct ChatView: View {
                                     }
                                 }
                                 .padding(Spacing.xxl)
-                                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: messages.count)
                             }
                             .background(.surfaceBase)
                             .onChange(of: messages.count) {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                    proxy.scrollTo(messages.last?.id, anchor: .bottom)
-                                }
+                                proxy.scrollTo(messages.last?.id, anchor: .bottom)
                             }
                             .onChange(of: streamingText) {
                                 proxy.scrollTo("streaming", anchor: .bottom)
                             }
                             .onChange(of: isOutputTruncated) { _, newValue in
                                 if newValue {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                        proxy.scrollTo("truncated", anchor: .bottom)
-                                    }
+                                    proxy.scrollTo("truncated", anchor: .bottom)
                                 }
                             }
-                            .transition(.opacity)
                         }
 
                         if isLoadingHistory {
@@ -343,15 +324,11 @@ struct ChatView: View {
                         .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.onSurface)
                         .opacity(welcomeHeroVisible ? 1 : 0)
-                        .offset(y: welcomeHeroVisible ? 0 : 12)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.08), value: welcomeHeroVisible)
 
                     Text(lang.t("本地运行 · 自主规划 · 安全可控", "Local · Autonomous · Secure"))
                         .font(TextStyle.bodySM)
                         .foregroundColor(.onSurfaceVariant)
                         .opacity(welcomeHeroVisible ? 1 : 0)
-                        .offset(y: welcomeHeroVisible ? 0 : 8)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.14), value: welcomeHeroVisible)
                 }
                 .padding(.top, Spacing.xxl)
 
@@ -369,23 +346,13 @@ struct ChatView: View {
                                 .background(Color.primary500)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
-                        .opacity(welcomeCardsVisible ? 1 : 0)
-                        .offset(y: welcomeCardsVisible ? 0 : 10)
-                        .animation(.spring(response: 0.45, dampingFraction: 0.8).delay(0.05), value: welcomeCardsVisible)
 
                         LazyVGrid(
                             columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
                             spacing: Spacing.sm
                         ) {
-                            ForEach(Array(workflowSkills.enumerated()), id: \.element.id) { idx, skill in
+                            ForEach(workflowSkills) { skill in
                                 welcomeWorkflowCard(skill)
-                                    .opacity(welcomeCardsVisible ? 1 : 0)
-                                    .offset(y: welcomeCardsVisible ? 0 : 16)
-                                    .animation(
-                                        .spring(response: 0.45, dampingFraction: 0.78)
-                                        .delay(0.1 + Double(idx) * 0.06),
-                                        value: welcomeCardsVisible
-                                    )
                             }
                         }
                     }
@@ -397,23 +364,13 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: Spacing.sm) {
                         Text(lang.t("快速启动", "Quick Start"))
                             .font(TextStyle.labelSM).foregroundColor(.onSurfaceVariant).tracking(0.5)
-                            .opacity(welcomeCardsVisible ? 1 : 0)
-                            .offset(y: welcomeCardsVisible ? 0 : 8)
-                            .animation(.spring(response: 0.45, dampingFraction: 0.8).delay(0.22), value: welcomeCardsVisible)
 
                         LazyVGrid(
                             columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
                             spacing: Spacing.sm
                         ) {
-                            ForEach(Array(regularSkills.enumerated()), id: \.element.id) { idx, skill in
+                            ForEach(regularSkills) { skill in
                                 welcomeSkillCard(skill)
-                                    .opacity(welcomeCardsVisible ? 1 : 0)
-                                    .offset(y: welcomeCardsVisible ? 0 : 16)
-                                    .animation(
-                                        .spring(response: 0.45, dampingFraction: 0.78)
-                                        .delay(0.26 + Double(idx) * 0.05),
-                                        value: welcomeCardsVisible
-                                    )
                             }
                         }
                     }
@@ -578,13 +535,8 @@ struct ChatView: View {
                                     }
                                 }
                             )
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .leading).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
                         }
                     }
-                    .animation(.spring(response: 0.35, dampingFraction: 0.82), value: dataStore.conversations.count)
                 }
             }
         }
