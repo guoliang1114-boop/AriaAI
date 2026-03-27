@@ -104,8 +104,20 @@ struct SidebarView: View {
 
             // New Chat Button
             Button {
-                appState.selectedScreen = .chat
-                appState.pendingNewConversation = true
+                // Create optimistic conversation immediately for instant feedback
+                Task {
+                    let tempConv = dataStore.createOptimisticConversation()
+                    await MainActor.run {
+                        appState.selectedScreen = .chat
+                        appState.pendingConversationId = tempConv.id
+                    }
+                    // Background API call
+                    if let realConv = await dataStore.finalizeConversation(tempId: tempConv.id) {
+                        await MainActor.run {
+                            appState.pendingConversationId = realConv.id
+                        }
+                    }
+                }
             } label: {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: "plus").font(.system(size: 12, weight: .bold))

@@ -295,6 +295,14 @@ struct ChatView: View {
                 Task { await newConversation() }
             }
         }
+        .onChange(of: appState.pendingConversationId) {
+            if let convId = appState.pendingConversationId {
+                appState.pendingConversationId = nil
+                currentConversationId = convId
+                messages = []
+                inputText = ""
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NewConversation"))) { _ in
             Task { await newConversation() }
         }

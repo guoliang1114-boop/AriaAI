@@ -53,6 +53,8 @@ class AppStateManager: ObservableObject {
     @Published var pendingChatInput: String? = nil
     /// Triggers ChatView to create a new conversation on appear
     @Published var pendingNewConversation: Bool = false
+    /// Conversation ID to select when Chat opens (set by SidebarView for instant new chat)
+    @Published var pendingConversationId: Int? = nil
     /// UI language preference, persisted in UserDefaults
     @Published var language: AppLanguage {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
