@@ -36,9 +36,9 @@
 
 当前关键实现文件：
 
-- `ConsultantAI/backend/app/services/rag.py`
-- `ConsultantAI/backend/app/routers/knowledge.py`
-- `ConsultantAI/backend/app/services/parser.py`
+- `AriaAI/backend/app/services/rag.py`
+- `AriaAI/backend/app/routers/knowledge.py`
+- `AriaAI/backend/app/services/parser.py`
 
 当前配置：
 
