@@ -554,12 +554,25 @@ struct ChatView: View {
 
     private func loadConversation(_ conv: APIConversation) async {
         guard currentConversationId != conv.id else { return }
-        isLoadingHistory = true
-        isNewConversation = false  // 加载已有对话，不显示欢迎页
+        isNewConversation = false
         currentConversationId = conv.id
-        let apiMessages = await dataStore.loadMessages(conversationId: conv.id)
-        messages = apiMessages.map { $0.toLocal() }
-        isLoadingHistory = false
+
+        // Show cached messages instantly if available
+        if let cached = dataStore.cachedMessages(conversationId: conv.id) {
+            messages = cached.map { $0.toLocal() }
+            // Silently refresh in background
+            Task {
+                let fresh = await dataStore.loadMessages(conversationId: conv.id)
+                if currentConversationId == conv.id {
+                    messages = fresh.map { $0.toLocal() }
+                }
+            }
+        } else {
+            isLoadingHistory = true
+            let apiMessages = await dataStore.loadMessages(conversationId: conv.id)
+            messages = apiMessages.map { $0.toLocal() }
+            isLoadingHistory = false
+        }
     }
 
     private func newConversation() async {
@@ -1333,8 +1346,11 @@ struct ChatView: View {
                         generatedFiles.append(file)
                         if selectedSkillId != nil { skillStage = .done }
                     }
-                case .title:
-                    break  // title updates handled in ProjectSpaceView
+                case .title(let t):
+                    if let convId = currentConversationId,
+                       let idx = dataStore.conversations.firstIndex(where: { $0.id == convId }) {
+                        dataStore.conversations[idx].title = t
+                    }
                 }
             }
         } catch {
@@ -1398,8 +1414,6 @@ struct ChatView: View {
         if selectedSkillId != nil && skillStage != .done && !isOutputTruncated {
             skillStage = .idle
         }
-
-        await dataStore.loadConversations()
     }
     
     /// 继续生成被截断的输出

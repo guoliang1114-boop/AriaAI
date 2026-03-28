@@ -26,6 +26,9 @@ final class DataStore: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var error: String? = nil
 
+    // Message cache: conversationId → messages (for instant re-open)
+    private var messageCache: [Int: [APIMessage]] = [:]
+
     // MARK: - Bootstrap
 
     func loadAll() async {
@@ -134,7 +137,6 @@ final class DataStore: ObservableObject {
             if let idx = conversations.firstIndex(where: { $0.id == tempId }) {
                 conversations[idx] = conv
             }
-            Task { await loadConversations() }
             return conv
         } catch {
             conversations.removeAll { $0.id == tempId }
@@ -150,21 +152,36 @@ final class DataStore: ObservableObject {
     }
 
     func deleteConversation(id: Int) async {
+        // Optimistic: remove locally first for instant UI response
+        let removed = conversations.first { $0.id == id }
+        conversations.removeAll { $0.id == id }
+        messageCache.removeValue(forKey: id)
         do {
             try await APIClient.shared.delete("/chat/conversations/\(id)")
-            await loadConversations()
         } catch {
+            // Restore on failure
+            if let conv = removed { conversations.insert(conv, at: 0) }
             self.error = error.localizedDescription
         }
     }
 
+    func cachedMessages(conversationId: Int) -> [APIMessage]? {
+        messageCache[conversationId]
+    }
+
     func loadMessages(conversationId: Int) async -> [APIMessage] {
         do {
-            return try await APIClient.shared.get("/chat/conversations/\(conversationId)/messages")
+            let msgs: [APIMessage] = try await APIClient.shared.get("/chat/conversations/\(conversationId)/messages")
+            messageCache[conversationId] = msgs
+            return msgs
         } catch {
             self.error = error.localizedDescription
-            return []
+            return messageCache[conversationId] ?? []
         }
+    }
+
+    func cacheMessages(_ msgs: [APIMessage], conversationId: Int) {
+        messageCache[conversationId] = msgs
     }
 
     // MARK: - Skills
