@@ -6,8 +6,12 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from app.database import get_session
-from app.models.db import ClientRecord, KnowledgeDocument
+from app.models.db import ClientRecord, KnowledgeDocument, Project
 from app.services.claude import complete
+from app.services.cache import clients_cache
+
+_CLIENTS_KEY = "all"
+_CLIENTS_TTL = 120.0
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -55,14 +59,32 @@ class ClientOut(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _build_client_out(
+    client: ClientRecord,
+    docs_by_client: dict[int, list],
+    projects_by_client_name: dict[str, list[str]],
+) -> ClientOut:
+    docs = docs_by_client.get(client.id, [])
+    matching = projects_by_client_name.get(client.name.strip().lower(), [])
+    return ClientOut(
+        id=client.id,
+        name=client.name,
+        industry=client.industry,
+        contact=client.contact,
+        notes=client.notes,
+        created_at=client.created_at.isoformat(),
+        document_count=len(docs),
+        project_names=matching,
+    )
+
+
 def _client_out(client: ClientRecord, session: Session) -> ClientOut:
-    from app.models.db import Project
+    """Single-client helper used by create/update/get endpoints (not list)."""
     docs = session.exec(
         select(KnowledgeDocument).where(KnowledgeDocument.client_id == client.id)
     ).all()
-    # Find projects whose `client` field matches this client's name (case-insensitive)
-    projects = session.exec(select(Project)).all()
-    matching = [p.name for p in projects if p.client.strip().lower() == client.name.strip().lower()]
+    all_projects = session.exec(select(Project)).all()
+    matching = [p.name for p in all_projects if p.client.strip().lower() == client.name.strip().lower()]
     return ClientOut(
         id=client.id,
         name=client.name,
@@ -79,8 +101,24 @@ def _client_out(client: ClientRecord, session: Session) -> ClientOut:
 
 @router.get("", response_model=list[ClientOut])
 def list_clients(session: Session = Depends(get_session)):
+    cached = clients_cache.get(_CLIENTS_KEY)
+    if cached is not None:
+        return cached
     clients = session.exec(select(ClientRecord).order_by(ClientRecord.name)).all()
-    return [_client_out(c, session) for c in clients]
+    # Batch-load all docs and projects — 3 queries total regardless of client count
+    all_docs = session.exec(select(KnowledgeDocument)).all()
+    all_projects = session.exec(select(Project)).all()
+    docs_by_client: dict[int, list] = {}
+    for d in all_docs:
+        if d.client_id is not None:
+            docs_by_client.setdefault(d.client_id, []).append(d)
+    projects_by_name: dict[str, list[str]] = {}
+    for p in all_projects:
+        key = p.client.strip().lower()
+        projects_by_name.setdefault(key, []).append(p.name)
+    result = [_build_client_out(c, docs_by_client, projects_by_name) for c in clients]
+    clients_cache.set(_CLIENTS_KEY, result, _CLIENTS_TTL)
+    return result
 
 
 @router.post("", response_model=ClientOut)
@@ -89,6 +127,7 @@ def create_client(body: ClientCreate, session: Session = Depends(get_session)):
     session.add(client)
     session.commit()
     session.refresh(client)
+    clients_cache.delete(_CLIENTS_KEY)
     return _client_out(client, session)
 
 
@@ -110,6 +149,7 @@ def update_client(client_id: int, body: ClientUpdate, session: Session = Depends
     session.add(client)
     session.commit()
     session.refresh(client)
+    clients_cache.delete(_CLIENTS_KEY)
     return _client_out(client, session)
 
 
@@ -127,6 +167,7 @@ def delete_client(client_id: int, session: Session = Depends(get_session)):
         session.add(doc)
     session.delete(client)
     session.commit()
+    clients_cache.delete(_CLIENTS_KEY)
 
 
 @router.get("/{client_id}/documents")

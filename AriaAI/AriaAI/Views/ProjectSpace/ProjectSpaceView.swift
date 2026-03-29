@@ -151,10 +151,10 @@ struct ProjectSpaceView: View {
     }
 
     private func loadProjectChatDirect(pid: Int) async {
-        // Load only this project's conversations (backend supports ?project_id=)
-        await dataStore.loadConversations(projectId: pid)
-        projectConversations = dataStore.conversations
-        if let first = dataStore.conversations.first {
+        // Use project-scoped fetch so we never pollute the global conversations array
+        let convs = await dataStore.fetchProjectConversations(projectId: pid)
+        projectConversations = convs
+        if let first = convs.first {
             activeConversationId = first.id
             chatMessages = await dataStore.loadMessages(conversationId: first.id)
         }
@@ -262,6 +262,8 @@ struct ProjectSpaceView: View {
             }
             streamingContent = ""
             isStreaming = false
+            // Keep cache in sync so switching away and back shows fresh messages
+            if let cid = convId { dataStore.cacheMessages(chatMessages, conversationId: cid) }
         }
     }
 
@@ -414,16 +416,20 @@ struct ProjectSpaceView: View {
                                 milestone: ms,
                                 onToggle: { isDone in
                                     guard let pid = apiProjectId else { return }
+                                    // Optimistic local update — no network refetch needed
+                                    if let idx = apiMilestones.firstIndex(where: { $0.id == ms.id }) {
+                                        apiMilestones[idx].isDone = isDone
+                                    }
                                     Task {
                                         await dataStore.toggleMilestone(apiProjectId: pid, milestoneId: ms.id, isDone: isDone)
-                                        apiMilestones = await dataStore.loadProjectMilestones(apiProjectId: pid)
                                     }
                                 },
                                 onDelete: {
                                     guard let pid = apiProjectId else { return }
+                                    // Optimistic local update — no network refetch needed
+                                    apiMilestones.removeAll { $0.id == ms.id }
                                     Task {
                                         await dataStore.deleteMilestone(apiProjectId: pid, milestoneId: ms.id)
-                                        apiMilestones = await dataStore.loadProjectMilestones(apiProjectId: pid)
                                     }
                                 }
                             )
@@ -479,13 +485,14 @@ struct ProjectSpaceView: View {
                     guard !title.isEmpty, let pid = apiProjectId else { return }
                     showAddMilestone = false
                     Task {
-                        _ = await dataStore.createMilestone(
+                        if let ms = await dataStore.createMilestone(
                             apiProjectId: pid,
                             title: title,
                             priority: newMilestonePriority,
                             dueDate: newMilestoneDueDate.isEmpty ? nil : newMilestoneDueDate
-                        )
-                        apiMilestones = await dataStore.loadProjectMilestones(apiProjectId: pid)
+                        ) {
+                            apiMilestones.append(ms)
+                        }
                     }
                 }
                 .buttonStyle(.plain)
@@ -570,9 +577,9 @@ struct ProjectSpaceView: View {
                                 },
                                 onDeleteFile: { fileId in
                                     guard let pid = apiProjectId else { return }
+                                    apiFiles.removeAll { $0.id == fileId }
                                     Task {
                                         await dataStore.deleteProjectFile(apiProjectId: pid, fileId: fileId)
-                                        apiFiles = await dataStore.loadProjectFiles(apiProjectId: pid)
                                     }
                                 }
                             )
@@ -589,9 +596,9 @@ struct ProjectSpaceView: View {
                                 ForEach(unfolderedFiles) { file in
                                     FolderFileRow(file: file, onDelete: {
                                         guard let pid = apiProjectId else { return }
+                                        apiFiles.removeAll { $0.id == file.id }
                                         Task {
                                             await dataStore.deleteProjectFile(apiProjectId: pid, fileId: file.id)
-                                            apiFiles = await dataStore.loadProjectFiles(apiProjectId: pid)
                                         }
                                     })
                                 }
@@ -624,8 +631,17 @@ struct ProjectSpaceView: View {
                                 let showClose = isActive || isHovered
 
                                 Button {
-                                    activeConversationId = conv.id
-                                    Task { chatMessages = await dataStore.loadMessages(conversationId: conv.id) }
+                                    let convId = conv.id
+                                    activeConversationId = convId
+                                    if let cached = dataStore.cachedMessages(conversationId: convId) {
+                                        chatMessages = cached
+                                        Task {
+                                            let fresh = await dataStore.loadMessages(conversationId: convId)
+                                            if activeConversationId == convId { chatMessages = fresh }
+                                        }
+                                    } else {
+                                        Task { chatMessages = await dataStore.loadMessages(conversationId: convId) }
+                                    }
                                 } label: {
                                     HStack(spacing: 4) {
                                         if !showClose {
@@ -881,6 +897,7 @@ struct ProjectSpaceView: View {
                             }
                         }
                     }
+                    .id(activeConversationId)
                     .padding(.vertical, Spacing.xl)
                 }
                 .background(Color.surfaceBase)
@@ -2388,7 +2405,15 @@ struct ProjectSpaceView: View {
             if activeConversationId == conv.id {
                 activeConversationId = projectConversations.first?.id
                 if let next = activeConversationId {
-                    chatMessages = await dataStore.loadMessages(conversationId: next)
+                    if let cached = dataStore.cachedMessages(conversationId: next) {
+                        chatMessages = cached
+                        Task {
+                            let fresh = await dataStore.loadMessages(conversationId: next)
+                            if activeConversationId == next { chatMessages = fresh }
+                        }
+                    } else {
+                        chatMessages = await dataStore.loadMessages(conversationId: next)
+                    }
                 } else {
                     chatMessages = []
                 }
@@ -2791,12 +2816,7 @@ struct InlineChatBubble: View {
                     .padding(.top, 2)
                     .frame(width: 26)
 
-                    markdownAsSingleText(message.content)
-                        .font(TextStyle.bodyMD)
-                        .foregroundColor(.onSurface)
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                    MarkdownBodyView(content: message.content)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 

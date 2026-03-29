@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Projects | Aria AI Consulting Elite</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "secondary-fixed": "#d8e3fb",
+                        "on-secondary-fixed": "#111c2d",
+                        "surface-variant": "#e0e3e5",
+                        "tertiary-fixed": "#ffdbcf",
+                        "primary": "#003fb1",
+                        "error": "#ba1a1a",
+                        "on-primary-fixed-variant": "#003dab",
+                        "on-secondary-fixed-variant": "#3c475a",
+                        "surface-container-highest": "#e0e3e5",
+                        "outline": "#737686",
+                        "secondary": "#545f73",
+                        "tertiary": "#852b00",
+                        "surface-container-low": "#f2f4f6",
+                        "secondary-fixed-dim": "#bcc7de",
+                        "primary-fixed-dim": "#b5c4ff",
+                        "primary-fixed": "#dbe1ff",
+                        "on-surface-variant": "#434654",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-error": "#ffffff",
+                        "tertiary-container": "#ad3b00",
+                        "on-secondary-container": "#586377",
+                        "on-error-container": "#93000a",
+                        "outline-variant": "#c3c5d7",
+                        "background": "#f7f9fb",
+                        "on-primary-container": "#d4dcff",
+                        "on-secondary": "#ffffff",
+                        "secondary-container": "#d5e0f8",
+                        "inverse-surface": "#2d3133",
+                        "on-tertiary-container": "#ffd4c5",
+                        "on-background": "#191c1e",
+                        "surface": "#f7f9fb",
+                        "surface-bright": "#f7f9fb",
+                        "on-tertiary-fixed-variant": "#802a00",
+                        "surface-tint": "#1353d8",
+                        "tertiary-fixed-dim": "#ffb59a",
+                        "surface-container": "#eceef0",
+                        "on-primary-fixed": "#00174d",
+                        "error-container": "#ffdad6",
+                        "surface-container-high": "#e6e8ea",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b5c4ff",
+                        "on-surface": "#191c1e",
+                        "surface-dim": "#d8dadc",
+                        "inverse-on-surface": "#eff1f3",
+                        "on-primary": "#ffffff",
+                        "primary-container": "#1a56db",
+                        "surface-container-lowest": "#ffffff"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-nav {
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+        body {
+            background-color: #f7f9fb;
+            color: #191c1e;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary/10">
+<!-- Top Navigation Bar -->
+<nav class="fixed top-0 w-full z-50 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/20 shadow-sm">
+<div class="flex items-center justify-between px-8 py-4 max-w-full mx-auto">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-black bg-gradient-to-br from-blue-800 to-blue-600 bg-clip-text text-transparent font-headline">Aria AI</span>
+<div class="hidden md:flex items-center gap-6">
+<a class="font-headline font-semibold tracking-tight text-slate-600 hover:text-blue-600 transition-colors" href="#">Dashboard</a>
+<a class="font-headline font-semibold tracking-tight text-slate-600 hover:text-blue-600 transition-colors" href="#">Chat</a>
+<a class="font-headline font-semibold tracking-tight text-slate-600 hover:text-blue-600 transition-colors" href="#">Skills Hub</a>
+<a class="font-headline font-semibold tracking-tight text-blue-700 border-b-2 border-blue-600 pb-1" href="#">Projects</a>
+<a class="font-headline font-semibold tracking-tight text-slate-600 hover:text-blue-600 transition-colors" href="#">Knowledge Base</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl focus:ring-2 focus:ring-primary/20 w-64 text-sm" placeholder="Search projects..." type="text"/>
+</div>
+<button class="p-2 text-on-surface-variant hover:bg-slate-50 rounded-lg transition-all active:scale-95">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10">
+<img alt="User Profile" data-alt="professional portrait of a consulting executive in a sharp navy suit with neutral background and soft studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCG2N16u7OjVYqVMA2iXi3oxso6pMbuRmXdbGX5YEkBoO_WyZsIZp1G9ZF1y8jdYQZaH7XqC7sbvcGvUR4dwnQGpjQMwXYO1WKTNKh7tQr9WCKrV11uaRQt1P8sCBBOjdoT1kJ8mNeFPSVq0PkCdKDMIWfjEp_I3UOCV2UACy_MUM2gQ71C6O-kFDHtkJkFsx6iQ1PZQwJZVJ3KoldLwPQZM4ysl9iUwCSlGEUF4dBHqbAoEj_KvN98JjQUU7TnJD_UY7G6kamHsM-6"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="pt-24 pb-12 px-8 max-w-[1600px] mx-auto grid grid-cols-12 gap-8">
+<!-- Left Section: Project Portfolio (8 Columns) -->
+<section class="col-span-12 lg:col-span-8 space-y-8">
+<header class="flex justify-between items-end">
+<div>
+<h1 class="text-4xl font-black font-headline tracking-tight text-on-surface">Consulting Portfolio</h1>
+<p class="text-on-surface-variant mt-2 font-medium">Strategic project management and delivery hub.</p>
+</div>
+<div class="flex gap-2 p-1 bg-surface-container-low rounded-xl">
+<button class="px-4 py-2 rounded-lg bg-surface-container-lowest text-primary font-semibold text-sm shadow-sm">Active</button>
+<button class="px-4 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest transition-all text-sm font-semibold">Archived</button>
+</div>
+</header>
+<!-- Project Grid: Bento Layout Inspired -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Project Card 1: Large Featured -->
+<article class="col-span-1 md:col-span-2 bg-surface-container-lowest p-8 rounded-xl border border-outline-variant/15 flex flex-col md:flex-row gap-8 items-center group cursor-pointer hover:bg-white transition-all">
+<div class="w-full md:w-1/3 h-48 rounded-xl overflow-hidden relative">
+<img alt="Project Context" class="w-full h-full object-cover" data-alt="high-tech digital interface showing data analytics and global connectivity symbols in deep blue and glowing neon accents" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCb1jesacqpPRt_qQxftFHenxSgFYSMVHwrqCzgjGlGDKYCTGEnterQOsBUWx2npJkP6Lfr-80jZ4jIejR1BOlDEaHNJnuc5ls-ZjTomOHf_dCx9fK8fht2HnwdTSlDSRUty-gP0fkgiyhFfitrDWTXqeviAmoA82yjShFVOjFvsVD0AfowiDIGIx4GpUKiyKATey8GJRakf-MRx0nVy-UPXH7gtZGD9WVMbKaErzXGyM9VBFfYCavakRDqZinhp1H3Js0qatKCaE8z"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+<span class="absolute bottom-4 left-4 bg-primary text-white text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded">Priority 01</span>
+</div>
+<div class="flex-1 space-y-4">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-primary font-bold text-xs tracking-widest uppercase">Global Logistics Corp</p>
+<h3 class="text-2xl font-black font-headline text-on-surface mt-1">Digital Transformation 2024</h3>
+</div>
+<span class="flex items-center gap-1.5 px-3 py-1 bg-secondary-container text-on-secondary-container rounded-full text-xs font-bold">
+<span class="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span> Active
+                            </span>
+</div>
+<p class="text-on-surface-variant text-sm leading-relaxed">Modernizing the legacy supply chain infrastructure with AI-driven predictive modeling and cloud-native architectural shifts.</p>
+<div class="space-y-2">
+<div class="flex justify-between text-xs font-bold text-on-surface-variant">
+<span>Overall Progress</span>
+<span>74%</span>
+</div>
+<div class="h-2 bg-surface-container-low rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container w-[74%] rounded-full"></div>
+</div>
+</div>
+</div>
+</article>
+<!-- Project Card 2 -->
+<article class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/15 space-y-6 hover:bg-white transition-all">
+<div class="flex justify-between items-start">
+<div class="w-12 h-12 bg-tertiary-fixed rounded-xl flex items-center justify-center">
+<span class="material-symbols-outlined text-on-tertiary-fixed">account_balance</span>
+</div>
+<span class="px-3 py-1 bg-surface-container-high text-on-surface-variant rounded-full text-[10px] font-bold uppercase tracking-wider">Planning</span>
+</div>
+<div>
+<p class="text-on-surface-variant font-bold text-[10px] uppercase tracking-widest">FinTech Solutions Inc</p>
+<h3 class="text-xl font-black font-headline text-on-surface mt-1">Risk Mitigation Protocol</h3>
+</div>
+<div class="pt-4 border-t border-outline-variant/10">
+<div class="flex justify-between text-xs font-bold text-on-surface-variant mb-2">
+<span>Stage 1: Assessment</span>
+<span>15%</span>
+</div>
+<div class="h-1.5 bg-surface-container-low rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[15%] rounded-full"></div>
+</div>
+</div>
+</article>
+<!-- Project Card 3 -->
+<article class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/15 space-y-6 hover:bg-white transition-all">
+<div class="flex justify-between items-start">
+<div class="w-12 h-12 bg-secondary-container rounded-xl flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">health_metrics</span>
+</div>
+<span class="px-3 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-bold uppercase tracking-wider">Active</span>
+</div>
+<div>
+<p class="text-on-surface-variant font-bold text-[10px] uppercase tracking-widest">Aura Health Systems</p>
+<h3 class="text-xl font-black font-headline text-on-surface mt-1">AI Patient Diagnostics</h3>
+</div>
+<div class="pt-4 border-t border-outline-variant/10">
+<div class="flex justify-between text-xs font-bold text-on-surface-variant mb-2">
+<span>Integration Phase</span>
+<span>42%</span>
+</div>
+<div class="h-1.5 bg-surface-container-low rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[42%] rounded-full"></div>
+</div>
+</div>
+</article>
+<!-- Project Card 4 -->
+<article class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/15 space-y-6 opacity-80 hover:opacity-100 transition-all">
+<div class="flex justify-between items-start">
+<div class="w-12 h-12 bg-surface-container-high rounded-xl flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">check_circle</span>
+</div>
+<span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold uppercase tracking-wider">Completed</span>
+</div>
+<div>
+<p class="text-on-surface-variant font-bold text-[10px] uppercase tracking-widest">Nexus Retail</p>
+<h3 class="text-xl font-black font-headline text-on-surface mt-1">Omnichannel Strategy</h3>
+</div>
+<div class="pt-4 border-t border-outline-variant/10">
+<div class="flex justify-between text-xs font-bold text-green-700 mb-2">
+<span>Delivery Success</span>
+<span>100%</span>
+</div>
+<div class="h-1.5 bg-green-600/20 rounded-full overflow-hidden">
+<div class="h-full bg-green-600 w-full rounded-full"></div>
+</div>
+</div>
+</article>
+<!-- Add New Project Trigger -->
+<button class="bg-white/40 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center justify-center p-8 text-on-surface-variant hover:border-primary hover:text-primary transition-all group">
+<span class="material-symbols-outlined text-4xl mb-2 group-hover:scale-110 transition-transform">add_circle</span>
+<span class="font-headline font-bold">Initiate New Consulting Project</span>
+</button>
+</div>
+</section>
+<!-- Right Section: Global Intelligence (4 Columns) -->
+<aside class="col-span-12 lg:col-span-4 space-y-8">
+<!-- AI Context Summary Card -->
+<div class="bg-surface-container-low p-8 rounded-xl relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10">
+<span class="material-symbols-outlined text-8xl" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</div>
+<h4 class="text-xs font-black uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+                    AI Context Intelligence
+                </h4>
+<div class="space-y-4">
+<div class="p-4 bg-surface-container-lowest rounded-xl border-l-4 border-primary">
+<p class="text-xs font-bold text-on-surface-variant mb-1">Portfolio Synthesis</p>
+<p class="text-sm italic text-on-surface">"Cross-project analysis indicates a 15% efficiency gain when sharing architectural patterns between Health Systems and Logistics modules."</p>
+</div>
+<div class="p-4 bg-surface-container-lowest/50 rounded-xl">
+<p class="text-xs font-bold text-on-surface-variant mb-1">Risk Warning</p>
+<p class="text-sm text-on-surface">Compliance bottlenecks detected in 2 active projects regarding GDPR data handling protocols.</p>
+</div>
+</div>
+</div>
+<!-- Global Milestones -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/15">
+<h4 class="text-sm font-black font-headline text-on-surface mb-6">Global Milestones</h4>
+<div class="space-y-6 relative">
+<div class="absolute left-3 top-2 bottom-2 w-0.5 bg-surface-container"></div>
+<div class="relative pl-10">
+<div class="absolute left-0 top-0 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-[14px]" style="font-variation-settings: 'FILL' 1;">flag</span>
+</div>
+<p class="text-xs font-bold text-primary">Tomorrow, 09:00 AM</p>
+<p class="text-sm font-bold text-on-surface">Logistics Q3 Review</p>
+<p class="text-xs text-on-surface-variant">Stakeholder presentation for Global Logistics Corp.</p>
+</div>
+<div class="relative pl-10">
+<div class="absolute left-0 top-0 w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-[14px]">event</span>
+</div>
+<p class="text-xs font-bold text-on-surface-variant">Thursday, Oct 12</p>
+<p class="text-sm font-bold text-on-surface">Patient Data Integration</p>
+<p class="text-xs text-on-surface-variant">System-wide backup and migration window.</p>
+</div>
+<div class="relative pl-10">
+<div class="absolute left-0 top-0 w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-[14px]">pending</span>
+</div>
+<p class="text-xs font-bold text-on-surface-variant">Monday, Oct 16</p>
+<p class="text-sm font-bold text-on-surface">FinTech Strategy Kickoff</p>
+<p class="text-xs text-on-surface-variant">Onboarding session with executive leadership.</p>
+</div>
+</div>
+</div>
+<!-- Recent File Library -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/15">
+<div class="flex justify-between items-center mb-6">
+<h4 class="text-sm font-black font-headline text-on-surface">Recent Library</h4>
+<button class="text-xs text-primary font-bold hover:underline">View All</button>
+</div>
+<div class="space-y-2">
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low rounded-xl transition-all cursor-pointer">
+<div class="w-10 h-10 bg-red-100 text-red-600 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex-1">
+<p class="text-sm font-bold text-on-surface truncate">Architectural_V4_Final.pdf</p>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Digital Transformation • 2.4 MB</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">download</span>
+</div>
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low rounded-xl transition-all cursor-pointer">
+<div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined">table_chart</span>
+</div>
+<div class="flex-1">
+<p class="text-sm font-bold text-on-surface truncate">Risk_Assessment_Matrix.xlsx</p>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-tighter">FinTech • 1.1 MB</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">download</span>
+</div>
+<div class="flex items-center gap-4 p-3 hover:bg-surface-container-low rounded-xl transition-all cursor-pointer">
+<div class="w-10 h-10 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined">slideshow</span>
+</div>
+<div class="flex-1">
+<p class="text-sm font-bold text-on-surface truncate">Q4_Retail_Strategy_Deck.pptx</p>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Nexus Retail • 8.9 MB</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">download</span>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- Footer -->
+<footer class="w-full border-t border-slate-200 bg-slate-50">
+<div class="flex flex-col md:flex-row justify-between items-center px-12 py-8 gap-4 max-w-full mx-auto font-body text-sm text-slate-500">
+<div class="flex items-center gap-6">
+<span class="font-headline font-bold text-on-surface">Aria AI Consulting Elite</span>
+<p>© 2024 Aria AI Consulting Elite</p>
+</div>
+<div class="flex gap-8">
+<a class="text-slate-500 hover:text-blue-600 transition-all duration-300" href="#">Resources</a>
+<a class="text-slate-500 hover:text-blue-600 transition-all duration-300" href="#">Legal</a>
+<a class="text-slate-500 hover:text-blue-600 transition-all duration-300" href="#">Support</a>
+<a class="text-slate-500 hover:text-blue-600 transition-all duration-300" href="#">Language</a>
+</div>
+</div>
+</footer>
+</body></html>

@@ -66,9 +66,11 @@ def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) 
         return ""
 
     lines = []
+    doc_ids = [chunk.document_id for _, chunk in top]
+    docs = session.exec(select(KnowledgeDocument).where(KnowledgeDocument.id.in_(doc_ids))).all()
+    doc_map = {d.id: d.name for d in docs}
     for score, chunk in top:
-        doc = session.get(KnowledgeDocument, chunk.document_id)
-        doc_name = doc.name if doc else "Unknown"
+        doc_name = doc_map.get(chunk.document_id, "Unknown")
         lines.append(f"[{doc_name}] {chunk.content}")
 
     return "\n\n---\n\n".join(lines)

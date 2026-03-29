@@ -40,7 +40,7 @@ class Project(SQLModel, table=True):
 
 class Milestone(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="project.id")
+    project_id: int = Field(foreign_key="project.id", index=True)
     title: str
     is_done: bool = False
     priority: str = "medium"        # high | medium | low
@@ -51,7 +51,7 @@ class Milestone(SQLModel, table=True):
 
 class ProjectFolder(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="project.id")
+    project_id: int = Field(foreign_key="project.id", index=True)
     name: str
     sort_order: int = 0
 
@@ -60,8 +60,8 @@ class ProjectFolder(SQLModel, table=True):
 
 class ProjectFile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="project.id")
-    folder_id: Optional[int] = Field(default=None, foreign_key="projectfolder.id")
+    project_id: int = Field(foreign_key="project.id", index=True)
+    folder_id: Optional[int] = Field(default=None, foreign_key="projectfolder.id", index=True)
     name: str
     file_type: str                  # pdf | docx | xlsx | pptx | other
     path: str                       # relative to UPLOADS_DIR
@@ -75,7 +75,7 @@ class ProjectFile(SQLModel, table=True):
 
 class ProjectPayment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="project.id")
+    project_id: int = Field(foreign_key="project.id", index=True)
     amount: float                   # positive = received, negative = expense
     payment_date: str               # YYYY-MM-DD
     note: str = ""
@@ -90,7 +90,7 @@ class ProjectPayment(SQLModel, table=True):
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str = "New Workstream"
-    project_id: Optional[int] = Field(default=None, foreign_key="project.id")
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
     skill_id: Optional[int] = Field(default=None, foreign_key="skill.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -101,7 +101,7 @@ class Conversation(SQLModel, table=True):
 
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    conversation_id: int = Field(foreign_key="conversation.id")
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
     role: str                       # user | assistant
     content: str
     metadata_json: str = "{}"       # references: skill_id, doc_ids, project_id, etc.
@@ -131,7 +131,7 @@ class KnowledgeDocument(SQLModel, table=True):
     vector_progress: float = 0.0
     chunk_count: int = 0
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
-    client_id: Optional[int] = Field(default=None, foreign_key="clientrecord.id")
+    client_id: Optional[int] = Field(default=None, foreign_key="clientrecord.id", index=True)
 
     client: Optional[ClientRecord] = Relationship(back_populates="documents")
     chunks: list["DocumentChunk"] = Relationship(back_populates="document")
@@ -139,7 +139,7 @@ class KnowledgeDocument(SQLModel, table=True):
 
 class DocumentChunk(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    document_id: int = Field(foreign_key="knowledgedocument.id")
+    document_id: int = Field(foreign_key="knowledgedocument.id", index=True)
     chunk_index: int
     content: str
     embedding_json: str = "[]"      # JSON-encoded float list
@@ -194,7 +194,7 @@ class Skill(SQLModel, table=True):
 
 class ToolCall(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    conversation_id: int = Field(foreign_key="conversation.id")
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
     message_id: Optional[int] = Field(default=None, foreign_key="message.id")
     
     # 工具调用信息
@@ -218,7 +218,7 @@ class ToolCall(SQLModel, table=True):
 
 class GeneratedFile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    conversation_id: int = Field(foreign_key="conversation.id")
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
     project_id: Optional[int] = Field(default=None, foreign_key="project.id")
     
     name: str                       # 文件名
@@ -287,5 +287,17 @@ class User(SQLModel, table=True):
     password_hash: str
     is_admin: bool = False
     is_active: bool = True
-    auth_token: Optional[str] = None
+    auth_token: Optional[str] = None  # 保留用于兼容旧版
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserToken(SQLModel, table=True):
+    """支持多设备同时登录 - 每个设备一个 token"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    token: str = Field(index=True, unique=True)
+    device_info: str = ""  # 设备信息（可选）
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_used_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    user: Optional[User] = Relationship()

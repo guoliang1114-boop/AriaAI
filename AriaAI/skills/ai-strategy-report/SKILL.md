@@ -129,10 +129,11 @@ Define 3 phases:
 
 ### Phase 3: Tool Execution
 
-Call `generate_ppt` tool with structured slide content:
+Call `generate_ppt_from_skill` tool with structured slide content:
 
 ```json
 {
+  "skill_name": "ai-strategy-report",
   "title": "[Company] AI Strategy Report",
   "subtitle": "Digital Transformation Roadmap",
   "slides": [
@@ -142,7 +143,7 @@ Call `generate_ppt` tool with structured slide content:
       "content": "Subtitle"
     },
     {
-      "type": "content", 
+      "type": "content",
       "title": "Slide Title",
       "content": "Bullet points and analysis"
     },
@@ -173,15 +174,16 @@ If user needs editable data, call `save_json`:
 
 ## Tool Configuration
 
-### Tool 1: generate_ppt
+### Tool 1: generate_ppt_from_skill
 
-**Purpose**: Generate PowerPoint presentation with AI strategy content
+**Purpose**: Generate PowerPoint using the KPMG template bundled with this skill
 
 **When to Call**: After content generation is complete, always call this tool to create the deliverable.
 
 **Parameters**:
 ```json
 {
+  "skill_name": "ai-strategy-report",
   "title": "Company AI Strategy Report",
   "subtitle": "Digital Transformation Roadmap (2024-2027)",
   "slides": [

@@ -7,6 +7,8 @@ enum APIError: LocalizedError {
     case decodingError(Error)
     case networkError(Error)
     case notConfigured
+    case unauthorized   // 401 — session expired or invalid
+    case timedOut       // URLError.timedOut
 
     var errorDescription: String? {
         switch self {
@@ -14,8 +16,14 @@ enum APIError: LocalizedError {
         case .decodingError(let e): return "Decode failed: \(e)"
         case .networkError(let e): return "Network error: \(e)"
         case .notConfigured: return "API key not configured"
+        case .unauthorized: return "Session expired"
+        case .timedOut: return "Request timed out"
         }
     }
+}
+
+extension Notification.Name {
+    static let sessionExpired = Notification.Name("AriaAI.sessionExpired")
 }
 
 actor APIClient {
@@ -39,7 +47,7 @@ actor APIClient {
             req.setValue(token, forHTTPHeaderField: "X-Auth-Token")
         }
     }
-    private let decoder: JSONDecoder = {
+    let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .convertFromSnakeCase
         d.dateDecodingStrategy = .custom { decoder in
@@ -161,10 +169,19 @@ actor APIClient {
     private func perform<T: Decodable>(_ req: URLRequest) async throws -> T {
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                throw APIError.badStatus(http.statusCode)
+            if let http = resp as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    NotificationCenter.default.post(name: .sessionExpired, object: "unauthorized")
+                    throw APIError.unauthorized
+                }
+                if !(200..<300).contains(http.statusCode) {
+                    throw APIError.badStatus(http.statusCode)
+                }
             }
             return try decoder.decode(T.self, from: data)
+        } catch let e as URLError where e.code == .timedOut {
+            NotificationCenter.default.post(name: .sessionExpired, object: "timeout")
+            throw APIError.timedOut
         } catch let e as APIError {
             throw e
         } catch let e as DecodingError {
@@ -206,6 +223,11 @@ actor APIClient {
                 do {
                     let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                     if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        if http.statusCode == 401 {
+                            NotificationCenter.default.post(name: .sessionExpired, object: "unauthorized")
+                            continuation.finish(throwing: APIError.unauthorized)
+                            return
+                        }
                         var body = ""
                         for try await line in bytes.lines { body += line }
                         let msg = body.isEmpty ? "HTTP \(http.statusCode)" : body
@@ -260,6 +282,9 @@ actor APIClient {
                         }
                     }
                     continuation.finish()
+                } catch let e as URLError where e.code == .timedOut {
+                    NotificationCenter.default.post(name: .sessionExpired, object: "timeout")
+                    continuation.finish(throwing: APIError.timedOut)
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -282,6 +307,11 @@ actor APIClient {
                 do {
                     let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                     if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        if http.statusCode == 401 {
+                            NotificationCenter.default.post(name: .sessionExpired, object: "unauthorized")
+                            continuation.finish(throwing: APIError.unauthorized)
+                            return
+                        }
                         var body = ""
                         for try await line in bytes.lines { body += line }
                         continuation.finish(throwing: APIError.networkError(

@@ -18,6 +18,15 @@ from app.database import get_session
 from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
+from app.services.cache import projects_cache
+
+_PROJECTS_TTL = 120.0
+
+
+def _bust_project(project_id: int) -> None:
+    """Invalidate all caches that reference this project."""
+    projects_cache.delete(f"detail:{project_id}")
+    projects_cache.delete_prefix("list:")
 
 
 async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
@@ -167,10 +176,16 @@ class FolderCreate(BaseModel):
 
 @router.get("")
 def list_projects(status: Optional[str] = None, session: Session = Depends(get_session)):
+    cache_key = f"list:{status or ''}"
+    cached = projects_cache.get(cache_key)
+    if cached is not None:
+        return cached
     stmt = select(Project).order_by(Project.updated_at.desc())
     if status:
         stmt = stmt.where(Project.status == status)
-    return session.exec(stmt).all()
+    result = session.exec(stmt).all()
+    projects_cache.set(cache_key, result, _PROJECTS_TTL)
+    return result
 
 
 @router.post("", status_code=201)
@@ -180,6 +195,7 @@ def create_project(data: ProjectCreate, session: Session = Depends(get_session))
     session.commit()
     session.refresh(project)
     _init_default_folders(project.id, session)
+    projects_cache.delete_prefix("list:")   # no detail key yet — project just created
     return project
 
 
@@ -197,6 +213,11 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
 
     Reduces 4-5 round trips to Supabase down to 1 HTTP call with 5 fast local queries.
     """
+    cache_key = f"detail:{project_id}"
+    cached = projects_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -225,7 +246,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
     contract = project.contract_amount or 0.0
 
-    return {
+    result = {
         "project": project,
         "files": files,
         "milestones": milestones,
@@ -240,6 +261,8 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
             "payments": payments,
         },
     }
+    projects_cache.set(cache_key, result, _PROJECTS_TTL)
+    return result
 
 
 @router.patch("/{project_id}")
@@ -253,6 +276,7 @@ def update_project(project_id: int, data: ProjectUpdate, session: Session = Depe
     session.add(project)
     session.commit()
     session.refresh(project)
+    _bust_project(project_id)
     return project
 
 
@@ -263,6 +287,7 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Project not found")
     session.delete(project)
     session.commit()
+    _bust_project(project_id)
     return {"ok": True}
 
 
@@ -279,6 +304,7 @@ def create_milestone(project_id: int, data: MilestoneCreate, session: Session = 
     session.add(ms)
     session.commit()
     session.refresh(ms)
+    _bust_project(project_id)
     return ms
 
 
@@ -292,6 +318,7 @@ def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session
     session.add(ms)
     session.commit()
     session.refresh(ms)
+    _bust_project(project_id)
     return ms
 
 
@@ -302,6 +329,7 @@ def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get
         raise HTTPException(404, "Milestone not found")
     session.delete(ms)
     session.commit()
+    _bust_project(project_id)
     return {"ok": True}
 
 
@@ -348,6 +376,7 @@ async def upload_file(
     # Auto-generate file summary in the background
     background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), suffix.lstrip("."))
 
+    _bust_project(project_id)
     return pf
 
 
@@ -361,6 +390,7 @@ def delete_file(project_id: int, file_id: int, session: Session = Depends(get_se
         full_path.unlink()
     session.delete(pf)
     session.commit()
+    _bust_project(project_id)
     return {"ok": True}
 
 
@@ -384,6 +414,7 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
     session.add(folder)
     session.commit()
     session.refresh(folder)
+    _bust_project(project_id)
     return folder
 
 
@@ -399,6 +430,7 @@ def delete_folder(project_id: int, folder_id: int, session: Session = Depends(ge
         session.add(f)
     session.delete(folder)
     session.commit()
+    _bust_project(project_id)
     return {"ok": True}
 
 
@@ -440,6 +472,7 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
     session.add(payment)
     session.commit()
     session.refresh(payment)
+    _bust_project(project_id)
     return payment
 
 
@@ -450,6 +483,7 @@ def delete_payment(project_id: int, payment_id: int, session: Session = Depends(
         raise HTTPException(404, "Payment not found")
     session.delete(payment)
     session.commit()
+    _bust_project(project_id)
     return {"ok": True}
 
 
@@ -618,6 +652,7 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
                 p.updated_at = datetime.utcnow()
                 write_session.add(p)
                 write_session.commit()
+                _bust_project(project_id)
 
         yield f"data: {json.dumps({'type': 'done', 'context_summary': summary}, ensure_ascii=False)}\n\n"
 
@@ -643,4 +678,5 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
     session.add(project)
     session.commit()
     session.refresh(project)
+    _bust_project(project_id)
     return {"notes": project.notes}

@@ -22,6 +22,16 @@ from app.models.db import Setting
 logger = logging.getLogger(__name__)
 
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+
+# Persistent HTTP client for Kimi/OpenAI-compat calls
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=300.0)
+    return _http_client
 DEFAULT_KIMI_MODEL = "moonshot-v1-32k"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
@@ -121,11 +131,15 @@ def _to_openai_messages(messages: list[dict], system: str = "") -> list[dict]:
                     }
                     for i, tu in enumerate(tool_uses)
                 ]
-                result.append({
+                asst_msg: dict = {
                     "role": "assistant",
                     "content": text_content or "",
                     "tool_calls": tool_calls,
-                })
+                }
+                # Preserve reasoning_content required by kimi-k2.5 multi-turn tool calls
+                if msg.get("reasoning_content"):
+                    asst_msg["reasoning_content"] = msg["reasoning_content"]
+                result.append(asst_msg)
             else:
                 result.append({"role": "assistant", "content": text_content})
 
@@ -191,85 +205,97 @@ async def stream_response(
     # OpenAI streams tool calls as incremental index-keyed deltas
     tool_call_buffers: dict[int, dict] = {}  # index → {id, name, arguments}
     in_tool_call = False
+    reasoning_buffer = ""  # kimi-k2.5 reasoning_content
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            async with client.stream(
-                "POST",
-                f"{KIMI_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code != 200:
-                    body = await response.aread()
-                    raise Exception(f"Kimi HTTP {response.status_code}: {body.decode()[:300]}")
+    client = _get_http_client()
+    try:
+        async with client.stream(
+            "POST",
+            f"{KIMI_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                raise Exception(f"Kimi HTTP {response.status_code}: {body.decode()[:300]}")
 
-                finish_reason = None
+            finish_reason = None
 
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload_str = line[6:].strip()
-                    if payload_str == "[DONE]":
-                        break
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload_str = line[6:].strip()
+                if payload_str == "[DONE]":
+                    break
+                try:
+                    event = json.loads(payload_str)
+                except json.JSONDecodeError:
+                    continue
+
+                choices = event.get("choices", [])
+                if not choices:
+                    continue
+
+                choice = choices[0]
+                finish_reason = choice.get("finish_reason") or finish_reason
+                delta = choice.get("delta", {})
+
+                # Text content
+                text = delta.get("content")
+                if text:
+                    yield text
+
+                # Reasoning content (kimi-k2.5 thinking) — accumulate, don't stream to user
+                reasoning = delta.get("reasoning_content")
+                if reasoning:
+                    reasoning_buffer += reasoning
+
+                # Tool call deltas
+                tool_call_deltas = delta.get("tool_calls", [])
+                for tc_delta in tool_call_deltas:
+                    idx = tc_delta.get("index", 0)
+                    if idx not in tool_call_buffers:
+                        in_tool_call = True
+                        name = tc_delta.get("function", {}).get("name", "")
+                        tool_call_buffers[idx] = {
+                            "id": tc_delta.get("id", f"call_{idx}"),
+                            "name": name,
+                            "arguments": "",
+                        }
+                        if name:
+                            yield f"\n\n[TOOL_START:{name}]\n\n"
+                    else:
+                        # accumulate arguments fragment
+                        frag = tc_delta.get("function", {}).get("arguments", "")
+                        tool_call_buffers[idx]["arguments"] += frag
+
+            # Emit complete tool_use blocks after stream ends
+            if in_tool_call:
+                for buf in tool_call_buffers.values():
                     try:
-                        event = json.loads(payload_str)
+                        parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
                     except json.JSONDecodeError:
-                        continue
+                        parsed_input = {}
+                    yield json.dumps({
+                        "type": "tool_use",
+                        "id": buf["id"],
+                        "name": buf["name"],
+                        "input": parsed_input,
+                    })
+                # Emit reasoning_content so chat.py can attach it to the assistant message
+                if reasoning_buffer:
+                    yield json.dumps({
+                        "type": "reasoning_content",
+                        "content": reasoning_buffer,
+                    })
 
-                    choices = event.get("choices", [])
-                    if not choices:
-                        continue
+            if finish_reason == "length":
+                logger.warning("[Kimi] Output truncated due to max_tokens")
+                yield "\n\n[OUTPUT_TRUNCATED]"
 
-                    choice = choices[0]
-                    finish_reason = choice.get("finish_reason") or finish_reason
-                    delta = choice.get("delta", {})
-
-                    # Text content
-                    text = delta.get("content")
-                    if text:
-                        yield text
-
-                    # Tool call deltas
-                    tool_call_deltas = delta.get("tool_calls", [])
-                    for tc_delta in tool_call_deltas:
-                        idx = tc_delta.get("index", 0)
-                        if idx not in tool_call_buffers:
-                            in_tool_call = True
-                            name = tc_delta.get("function", {}).get("name", "")
-                            tool_call_buffers[idx] = {
-                                "id": tc_delta.get("id", f"call_{idx}"),
-                                "name": name,
-                                "arguments": "",
-                            }
-                            if name:
-                                yield f"\n\n[TOOL_START:{name}]\n\n"
-                        else:
-                            # accumulate arguments fragment
-                            frag = tc_delta.get("function", {}).get("arguments", "")
-                            tool_call_buffers[idx]["arguments"] += frag
-
-                # Emit complete tool_use blocks after stream ends
-                if in_tool_call:
-                    for buf in tool_call_buffers.values():
-                        try:
-                            parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
-                        except json.JSONDecodeError:
-                            parsed_input = {}
-                        yield json.dumps({
-                            "type": "tool_use",
-                            "id": buf["id"],
-                            "name": buf["name"],
-                            "input": parsed_input,
-                        })
-
-                if finish_reason == "length":
-                    logger.warning("[Kimi] Output truncated due to max_tokens")
-                    yield "\n\n[OUTPUT_TRUNCATED]"
-
-        except Exception as e:
-            logger.error(f"[Kimi] stream error: {type(e).__name__}: {e}")
-            raise
+    except Exception as e:
+        logger.error(f"[Kimi] stream error: {type(e).__name__}: {e}")
+        raise
 
 
 # =============================================================================
@@ -304,44 +330,43 @@ async def complete(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            response = await client.post(
-                f"{KIMI_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            if response.status_code != 200:
-                raise Exception(f"Kimi HTTP {response.status_code}: {response.text[:300]}")
+    client = _get_http_client()
+    try:
+        response = await client.post(
+            f"{KIMI_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code != 200:
+            raise Exception(f"Kimi HTTP {response.status_code}: {response.text[:300]}")
 
-            result = response.json()
-            choice = result.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            parts: list[str] = []
+        result = response.json()
+        choice = result.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        parts: list[str] = []
 
-            text = message.get("content") or ""
-            # kimi-k2.5 is a reasoning model — content may be empty while reasoning_content has the output
-            if not text:
-                text = message.get("reasoning_content") or ""
-            if text:
-                parts.append(text)
+        text = message.get("content") or ""
+        if not text:
+            text = message.get("reasoning_content") or ""
+        if text:
+            parts.append(text)
 
-            for tc in message.get("tool_calls", []):
-                try:
-                    parsed = json.loads(tc["function"]["arguments"])
-                except (json.JSONDecodeError, KeyError):
-                    parsed = {}
-                parts.append(json.dumps({
-                    "type": "tool_use",
-                    "id": tc.get("id", ""),
-                    "name": tc.get("function", {}).get("name", ""),
-                    "input": parsed,
-                }, ensure_ascii=False))
+        for tc in message.get("tool_calls", []):
+            try:
+                parsed = json.loads(tc["function"]["arguments"])
+            except (json.JSONDecodeError, KeyError):
+                parsed = {}
+            parts.append(json.dumps({
+                "type": "tool_use",
+                "id": tc.get("id", ""),
+                "name": tc.get("function", {}).get("name", ""),
+                "input": parsed,
+            }, ensure_ascii=False))
 
-            return "\n".join(parts)
-        except Exception as e:
-            logger.error(f"[Kimi] complete error: {type(e).__name__}: {e}")
-            raise
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"[Kimi] complete error: {type(e).__name__}: {e}")
+        raise
 
 
 # =============================================================================

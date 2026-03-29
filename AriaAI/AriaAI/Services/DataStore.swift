@@ -28,6 +28,8 @@ final class DataStore: ObservableObject {
 
     // Message cache: conversationId → messages (for instant re-open)
     private var messageCache: [Int: [APIMessage]] = [:]
+    // Whether there are older messages not yet loaded
+    var hasMoreMessages: [Int: Bool] = [:]
 
     // MARK: - Bootstrap
 
@@ -68,11 +70,12 @@ final class DataStore: ObservableObject {
     func createProject(name: String, client: String, description: String = "", status: String = "lead") async -> Bool {
         struct Body: Encodable { let name, client, description, status: String }
         do {
-            let _: APIProject = try await APIClient.shared.post(
+            let new: APIProject = try await APIClient.shared.post(
                 "/projects",
                 body: Body(name: name, client: client, description: description, status: status)
             )
-            await loadProjects()
+            apiProjects.append(new)
+            projects = apiProjects.map { $0.toLocal() }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -83,8 +86,11 @@ final class DataStore: ObservableObject {
     func updateProjectStatus(apiId: Int, status: String) async {
         struct Body: Encodable { let status: String }
         do {
-            let _: APIProject = try await APIClient.shared.patch("/projects/\(apiId)", body: Body(status: status))
-            await loadProjects()
+            let updated: APIProject = try await APIClient.shared.patch("/projects/\(apiId)", body: Body(status: status))
+            if let idx = apiProjects.firstIndex(where: { $0.id == apiId }) {
+                apiProjects[idx] = updated
+                projects = apiProjects.map { $0.toLocal() }
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -93,7 +99,8 @@ final class DataStore: ObservableObject {
     func deleteProject(apiId: Int) async {
         do {
             try await APIClient.shared.delete("/projects/\(apiId)")
-            await loadProjects()
+            apiProjects.removeAll { $0.id == apiId }
+            projects = apiProjects.map { $0.toLocal() }
         } catch {
             self.error = error.localizedDescription
         }
@@ -106,8 +113,35 @@ final class DataStore: ObservableObject {
         if let pid = projectId { path += "?project_id=\(pid)" }
         do {
             conversations = try await APIClient.shared.get(path)
+            // Prefetch messages for the first 8 conversations so clicks are instant
+            let ids = conversations.prefix(8).map { $0.id }
+            Task { await prefetchMessages(ids: ids) }
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Fetch conversations for a specific project without touching the global `conversations` array.
+    func fetchProjectConversations(projectId: Int) async -> [APIConversation] {
+        do {
+            let result: [APIConversation] = try await APIClient.shared.get("/chat/conversations?project_id=\(projectId)")
+            let ids = result.prefix(8).map { $0.id }
+            Task { await prefetchMessages(ids: ids) }
+            return result
+        } catch {
+            self.error = error.localizedDescription
+            return []
+        }
+    }
+
+    /// Concurrently warms the message cache for the given conversation IDs.
+    private func prefetchMessages(ids: [Int]) async {
+        let missing = ids.filter { messageCache[$0] == nil }
+        guard !missing.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for id in missing {
+                group.addTask { _ = await self.loadMessages(conversationId: id) }
+            }
         }
     }
 
@@ -169,14 +203,46 @@ final class DataStore: ObservableObject {
         messageCache[conversationId]
     }
 
+    private let pageSize = 30
+
     func loadMessages(conversationId: Int) async -> [APIMessage] {
         do {
-            let msgs: [APIMessage] = try await APIClient.shared.get("/chat/conversations/\(conversationId)/messages")
+            let msgs: [APIMessage] = try await APIClient.shared.get(
+                "/chat/conversations/\(conversationId)/messages",
+                query: ["limit": "\(pageSize)"]
+            )
             messageCache[conversationId] = msgs
+            hasMoreMessages[conversationId] = msgs.count >= pageSize
             return msgs
         } catch {
             self.error = error.localizedDescription
             return messageCache[conversationId] ?? []
+        }
+    }
+
+    /// Load older messages before the current oldest. Returns the prepended slice.
+    func loadMoreMessages(conversationId: Int) async -> [APIMessage] {
+        let oldest = messageCache[conversationId]?.first
+        var query: [String: String] = ["limit": "\(pageSize)"]
+        if let oldestId = oldest?.id {
+            query["before_id"] = "\(oldestId)"
+        }
+        do {
+            let older: [APIMessage] = try await APIClient.shared.get(
+                "/chat/conversations/\(conversationId)/messages",
+                query: query
+            )
+            if older.isEmpty {
+                hasMoreMessages[conversationId] = false
+                return []
+            }
+            let existing = messageCache[conversationId] ?? []
+            messageCache[conversationId] = older + existing
+            hasMoreMessages[conversationId] = older.count >= pageSize
+            return older
+        } catch {
+            self.error = error.localizedDescription
+            return []
         }
     }
 
@@ -188,17 +254,13 @@ final class DataStore: ObservableObject {
 
     func loadSkills() async {
         do {
-            let raw: [APISkill] = try await APIClient.shared.get("/skills")
-            if raw.isEmpty {
-                struct Empty: Decodable {}
-                let _: Empty = try await APIClient.shared.post("/skills/seed", body: EmptyBody())
-            }
-            // Always run seed-pro to ensure guided workflow skills exist (idempotent)
+            // Run seed/migrate in parallel, then fetch final list once
+            struct Empty: Decodable {}
             struct SeedResult: Decodable { let count: Int }
-            let _: SeedResult = try await APIClient.shared.post("/skills/seed-pro", body: EmptyBody())
-            // Migrate old-format categories (quick_tool → business domain) — idempotent
             struct MigrateResult: Decodable { let updated: Int }
-            let _: MigrateResult = try await APIClient.shared.post("/skills/migrate-categories", body: EmptyBody())
+            async let _seed: SeedResult = APIClient.shared.post("/skills/seed-pro", body: EmptyBody())
+            async let _migrate: MigrateResult = APIClient.shared.post("/skills/migrate-categories", body: EmptyBody())
+            _ = try await (_seed, _migrate)
             let all: [APISkill] = try await APIClient.shared.get("/skills")
             apiSkills = all
             skills = all.map { $0.toLocal() }
@@ -253,12 +315,17 @@ final class DataStore: ObservableObject {
 
     func uploadKnowledgeDocument(fileURL: URL, category: String = "") async -> Bool {
         do {
-            _ = try await APIClient.shared.uploadFile(
+            let data = try await APIClient.shared.uploadFile(
                 path: "/knowledge/documents",
                 fileURL: fileURL,
                 extraFields: category.isEmpty ? [:] : ["category": category]
             )
-            await loadDocuments()
+            if let new = try? APIClient.shared.decoder.decode(APIKnowledgeDocument.self, from: data) {
+                apiDocuments.append(new)
+                documents = apiDocuments.map { $0.toLocal() }
+            } else {
+                await loadDocuments()
+            }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -314,11 +381,14 @@ final class DataStore: ObservableObject {
     func updateContractAmount(apiProjectId: Int, amount: Double) async {
         struct Body: Encodable { let contractAmount: Double }
         do {
-            let _: APIProject = try await APIClient.shared.patch(
+            let updated: APIProject = try await APIClient.shared.patch(
                 "/projects/\(apiProjectId)",
                 body: Body(contractAmount: amount)
             )
-            await loadProjects()
+            if let idx = apiProjects.firstIndex(where: { $0.id == apiProjectId }) {
+                apiProjects[idx] = updated
+                projects = apiProjects.map { $0.toLocal() }
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -401,7 +471,8 @@ final class DataStore: ObservableObject {
     func deleteDocument(apiId: Int) async {
         do {
             try await APIClient.shared.delete("/knowledge/documents/\(apiId)")
-            await loadDocuments()
+            apiDocuments.removeAll { $0.id == apiId }
+            documents = apiDocuments.map { $0.toLocal() }
         } catch {
             self.error = error.localizedDescription
         }
@@ -425,11 +496,15 @@ final class DataStore: ObservableObject {
     func toggleTask(apiId: Int, enabled: Bool) async {
         struct Body: Encodable { let isEnabled: Bool }
         do {
-            let _: APIScheduledTask = try await APIClient.shared.patch(
+            let updated: APIScheduledTask = try await APIClient.shared.patch(
                 "/schedules/\(apiId)",
                 body: Body(isEnabled: enabled)
             )
-            await loadSchedules()
+            if let idx = apiSchedules.firstIndex(where: { $0.id == apiId }) {
+                apiSchedules[idx] = updated
+                let projectName = updated.projectId.flatMap { pid in apiProjects.first { $0.id == pid }?.name }
+                scheduledTasks[idx] = updated.toLocal(projectName: projectName)
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -439,11 +514,13 @@ final class DataStore: ObservableObject {
     func createScheduledTask(name: String, prompt: String, frequency: String, projectId: Int? = nil, skillId: Int? = nil) async -> Bool {
         struct Body: Encodable { let name, prompt, frequency: String; let projectId: Int?; let skillId: Int? }
         do {
-            let _: APIScheduledTask = try await APIClient.shared.post(
+            let new: APIScheduledTask = try await APIClient.shared.post(
                 "/schedules",
                 body: Body(name: name, prompt: prompt, frequency: frequency, projectId: projectId, skillId: skillId)
             )
-            await loadSchedules()
+            apiSchedules.append(new)
+            let projectName = new.projectId.flatMap { pid in apiProjects.first { $0.id == pid }?.name }
+            scheduledTasks.append(new.toLocal(projectName: projectName))
             return true
         } catch {
             self.error = error.localizedDescription
@@ -454,7 +531,11 @@ final class DataStore: ObservableObject {
     func deleteScheduledTask(apiId: Int) async {
         do {
             try await APIClient.shared.delete("/schedules/\(apiId)")
-            await loadSchedules()
+            apiSchedules.removeAll { $0.id == apiId }
+            scheduledTasks = apiSchedules.map { task in
+                let projectName = task.projectId.flatMap { pid in apiProjects.first { $0.id == pid }?.name }
+                return task.toLocal(projectName: projectName)
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -476,11 +557,12 @@ final class DataStore: ObservableObject {
     func createClient(name: String, industry: String = "", contact: String = "", notes: String = "") async -> Bool {
         struct Body: Encodable { let name, industry, contact, notes: String }
         do {
-            let _: APIClientRecord = try await APIClient.shared.post(
+            let new: APIClientRecord = try await APIClient.shared.post(
                 "/clients",
                 body: Body(name: name, industry: industry, contact: contact, notes: notes)
             )
-            await loadClients()
+            apiClients.append(new)
+            clients = apiClients.map { $0.toLocal() }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -492,11 +574,14 @@ final class DataStore: ObservableObject {
     func updateClient(apiId: Int, name: String, industry: String, contact: String, notes: String) async -> Bool {
         struct Body: Encodable { let name, industry, contact, notes: String }
         do {
-            let _: APIClientRecord = try await APIClient.shared.put(
+            let updated: APIClientRecord = try await APIClient.shared.put(
                 "/clients/\(apiId)",
                 body: Body(name: name, industry: industry, contact: contact, notes: notes)
             )
-            await loadClients()
+            if let idx = apiClients.firstIndex(where: { $0.id == apiId }) {
+                apiClients[idx] = updated
+                clients = apiClients.map { $0.toLocal() }
+            }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -507,7 +592,8 @@ final class DataStore: ObservableObject {
     func deleteClient(apiId: Int) async {
         do {
             try await APIClient.shared.delete("/clients/\(apiId)")
-            await loadClients()
+            apiClients.removeAll { $0.id == apiId }
+            clients = apiClients.map { $0.toLocal() }
         } catch {
             self.error = error.localizedDescription
         }
@@ -516,8 +602,15 @@ final class DataStore: ObservableObject {
     func linkDocument(clientApiId: Int, docApiId: Int) async {
         do {
             try await APIClient.shared.post("/clients/\(clientApiId)/documents/\(docApiId)", body: EmptyBody())
-            await loadClients()
-            await loadDocuments()
+            // Update doc's clientId locally, refresh only the affected client
+            if let dIdx = apiDocuments.firstIndex(where: { $0.id == docApiId }) {
+                apiDocuments[dIdx].clientId = clientApiId
+                documents = apiDocuments.map { $0.toLocal() }
+            }
+            if let cIdx = apiClients.firstIndex(where: { $0.id == clientApiId }) {
+                apiClients[cIdx].documentCount += 1
+                clients = apiClients.map { $0.toLocal() }
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -526,8 +619,14 @@ final class DataStore: ObservableObject {
     func unlinkDocument(clientApiId: Int, docApiId: Int) async {
         do {
             try await APIClient.shared.delete("/clients/\(clientApiId)/documents/\(docApiId)")
-            await loadClients()
-            await loadDocuments()
+            if let dIdx = apiDocuments.firstIndex(where: { $0.id == docApiId }) {
+                apiDocuments[dIdx].clientId = nil
+                documents = apiDocuments.map { $0.toLocal() }
+            }
+            if let cIdx = apiClients.firstIndex(where: { $0.id == clientApiId }) {
+                apiClients[cIdx].documentCount = max(0, apiClients[cIdx].documentCount - 1)
+                clients = apiClients.map { $0.toLocal() }
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -579,12 +678,17 @@ final class DataStore: ObservableObject {
 
     func uploadTemplate(fileURL: URL, category: String = "") async -> Bool {
         do {
-            _ = try await APIClient.shared.uploadFile(
+            let data = try await APIClient.shared.uploadFile(
                 path: "/templates",
                 fileURL: fileURL,
                 extraFields: category.isEmpty ? [:] : ["category": category]
             )
-            await loadTemplates()
+            if let new = try? APIClient.shared.decoder.decode(APITemplate.self, from: data) {
+                apiTemplates.append(new)
+                templates = apiTemplates.map { $0.toLocal() }
+            } else {
+                await loadTemplates()
+            }
             return true
         } catch {
             self.error = error.localizedDescription
@@ -595,7 +699,8 @@ final class DataStore: ObservableObject {
     func deleteTemplate(apiId: Int) async {
         do {
             try await APIClient.shared.delete("/templates/\(apiId)")
-            await loadTemplates()
+            apiTemplates.removeAll { $0.id == apiId }
+            templates = apiTemplates.map { $0.toLocal() }
         } catch {
             self.error = error.localizedDescription
         }
@@ -784,6 +889,9 @@ final class DataStore: ObservableObject {
         do {
             let resp: LoginResp = try await APIClient.shared.post("/auth/login", body: LoginBody(email: email, password: password))
             UserDefaults.standard.set(resp.token, forKey: "authToken")
+            // Persist credentials for pre-fill on next login / session expiry
+            UserDefaults.standard.set(email, forKey: "savedEmail")
+            KeychainHelper.save(password: password, account: email)
             currentUser = resp.user
             return nil
         } catch let e as APIError {

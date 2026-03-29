@@ -1,6 +1,7 @@
 """Chat router — SSE streaming, conversation history, RAG injection."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,9 @@ from app.config import UPLOADS_DIR
 from app.database import get_session
 from app.models.db import Conversation, Message, Milestone, Project, ProjectFile, ProjectPayment, Skill
 from app.services import claude, rag, openai_compat
+from app.services.cache import conversations_cache
+
+_CONV_TTL = 20.0
 from app.models.db import Setting as _Setting
 from app.services.tool_executor import format_tools_for_claude
 from app.tools import registry
@@ -57,6 +61,34 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         return f"[Could not extract text: {exc}]"
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+async def _generate_title_bg(conv_id: int, user_content: str, bind, complete_fn) -> None:
+    """Generate conversation title in the background — called after SSE done is sent."""
+    from sqlmodel import Session as _Sess
+    try:
+        raw = await complete_fn(
+            messages=[{"role": "user", "content": (
+                f"Write a short title for this conversation (max 12 Chinese characters "
+                f"or 6 English words, no quotes, no punctuation at end).\n"
+                f"User said: {user_content[:200]}\n"
+                f"Return ONLY the title."
+            )}],
+            max_tokens=20,
+        )
+        title = raw.strip().strip('"').strip("'")[:60] or user_content[:40]
+    except Exception:
+        return
+    try:
+        with _Sess(bind) as s:
+            c = s.get(Conversation, conv_id)
+            if c:
+                c.title = title
+                s.add(c)
+                s.commit()
+                conversations_cache.delete_prefix("list:")
+    except Exception:
+        pass
 
 
 def _get_llm(session: Session):
@@ -123,10 +155,16 @@ def list_conversations(
     project_id: Optional[int] = None,
     session: Session = Depends(get_session),
 ):
-    stmt = select(Conversation).order_by(Conversation.updated_at.desc())
+    cache_key = f"list:{project_id or ''}"
+    cached = conversations_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    stmt = select(Conversation).order_by(Conversation.updated_at.desc()).limit(100)
     if project_id:
         stmt = stmt.where(Conversation.project_id == project_id)
-    return session.exec(stmt).all()
+    result = session.exec(stmt).all()
+    conversations_cache.set(cache_key, result, _CONV_TTL)
+    return result
 
 
 @router.post("/conversations", response_model=ConversationOut)
@@ -139,16 +177,31 @@ def create_conversation(
     session.add(conv)
     session.commit()
     session.refresh(conv)
+    conversations_cache.delete_prefix("list:")
     return conv
 
 
 @router.get("/conversations/{conv_id}/messages", response_model=List[MessageOut])
-def get_messages(conv_id: int, session: Session = Depends(get_session)):
+def get_messages(
+    conv_id: int,
+    limit: int = 30,
+    before_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
     conv = session.get(Conversation, conv_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    stmt = select(Message).where(Message.conversation_id == conv_id).order_by(Message.created_at)
-    return session.exec(stmt).all()
+    stmt = (
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    if before_id is not None:
+        stmt = stmt.where(Message.id < before_id)
+    msgs = session.exec(stmt).all()
+    msgs.reverse()  # restore chronological order for the client
+    return msgs
 
 
 @router.post("/send")
@@ -304,6 +357,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             #   • complete tool_use JSON strings  (intercept, do NOT stream)
             text_buffer = ""          # user-visible text from this turn
             tool_use_blocks = []      # collected tool_use dicts
+            reasoning_content = ""   # kimi-k2.5 reasoning (needed for multi-turn tool calls)
 
             print(f"[P1] starting stream, tools={[t.get('name') for t in (tools or [])]}", flush=True)
 
@@ -318,12 +372,11 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     yield f"data: {json.dumps({'type': 'tool_executing', 'tool_name': tool_name, 'message': progress_msg})}\n\n"
                     continue
 
-                # Detect complete tool_use JSON emitted by claude.py
+                # Detect complete tool_use JSON emitted by claude.py / openai_compat.py
                 if (
                     stripped.startswith("{")
                     and stripped.endswith("}")
-                    and '"tool_use"' in stripped
-                    and '"name"' in stripped
+                    and '"type"' in stripped
                 ):
                     try:
                         block = json.loads(stripped)
@@ -331,6 +384,9 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                             print(f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list(block.get('input', {}).keys())}", flush=True)
                             tool_use_blocks.append(block)
                             continue  # do NOT yield to frontend
+                        if block.get("type") == "reasoning_content":
+                            reasoning_content = block.get("content", "")
+                            continue  # internal only, not sent to frontend
                     except json.JSONDecodeError:
                         pass  # not valid JSON, treat as text
 
@@ -410,7 +466,8 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     })
 
                 continuation_messages = api_messages + [
-                    {"role": "assistant", "content": assistant_content},
+                    {"role": "assistant", "content": assistant_content,
+                     **({"reasoning_content": reasoning_content} if reasoning_content else {})},
                     {"role": "user",      "content": tool_result_blocks},
                 ]
 
@@ -432,7 +489,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                 full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
 
             print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
-            new_title: str | None = None
+            need_title = False
             if full_text:
                 with Session(session.get_bind()) as new_session:
                     asst_msg = Message(
@@ -445,21 +502,9 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     if c:
                         c.updated_at = datetime.utcnow()
                         if c.title == "New Workstream":
-                            # Generate a concise title from the first exchange
-                            try:
-                                raw_title = await _complete(
-                                    messages=[{"role": "user", "content": (
-                                        f"Write a short title for this conversation (max 12 Chinese characters "
-                                        f"or 6 English words, no quotes, no punctuation at end).\n"
-                                        f"User said: {req.content[:200]}\n"
-                                        f"Return ONLY the title."
-                                    )}],
-                                    max_tokens=20,
-                                )
-                                c.title = raw_title.strip().strip('"').strip("'")[:60] or req.content[:40]
-                            except Exception:
-                                c.title = req.content[:40] + ("…" if len(req.content) > 40 else "")
-                            new_title = c.title
+                            # Placeholder — real title generated in background
+                            c.title = req.content[:40] + ("…" if len(req.content) > 40 else "")
+                            need_title = True
                         new_session.add(c)
                     new_session.commit()
 
@@ -469,10 +514,17 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
 
-        done_payload: dict = {"type": "done"}
-        if new_title:
-            done_payload["title"] = new_title
-        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+        # Send done immediately — don't wait for title generation
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+        # Generate title in background (after done is already sent to client)
+        if need_title and full_text:
+            asyncio.ensure_future(_generate_title_bg(
+                conv_id=conv_id,
+                user_content=req.content,
+                bind=session.get_bind(),
+                complete_fn=llm.complete,
+            ))
 
     return StreamingResponse(
         event_stream(),
@@ -490,4 +542,5 @@ def delete_conversation(conv_id: int, session: Session = Depends(get_session)):
         session.delete(m)
     session.delete(conv)
     session.commit()
+    conversations_cache.delete_prefix("list:")
     return {"ok": True}

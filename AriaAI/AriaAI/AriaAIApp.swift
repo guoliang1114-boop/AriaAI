@@ -81,6 +81,10 @@ struct RootView: View {
         }
         .environment(\.appLanguage, appState.language)
         .animation(.easeInOut(duration: 0.25), value: appState.isAuthenticated)
+        .onReceive(NotificationCenter.default.publisher(for: .sessionExpired)) { _ in
+            appState.isAuthenticated = false
+            UserDefaults.standard.removeObject(forKey: "authToken")
+        }
     }
 }
 

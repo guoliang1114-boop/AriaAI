@@ -1,13 +1,14 @@
 """Auth router — login, user management."""
 import uuid
 import bcrypt
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import User
+from app.models.db import User, UserToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -70,12 +71,30 @@ def get_current_user(
 ) -> User:
     if not x_auth_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # 先检查新的 UserToken 表（多设备登录）
+    user_token = session.exec(
+        select(UserToken).where(UserToken.token == x_auth_token)
+    ).first()
+    
+    if user_token:
+        # 更新最后使用时间
+        user_token.last_used_at = datetime.utcnow()
+        session.add(user_token)
+        session.commit()
+        
+        user = session.get(User, user_token.user_id)
+        if user and user.is_active:
+            return user
+    
+    # 兼容旧版：检查 User.auth_token
     user = session.exec(
         select(User).where(User.auth_token == x_auth_token, User.is_active == True)
     ).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return user
+    if user:
+        return user
+        
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -96,14 +115,18 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
-    # Issue a new token on each login
-    user.auth_token = str(uuid.uuid4())
-    session.add(user)
+    # 创建新的 token（支持多设备同时登录）
+    new_token = UserToken(
+        user_id=user.id,
+        token=str(uuid.uuid4()),
+        device_info="web",  # 可以扩展为从 user-agent 获取
+    )
+    session.add(new_token)
     session.commit()
-    session.refresh(user)
+    session.refresh(new_token)
 
     return LoginResponse(
-        token=user.auth_token,
+        token=new_token.token,
         user=UserOut(
             id=user.id,
             email=user.email,
@@ -116,12 +139,34 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
 
 @router.post("/logout")
 def logout(
+    x_auth_token: Optional[str] = Header(None),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    current_user.auth_token = None
-    session.add(current_user)
-    session.commit()
+    # 删除当前设备的 token，不影响其他设备
+    if x_auth_token:
+        # 清除 token 缓存（函数内导入避免循环依赖）
+        try:
+            import sys
+            main_module = sys.modules.get('__main__')
+            if main_module and hasattr(main_module, 'invalidate_token_cache'):
+                main_module.invalidate_token_cache(x_auth_token)
+        except Exception:
+            pass  # 缓存清除失败不影响登出
+            
+        user_token = session.exec(
+            select(UserToken).where(UserToken.token == x_auth_token)
+        ).first()
+        if user_token:
+            session.delete(user_token)
+            session.commit()
+    
+    # 兼容旧版：如果使用的是旧版 token，清空 auth_token
+    if current_user.auth_token == x_auth_token:
+        current_user.auth_token = None
+        session.add(current_user)
+        session.commit()
+    
     return {"ok": True}
 
 

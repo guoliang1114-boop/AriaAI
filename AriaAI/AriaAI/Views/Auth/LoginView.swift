@@ -50,7 +50,7 @@ struct LoginView: View {
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var dataStore: DataStore
     @Environment(\.appLanguage) var lang
-    @State private var email    = ""
+    @State private var email    = UserDefaults.standard.string(forKey: "savedEmail") ?? "admin@d2cgo.com"
     @State private var password = ""
     @State private var isLoading = false
     @State private var validationError: String? = nil
@@ -78,6 +78,10 @@ struct LoginView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 600)
+        .onAppear {
+            let saved = UserDefaults.standard.string(forKey: "savedEmail") ?? "admin@d2cgo.com"
+            password = KeychainHelper.load(account: saved) ?? "Admin@d2cgo"
+        }
     }
 
     // MARK: - Brand

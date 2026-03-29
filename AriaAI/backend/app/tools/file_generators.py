@@ -18,7 +18,8 @@ GENERATED_DIR = UPLOADS_DIR / "generated"
 GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Skills directory for templates
-SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
+# file is at backend/app/tools/ → need 4 parents to reach project root
+SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "skills"
 
 
 def _generate_filename(extension: str) -> str:
@@ -80,6 +81,32 @@ def _generate_filename(extension: str) -> str:
         "required": ["title", "slides"]
     }
 )
+def _safe_layout(prs, preferred_idx: int):
+    """Return slide_layouts[preferred_idx] if it exists, otherwise the last available layout."""
+    layouts = prs.slide_layouts
+    if preferred_idx < len(layouts):
+        return layouts[preferred_idx]
+    return layouts[-1]
+
+
+def _find_body_placeholder(slide):
+    """Find the first non-title body/text placeholder on a slide.
+
+    Templates can use non-standard idx values (e.g. 10, 11 instead of 1).
+    Try common indices first, then fall back to any non-title placeholder.
+    """
+    for idx in (1, 10, 11, 2, 12, 13, 14, 15):
+        try:
+            return slide.placeholders[idx]
+        except KeyError:
+            continue
+    # Last resort: first placeholder that is not the title (idx != 0)
+    for ph in slide.placeholders:
+        if ph.placeholder_format.idx != 0:
+            return ph
+    return None
+
+
 async def generate_ppt(
     title: str,
     slides: list[dict],
@@ -90,79 +117,100 @@ async def generate_ppt(
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt
-        from pptx.enum.text import PP_ALIGN
-        from pptx.dml.color import RGBColor
     except ImportError:
         return {
             "success": False,
             "error": "python-pptx not installed. Run: pip install python-pptx"
         }
-    
-    # Load template if provided, otherwise create blank
-    if template_path and Path(template_path).exists():
+
+    using_template = bool(template_path and Path(template_path).exists())
+
+    if using_template:
         prs = Presentation(template_path)
+
+        # ── Cover slide (template slide 0) ──────────────────────────────────
+        cover_slide = prs.slides[0]
+        for shape in cover_slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            if shape.name == "cover_title":
+                shape.text_frame.text = title
+            elif shape.name == "cover_subtitle":
+                shape.text_frame.text = subtitle
+
+        # Layout helpers for content slides
+        content_layout = _safe_layout(prs, 0)   # '1_One Column Text'
+        two_col_layout = _safe_layout(prs, 1)   # 'Custom Layout' (minimal)
+
     else:
         prs = Presentation()
-    
-    # Title slide
-    title_slide_layout = prs.slide_layouts[0]  # Title slide layout
-    slide = prs.slides.add_slide(title_slide_layout)
-    slide.shapes.title.text = title
-    if subtitle and len(slide.placeholders) > 1:
-        try:
-            slide.placeholders[1].text = subtitle
-        except KeyError:
-            pass
-    
-    # Content slides
+
+        # Blank template: add a simple cover slide
+        cover_layout = _safe_layout(prs, 0)
+        slide = prs.slides.add_slide(cover_layout)
+        if slide.shapes.title:
+            slide.shapes.title.text = title
+        if subtitle:
+            body = _find_body_placeholder(slide)
+            if body is not None:
+                body.text_frame.text = subtitle
+
+        content_layout = _safe_layout(prs, 1)
+        two_col_layout = _safe_layout(prs, 1)
+
+    # ── Content slides ───────────────────────────────────────────────────────
     for slide_data in slides:
-        slide_type = slide_data.get("type", "content")
+        slide_type  = slide_data.get("type", "content")
         slide_title = slide_data.get("title", "")
-        
-        if slide_type == "title":
-            layout = prs.slide_layouts[0]
-        elif slide_type == "two_column":
-            layout = prs.slide_layouts[5]  # Blank for custom layout
-        else:
-            layout = prs.slide_layouts[1]  # Title and content
-        
-        slide = prs.slides.add_slide(layout)
+
+        layout = two_col_layout if slide_type == "two_column" else content_layout
+        slide  = prs.slides.add_slide(layout)
+
         if slide.shapes.title:
             slide.shapes.title.text = slide_title
-        
+
         if slide_type == "content" and "content" in slide_data:
-            try:
-                body_shape = slide.placeholders[1]
-                tf = body_shape.text_frame
-                tf.text = slide_data["content"]
-            except KeyError:
-                pass
-        
+            body = _find_body_placeholder(slide)
+            if body is not None:
+                body.text_frame.text = slide_data["content"]
+
         elif slide_type == "two_column":
-            # Add text boxes for two-column layout
-            left = Inches(1)
-            top = Inches(2)
-            width = Inches(4)
-            height = Inches(5)
-            
-            left_box = slide.shapes.add_textbox(left, top, width, height)
+            slide_h = prs.slide_height
+            col_w   = Inches(5.2)
+            top     = Inches(1.6)
+            height  = slide_h - Inches(2.0)
+            margin  = Inches(0.5)
+            gap     = Inches(0.3)
+
+            left_box = slide.shapes.add_textbox(margin, top, col_w, height)
+            left_box.text_frame.word_wrap = True
             left_box.text_frame.text = slide_data.get("left_content", "")
-            
-            right_box = slide.shapes.add_textbox(Inches(5.5), top, width, height)
+
+            right_box = slide.shapes.add_textbox(margin + col_w + gap, top, col_w, height)
+            right_box.text_frame.word_wrap = True
             right_box.text_frame.text = slide_data.get("right_content", "")
-    
-    # Save file
+
+    # ── Move back cover to the end ───���────────────────────────────────────────
+    # Template order after adding slides: [cover, back_cover, content1, content2, ...]
+    # Desired order:                       [cover, content1, content2, ..., back_cover]
+    if using_template and len(prs.slides) >= 2:
+        sldIdLst = prs.slides._sldIdLst
+        back_cover_ref = list(sldIdLst)[1]   # index 1 = back cover
+        sldIdLst.remove(back_cover_ref)
+        sldIdLst.append(back_cover_ref)
+
+    # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")
     filepath = GENERATED_DIR / filename
     prs.save(filepath)
-    
+
     return {
         "success": True,
         "file_type": "pptx",
         "file_name": filename,
         "file_path": str(filepath.relative_to(UPLOADS_DIR)),
         "full_path": str(filepath),
-        "slide_count": len(slides) + 1,  # +1 for title slide
+        "slide_count": len(slides) + 2,  # cover + content + back cover
     }
 
 
@@ -210,18 +258,21 @@ async def generate_ppt_from_skill(
     subtitle: str = ""
 ) -> dict[str, Any]:
     """Generate PPT using a skill's template."""
-    # Look for template in skill's assets folder (try KPMG-Template.pptx first, then template.pptx)
-    skill_assets = SKILLS_DIR / skill_name / "assets"
-    template_path = skill_assets / "KPMG-Template.pptx"
-    
-    if not template_path.exists():
-        template_path = skill_assets / "template.pptx"
-    
-    if not template_path.exists():
+    # Search for template in assets/ then references/ (both locations are valid)
+    template_path = None
+    for folder in ("assets", "references"):
+        for filename in ("KPMG-Template.pptx", "template.pptx"):
+            candidate = SKILLS_DIR / skill_name / folder / filename
+            if candidate.exists():
+                template_path = candidate
+                break
+        if template_path:
+            break
+
+    if not template_path:
         # Fallback to default generation
         return await generate_ppt(title, slides, subtitle)
-    
-    # Use skill template
+
     return await generate_ppt(title, slides, subtitle, str(template_path))
 
 

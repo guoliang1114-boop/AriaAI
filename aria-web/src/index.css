@@ -1,0 +1,568 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+
+@theme {
+  /* === The Intelligent Stratum Design System === */
+  
+  /* Primary Blue - Signature Gradient: #003fb1 to #1a56db */
+  --color-primary: #003fb1;
+  --color-primary-container: #1a56db;
+  --color-on-primary: #ffffff;
+  
+  /* Secondary */
+  --color-secondary-container: #d5e0f8;
+  --color-on-secondary-container: #586377;
+  
+  /* Tertiary - For Pulse Notifications */
+  --color-tertiary: #852b00;
+  
+  /* Surface Hierarchy - Tonal Layering */
+  --color-surface: #f7f9fb;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-high: #e8eaed;
+  --color-surface-container-highest: #e0e3e5;
+  --color-surface-tint: #003fb1;
+  
+  /* Text Colors - Never use pure black */
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #3c4043;
+  --color-on-surface-muted: #5f6368;
+  
+  /* Outline - Ghost Border at low opacity */
+  --color-outline: #c3c5d7;
+  --color-outline-variant: rgba(195, 197, 215, 0.15);
+  
+  /* Semantic Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  
+  /* Status Colors */
+  --color-active: #10b981;
+  --color-planning: #f59e0b;
+  --color-completed: #6b7280;
+  
+  /* === Typography === */
+  --font-manrope: 'Manrope', sans-serif;
+  --font-inter: 'Inter', sans-serif;
+  
+  /* === Spacing Tokens === */
+  --spacing-0-5: 0.125rem;  /* 2px */
+  --spacing-1: 0.25rem;     /* 4px */
+  --spacing-1-5: 0.375rem;  /* 6px */
+  --spacing-2: 0.5rem;      /* 8px */
+  --spacing-2-5: 0.625rem;  /* 10px */
+  --spacing-3: 0.75rem;     /* 12px */
+  --spacing-3-5: 0.875rem;  /* 14px */
+  --spacing-4: 1rem;        /* 16px */
+  --spacing-5: 1.25rem;     /* 20px */
+  --spacing-6: 1.5rem;      /* 24px */
+  --spacing-7: 1.75rem;     /* 28px */
+  --spacing-8: 2rem;        /* 32px */
+  --spacing-10: 2.5rem;     /* 40px */
+  --spacing-12: 3rem;       /* 48px */
+  --spacing-14: 3.5rem;     /* 56px */
+  --spacing-16: 4rem;       /* 64px */
+  --spacing-20: 5rem;       /* 80px */
+  --spacing-24: 6rem;       /* 96px */
+}
+
+/* === Base Styles === */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #191c1e;
+  background-color: #f7f9fb;
+}
+
+/* === Typography Classes === */
+.font-manrope {
+  font-family: 'Manrope', sans-serif;
+}
+
+.font-inter {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Display & Headlines */
+.text-display-lg {
+  font-family: 'Manrope', sans-serif;
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.text-headline-lg {
+  font-family: 'Manrope', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.text-headline-md {
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.text-headline-sm {
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Body Text */
+.text-body-lg {
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.text-body-md {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.text-body-sm {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* Labels */
+.text-label-lg {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.text-label-md {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.text-label-sm {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* === Button Styles === */
+.btn-primary {
+  background: linear-gradient(135deg, #003fb1 0%, #1a56db 100%);
+  color: white;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  filter: saturate(1.2) brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: #f2f4f6;
+  color: #003fb1;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: #e8eaed;
+}
+
+/* === Card Styles === */
+.card {
+  background-color: #ffffff;
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+.card-interactive {
+  background-color: #ffffff;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(25, 28, 30, 0.06);
+}
+
+/* === Input Styles === */
+.input-housed {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.input-housed:focus {
+  box-shadow: 0 0 0 2px rgba(0, 63, 177, 0.2);
+}
+
+/* === Glassmorphism === */
+.glass {
+  background-color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+/* === Ghost Border === */
+.ghost-border {
+  outline: 1px solid rgba(195, 197, 215, 0.15);
+}
+
+/* === Pulse Notification === */
+.pulse-notification {
+  background-color: #ffffff;
+  border-left: 3px solid #852b00;
+  border-radius: 0 0.75rem 0.75rem 0;
+  padding: 1rem 1.25rem;
+}
+
+/* === Custom Scrollbar === */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c3c5d7;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* === Animations === */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+/* === Selection === */
+::selection {
+  background-color: #d5e0f8;
+  color: #003fb1;
+}
+
+/* === Gradient Backgrounds === */
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #003fb1 0%, #1a56db 100%);
+}
+
+.bg-gradient-hero {
+  background: linear-gradient(135deg, #001a4d 0%, #003fb1 50%, #1a56db 100%);
+}
+
+/* === Status Indicators === */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot-active {
+  background-color: #10b981;
+}
+
+.status-dot-planning {
+  background-color: #f59e0b;
+}
+
+.status-dot-completed {
+  background-color: #6b7280;
+}
+
+/* === Insight Chips === */
+.chip-insight {
+  background-color: #d5e0f8;
+  color: #586377;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* === Markdown Content Styles === */
+.md-root {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-on-surface);
+}
+
+/* Paragraphs */
+.md-root .md-paragraph {
+  margin-bottom: 0.75rem;
+}
+
+.md-root .md-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.md-root .md-list {
+  margin-bottom: 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.md-root .md-list-ul {
+  list-style-type: disc;
+}
+
+.md-root .md-list-ol {
+  list-style-type: decimal;
+}
+
+.md-root .md-list-item {
+  margin-bottom: 0.25rem;
+}
+
+/* Headings */
+.md-root .md-heading {
+  font-family: 'Manrope', sans-serif;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--color-on-surface);
+}
+
+.md-root .md-h1 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.md-root .md-h2 {
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+
+.md-root .md-h3 {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.md-root .md-h4 {
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
+/* Blockquote */
+.md-root .md-blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--color-on-surface-muted);
+  font-style: italic;
+}
+
+/* Inline Code */
+.md-root .inline-code {
+  background-color: var(--color-surface-container-high);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: var(--color-on-surface);
+}
+
+/* Links */
+.md-root .md-link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.md-root .md-link:hover {
+  text-decoration: underline;
+}
+
+/* Horizontal Rule */
+.md-root .md-hr {
+  border: none;
+  border-top: 1px solid var(--color-outline);
+  margin: 1.5rem 0;
+}
+
+/* Strong & Emphasis */
+.md-root .md-strong {
+  font-weight: 600;
+}
+
+.md-root .md-em {
+  font-style: italic;
+}
+
+/* === Table Styles === */
+.md-root .md-table-wrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-outline);
+}
+
+.md-root .md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.md-root .md-table-head {
+  background-color: var(--color-surface-container-high);
+}
+
+.md-root .md-table-body {
+  background-color: var(--color-surface-container-lowest);
+}
+
+.md-root .md-table-row {
+  border-bottom: 1px solid var(--color-outline);
+}
+
+.md-root .md-table-row:last-child {
+  border-bottom: none;
+}
+
+.md-root .md-table-cell {
+  padding: 0.625rem 0.875rem;
+  vertical-align: top;
+  color: var(--color-on-surface);
+}
+
+.md-root .md-table-header {
+  font-weight: 600;
+  color: var(--color-on-surface);
+  border-bottom: 1px solid var(--color-outline);
+}
+
+/* Table cell content */
+.md-root .md-table-cell p {
+  margin: 0;
+}
+
+.md-root .md-table-cell .inline-code {
+  font-size: 0.75rem;
+}
+
+/* Nested elements in tables */
+.md-root .md-table-cell ul,
+.md-root .md-table-cell ol {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+}
+
+.md-root .md-table-cell li {
+  margin-bottom: 0.125rem;
+}
+
+/* Syntax Highlighter Container */
+.md-root pre {
+  margin: 0.75rem 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* Dark mode adjustments for tables */
+@media (prefers-color-scheme: dark) {
+  .md-root .md-table-wrapper {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .md-root .md-table-head {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  
+  .md-root .md-table-row {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .md-root .md-table-header {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}

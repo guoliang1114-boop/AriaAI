@@ -102,6 +102,8 @@ struct ChatView: View {
     @State private var selectedSkillId: Int? = nil
     @State private var isLoadingHistory = false
     @State private var hasLoadedInitially = false  // 标记是否完成初始加载
+    @State private var isLoadingMore = false
+    @State private var hasMoreMessages = false
     @State private var isNewConversation = false   // 标记是否是新建对话（显示欢迎页）
 
     // Export
@@ -200,6 +202,41 @@ struct ChatView: View {
                         } else {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                                    // ── Load more trigger ──────────────────
+                                    if hasMoreMessages {
+                                        HStack {
+                                            Spacer()
+                                            if isLoadingMore {
+                                                ProgressView()
+                                                    .controlSize(.small)
+                                                    .padding(.vertical, Spacing.sm)
+                                            } else {
+                                                Color.clear.frame(height: 1)
+                                                    .onAppear {
+                                                        guard !isLoadingMore, hasMoreMessages,
+                                                              let convId = currentConversationId else { return }
+                                                        isLoadingMore = true
+                                                        let anchorId = messages.first?.id
+                                                        Task {
+                                                            let older = await dataStore.loadMoreMessages(conversationId: convId)
+                                                            if !older.isEmpty {
+                                                                let newMsgs = older.map { $0.toLocal() }
+                                                                messages.insert(contentsOf: newMsgs, at: 0)
+                                                                if let anchor = anchorId {
+                                                                    DispatchQueue.main.async {
+                                                                        proxy.scrollTo(anchor, anchor: .top)
+                                                                    }
+                                                                }
+                                                            }
+                                                            hasMoreMessages = dataStore.hasMoreMessages[convId] ?? false
+                                                            isLoadingMore = false
+                                                        }
+                                                    }
+                                            }
+                                            Spacer()
+                                        }
+                                    }
+                                    // ── Messages ──────────────────────────
                                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                                         MessageRow(
                                             message: message,
@@ -222,7 +259,12 @@ struct ChatView: View {
                                         )
                                         .id(message.id)
                                     }
-                                    if isStreaming && !streamingText.isEmpty {
+                                    // Show streaming row:
+                                    // 1. While streaming with text, OR while a skill is active (even if text is empty — e.g. during tool execution)
+                                    // 2. After streaming ends if skill stage is done (progress card stays visible) or there are generated files (download button stays visible)
+                                    if (isStreaming && (!streamingText.isEmpty || selectedSkillId != nil))
+                                        || skillStage == .done
+                                        || !generatedFiles.isEmpty {
                                         streamingRow
                                             .id("streaming")
                                     }
@@ -234,6 +276,7 @@ struct ChatView: View {
                                     }
                                 }
                                 .padding(Spacing.xxl)
+                                .id(currentConversationId)  // force rebuild on conversation switch
                             }
                             .background(.surfaceBase)
                             .onChange(of: messages.count) {
@@ -241,6 +284,11 @@ struct ChatView: View {
                             }
                             .onChange(of: streamingText) {
                                 proxy.scrollTo("streaming", anchor: .bottom)
+                            }
+                            .onChange(of: generatedFiles.count) {
+                                if !generatedFiles.isEmpty {
+                                    proxy.scrollTo("streaming", anchor: .bottom)
+                                }
                             }
                             .onChange(of: isOutputTruncated) { _, newValue in
                                 if newValue {
@@ -556,21 +604,28 @@ struct ChatView: View {
         guard currentConversationId != conv.id else { return }
         isNewConversation = false
         currentConversationId = conv.id
+        skillStage = .idle
+        generatedFiles = []
+        isLoadingMore = false
+        hasMoreMessages = false
 
         // Show cached messages instantly if available
         if let cached = dataStore.cachedMessages(conversationId: conv.id) {
             messages = cached.map { $0.toLocal() }
+            hasMoreMessages = dataStore.hasMoreMessages[conv.id] ?? false
             // Silently refresh in background
             Task {
                 let fresh = await dataStore.loadMessages(conversationId: conv.id)
                 if currentConversationId == conv.id {
                     messages = fresh.map { $0.toLocal() }
+                    hasMoreMessages = dataStore.hasMoreMessages[conv.id] ?? false
                 }
             }
         } else {
             isLoadingHistory = true
             let apiMessages = await dataStore.loadMessages(conversationId: conv.id)
             messages = apiMessages.map { $0.toLocal() }
+            hasMoreMessages = dataStore.hasMoreMessages[conv.id] ?? false
             isLoadingHistory = false
         }
     }
@@ -1274,6 +1329,7 @@ struct ChatView: View {
         
         if !isContinue {
             inputText = ""
+            isNewConversation = false   // dismiss welcome view once user sends first message
             // Build attachments from selected references
             var userAttachments: [ChatAttachment] = []
             if let sid = selectedSkillId {
@@ -1301,10 +1357,12 @@ struct ChatView: View {
         generatedFiles = []
 
         // Start skill progress tracking
-        if selectedSkillId != nil && !isContinue {
-            skillStage = .analyzing
-        } else if selectedSkillId != nil && isContinue && skillStage != .continuing {
-            skillStage = .analyzing
+        if selectedSkillId != nil {
+            if !isContinue || skillStage != .continuing {
+                skillStage = .analyzing
+            }
+        } else {
+            skillStage = .idle
         }
 
         do {
@@ -2154,6 +2212,7 @@ struct ConversationRowView: View {
     let onDelete: () -> Void
     @State private var isHovered = false
     @State private var showDeleteConfirm = false
+    @State private var confirmDelete = false
     @Environment(\.appLanguage) var lang
 
     private var relativeDate: String {
@@ -2182,7 +2241,7 @@ struct ConversationRowView: View {
                 Spacer(minLength: 0)
                 // 删除按钮：始终占位（width 24），hover 时显示图标，避免文字跳动
                 Button {
-                    onDelete()
+                    confirmDelete = true
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -2211,10 +2270,17 @@ struct ConversationRowView: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             Button(role: .destructive) {
-                onDelete()
+                confirmDelete = true
             } label: {
                 Label(lang.t("删除对话", "Delete Conversation"), systemImage: "trash")
             }
+        }
+        .alert(lang.t("删除对话", "Delete Conversation"), isPresented: $confirmDelete) {
+            Button(lang.t("删除", "Delete"), role: .destructive) { onDelete() }
+            Button(lang.t("取消", "Cancel"), role: .cancel) {}
+        } message: {
+            Text(lang.t("确定要删除「\(conversation.title)」吗？删除后无法恢复。",
+                        "Delete \"\(conversation.title)\"? This cannot be undone."))
         }
     }
 }
@@ -2225,6 +2291,7 @@ struct MessageRow: View {
     var onCopy: () -> Void = {}
     var onRetry: () -> Void = {}
     @State private var copied = false
+    @State private var isHovered = false
     @Environment(\.appLanguage) var lang
     @EnvironmentObject var dataStore: DataStore
 
@@ -2300,68 +2367,73 @@ struct MessageRow: View {
 
     @ViewBuilder
     private var assistantMessage: some View {
-        HStack(alignment: .top, spacing: Spacing.sm) {
-            // 简化 AI 头像
-            Image(systemName: "sparkles")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.primary500)
-                .frame(width: 24, height: 24)
-
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                // 消息内容 - 支持文本选择
-                markdownAsSingleText(message.content)
-                    .font(TextStyle.bodyMD)
-                    .foregroundColor(.onSurface)
-                    .lineSpacing(5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                // 操作按钮 - 简化样式
-                HStack(spacing: Spacing.md) {
-                    Button {
-                        onCopy()
-                        copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 10))
-                            Text(copied ? lang.t("已复制", "Copied") : lang.t("复制", "Copy"))
-                                .font(.system(size: 11))
-                        }
-                        .foregroundColor(copied ? .statusActive : .onSurfaceVariant.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        onRetry()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise").font(.system(size: 10))
-                            Text(lang.t("重试", "Retry")).font(.system(size: 11))
-                        }
-                        .foregroundColor(.onSurfaceVariant.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-                }
-                .padding(.top, Spacing.xs)
+        HStack(alignment: .top, spacing: 12) {
+            // Avatar
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: [Color(red: 0.35, green: 0.51, blue: 0.97), Color(red: 0.46, green: 0.62, blue: 0.98)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 30, height: 30)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
             }
-            .contextMenu {
-                Button {
-                    onCopy()
-                } label: {
-                    Label(lang.t("复制全部", "Copy All"), systemImage: "doc.on.doc")
-                }
-                Button {
-                    onRetry()
-                } label: {
-                    Label(lang.t("重试", "Retry"), systemImage: "arrow.clockwise")
+            .frame(width: 30)
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Content
+                MarkdownBodyView(content: message.content)
+
+                // Action buttons — visible only on hover
+                if isHovered {
+                    HStack(spacing: 4) {
+                        actionButton(
+                            icon: copied ? "checkmark" : "doc.on.doc",
+                            label: copied ? lang.t("已复制", "Copied") : lang.t("复制", "Copy"),
+                            tint: copied ? Color(hex: "#10B981") : .onSurfaceVariant.opacity(0.6)
+                        ) {
+                            onCopy()
+                            copied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                        }
+                        actionButton(
+                            icon: "arrow.clockwise",
+                            label: lang.t("重试", "Retry"),
+                            tint: .onSurfaceVariant.opacity(0.6)
+                        ) { onRetry() }
+                        Spacer()
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .contextMenu {
+            Button { onCopy() } label: {
+                Label(lang.t("复制全部", "Copy All"), systemImage: "doc.on.doc")
+            }
+            Button { onRetry() } label: {
+                Label(lang.t("重试", "Retry"), systemImage: "arrow.clockwise")
+            }
+        }
+    }
+
+    private func actionButton(icon: String, label: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 10))
+                Text(label).font(.system(size: 11))
+            }
+            .foregroundColor(tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.surfaceContainerHigh.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
     }
 }
 

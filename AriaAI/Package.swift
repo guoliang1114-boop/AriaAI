@@ -19,6 +19,7 @@ let package = Package(
                 "Services/APIClient.swift",
                 "Services/APIModels.swift",
                 "Services/DataStore.swift",
+                "Services/KeychainHelper.swift",
                 "Views/Auth/LoginView.swift",
                 "Views/Sidebar/SidebarView.swift",
                 "Views/Sidebar/TopBarView.swift",

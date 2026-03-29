@@ -11,6 +11,24 @@ from app.core.security import (
 )
 from app.database import get_session
 from app.models.db import Setting
+from app.services.cache import TTLCache
+
+_settings_cache = TTLCache()
+_SETTINGS_TTL = 300.0  # 5 min — settings change only when the user explicitly edits them
+
+_ALL_KEY = "__all__"
+
+
+def _bust_settings(key: str | None = None) -> None:
+    _settings_cache.delete(_ALL_KEY)
+    if key:
+        _settings_cache.delete(key)
+    # Also bust claude.py's internal settings cache so model/url changes take effect immediately
+    try:
+        from app.services import claude as _claude
+        _claude._settings_cache.clear()
+    except Exception:
+        pass
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -75,10 +93,15 @@ def remove_api_key():
 
 @router.get("/")
 def get_all_settings(session: Session = Depends(get_session)):
+    cached = _settings_cache.get(_ALL_KEY)
+    if cached is not None:
+        return cached
     settings = session.exec(
         __import__("sqlmodel").select(Setting)
     ).all()
-    return {s.key: s.value for s in settings}
+    result = {s.key: s.value for s in settings}
+    _settings_cache.set(_ALL_KEY, result, _SETTINGS_TTL)
+    return result
 
 
 @router.put("/{key}")
@@ -90,12 +113,18 @@ def upsert_setting(key: str, data: SettingUpdate, session: Session = Depends(get
     else:
         session.add(Setting(key=key, value=data.value))
     session.commit()
+    _bust_settings(key)
     return {"key": key, "value": data.value}
 
 
 @router.get("/{key}")
 def get_setting(key: str, session: Session = Depends(get_session)):
+    cached = _settings_cache.get(key)
+    if cached is not None:
+        return cached
     setting = session.get(Setting, key)
     if not setting:
         raise HTTPException(404, f"Setting '{key}' not found")
-    return {"key": setting.key, "value": setting.value}
+    result = {"key": setting.key, "value": setting.value}
+    _settings_cache.set(key, result, _SETTINGS_TTL)
+    return result

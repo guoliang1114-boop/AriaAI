@@ -59,3 +59,4 @@ backend/*.pyc
 backend/*.pyo
 backend/*.pyd
 backend/.Python
+.gstack/

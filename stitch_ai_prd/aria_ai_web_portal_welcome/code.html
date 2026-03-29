@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aria AI - Consulting Elite Edition</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-fixed": "#d8e3fb",
+              "on-secondary-fixed": "#111c2d",
+              "surface-variant": "#e0e3e5",
+              "tertiary-fixed": "#ffdbcf",
+              "primary": "#003fb1",
+              "error": "#ba1a1a",
+              "on-primary-fixed-variant": "#003dab",
+              "on-secondary-fixed-variant": "#3c475a",
+              "surface-container-highest": "#e0e3e5",
+              "outline": "#737686",
+              "secondary": "#545f73",
+              "tertiary": "#852b00",
+              "surface-container-low": "#f2f4f6",
+              "secondary-fixed-dim": "#bcc7de",
+              "primary-fixed-dim": "#b5c4ff",
+              "primary-fixed": "#dbe1ff",
+              "on-surface-variant": "#434654",
+              "on-tertiary-fixed": "#380d00",
+              "on-error": "#ffffff",
+              "tertiary-container": "#ad3b00",
+              "on-secondary-container": "#586377",
+              "on-error-container": "#93000a",
+              "outline-variant": "#c3c5d7",
+              "background": "#f7f9fb",
+              "on-primary-container": "#d4dcff",
+              "on-secondary": "#ffffff",
+              "secondary-container": "#d5e0f8",
+              "inverse-surface": "#2d3133",
+              "on-tertiary-container": "#ffd4c5",
+              "on-background": "#191c1e",
+              "surface": "#f7f9fb",
+              "surface-bright": "#f7f9fb",
+              "on-tertiary-fixed-variant": "#802a00",
+              "surface-tint": "#1353d8",
+              "tertiary-fixed-dim": "#ffb59a",
+              "surface-container": "#eceef0",
+              "on-primary-fixed": "#00174d",
+              "error-container": "#ffdad6",
+              "surface-container-high": "#e6e8ea",
+              "on-tertiary": "#ffffff",
+              "inverse-primary": "#b5c4ff",
+              "on-surface": "#191c1e",
+              "surface-dim": "#d8dadc",
+              "inverse-on-surface": "#eff1f3",
+              "on-primary": "#ffffff",
+              "primary-container": "#1a56db",
+              "surface-container-lowest": "#ffffff"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-header {
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+        .signature-gradient {
+            background: linear-gradient(135deg, #003fb1 0%, #1a56db 100%);
+        }
+        .tonal-shift {
+            transition: background-color 0.3s ease;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            color: #191c1e;
+        }
+        h1, h2, h3 {
+            font-family: 'Manrope', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/20 dark:border-slate-800/20 shadow-sm dark:shadow-none">
+<div class="flex items-center justify-between px-8 py-4 max-w-full mx-auto">
+<div class="flex items-center gap-12">
+<span class="text-2xl font-black bg-gradient-to-br from-blue-800 to-blue-600 bg-clip-text text-transparent font-['Manrope'] tracking-tight">Aria AI</span>
+<div class="hidden md:flex items-center gap-8 font-['Manrope'] font-semibold tracking-tight">
+<a class="text-blue-700 dark:text-blue-400 border-b-2 border-blue-600 pb-1" href="#">Dashboard</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors" href="#">Chat</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors" href="#">Skills Hub</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors" href="#">Projects</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors" href="#">Knowledge Base</a>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative hidden lg:block">
+<input class="bg-surface-container-lowest border-none rounded-xl px-4 py-2 w-64 focus:ring-2 focus:ring-surface-tint/20 text-sm" placeholder="Search insights..." type="text"/>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-slate-50 dark:hover:bg-slate-800/50 p-2 rounded-lg transition-all active:scale-95">notifications</button>
+<img alt="User Profile" class="w-10 h-10 rounded-full object-cover border-2 border-primary-fixed-dim" data-alt="professional portrait of a confident executive consultant in a sharp suit with a neutral blurred office background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuALx-t7mlj5v8F7mR_fdELvUIkUoMUNXAdcDX3FIrkheld57uUvgH_qS39khxXBDAPjsaWwko9HKqgOTSbyAkZ-Dt3ngziIwDpY724YKY7wjS70E6qofg9ljRnlE0nlUwasS8vuNvbBWHCnr5qp3NMao-GJavYAro7m5VyfmjFg_8yiNE6Wjl1wOAukkc5adFSfby2toyvhHWrZ_ddwT8mHfD73snu3QDaM75HkRlMYwvREnOQE8RpFH9A6Uy2a4Qgl7cx6n4mr29TT"/>
+</div>
+</div>
+</nav>
+<main class="pt-24 pb-12 px-8 max-w-7xl mx-auto">
+<!-- Hero Section -->
+<section class="mb-16 mt-8">
+<div class="relative overflow-hidden rounded-[2rem] bg-slate-900 p-12 md:p-20 text-white">
+<div class="absolute inset-0 opacity-40" data-alt="high-tech digital network visualization with glowing blue nodes and connections on a dark background" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDISozF-JKTyDlGl0jh15B96Y2Fo4uPpBcztGKsL6yASQIf2sH0Gu1q_2_lcEhUWzSLXlU7MTK0EQ2rZ8p79Lt3EvTFGuT5TYWTdiWV1e8sdL6hAsmxBSjdNEP7w9f1ncyhwfHAdbgI3fQ7_ZorOvkY9-2GcKqqU-Gvu1YVBLzmKgOgPUyU-WOSmkyBe6ygMbIcs_VIfhjfIOrGrHhm5zNWun2fvEuzsfNvYE-1li-j3v7mjpD2CZYks0mArPhbcFiMBRK8Yk2x3p8t'); background-size: cover; background-position: center;"></div>
+<div class="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
+<div class="relative z-10 max-w-2xl">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 border border-primary/30 backdrop-blur-md mb-6">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="text-xs font-bold tracking-widest uppercase text-primary-fixed">Consulting Elite Edition</span>
+</div>
+<h1 class="text-5xl md:text-7xl font-extrabold font-headline leading-tight mb-6">Aria AI</h1>
+<p class="text-xl md:text-2xl text-slate-300 font-body mb-8">Not just chat, handle everything. Your cognitive partner for strategic excellence.</p>
+<div class="flex flex-wrap gap-4">
+<button class="signature-gradient px-8 py-4 rounded-xl font-bold text-white shadow-xl active:scale-95 transition-all hover:brightness-110">Start New Project</button>
+<button class="bg-white/10 backdrop-blur-md border border-white/20 px-8 py-4 rounded-xl font-bold text-white hover:bg-white/20 transition-all">Browse Skills</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Bento Grid: Key Feature Cards -->
+<section class="grid grid-cols-1 md:grid-cols-12 gap-6 mb-16">
+<!-- Deep Tasks -->
+<div class="md:col-span-8 bg-surface-container-lowest rounded-[2rem] p-8 flex flex-col justify-between group cursor-pointer transition-all hover:shadow-xl">
+<div class="flex justify-between items-start mb-12">
+<div>
+<div class="bg-primary/10 text-primary p-3 rounded-2xl inline-block mb-4">
+<span class="material-symbols-outlined text-3xl" data-weight="fill">analytics</span>
+</div>
+<h3 class="text-3xl font-bold font-headline mb-2">Deep Tasks</h3>
+<p class="text-on-surface-variant max-w-md">Execute complex, multi-stage workflows including Market Research and Strategic Planning with high-fidelity output.</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors">arrow_outward</span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/10">
+<span class="text-xs font-bold text-primary mb-1 block">STRATEGY</span>
+<span class="font-semibold">Market Research</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/10">
+<span class="text-xs font-bold text-primary mb-1 block">PLANNING</span>
+<span class="font-semibold">Strategic Planning</span>
+</div>
+</div>
+</div>
+<!-- Quick Tools -->
+<div class="md:col-span-4 bg-primary text-white rounded-[2rem] p-8 flex flex-col transition-all hover:scale-[1.02] duration-300">
+<div class="bg-white/20 p-3 rounded-2xl inline-block mb-6 w-fit">
+<span class="material-symbols-outlined text-3xl">bolt</span>
+</div>
+<h3 class="text-2xl font-bold font-headline mb-2">Quick Tools</h3>
+<p class="text-blue-100 text-sm mb-8">Rapid execution for daily consulting essentials. Turn minutes into moments.</p>
+<div class="space-y-3 mt-auto">
+<div class="flex items-center justify-between bg-white/10 p-4 rounded-xl hover:bg-white/20 cursor-pointer">
+<span class="font-medium">SWOT Analysis</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</div>
+<div class="flex items-center justify-between bg-white/10 p-4 rounded-xl hover:bg-white/20 cursor-pointer">
+<span class="font-medium">Meeting Minutes</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</div>
+</div>
+</div>
+<!-- Project Space -->
+<div class="md:col-span-12 bg-white rounded-[2rem] p-8 border border-outline-variant/10 overflow-hidden relative group">
+<div class="relative z-10 flex flex-col md:flex-row items-center gap-12">
+<div class="md:w-1/2">
+<h3 class="text-3xl font-bold font-headline mb-4">Project Space</h3>
+<p class="text-on-surface-variant mb-6 text-lg">Centralize your intelligence. Manage multiple client projects with isolated knowledge bases and dedicated AI context.</p>
+<div class="flex gap-4">
+<div class="flex -space-x-3">
+<img alt="team" class="w-10 h-10 rounded-full border-2 border-white object-cover" data-alt="portrait of a professional woman smiling in a modern bright office environment" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD1UbEs9LkIDRjw-hVMDWnCdpwLogO__kweOWAYtsKO0_nLH8d4VohA7f5SAkaxSHVh4Wl1VyAzc1bdNcVfnLFKtH3mRhA11o4ki06r_dU8UOYLlAPQeNoQd0SSi20xAHsEfKfGusAUsc7c5GQ2VO3aigAesGrpv2SVLbewZQJQUAeWUEyf4M-piqfxj4_FJFmReB_V0x4Cx-THOzZWwPst7AQ-3f8Tq1Qf59XgH_fuKMtuuya6qAyA9sEPwfvVXuRXaxTutbR6Drid"/>
+<img alt="team" class="w-10 h-10 rounded-full border-2 border-white object-cover" data-alt="portrait of a focused young male professional with glasses in a creative studio setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDmVraPbdcEqhWcRoef_TF95mxaAX8lCFHANUfesuLqrvwqsTp_cpGgeSO-0Sh46OT0qfpzqvS0kv_Xldjn5ydMi86uM1CMVFIOTEjDz3whV5GsuefQMSlrpdEW77UWJ3hcoIaZDVZdmI6cB-zYbmGSnsUT2gRAUlt4ST_ekj9vTglidIKYbyjuQOl0lpyogeIPPZ4ZqGvZ-LggpTbOd_gHqRNo7yoIea0nlC3lzkRZSsddLcxnGLPXaQlrINDnqkvfouFQNJQNkdtJ"/>
+<div class="w-10 h-10 rounded-full border-2 border-white bg-secondary-container flex items-center justify-center text-xs font-bold">+4</div>
+</div>
+<button class="text-primary font-bold flex items-center gap-2">View all projects <span class="material-symbols-outlined">trending_flat</span></button>
+</div>
+</div>
+<div class="md:w-1/2 grid grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-6 rounded-2xl transform group-hover:-translate-y-2 transition-transform">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+<span class="text-sm font-bold opacity-60">ACTIVE</span>
+</div>
+<p class="font-bold text-lg mb-1">Global Logistics Q4</p>
+<p class="text-xs text-on-surface-variant">Last updated 2h ago</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-2xl transform group-hover:translate-y-2 transition-transform delay-75">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<span class="text-sm font-bold opacity-60">RESEARCH</span>
+</div>
+<p class="font-bold text-lg mb-1">Retail Expansion</p>
+<p class="text-xs text-on-surface-variant">Last updated 5h ago</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Recent Items Section -->
+<section class="mb-16">
+<div class="flex items-center justify-between mb-8">
+<h2 class="text-2xl font-bold font-headline">Recent Intelligence</h2>
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 text-sm font-medium">
+                    History <span class="material-symbols-outlined text-base">history</span>
+</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Skill Card 1 -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl border-l-4 border-primary hover:shadow-md transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-xs font-bold text-primary px-2 py-1 bg-secondary-container rounded-lg">@market_research</span>
+<span class="text-xs text-slate-400">14 Oct, 10:20 AM</span>
+</div>
+<h4 class="font-bold text-lg mb-2">Automotive EV Trends 2025</h4>
+<p class="text-sm text-on-surface-variant line-clamp-2">Comprehensive analysis of solid-state battery adoption and infrastructure growth in EU markets.</p>
+</div>
+<!-- Skill Card 2 -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl border-l-4 border-tertiary hover:shadow-md transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-xs font-bold text-tertiary px-2 py-1 bg-tertiary-fixed rounded-lg">@pitch_deck</span>
+<span class="text-xs text-slate-400">13 Oct, 4:45 PM</span>
+</div>
+<h4 class="font-bold text-lg mb-2">Series B - FinTech Narrative</h4>
+<p class="text-sm text-on-surface-variant line-clamp-2">Strategic narrative refinement and competitive landscape mapping for quarterly board review.</p>
+</div>
+<!-- Skill Card 3 -->
+<div class="bg-surface-container-lowest p-6 rounded-2xl border-l-4 border-secondary hover:shadow-md transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-xs font-bold text-secondary px-2 py-1 bg-secondary-fixed rounded-lg">@meeting_minutes</span>
+<span class="text-xs text-slate-400">13 Oct, 9:00 AM</span>
+</div>
+<h4 class="font-bold text-lg mb-2">Product Alignment Sync</h4>
+<p class="text-sm text-on-surface-variant line-clamp-2">Action items: UI design freeze, Backend scalability audit, and Q1 roadmap sign-off.</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="w-full border-t border-slate-200 dark:border-slate-800 tonal-shift bg-slate-50 dark:bg-slate-900">
+<div class="flex flex-col md:flex-row justify-between items-center px-12 py-8 gap-4 font-['Inter'] text-sm text-slate-500 dark:text-slate-400">
+<div class="flex items-center gap-6">
+<span class="font-semibold text-slate-800 dark:text-slate-200">Aria AI</span>
+<p>© 2024 Aria AI Consulting Elite</p>
+</div>
+<div class="flex items-center gap-8">
+<a class="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 underline-offset-4 hover:underline transition-all duration-300" href="#">Resources</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 underline-offset-4 hover:underline transition-all duration-300" href="#">Legal</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 underline-offset-4 hover:underline transition-all duration-300" href="#">Support</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 underline-offset-4 hover:underline transition-all duration-300" href="#">Language</a>
+</div>
+</div>
+</footer>
+</body></html>

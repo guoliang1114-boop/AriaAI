@@ -1,5 +1,6 @@
 """AriaAI FastAPI backend — entry point."""
 import os
+import time
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -19,7 +20,7 @@ from app.tools import file_generators  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS
 from app.routers.projects import _init_default_folders
 from sqlmodel import Session, select
-from app.models.db import Project, Skill, ProjectFolder, User
+from app.models.db import Project, Skill, ProjectFolder, User, UserToken
 
 # 配置日志
 logging.basicConfig(
@@ -78,17 +79,41 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # SwiftUI app is local
+    allow_origins=["*"],
     allow_methods=["*"],
-    allow_headers=["*", "X-Auth-Token"],
+    allow_headers=["*"],
+    allow_credentials=True,
     expose_headers=["*"],
 )
+
+# Auth token in-memory cache: token → (user_id, expiry_timestamp)
+_TOKEN_CACHE: dict[str, tuple[int, float]] = {}
+_TOKEN_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_cached_user_id(token: str) -> Optional[int]:
+    entry = _TOKEN_CACHE.get(token)
+    if entry and time.time() < entry[1]:
+        return entry[0]
+    return None
+
+
+def _cache_token(token: str, user_id: int):
+    _TOKEN_CACHE[token] = (user_id, time.time() + _TOKEN_CACHE_TTL)
+
+
+def invalidate_token_cache(token: str):
+    _TOKEN_CACHE.pop(token, None)
+
 
 # Auth middleware — protects all routes except /health and /auth/*
 _PUBLIC_PATHS = {"/health", "/auth/login"}
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    # Skip auth for preflight OPTIONS requests (handled by CORS middleware)
+    if request.method == "OPTIONS":
+        return await call_next(request)
     path = request.url.path
     if path in _PUBLIC_PATHS or path.startswith("/auth/"):
         return await call_next(request)
@@ -96,9 +121,38 @@ async def auth_middleware(request: Request, call_next):
     with Session(engine) as session:
         user: Optional[User] = None
         if token:
-            user = session.exec(
-                select(User).where(User.auth_token == token, User.is_active == True)
-            ).first()
+            # Fast path: check in-memory cache first
+            cached_uid = _get_cached_user_id(token)
+            if cached_uid is not None:
+                user = session.get(User, cached_uid)
+                if user and not user.is_active:
+                    user = None
+                    invalidate_token_cache(token)
+
+            if user is None:
+                # Slow path: check new UserToken table (multi-device)
+                user_token = session.exec(
+                    select(UserToken).where(UserToken.token == token)
+                ).first()
+                if user_token:
+                    user = session.get(User, user_token.user_id)
+                    if user and user.is_active:
+                        _cache_token(token, user.id)
+                        from datetime import datetime
+                        user_token.last_used_at = datetime.utcnow()
+                        session.add(user_token)
+                        session.commit()
+                    else:
+                        user = None
+
+                # Fallback: legacy User.auth_token
+                if user is None:
+                    user = session.exec(
+                        select(User).where(User.auth_token == token, User.is_active == True)
+                    ).first()
+                    if user:
+                        _cache_token(token, user.id)
+        
         if not user:
             # Allow if no users have been created yet (first-run before seed completes)
             any_user = session.exec(select(User)).first()

@@ -11,6 +11,14 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import Skill
 from app.tools import registry as tool_registry
+from app.services.cache import TTLCache
+
+_skills_cache = TTLCache()
+_SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
+
+
+def _bust_skills() -> None:
+    _skills_cache.clear()
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -36,10 +44,16 @@ class SkillUpdate(BaseModel):
 
 @router.get("")
 def list_skills(category: Optional[str] = None, session: Session = Depends(get_session)):
+    cache_key = f"list:{category or ''}"
+    cached = _skills_cache.get(cache_key)
+    if cached is not None:
+        return cached
     stmt = select(Skill)
     if category:
         stmt = stmt.where(Skill.category == category)
-    return session.exec(stmt).all()
+    result = session.exec(stmt).all()
+    _skills_cache.set(cache_key, result, _SKILLS_TTL)
+    return result
 
 
 @router.post("", status_code=201)
@@ -48,6 +62,7 @@ def create_skill(data: SkillCreate, session: Session = Depends(get_session)):
     session.add(skill)
     session.commit()
     session.refresh(skill)
+    _bust_skills()
     return skill
 
 
@@ -62,6 +77,7 @@ def update_skill(skill_id: int, data: SkillUpdate, session: Session = Depends(ge
     session.add(skill)
     session.commit()
     session.refresh(skill)
+    _bust_skills()
     return skill
 
 
@@ -72,6 +88,7 @@ def delete_skill(skill_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Skill not found")
     session.delete(skill)
     session.commit()
+    _bust_skills()
     return {"ok": True}
 
 
@@ -716,6 +733,7 @@ def migrate_categories(session: Session = Depends(get_session)):
             session.add(skill)
             updated += 1
     session.commit()
+    _bust_skills()
     return {"updated": updated}
 
 
@@ -731,6 +749,7 @@ def seed_pro_skills(session: Session = Depends(get_session)):
             session.add(skill)
             created += 1
     session.commit()
+    _bust_skills()
     return {"message": f"Added {created} pro skills", "count": created}
 
 
@@ -746,6 +765,7 @@ def seed_skills(session: Session = Depends(get_session)):
         session.add(skill)
         created += 1
     session.commit()
+    _bust_skills()
     return {"message": f"Seeded {created} skills", "count": created}
 
 
@@ -761,6 +781,7 @@ def seed_templates(session: Session = Depends(get_session)):
             session.add(skill)
             updated += 1
     session.commit()
+    _bust_skills()
     return {"message": f"Updated {updated} skills with templates", "count": updated}
 
 

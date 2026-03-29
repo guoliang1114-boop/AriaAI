@@ -5,8 +5,8 @@ engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,      # 自动检测断开的连接
-    pool_size=5,             # 连接池大小
-    max_overflow=10,         # 最大溢出连接数
+    pool_size=20,            # 连接池大小
+    max_overflow=5,          # 最大溢出连接数
 )
 
 

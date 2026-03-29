@@ -20,17 +20,37 @@ logger = logging.getLogger(__name__)
 
 _OFFICIAL_BASE_URL = "https://api.anthropic.com"
 
+# Persistent HTTP client — reuses TCP connections across LLM calls
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=300.0)
+    return _http_client
+
 # Configuration keys
 SETTING_API_BASE_URL = "api_base_url"
 SETTING_HTTP_MODE = "claude_http_mode"  # 'auto', 'sdk', 'http'
 
 
+_settings_cache: dict[str, tuple[str, float]] = {}
+_SETTINGS_TTL = 60  # 1 minute
+
+
 def _get_setting(key: str, default: str = "") -> str:
-    """Get a setting value from database."""
+    """Get a setting value from database, cached for 1 minute."""
+    import time
+    cached = _settings_cache.get(key)
+    if cached and time.time() < cached[1]:
+        return cached[0]
     try:
         with Session(engine) as session:
             setting = session.get(Setting, key)
-            return setting.value if setting and setting.value else default
+            value = setting.value if setting and setting.value else default
+            _settings_cache[key] = (value, time.time() + _SETTINGS_TTL)
+            return value
     except Exception as e:
         logger.warning(f"Failed to read setting {key}: {e}")
         return default
@@ -240,7 +260,7 @@ async def _stream_response_http(
     if tools:
         data["tools"] = tools
     
-    client = httpx.AsyncClient(timeout=300.0)
+    client = _get_http_client()
     try:
         async with client.stream(
             "POST",
@@ -317,8 +337,9 @@ async def _stream_response_http(
     except Exception as e:
         logger.error(f"[Claude API] HTTP stream error: {type(e).__name__}: {e}")
         raise
-    finally:
-        await client.aclose()
+    except Exception as e:
+        logger.error(f"[Claude API] HTTP stream error: {type(e).__name__}: {e}")
+        raise
 
 
 async def _complete_http(
@@ -351,34 +372,29 @@ async def _complete_http(
     if tools:
         data["tools"] = tools
     
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            response = await client.post(
-                f"{base_url}/v1/messages",
-                headers=headers,
-                json=data,
-            )
-            
-            if response.status_code != 200:
-                raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
-            
-            result = response.json()
-            # Handle different content types (text vs tool_use)
-            content = result.get("content", [])
-            text_parts = []
-            for block in content:
-                if block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
-                elif block.get("type") == "tool_use":
-                    # Include tool_use as JSON in the response
-                    text_parts.append(json.dumps(block, ensure_ascii=False))
-            text = "\n".join(text_parts)
-            logger.info(f"[Claude API] HTTP response: {len(text)} chars")
-            return text
-            
-        except Exception as e:
-            logger.error(f"[Claude API] HTTP complete error: {type(e).__name__}: {e}")
-            raise
+    client = _get_http_client()
+    try:
+        response = await client.post(
+            f"{base_url}/v1/messages",
+            headers=headers,
+            json=data,
+        )
+        if response.status_code != 200:
+            raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
+        result = response.json()
+        content = result.get("content", [])
+        text_parts = []
+        for block in content:
+            if block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif block.get("type") == "tool_use":
+                text_parts.append(json.dumps(block, ensure_ascii=False))
+        text = "\n".join(text_parts)
+        logger.info(f"[Claude API] HTTP response: {len(text)} chars")
+        return text
+    except Exception as e:
+        logger.error(f"[Claude API] HTTP complete error: {type(e).__name__}: {e}")
+        raise
 
 
 # =============================================================================
