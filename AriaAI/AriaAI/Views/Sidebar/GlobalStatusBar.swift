@@ -144,9 +144,9 @@ struct StatusPopoverContent: View {
 
     static func friendlyName(for id: String) -> String {
         switch id {
-        case "claude-opus-4":    return "Opus 4.6"
-        case "claude-sonnet-4":  return "Sonnet 4.6"
-        case "claude-haiku-4":   return "Haiku 4.5"
+        case "claude-opus-4-6":                 return "Opus 4.6"
+        case "claude-sonnet-4-6":               return "Sonnet 4.6"
+        case "claude-haiku-4-5-20251001":       return "Haiku 4.5"
         case "moonshot-v1-32k":  return "Kimi 32K"
         case "moonshot-v1-128k": return "Kimi 128K"
         case "moonshot-v1-8k":   return "Kimi 8K"

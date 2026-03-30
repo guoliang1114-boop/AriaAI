@@ -29,6 +29,13 @@ def _bust_project(project_id: int) -> None:
     projects_cache.delete_prefix("list:")
 
 
+_MODEL_ALIASES: dict[str, str] = {
+    "claude-opus-4":   "claude-opus-4-6",
+    "claude-sonnet-4": "claude-sonnet-4-6",
+    "claude-haiku-4":  "claude-haiku-4-5-20251001",
+}
+
+
 async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
     """Call the active LLM provider using the user's selected model."""
     from app.database import engine
@@ -36,10 +43,11 @@ async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
     with _S(engine) as s:
         provider = (s.get(_Setting, "llm_provider") or type("", (), {"value": "claude"})()).value or "claude"
         model_row = s.get(_Setting, "selected_model")
-        model = (model_row.value if model_row and model_row.value else None)
+        raw_model = (model_row.value if model_row and model_row.value else None)
+    model = _MODEL_ALIASES.get(raw_model, raw_model) if raw_model else None
     if provider.lower() == "kimi":
         return await _kimi_svc.complete(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens)
-    return await _claude_svc.complete(messages, model=model or "claude-sonnet-4", max_tokens=max_tokens)
+    return await _claude_svc.complete(messages, model=model or "claude-sonnet-4-6", max_tokens=max_tokens)
 
 async def _stream(messages: list[dict], max_tokens: int = 4000):
     """Stream response chunks from the active LLM provider."""
@@ -48,12 +56,13 @@ async def _stream(messages: list[dict], max_tokens: int = 4000):
     with _S(engine) as s:
         provider = (s.get(_Setting, "llm_provider") or type("", (), {"value": "claude"})()).value or "claude"
         model_row = s.get(_Setting, "selected_model")
-        model = (model_row.value if model_row and model_row.value else None)
+        raw_model = (model_row.value if model_row and model_row.value else None)
+    model = _MODEL_ALIASES.get(raw_model, raw_model) if raw_model else None
     if provider.lower() == "kimi":
         async for chunk in _kimi_svc.stream_response(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens):
             yield chunk
     else:
-        async for chunk in _claude_svc.stream_response(messages, model=model or "claude-sonnet-4", max_tokens=max_tokens):
+        async for chunk in _claude_svc.stream_response(messages, model=model or "claude-sonnet-4-6", max_tokens=max_tokens):
             yield chunk
 
 
@@ -73,6 +82,18 @@ try:
 except ImportError:
     _HAS_DOCX = False
 
+try:
+    from pptx import Presentation as _Presentation
+    _HAS_PPTX = True
+except ImportError:
+    _HAS_PPTX = False
+
+try:
+    import openpyxl as _openpyxl
+    _HAS_XLSX = True
+except ImportError:
+    _HAS_XLSX = False
+
 
 def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
     """Extract plain text from a project file for AI context injection."""
@@ -87,6 +108,30 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         elif ft == "docx" and _HAS_DOCX:
             doc = _DocxDocument(str(path))
             text = "\n".join(p.text for p in doc.paragraphs)
+        elif ft == "pptx" and _HAS_PPTX:
+            prs = _Presentation(str(path))
+            parts = []
+            for i, slide in enumerate(prs.slides):
+                slide_texts = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_texts.append(shape.text.strip())
+                if slide_texts:
+                    parts.append(f"[Slide {i+1}]\n" + "\n".join(slide_texts))
+            text = "\n\n".join(parts)
+        elif ft in ("xlsx", "xls") and _HAS_XLSX:
+            wb = _openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+            parts = []
+            for sheet in wb.worksheets:
+                rows = []
+                for row in sheet.iter_rows(max_row=200, values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    if any(c.strip() for c in cells):
+                        rows.append("\t".join(cells))
+                if rows:
+                    parts.append(f"[Sheet: {sheet.title}]\n" + "\n".join(rows))
+            wb.close()
+            text = "\n\n".join(parts)
         elif ft in ("txt", "md", "csv", "json"):
             text = path.read_text(encoding="utf-8", errors="replace")
         else:

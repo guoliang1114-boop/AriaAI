@@ -15,7 +15,7 @@ struct AIConfigView: View {
     @State private var isSavingClaudeKey = false
     @State private var claudeKeySaveSuccess = false
     @State private var claudeKeyError: String? = nil
-    @State private var claudeModel = "claude-sonnet-4"
+    @State private var claudeModel = "claude-sonnet-4-6"
     @State private var claudeProxyURL = ""
     @State private var claudeHttpMode = "auto"
     @State private var isSavingClaudeSettings = false
@@ -32,9 +32,9 @@ struct AIConfigView: View {
     @State private var kimiKeyMasked = ""
     
     let claudeModels = [
-        ("claude-opus-4", "Claude Opus 4.6", "最强大，适合复杂任务"),
-        ("claude-sonnet-4", "Claude Sonnet 4.6", "平衡性能，推荐"),
-        ("claude-haiku-4", "Claude Haiku 4.5", "最快，适合简单任务")
+        ("claude-opus-4-6", "Claude Opus 4.6", "最强大，适合复杂任务"),
+        ("claude-sonnet-4-6", "Claude Sonnet 4.6", "平衡性能，推荐"),
+        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", "最快，适合简单任务")
     ]
     
     let kimiModels = [
@@ -108,7 +108,7 @@ struct AIConfigView: View {
         claudeHttpMode    = mode
         kimiKeyConfigured = kimiConfigured
         kimiKeyMasked     = kimiMasked
-        claudeModel = claudeModels.contains(where: { $0.0 == model }) ? model : "claude-sonnet-4"
+        claudeModel = claudeModels.contains(where: { $0.0 == model }) ? model : "claude-sonnet-4-6"
         kimiModel   = kimiModels.contains(where:   { $0.0 == model }) ? model : "moonshot-v1-32k"
     }
     

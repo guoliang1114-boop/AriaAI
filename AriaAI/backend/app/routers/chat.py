@@ -35,6 +35,18 @@ try:
 except ImportError:
     _HAS_DOCX = False
 
+try:
+    from pptx import Presentation as _Presentation
+    _HAS_PPTX = True
+except ImportError:
+    _HAS_PPTX = False
+
+try:
+    import openpyxl as _openpyxl
+    _HAS_XLSX = True
+except ImportError:
+    _HAS_XLSX = False
+
 
 def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
     """Extract plain text from a project file for AI context injection."""
@@ -49,6 +61,30 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         elif ft == "docx" and _HAS_DOCX:
             doc = _DocxDocument(str(path))
             text = "\n".join(p.text for p in doc.paragraphs)
+        elif ft == "pptx" and _HAS_PPTX:
+            prs = _Presentation(str(path))
+            parts = []
+            for i, slide in enumerate(prs.slides):
+                slide_texts = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_texts.append(shape.text.strip())
+                if slide_texts:
+                    parts.append(f"[Slide {i+1}]\n" + "\n".join(slide_texts))
+            text = "\n\n".join(parts)
+        elif ft in ("xlsx", "xls") and _HAS_XLSX:
+            wb = _openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+            parts = []
+            for sheet in wb.worksheets:
+                rows = []
+                for row in sheet.iter_rows(max_row=200, values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    if any(c.strip() for c in cells):
+                        rows.append("\t".join(cells))
+                if rows:
+                    parts.append(f"[Sheet: {sheet.title}]\n" + "\n".join(rows))
+            wb.close()
+            text = "\n\n".join(parts)
         elif ft in ("txt", "md", "csv", "json"):
             text = path.read_text(encoding="utf-8", errors="replace")
         else:
@@ -100,15 +136,24 @@ def _get_llm(session: Session):
     return claude
 
 
+# Old short aliases → correct full model IDs
+_MODEL_ALIASES: dict[str, str] = {
+    "claude-opus-4":   "claude-opus-4-6",
+    "claude-sonnet-4": "claude-sonnet-4-6",
+    "claude-haiku-4":  "claude-haiku-4-5-20251001",
+}
+
+
 def _get_selected_model(session: Session, provider: str) -> str:
     """Get the selected model for the given provider."""
     setting = session.get(_Setting, "selected_model")
     if setting and setting.value:
-        return setting.value
+        model = setting.value.strip()
+        return _MODEL_ALIASES.get(model, model)
     # Return default model based on provider
     if provider == "kimi":
         return "moonshot-v1-32k"
-    return "claude-sonnet-4"
+    return "claude-sonnet-4-6"
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -291,11 +336,21 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             files = session.exec(
                 select(ProjectFile).where(ProjectFile.project_id == project.id)
             ).all()
+            file_content_sections = []
             if files:
-                lines.append("\n**Uploaded Documents:**")
+                lines.append("\n**Uploaded Documents (full content auto-injected below):**")
+                total_chars = 0
+                MAX_TOTAL_CHARS = 40000  # cap total injected content to ~10k tokens
                 for f in files:
                     summary_hint = f" — {f.summary[:80]}" if f.summary else ""
                     lines.append(f"  - {f.name} ({f.file_type.upper()}){summary_hint}")
+                    # Auto-inject readable file content (skip if budget exceeded)
+                    if f.file_type.lower() in ("pdf", "docx", "pptx", "xlsx", "xls", "txt", "md", "csv", "json") and total_chars < MAX_TOTAL_CHARS:
+                        full_path = UPLOADS_DIR / f.path
+                        text = _extract_file_text(full_path, f.file_type, max_chars=min(8000, MAX_TOTAL_CHARS - total_chars))
+                        if text and not text.startswith("["):
+                            file_content_sections.append(f"### {f.name}\n{text}")
+                            total_chars += len(text)
 
             payments = session.exec(
                 select(ProjectPayment).where(ProjectPayment.project_id == project.id)
@@ -307,6 +362,10 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     lines.append(f"\n**Financials:** Received ¥{received:,.0f} | Expenses ¥{abs(expense):,.0f}")
 
             project_context = "\n".join(lines)
+
+            # Append auto-injected file contents after the summary block
+            if file_content_sections:
+                project_context += "\n\n## Project File Contents\n" + "\n\n---\n\n".join(file_content_sections)
 
     rag_context = ""
     if req.rag_doc_ids:
