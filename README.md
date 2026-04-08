@@ -16,6 +16,41 @@ cd AriaAI
 swift run
 ```
 
+Windows 说明：
+
+- 本地开发默认后端数据库是 `SQLite`：`AriaAI/backend/data/ariaai.db`
+- 后端脚本兼容 Git Bash / MSYS 环境
+- 在 Windows PowerShell 中启动后端：
+
+```powershell
+cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
+.\start.ps1
+```
+
+- 如果 PowerShell 被执行策略拦住，直接用：
+
+```powershell
+cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
+.\start.cmd
+```
+
+- 在 Windows PowerShell 中启动 Web：
+
+```powershell
+cd C:\Users\Administrator\AP\AriaAI\aria-web
+.\start.ps1
+```
+
+- 如果 PowerShell 被执行策略拦住，直接用：
+
+```powershell
+cd C:\Users\Administrator\AP\AriaAI\aria-web
+.\start.cmd
+```
+
+- 当前后端依赖要求 Python `3.9` 到 `3.12`
+- Web 端会通过 Vite 代理把 `/api` 转发到 `http://127.0.0.1:8000`
+
 ---
 
 ## 📚 文档导航
