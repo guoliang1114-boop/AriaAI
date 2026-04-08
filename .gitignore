@@ -60,3 +60,7 @@ backend/*.pyo
 backend/*.pyd
 backend/.Python
 .gstack/
+
+# Local development caches
+AriaAI/backend/.tmp/
+aria-web/.npm-cache/

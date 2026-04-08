@@ -9,10 +9,10 @@ DB_PATH = DATA_DIR / "ariaai.db"   # SQLite 保留，仅供数据迁移脚本使
 DATA_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 
-# 优先读环境变量 DATABASE_URL，其次用默认 PG 连接
+# 优先读环境变量 DATABASE_URL；本地开发默认使用 SQLite。
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres.csczkuuyaehbhpprabao:Qweruiop%40123@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
+    "sqlite:///./data/ariaai.db"
 )
 
 KEYCHAIN_SERVICE = "AriaAI"
