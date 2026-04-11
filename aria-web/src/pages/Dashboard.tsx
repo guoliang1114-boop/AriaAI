@@ -1,7 +1,10 @@
+import { useTranslation } from 'react-i18next'
 import { BarChart3, ArrowUpRight, Zap, ChevronRight } from 'lucide-react'
 
 // Hero Section
 function HeroSection() {
+  const { t } = useTranslation()
+  
   return (
     <div className="relative bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 rounded-2xl p-8 lg:p-10 mb-8 overflow-hidden">
       {/* Background Pattern */}
@@ -12,18 +15,18 @@ function HeroSection() {
 
       <div className="relative z-10">
         <span className="inline-block px-3 py-1 text-xs font-semibold text-blue-300 bg-blue-500/20 rounded-full mb-4">
-          CONSULTING ELITE EDITION
+          {t('dashboard.hero.badge')}
         </span>
-        <h1 className="text-4xl lg:text-5xl font-bold text-white mb-4">Aria AI</h1>
+        <h1 className="text-4xl lg:text-5xl font-bold text-white mb-4">{t('dashboard.hero.title')}</h1>
         <p className="text-lg text-gray-300 mb-6 max-w-xl">
-          Not just chat, handle everything. Your cognitive partner for strategic excellence.
+          {t('dashboard.hero.subtitle')}
         </p>
         <div className="flex items-center gap-3">
           <button className="px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors">
-            Start New Project
+            {t('dashboard.hero.startProject')}
           </button>
           <button className="px-5 py-2.5 bg-gray-700/50 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors">
-            Browse Skills
+            {t('dashboard.hero.browseSkills')}
           </button>
         </div>
       </div>
@@ -33,9 +36,11 @@ function HeroSection() {
 
 // Deep Tasks Section
 function DeepTasksSection() {
+  const { t } = useTranslation()
+  
   const tasks = [
-    { category: 'STRATEGY', title: 'Market Research' },
-    { category: 'PLANNING', title: 'Strategic Planning' },
+    { category: t('dashboard.deepTasks.category.strategy'), title: t('dashboard.deepTasks.tasks.marketResearch') },
+    { category: t('dashboard.deepTasks.category.planning'), title: t('dashboard.deepTasks.tasks.strategicPlanning') },
   ]
 
   return (
@@ -49,9 +54,9 @@ function DeepTasksSection() {
         </button>
       </div>
 
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">Deep Tasks</h3>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('dashboard.deepTasks.title')}</h3>
       <p className="text-sm text-gray-500 mb-6">
-        Execute complex, multi-stage workflows including Market Research and Strategic Planning with high-fidelity output.
+        {t('dashboard.deepTasks.description')}
       </p>
 
       <div className="grid grid-cols-2 gap-3">
@@ -68,9 +73,11 @@ function DeepTasksSection() {
 
 // Quick Tools Section
 function QuickToolsSection() {
+  const { t } = useTranslation()
+  
   const tools = [
-    { name: 'SWOT Analysis', icon: '⚡' },
-    { name: 'Meeting Minutes', icon: '📝' },
+    { name: t('dashboard.quickTools.tools.swotAnalysis'), icon: '⚡' },
+    { name: t('dashboard.quickTools.tools.meetingMinutes'), icon: '📝' },
   ]
 
   return (
@@ -79,9 +86,9 @@ function QuickToolsSection() {
         <Zap className="w-6 h-6 text-white" />
       </div>
 
-      <h3 className="text-lg font-semibold mb-2">Quick Tools</h3>
+      <h3 className="text-lg font-semibold mb-2">{t('dashboard.quickTools.title')}</h3>
       <p className="text-sm text-blue-100 mb-6">
-        Rapid execution for daily consulting essentials. Turn minutes into moments.
+        {t('dashboard.quickTools.description')}
       </p>
 
       <div className="space-y-3">
@@ -101,18 +108,20 @@ function QuickToolsSection() {
 
 // Project Space Section
 function ProjectSpaceSection() {
+  const { t } = useTranslation()
+  
   const projects = [
-    { status: 'ACTIVE', title: 'Global Logistics Q4', updated: '2h ago', color: 'green' },
-    { status: 'RESEARCH', title: 'Retail Expansion', updated: '5h ago', color: 'blue' },
+    { status: t('dashboard.projectSpace.status.active'), title: 'Global Logistics Q4', updated: '2h ago', color: 'green' },
+    { status: t('dashboard.projectSpace.status.research'), title: 'Retail Expansion', updated: '5h ago', color: 'blue' },
   ]
 
   return (
     <div className="mt-8">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Project Space</h3>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">{t('dashboard.projectSpace.title')}</h3>
           <p className="text-sm text-gray-500 max-w-md">
-            Centralize your intelligence. Manage multiple client projects with isolated knowledge bases and dedicated AI context.
+            {t('dashboard.projectSpace.description')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -125,7 +134,7 @@ function ProjectSpaceSection() {
           </div>
           <span className="text-sm text-gray-400">+4</span>
           <a href="/projects" className="ml-2 text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
-            View all projects
+            {t('dashboard.projectSpace.viewAll')}
             <ChevronRight className="w-4 h-4" />
           </a>
         </div>
@@ -139,7 +148,7 @@ function ProjectSpaceSection() {
               <span className="text-xs font-medium text-gray-500">{project.status}</span>
             </div>
             <h4 className="font-semibold text-gray-900 mb-1">{project.title}</h4>
-            <p className="text-xs text-gray-400">Last updated {project.updated}</p>
+            <p className="text-xs text-gray-400">{t('dashboard.projectSpace.updated')} {project.updated}</p>
           </div>
         ))}
       </div>
@@ -149,6 +158,8 @@ function ProjectSpaceSection() {
 
 // Recent Intelligence Section
 function RecentIntelligenceSection() {
+  const { t } = useTranslation()
+  
   const items = [
     {
       tag: '@market_research',
@@ -176,9 +187,9 @@ function RecentIntelligenceSection() {
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-semibold text-gray-900">Recent Intelligence</h3>
+        <h3 className="text-xl font-semibold text-gray-900">{t('dashboard.recentIntelligence.title')}</h3>
         <button className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
-          History
+          {t('dashboard.recentIntelligence.history')}
           <span>↺</span>
         </button>
       </div>

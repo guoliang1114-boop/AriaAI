@@ -181,6 +181,26 @@ def list_client_documents(client_id: int, session: Session = Depends(get_session
     return docs
 
 
+@router.get("/{client_id}/projects")
+def list_client_projects(client_id: int, session: Session = Depends(get_session)):
+    """Get all projects associated with this client (by client name match)."""
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    all_projects = session.exec(select(Project)).all()
+    # Match projects where client name matches (case-insensitive)
+    matching = [p for p in all_projects if p.client.strip().lower() == client.name.strip().lower()]
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "status": p.status,
+            "contract_amount": p.contract_amount,
+        }
+        for p in matching
+    ]
+
+
 @router.post("/{client_id}/documents/{doc_id}", status_code=200)
 def link_document(client_id: int, doc_id: int, session: Session = Depends(get_session)):
     client = session.get(ClientRecord, client_id)

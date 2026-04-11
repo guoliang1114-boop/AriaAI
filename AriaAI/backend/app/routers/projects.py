@@ -174,6 +174,8 @@ class ProjectCreate(BaseModel):
     client: str
     description: str = ""
     status: str = "lead"
+    contract_amount: float = 0.0
+    notes: str = ""
 
 
 class ProjectUpdate(BaseModel):
@@ -240,6 +242,7 @@ def create_project(data: ProjectCreate, session: Session = Depends(get_session))
     session.commit()
     session.refresh(project)
     _init_default_folders(project.id, session)
+    session.refresh(project)  # re-refresh: _init_default_folders commits, expiring project
     projects_cache.delete_prefix("list:")   # no detail key yet — project just created
     return project
 
@@ -327,9 +330,44 @@ def update_project(project_id: int, data: ProjectUpdate, session: Session = Depe
 
 @router.delete("/{project_id}")
 def delete_project(project_id: int, session: Session = Depends(get_session)):
+    from app.models.db import Conversation, Message
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+
+    # Delete in dependency order to avoid FK violations
+    # 1. Messages in project conversations
+    convs = session.exec(select(Conversation).where(Conversation.project_id == project_id)).all()
+    for conv in convs:
+        session.exec(select(Message).where(Message.conversation_id == conv.id)).all()
+        for msg in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
+            session.delete(msg)
+    session.flush()
+    for conv in convs:
+        session.delete(conv)
+    session.flush()
+
+    # 2. Files (must come before folders)
+    for f in session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all():
+        session.delete(f)
+    session.flush()
+
+    # 3. Folders
+    for folder in session.exec(select(ProjectFolder).where(ProjectFolder.project_id == project_id)).all():
+        session.delete(folder)
+    session.flush()
+
+    # 4. Milestones
+    for ms in session.exec(select(Milestone).where(Milestone.project_id == project_id)).all():
+        session.delete(ms)
+    session.flush()
+
+    # 5. Payments
+    for p in session.exec(select(ProjectPayment).where(ProjectPayment.project_id == project_id)).all():
+        session.delete(p)
+    session.flush()
+
+    # 6. Project itself
     session.delete(project)
     session.commit()
     _bust_project(project_id)
@@ -437,6 +475,26 @@ def delete_file(project_id: int, file_id: int, session: Session = Depends(get_se
     session.commit()
     _bust_project(project_id)
     return {"ok": True}
+
+
+@router.get("/{project_id}/files/{file_id}/download")
+def download_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
+    """Download a project file."""
+    from fastapi.responses import FileResponse
+    
+    pf = session.get(ProjectFile, file_id)
+    if not pf or pf.project_id != project_id:
+        raise HTTPException(404, "File not found")
+    
+    full_path = UPLOADS_DIR / pf.path
+    if not full_path.exists():
+        raise HTTPException(404, "File not found on disk")
+    
+    return FileResponse(
+        path=str(full_path),
+        filename=pf.name,
+        media_type="application/octet-stream"
+    )
 
 
 # ── Folders ───────────────────────────────────────────────────────────────────

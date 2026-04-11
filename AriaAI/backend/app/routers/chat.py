@@ -156,6 +156,34 @@ def _get_selected_model(session: Session, provider: str) -> str:
     return "claude-sonnet-4-6"
 
 
+def _get_setting_value(session: Session, key: str, default: str = "") -> str:
+    """Get a setting value from database."""
+    setting = session.get(_Setting, key)
+    return setting.value if setting and setting.value else default
+
+
+def _get_float_setting(session: Session, key: str, default: float = 0.0) -> float:
+    """Get a float setting value from database."""
+    value = _get_setting_value(session, key)
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return default
+
+
+def _get_int_setting(session: Session, key: str, default: int = 0) -> int:
+    """Get an int setting value from database."""
+    value = _get_setting_value(session, key)
+    if value:
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return default
+
+
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class SendMessageRequest(BaseModel):
@@ -198,27 +226,44 @@ class MessageOut(BaseModel):
 @router.get("/conversations", response_model=List[ConversationOut])
 def list_conversations(
     project_id: Optional[int] = None,
+    standalone: bool = False,
     session: Session = Depends(get_session),
 ):
-    cache_key = f"list:{project_id or ''}"
+    cache_key = f"list:{project_id or ''}:{'s' if standalone else ''}"
     cached = conversations_cache.get(cache_key)
     if cached is not None:
         return cached
     stmt = select(Conversation).order_by(Conversation.updated_at.desc()).limit(100)
     if project_id:
         stmt = stmt.where(Conversation.project_id == project_id)
+    elif standalone:
+        # Only return conversations not associated with any project
+        stmt = stmt.where(Conversation.project_id == None)  # noqa: E711
     result = session.exec(stmt).all()
     conversations_cache.set(cache_key, result, _CONV_TTL)
     return result
 
 
+@router.get("/conversations/{conv_id}", response_model=ConversationOut)
+def get_conversation(conv_id: int, session: Session = Depends(get_session)):
+    conv = session.get(Conversation, conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+
+class CreateConversationRequest(BaseModel):
+    project_id: Optional[int] = None
+    skill_id: Optional[int] = None
+    title: Optional[str] = None
+
+
 @router.post("/conversations", response_model=ConversationOut)
 def create_conversation(
-    project_id: Optional[int] = None,
-    skill_id: Optional[int] = None,
+    req: CreateConversationRequest,
     session: Session = Depends(get_session),
 ):
-    conv = Conversation(project_id=project_id, skill_id=skill_id)
+    conv = Conversation(project_id=req.project_id, skill_id=req.skill_id, title=req.title or "")
     session.add(conv)
     session.commit()
     session.refresh(conv)
@@ -287,12 +332,14 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     # Build system prompt and load tools
     skill_prompt = ""
     tools = None
-    max_tokens = 4096  # default
+    # Read max_tokens and temperature from DB settings (fallback to defaults)
+    max_tokens = _get_int_setting(session, "max_tokens", 4096) or 4096
+    temperature = _get_float_setting(session, "temperature", 0.7) or 0.7
     if req.skill_id:
         skill = session.get(Skill, req.skill_id)
         if skill:
             skill_prompt = skill.system_prompt
-            max_tokens = skill.max_tokens or 4096
+            max_tokens = skill.max_tokens or max_tokens
             # Load tools from skill
             if skill.tools_definition_json and skill.tools_definition_json.strip():
                 try:
@@ -301,6 +348,56 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                     pass
 
     project_context = ""
+    if not req.project_id:
+        # ── Global workspace context ──────────────────────────────────────────
+        # Inject a compact overview of all non-archived projects so the AI can
+        # answer portfolio-level questions (progress, milestones, risks, etc.)
+        all_projects = session.exec(
+            select(Project).where(Project.status != "archived").order_by(Project.updated_at.desc())
+        ).all()
+        if all_projects:
+            today_str = datetime.utcnow().strftime("%Y-%m-%d")
+            ws_lines = [
+                f"# 工作台全局数据（截至 {today_str}）",
+                f"当前共有 {len(all_projects)} 个活跃项目。以下是每个项目的详细信息：\n",
+            ]
+            for p in all_projects:
+                ws_lines.append(f"## 项目：{p.name}")
+                ws_lines.append(f"- 客户：{p.client}")
+                ws_lines.append(f"- 阶段：{p.status}")
+                if p.contract_amount:
+                    ws_lines.append(f"- 合同金额：¥{p.contract_amount:,.0f}")
+                if p.description:
+                    ws_lines.append(f"- 简介：{p.description[:200]}")
+                if p.context_summary:
+                    ws_lines.append(f"- AI 摘要：{p.context_summary[:300]}")
+                if p.notes:
+                    ws_lines.append(f"- 项目笔记：{p.notes[:200]}")
+                # Milestones
+                milestones = session.exec(
+                    select(Milestone).where(Milestone.project_id == p.id)
+                ).all()
+                if milestones:
+                    done = sum(1 for m in milestones if m.is_done)
+                    overdue = [m for m in milestones if not m.is_done and m.due_date and m.due_date < today_str]
+                    ws_lines.append(f"- 里程碑：{done}/{len(milestones)} 已完成" + (f"，{len(overdue)} 个已逾期" if overdue else ""))
+                    for m in milestones:
+                        status_icon = "✓" if m.is_done else ("⚠ 逾期" if m.due_date and m.due_date < today_str else "○")
+                        due = f"（截止 {m.due_date}）" if m.due_date else ""
+                        priority = "【高优先级】" if m.priority == "high" else ""
+                        ws_lines.append(f"  {status_icon} {m.title}{priority}{due}")
+                # Financials
+                payments = session.exec(
+                    select(ProjectPayment).where(ProjectPayment.project_id == p.id)
+                ).all()
+                if payments:
+                    received = sum(pay.amount for pay in payments if pay.payment_type == "received")
+                    expense = sum(pay.amount for pay in payments if pay.payment_type == "expense")
+                    if received or expense:
+                        ws_lines.append(f"- 财务：已收款 ¥{received:,.0f}，支出 ¥{abs(expense):,.0f}")
+                ws_lines.append("")
+            project_context = "\n".join(ws_lines)
+
     if req.project_id:
         project = session.get(Project, req.project_id)
         if project:
@@ -421,7 +518,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             print(f"[P1] starting stream, tools={[t.get('name') for t in (tools or [])]}", flush=True)
 
             async for chunk in llm.stream_response(
-                api_messages, system=system, model=selected_model, tools=tools, max_tokens=max_tokens
+                api_messages, system=system, model=selected_model, tools=tools, max_tokens=max_tokens, temperature=temperature
             ):
                 stripped = chunk.strip()
                 # 检查是否是提前通知前端工具正在生成的 marker
@@ -534,7 +631,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
                 # Stream follow-up response (no tools needed)
                 async for chunk in llm.stream_response(
                     continuation_messages, system=system, model=selected_model,
-                    tools=None, max_tokens=max_tokens
+                    tools=None, max_tokens=max_tokens, temperature=temperature
                 ):
                     follow_up_text += chunk
                     yield f"data: {json.dumps({'type': 'text', 'content': chunk})}\n\n"
@@ -570,7 +667,24 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
         except Exception as e:
             import traceback
             print(f"[event_stream error] {e}\n{traceback.format_exc()}", flush=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            
+            # Provide user-friendly error messages
+            error_msg = str(e)
+            user_friendly_msg = error_msg
+            
+            # Check for specific error patterns
+            if "429" in error_msg or "engine_overloaded" in error_msg:
+                user_friendly_msg = "AI 服务当前繁忙，请稍后重试。这是临时状况，几秒钟后再试即可。"
+            elif "Kimi 服务当前繁忙" in error_msg:
+                user_friendly_msg = error_msg  # Already user-friendly
+            elif "No Kimi API key" in error_msg or "No Claude API key" in error_msg:
+                user_friendly_msg = "请先配置 API Key。前往「设置」页面添加您的 API Key。"
+            elif "timeout" in error_msg.lower() or "Connection refused" in error_msg:
+                user_friendly_msg = "连接超时，请检查网络或稍后重试。"
+            elif "rate limit" in error_msg.lower():
+                user_friendly_msg = "请求频率过高，请稍等片刻后重试。"
+            
+            yield f"data: {json.dumps({'type': 'error', 'message': user_friendly_msg})}\n\n"
             return
 
         # Send done immediately — don't wait for title generation
@@ -603,3 +717,127 @@ def delete_conversation(conv_id: int, session: Session = Depends(get_session)):
     session.commit()
     conversations_cache.delete_prefix("list:")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Test Connection Endpoints
+# ---------------------------------------------------------------------------
+
+class TestConnectionRequest(BaseModel):
+    provider: str
+    model: Optional[str] = None
+
+
+@router.post("/test-connection")
+async def test_connection(req: TestConnectionRequest):
+    """Test API key connectivity for a provider."""
+    from app.core.security import get_api_key, get_kimi_api_key
+    
+    provider = req.provider
+    
+    # Only support anthropic and moonshot for now
+    if provider not in ["anthropic", "moonshot"]:
+        return {"success": False, "message": f"Provider not supported: {provider}"}
+    
+    try:
+        if provider == "anthropic":
+            api_key = get_api_key()
+            if not api_key:
+                return {"success": False, "message": "No API key configured"}
+            # Test with a simple request
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": req.model or "claude-3-5-haiku-20241022",
+                        "max_tokens": 10,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    },
+                    timeout=30.0,
+                )
+                if resp.status_code == 200:
+                    return {"success": True, "message": "Connection successful"}
+                else:
+                    return {"success": False, "message": f"API error: {resp.status_code}"}
+                    
+        elif provider == "moonshot":
+            api_key = get_kimi_api_key()
+            if not api_key:
+                return {"success": False, "message": "No API key configured"}
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.moonshot.cn/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": req.model or "kimi-k2-0711-preview",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 10,
+                    },
+                    timeout=30.0,
+                )
+                if resp.status_code == 200:
+                    return {"success": True, "message": "Connection successful"}
+                else:
+                    return {"success": False, "message": f"API error: {resp.status_code}"}
+        else:
+            return {"success": False, "message": f"Unknown provider: {provider}"}
+            
+    except Exception as e:
+        return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+
+class TestModelRequest(BaseModel):
+    message: str
+    model: str
+    temperature: float = 0.7
+    max_tokens: int = 100
+
+
+@router.post("/test-model")
+async def test_model(req: TestModelRequest):
+    """Test a model with a simple message."""
+    try:
+        # Determine provider from model
+        provider = "anthropic"
+        if req.model.startswith("moonshot-"):
+            provider = "moonshot"
+        elif req.model.startswith("claude-"):
+            provider = "anthropic"
+        else:
+            return {"success": False, "message": f"Model not supported: {req.model}"}
+        
+        # Only support anthropic and moonshot for now
+        if provider not in ["anthropic", "moonshot"]:
+            return {"success": False, "message": f"Provider not supported: {provider}"}
+        
+        # Get the appropriate LLM client
+        if provider == "anthropic":
+            from app.services import claude as llm
+        elif provider == "moonshot":
+            from app.services import openai_compat as llm
+        else:
+            return {"success": False, "message": f"Unsupported provider: {provider}"}
+        
+        # Make a simple completion
+        messages = [{"role": "user", "content": req.message}]
+        response = await llm.complete(
+            messages=messages,
+            model=req.model,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+        )
+        
+        return {
+            "success": True,
+            "message": "Model test successful",
+            "response": response[:200] + "..." if len(response) > 200 else response,
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Model test failed: {str(e)}"}

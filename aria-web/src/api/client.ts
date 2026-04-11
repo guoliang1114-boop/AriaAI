@@ -77,6 +77,9 @@ class ApiClient {
         localStorage.removeItem('authToken')
         localStorage.removeItem('user')
         
+        // Dispatch auth change event to notify AuthContext
+        window.dispatchEvent(new Event('auth:logout'))
+        
         // Use setTimeout to ensure this happens after current execution
         setTimeout(() => {
           window.location.href = '/login'

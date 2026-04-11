@@ -1,49 +1,131 @@
 import { useState, useEffect } from 'react'
-import { Check, Loader2, AlertCircle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { 
+  Check, 
+  Loader2, 
+  AlertCircle, 
+  RefreshCw, 
+  Key, 
+  Sliders, 
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  Sparkles,
+  TestTube
+} from 'lucide-react'
 import { api } from '../../api/client'
 
 interface AIModel {
   id: string
   name: string
-  provider: 'anthropic' | 'moonshot'
+  provider: 'anthropic' | 'openai' | 'moonshot' | 'deepseek' | 'custom'
   description: string
   maxTokens: number
+  supportsTools: boolean
+  supportsVision: boolean
+  icon: string
 }
 
 const models: AIModel[] = [
+  // Anthropic
   {
-    id: 'claude-3-5-sonnet',
+    id: 'claude-opus-4-6',
+    name: 'Claude 3 Opus',
+    provider: 'anthropic',
+    description: 'Anthropic 最强大的模型，适合复杂推理和深度分析',
+    maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: true,
+    icon: '🧠',
+  },
+  {
+    id: 'claude-sonnet-4-6',
     name: 'Claude 3.5 Sonnet',
     provider: 'anthropic',
-    description: 'Anthropic最强大的模型，适合复杂任务',
-    maxTokens: 8192,
-  },
-  {
-    id: 'claude-3-haiku',
-    name: 'Claude 3 Haiku',
-    provider: 'anthropic',
-    description: '快速响应，适合简单任务',
+    description: '平衡性能与速度，适合大多数任务',
     maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: true,
+    icon: '🎯',
   },
   {
-    id: 'kimi-k2',
-    name: 'Kimi K2',
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude 3.5 Haiku',
+    provider: 'anthropic',
+    description: '快速响应，适合简单任务和实时交互',
+    maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '⚡',
+  },
+  // Moonshot
+  {
+    id: 'moonshot-v1-32k',
+    name: 'Kimi K2 (32K)',
     provider: 'moonshot',
-    description: 'Moonshot旗舰模型，支持长文本',
-    maxTokens: 8192,
+    description: 'Moonshot 旗舰模型，支持 32K 上下文',
+    maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '🌙',
+  },
+  {
+    id: 'moonshot-v1-8k',
+    name: 'Kimi K1.5 (8K)',
+    provider: 'moonshot',
+    description: 'Moonshot 轻量级模型，支持 8K 上下文',
+    maxTokens: 4096,
+    supportsTools: false,
+    supportsVision: false,
+    icon: '✨',
   },
 ]
 
+const providerNames: Record<string, string> = {
+  anthropic: 'Anthropic',
+  moonshot: 'Moonshot',
+}
+
+const providerColors: Record<string, string> = {
+  anthropic: 'bg-orange-500/10 text-orange-600 border-orange-200',
+  moonshot: 'bg-purple-500/10 text-purple-600 border-purple-200',
+}
+
 export function AISettings() {
-  const [selectedModel, setSelectedModel] = useState('claude-3-5-sonnet')
-  const [apiKey, setApiKey] = useState('')
-  const [kimiApiKey, setKimiApiKey] = useState('')
+  const { t } = useTranslation()
+  
+  // Model Selection (default to claude-sonnet-4-6 to match backend default)
+  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6')
+  
+  // API Keys
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({
+    anthropic: '',
+    moonshot: '',
+  })
+  
+  // Parameters
   const [temperature, setTemperature] = useState(0.7)
+  const [maxTokens, setMaxTokens] = useState(4096)
+  const [topP, setTopP] = useState(1.0)
+  const [presencePenalty, setPresencePenalty] = useState(0)
+  const [frequencyPenalty, setFrequencyPenalty] = useState(0)
+  
+  // UI State
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [error, setError] = useState('')
-  const [apiKeyStatus, setApiKeyStatus] = useState<{ anthropic?: boolean; kimi?: boolean }>({})
+  const [successMessage, setSuccessMessage] = useState('')
+  
+  // Status
+  const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({})
+  const [testingProvider, setTestingProvider] = useState<string | null>(null)
+  const [expandedSection, setExpandedSection] = useState<string | null>('model')
+  
+  // Test message
+  const [testMessage, setTestMessage] = useState('')
+  const [isTesting, setIsTesting] = useState(false)
 
   // Load settings on mount
   useEffect(() => {
@@ -58,23 +140,45 @@ export function AISettings() {
       // Load all settings
       const settings = await api.get<Record<string, string>>('/settings/')
       
-      if (settings.ai_model) {
-        setSelectedModel(settings.ai_model)
+      // Load model settings (Mac App uses 'selected_model' and 'llm_provider')
+      if (settings.selected_model) {
+        setSelectedModel(settings.selected_model)
       }
       if (settings.temperature) {
         setTemperature(parseFloat(settings.temperature))
       }
+      if (settings.max_tokens) {
+        setMaxTokens(parseInt(settings.max_tokens))
+      }
+      if (settings.top_p) {
+        setTopP(parseFloat(settings.top_p))
+      }
+      if (settings.presence_penalty) {
+        setPresencePenalty(parseFloat(settings.presence_penalty))
+      }
+      if (settings.frequency_penalty) {
+        setFrequencyPenalty(parseFloat(settings.frequency_penalty))
+      }
 
-      // Check API key status
-      const [anthropicStatus, kimiStatus] = await Promise.all([
-        api.get<{ configured: boolean }>('/settings/api-key-status').catch(() => ({ configured: false })),
-        api.get<{ configured: boolean }>('/settings/kimi-api-key-status').catch(() => ({ configured: false })),
-      ])
+      // Check API key status for supported providers
+      const providerEndpoints: Record<string, string> = {
+        anthropic: '/settings/api-key-status',
+        moonshot: '/settings/kimi-api-key-status',
+      }
+      const newStatus: Record<string, boolean> = {}
       
-      setApiKeyStatus({
-        anthropic: anthropicStatus.configured,
-        kimi: kimiStatus.configured,
-      })
+      for (const [provider, endpoint] of Object.entries(providerEndpoints)) {
+        try {
+          const result = await api.get<{ configured: boolean }>(endpoint)
+          newStatus[provider] = result.configured
+          console.log(`[AISettings] ${provider} API key status:`, result.configured)
+        } catch (err) {
+          console.error(`[AISettings] Failed to get ${provider} API key status:`, err)
+          newStatus[provider] = false
+        }
+      }
+      
+      setApiKeyStatus(newStatus)
     } catch (err: any) {
       setError(err.message || 'Failed to load settings')
     } finally {
@@ -86,30 +190,123 @@ export function AISettings() {
     setLoading(true)
     setSaved(false)
     setError('')
+    setSuccessMessage('')
 
     try {
-      // Save settings to backend
-      await Promise.all([
-        api.put('/settings/ai_model', { value: selectedModel }),
+      // Determine provider from selected model (use moonshot- prefix to detect kimi)
+      const provider = selectedModel.startsWith('moonshot-') ? 'kimi' : 'claude'
+      
+      // Save settings (use same keys as Mac App)
+      const settingsToSave = [
+        api.put('/settings/selected_model', { value: selectedModel }),
+        api.put('/settings/llm_provider', { value: provider }),
+        api.put('/settings/ai_model', { value: selectedModel }),  // for backward compatibility
         api.put('/settings/temperature', { value: temperature.toString() }),
-        // Save API keys if provided
-        apiKey ? api.post('/settings/api-key', { api_key: apiKey }) : Promise.resolve(),
-        kimiApiKey ? api.post('/settings/kimi-api-key', { api_key: kimiApiKey }) : Promise.resolve(),
-      ])
+        api.put('/settings/max_tokens', { value: maxTokens.toString() }),
+        api.put('/settings/top_p', { value: topP.toString() }),
+        api.put('/settings/presence_penalty', { value: presencePenalty.toString() }),
+        api.put('/settings/frequency_penalty', { value: frequencyPenalty.toString() }),
+      ]
+      
+      // Save API keys if provided
+      Object.entries(apiKeys).forEach(([keyProvider, key]) => {
+        if (key.trim()) {
+          const endpoint = keyProvider === 'anthropic' 
+            ? '/settings/api-key' 
+            : `/settings/${keyProvider}-api-key`
+          settingsToSave.push(
+            api.post(endpoint, { api_key: key.trim() })
+          )
+        }
+      })
+      
+      await Promise.all(settingsToSave)
 
       setSaved(true)
-      setApiKey('') // Clear input after save
-      setKimiApiKey('')
+      setSuccessMessage(t('settings.saved') || 'Settings saved successfully')
+      
+      // Clear API key inputs after save
+      setApiKeys({
+        anthropic: '',
+        moonshot: '',
+      })
       
       // Refresh status
       await loadSettings()
       
-      setTimeout(() => setSaved(false), 2000)
+      setTimeout(() => {
+        setSaved(false)
+        setSuccessMessage('')
+      }, 3000)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to save settings')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleTestConnection = async (provider: string) => {
+    setTestingProvider(provider)
+    setError('')
+    setSuccessMessage('')
+    
+    try {
+      // Use the current model's provider or the specific provider being tested
+      const result = await api.post('/chat/test-connection', { 
+        provider,
+        model: selectedModel 
+      })
+      
+      if (result.success) {
+        setSuccessMessage(
+          t('settings.ai.testSuccess', { provider: providerNames[provider] }) || 
+          `${providerNames[provider]} connection successful`
+        )
+        setApiKeyStatus(prev => ({ ...prev, [provider]: true }))
+      } else {
+        setError(result.message || 'Connection test failed')
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Connection test failed')
+    } finally {
+      setTestingProvider(null)
+    }
+  }
+
+  const handleTestModel = async () => {
+    if (!testMessage.trim()) return
+    
+    setIsTesting(true)
+    setError('')
+    
+    try {
+      const result = await api.post('/chat/test-model', {
+        message: testMessage,
+        model: selectedModel,
+        temperature,
+        max_tokens: maxTokens,
+      })
+      
+      if (result.success) {
+        setSuccessMessage('Model test successful! Response received.')
+      } else {
+        setError(result.message || 'Model test failed')
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Model test failed')
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  const selectedModelData = models.find(m => m.id === selectedModel)
+  const selectedProvider = selectedModelData?.provider || 'anthropic'
+  
+  // Only test connection for supported providers
+  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot'].includes(provider)
+
+  const toggleSection = (section: string) => {
+    setExpandedSection(expandedSection === section ? null : section)
   }
 
   if (initialLoading) {
@@ -121,136 +318,421 @@ export function AISettings() {
   }
 
   return (
-    <div>
-      <h2 className="text-lg font-semibold text-[var(--color-text-primary)] mb-1">AI模型配置</h2>
-      <p className="text-sm text-[var(--color-text-muted)] mb-6">选择和管理你的AI模型提供商</p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-lg font-semibold text-on-surface mb-1">
+          {t('settings.ai.title') || 'AI Model Configuration'}
+        </h2>
+        <p className="text-sm text-on-surface-muted">
+          {t('settings.ai.subtitle') || 'Configure your AI providers and model parameters'}
+        </p>
+      </div>
 
+      {/* Alerts */}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-600 text-sm">
-          <AlertCircle className="w-4 h-4" />
+        <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center gap-2 text-error text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
+      
+      {successMessage && (
+        <div className="p-3 bg-success/10 border border-success/20 rounded-lg flex items-center gap-2 text-success text-sm">
+          <Check className="w-4 h-4 flex-shrink-0" />
+          {successMessage}
+        </div>
+      )}
 
-      <div className="space-y-6">
-        {/* Model Selection */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-3">
-            选择模型
-          </label>
-          <div className="space-y-3">
-            {models.map(model => (
-              <div
-                key={model.id}
-                onClick={() => setSelectedModel(model.id)}
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                  selectedModel === model.id
-                    ? 'border-[var(--color-accent-500)] bg-[var(--color-accent-50)]'
-                    : 'border-[var(--color-border-default)] hover:border-[var(--color-border-default)]'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                    selectedModel === model.id ? 'border-[var(--color-accent-500)]' : 'border-[var(--color-border-default)]'
-                  }`}>
-                    {selectedModel === model.id && (
-                      <div className="w-2.5 h-2.5 bg-[var(--color-accent-500)] rounded-full" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--color-text-primary)]">{model.name}</span>
-                      <span className="px-2 py-0.5 text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] rounded-full">
-                        {model.provider === 'anthropic' ? 'Anthropic' : 'Moonshot'}
-                      </span>
+      {/* Model Selection Section */}
+      <div className="border border-outline/20 rounded-xl overflow-hidden">
+        <button
+          onClick={() => toggleSection('model')}
+          className="w-full flex items-center justify-between p-4 bg-surface-container-low/50 hover:bg-surface-container-low transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Bot className="w-5 h-5 text-primary" />
+            <span className="font-medium text-on-surface">
+              {t('settings.ai.modelSelection') || 'Model Selection'}
+            </span>
+          </div>
+          {expandedSection === 'model' ? (
+            <ChevronUp className="w-4 h-4 text-on-surface-muted" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-on-surface-muted" />
+          )}
+        </button>
+        
+        {expandedSection === 'model' && (
+          <div className="p-4 space-y-4">
+            <div className="grid gap-3">
+              {models.map(model => (
+                <div
+                  key={model.id}
+                  onClick={() => setSelectedModel(model.id)}
+                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                    selectedModel === model.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-outline/20 hover:border-outline/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                      selectedModel === model.id ? 'border-primary' : 'border-outline/40'
+                    }`}>
+                      {selectedModel === model.id && (
+                        <div className="w-2.5 h-2.5 bg-primary rounded-full" />
+                      )}
                     </div>
-                    <p className="text-sm text-[var(--color-text-muted)] mt-1">{model.description}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-2xl">{model.icon}</span>
+                        <span className="font-semibold text-on-surface">{model.name}</span>
+                        <span className={`px-2 py-0.5 text-xs rounded-full border ${providerColors[model.provider]}`}>
+                          {providerNames[model.provider]}
+                        </span>
+                        {model.supportsTools && (
+                          <span className="px-2 py-0.5 text-xs bg-secondary-container text-on-secondary-container rounded-full">
+                            Tools
+                          </span>
+                        )}
+                        {model.supportsVision && (
+                          <span className="px-2 py-0.5 text-xs bg-tertiary-container text-on-tertiary-container rounded-full">
+                            Vision
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-on-surface-muted mt-1">{model.description}</p>
+                      <p className="text-xs text-on-surface-muted mt-1">
+                        Max tokens: {model.maxTokens.toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+            
+
+          </div>
+        )}
+      </div>
+
+      {/* API Keys Section */}
+      <div className="border border-outline/20 rounded-xl overflow-hidden">
+        <button
+          onClick={() => toggleSection('apikeys')}
+          className="w-full flex items-center justify-between p-4 bg-surface-container-low/50 hover:bg-surface-container-low transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Key className="w-5 h-5 text-primary" />
+            <span className="font-medium text-on-surface">
+              {t('settings.ai.apiKeys') || 'API Keys'}
+            </span>
+          </div>
+          {expandedSection === 'apikeys' ? (
+            <ChevronUp className="w-4 h-4 text-on-surface-muted" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-on-surface-muted" />
+          )}
+        </button>
+        
+        {expandedSection === 'apikeys' && (
+          <div className="p-4 space-y-4">
+            {/* Refresh Status */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-on-surface-muted">
+                API keys are stored securely and encrypted.
+              </p>
+              <button
+                onClick={loadSettings}
+                disabled={initialLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {initialLoading ? (
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                Refresh Status
+              </button>
+            </div>
+            
+            {/* Anthropic */}
+            <div className="p-4 bg-surface-container-low rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Anthropic API Key
+                  {apiKeyStatus.anthropic && (
+                    <span className="ml-2 text-xs text-success">● Configured</span>
+                  )}
+                </label>
+                <button
+                  onClick={() => handleTestConnection('anthropic')}
+                  disabled={testingProvider === 'anthropic'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testingProvider === 'anthropic' ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <TestTube className="w-3 h-3" />
+                  )}
+                  Test
+                </button>
               </div>
-            ))}
+              <input
+                type="password"
+                value={apiKeys.anthropic}
+                onChange={(e) => setApiKeys(prev => ({ ...prev, anthropic: e.target.value }))}
+                placeholder={apiKeyStatus.anthropic ? 'Configured (enter to update)' : 'sk-ant-api03-...'}
+                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+              />
+            </div>
+
+            {/* Moonshot */}
+            <div className="p-4 bg-surface-container-low rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Moonshot API Key
+                  {apiKeyStatus.moonshot && (
+                    <span className="ml-2 text-xs text-success">● Configured</span>
+                  )}
+                </label>
+                <button
+                  onClick={() => handleTestConnection('moonshot')}
+                  disabled={testingProvider === 'moonshot'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testingProvider === 'moonshot' ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <TestTube className="w-3 h-3" />
+                  )}
+                  Test
+                </button>
+              </div>
+              <input
+                type="password"
+                value={apiKeys.moonshot}
+                onChange={(e) => setApiKeys(prev => ({ ...prev, moonshot: e.target.value }))}
+                placeholder={apiKeyStatus.moonshot ? 'Configured (enter to update)' : '...'}
+                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+              />
+            </div>
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Anthropic API Key */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-            Anthropic API密钥
-            {apiKeyStatus.anthropic && (
-              <span className="ml-2 text-xs text-green-600">● 已配置</span>
-            )}
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={apiKeyStatus.anthropic ? '已配置（输入新密钥覆盖）' : '输入你的 Anthropic API 密钥'}
-            className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
-          />
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            你的API密钥将被安全加密存储
-          </p>
-        </div>
-
-        {/* Kimi API Key */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-            Kimi (Moonshot) API密钥
-            {apiKeyStatus.kimi && (
-              <span className="ml-2 text-xs text-green-600">● 已配置</span>
-            )}
-          </label>
-          <input
-            type="password"
-            value={kimiApiKey}
-            onChange={(e) => setKimiApiKey(e.target.value)}
-            placeholder={apiKeyStatus.kimi ? '已配置（输入新密钥覆盖）' : '输入你的 Kimi API 密钥'}
-            className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
-          />
-        </div>
-
-        {/* Temperature */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-            温度 (Temperature): {temperature}
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.1"
-            value={temperature}
-            onChange={(e) => setTemperature(parseFloat(e.target.value))}
-            className="w-full accent-[var(--color-accent-600)]"
-          />
-          <div className="flex justify-between text-xs text-[var(--color-text-muted)] mt-1">
-            <span>更精确</span>
-            <span>更有创意</span>
+      {/* Parameters Section */}
+      <div className="border border-outline/20 rounded-xl overflow-hidden">
+        <button
+          onClick={() => toggleSection('parameters')}
+          className="w-full flex items-center justify-between p-4 bg-surface-container-low/50 hover:bg-surface-container-low transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Sliders className="w-5 h-5 text-primary" />
+            <span className="font-medium text-on-surface">
+              {t('settings.ai.parameters') || 'Model Parameters'}
+            </span>
           </div>
-        </div>
+          {expandedSection === 'parameters' ? (
+            <ChevronUp className="w-4 h-4 text-on-surface-muted" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-on-surface-muted" />
+          )}
+        </button>
+        
+        {expandedSection === 'parameters' && (
+          <div className="p-4 space-y-6">
+            {/* Temperature */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Temperature
+                </label>
+                <span className="text-sm font-mono text-primary">{temperature}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                value={temperature}
+                onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                className="w-full accent-primary"
+              />
+              <div className="flex justify-between text-xs text-on-surface-muted mt-1">
+                <span>More precise (0)</span>
+                <span>Balanced ({selectedProvider === 'anthropic' ? '0.7' : '1.0'})</span>
+                <span>More creative (2)</span>
+              </div>
+            </div>
 
-        {/* Save Button */}
-        <div className="pt-4 border-t border-[var(--color-border-default)]">
-          <button
-            onClick={handleSave}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-700)] disabled:opacity-50 text-white rounded-lg font-medium transition-all"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                保存中...
-              </>
-            ) : saved ? (
-              <>
-                <Check className="w-4 h-4" />
-                已保存
-              </>
-            ) : (
-              '保存设置'
-            )}
-          </button>
-        </div>
+            {/* Max Tokens */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Max Tokens
+                </label>
+                <span className="text-sm font-mono text-primary">{maxTokens.toLocaleString()}</span>
+              </div>
+              <input
+                type="range"
+                min="256"
+                max={selectedModelData?.maxTokens || 8192}
+                step="256"
+                value={maxTokens}
+                onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                className="w-full accent-primary"
+              />
+              <div className="flex justify-between text-xs text-on-surface-muted mt-1">
+                <span>256</span>
+                <span>{((selectedModelData?.maxTokens || 8192) / 2).toLocaleString()}</span>
+                <span>{(selectedModelData?.maxTokens || 8192).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Top P */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Top P
+                </label>
+                <span className="text-sm font-mono text-primary">{topP}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={topP}
+                onChange={(e) => setTopP(parseFloat(e.target.value))}
+                className="w-full accent-primary"
+              />
+              <p className="text-xs text-on-surface-muted mt-1">
+                Alternative to temperature. 1.0 means no filtering.
+              </p>
+            </div>
+
+            {/* Presence Penalty */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Presence Penalty
+                </label>
+                <span className="text-sm font-mono text-primary">{presencePenalty}</span>
+              </div>
+              <input
+                type="range"
+                min="-2"
+                max="2"
+                step="0.1"
+                value={presencePenalty}
+                onChange={(e) => setPresencePenalty(parseFloat(e.target.value))}
+                className="w-full accent-primary"
+              />
+            </div>
+
+            {/* Frequency Penalty */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Frequency Penalty
+                </label>
+                <span className="text-sm font-mono text-primary">{frequencyPenalty}</span>
+              </div>
+              <input
+                type="range"
+                min="-2"
+                max="2"
+                step="0.1"
+                value={frequencyPenalty}
+                onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))}
+                className="w-full accent-primary"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Test Model Section */}
+      <div className="border border-outline/20 rounded-xl overflow-hidden">
+        <button
+          onClick={() => toggleSection('test')}
+          className="w-full flex items-center justify-between p-4 bg-surface-container-low/50 hover:bg-surface-container-low transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Zap className="w-5 h-5 text-primary" />
+            <span className="font-medium text-on-surface">
+              {t('settings.ai.testModel') || 'Test Model'}
+            </span>
+          </div>
+          {expandedSection === 'test' ? (
+            <ChevronUp className="w-4 h-4 text-on-surface-muted" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-on-surface-muted" />
+          )}
+        </button>
+        
+        {expandedSection === 'test' && (
+          <div className="p-4 space-y-4">
+            <p className="text-sm text-on-surface-muted">
+              Send a test message to verify your {selectedModelData?.name || 'selected model'} configuration.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={testMessage}
+                onChange={(e) => setTestMessage(e.target.value)}
+                placeholder="Enter a test message..."
+                className="flex-1 px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+                onKeyDown={(e) => e.key === 'Enter' && handleTestModel()}
+              />
+              <button
+                onClick={handleTestModel}
+                disabled={isTesting || !testMessage.trim()}
+                className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg font-medium transition-all disabled:opacity-50 hover:bg-primary/90"
+              >
+                {isTesting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                Test
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Save Button */}
+      <div className="flex items-center justify-between pt-4 border-t border-outline/20">
+        <p className="text-sm text-on-surface-muted">
+          {saved ? (
+            <span className="text-success flex items-center gap-1">
+              <Check className="w-4 h-4" />
+              {t('settings.saved') || 'Settings saved'}
+            </span>
+          ) : (
+            t('settings.unsavedChanges') || 'Unsaved changes'
+          )}
+        </p>
+        <button
+          onClick={handleSave}
+          disabled={loading}
+          className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-xl font-medium transition-all"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {t('settings.saving') || 'Saving...'}
+            </>
+          ) : (
+            <>
+              <Check className="w-4 h-4" />
+              {t('settings.save') || 'Save Settings'}
+            </>
+          )}
+        </button>
       </div>
     </div>
   )

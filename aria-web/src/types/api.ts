@@ -25,7 +25,7 @@ export interface Project {
   name: string
   client: string
   description: string
-  status: 'lead' | 'active' | 'completed' | 'archived'
+  status: 'lead_discovery' | 'opportunity_qualified' | 'proposal' | 'negotiation' | 'contracting' | 'kickoff' | 'execution' | 'delivery' | 'support' | 'archived' | 'lead' | 'active' | 'completed'
   created_at: string
   updated_at: string
   context_summary?: string
@@ -52,7 +52,8 @@ export interface ProjectFile {
   path: string
   size: number
   summary?: string
-  created_at: string
+  uploaded_at: string
+  folder_id?: number | null
 }
 
 export interface ProjectFolder {

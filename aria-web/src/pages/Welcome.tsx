@@ -1,336 +1,611 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { 
-  ArrowRight, 
-  BarChart3, 
+import { useTranslation } from 'react-i18next'
+import {
+  ArrowRight,
   Zap,
-  History,
   Loader2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  FolderKanban,
+  MessageSquare,
+  BookOpen,
+  Sparkles,
+  Clock,
+  TrendingUp,
+  DollarSign,
+  Target,
+  ChevronRight,
+  Building2,
 } from 'lucide-react'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
-import type { Project, Skill, Conversation } from '../types/api'
+import type { Project, Skill, Conversation, User } from '../types/api'
 
-interface DashboardStats {
-  activeSkills: number
-  newToday: number
+// ── Chart primitives ──────────────────────────────────────────────────────
+
+interface DonutSegment { value: number; color: string; label: string }
+
+function DonutChart({ segments, size = 80, sw = 10 }: {
+  segments: DonutSegment[]; size?: number; sw?: number
+}) {
+  const total = segments.reduce((s, g) => s + g.value, 0)
+  if (total === 0) return null
+  const r = (size - sw) / 2
+  const cx = size / 2, cy = size / 2
+  const circ = 2 * Math.PI * r
+  let acc = 0
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
+      style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={sw} />
+      {segments.map((seg, i) => {
+        const dash = (seg.value / total) * circ
+        const offset = -(acc / total) * circ
+        acc += seg.value
+        return (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+            stroke={seg.color} strokeWidth={sw}
+            strokeDasharray={`${dash} ${circ - dash}`}
+            strokeDashoffset={offset} strokeLinecap="round" />
+        )
+      })}
+    </svg>
+  )
 }
+
+function ActivityBars({ data, color = '#6366f1' }: { data: number[]; color?: string }) {
+  const max = Math.max(...data, 1)
+  return (
+    <div className="flex items-end gap-[3px] h-full w-full">
+      {data.map((v, i) => (
+        <div key={i} className="flex-1 rounded-sm"
+          style={{
+            height: `${v > 0 ? Math.max((v / max) * 100, 10) : 0}%`,
+            minHeight: v === 0 ? '3px' : undefined,
+            backgroundColor: v > 0 ? color : '#e5e7eb',
+            opacity: v > 0 ? 0.5 + (i / data.length) * 0.5 : 1,
+          }} />
+      ))}
+    </div>
+  )
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function formatCurrency(n: number) {
+  if (!n) return '—'
+  if (n >= 1_000_000) return `¥${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 10_000) return `¥${(n / 10_000).toFixed(0)}万`
+  return `¥${n.toLocaleString()}`
+}
+
+function formatRelative(dateStr: string) {
+  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
+  if (diff < 1) return '刚刚'
+  if (diff < 60) return `${diff}分钟前`
+  if (diff < 1440) return `${Math.floor(diff / 60)}小时前`
+  if (diff < 2880) return '昨天'
+  return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
+const STAGE_GROUPS = [
+  { label: '线索发现', key: 'lead',      statuses: ['lead', 'lead_discovery'],                                          color: '#94a3b8' },
+  { label: '提案谈判', key: 'proposal',  statuses: ['opportunity_qualified', 'proposal', 'negotiation', 'contracting'], color: '#6366f1' },
+  { label: '执行交付', key: 'execution', statuses: ['kickoff', 'execution', 'delivery', 'active'],                      color: '#3b82f6' },
+  { label: '支持收尾', key: 'support',   statuses: ['support'],                                                          color: '#8b5cf6' },
+  { label: '已完成',   key: 'completed', statuses: ['completed'],                                                         color: '#10b981' },
+]
+
+const STAGE_COLOR: Record<string, string> = {
+  lead: '#94a3b8', lead_discovery: '#94a3b8',
+  opportunity_qualified: '#6366f1', proposal: '#6366f1', negotiation: '#6366f1', contracting: '#6366f1',
+  kickoff: '#3b82f6', execution: '#3b82f6', delivery: '#3b82f6', active: '#3b82f6',
+  support: '#8b5cf6',
+  completed: '#10b981',
+  archived: '#d1d5db',
+}
+
+const CAT_COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#10b981', '#94a3b8']
+
+// ── Component ─────────────────────────────────────────────────────────────
 
 export function Welcome() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [projects, setProjects] = useState<Project[]>([])
-  const [skills, setSkills] = useState<Skill[]>([])
+  const { t } = useTranslation()
+  const [loading, setLoading]             = useState(true)
+  const [error, setError]                 = useState<string | null>(null)
+  const [user, setUser]                   = useState<User | null>(null)
+  const [projects, setProjects]           = useState<Project[]>([])
+  const [skills, setSkills]               = useState<Skill[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [, setStats] = useState<DashboardStats>({ activeSkills: 0, newToday: 0 })
 
-  useEffect(() => {
-    fetchDashboardData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
-  const fetchDashboardData = async () => {
+  const loadData = async () => {
     try {
-      setLoading(true)
-      setError(null)
-      // Fetch projects, skills, and conversations in parallel
-      const [projectsData, skillsData, conversationsData] = await Promise.all([
+      setLoading(true); setError(null)
+      const [u, p, s, c] = await Promise.all([
+        api.get<User>('/auth/me'),
         api.get<Project[]>('/projects'),
         api.get<Skill[]>('/skills'),
-        api.get<Conversation[]>('/chat/conversations')
+        api.get<Conversation[]>('/chat/conversations'),
       ])
-      
-      setProjects(projectsData.slice(0, 4)) // Get first 4 projects
-      setSkills(skillsData)
-      setConversations(conversationsData.slice(0, 3)) // Get first 3 conversations
-      
-      // Calculate stats
-      const today = new Date().toISOString().split('T')[0]
-      const newToday = skillsData.filter(s => 
-        s.created_at && s.created_at.startsWith(today)
-      ).length
-      
-      setStats({
-        activeSkills: skillsData.length,
-        newToday
-      })
+      setUser(u); setProjects(p); setSkills(s); setConversations(c)
     } catch (err: any) {
-      console.error('Failed to fetch dashboard data:', err)
-      // 401 is handled by API client interceptor (will redirect to login)
-      // Other errors are handled below
-      if (err.response?.status === 401) {
-        // Let API client handle the redirect
-        throw err
-      }
-      if (!err.response) {
-        setError('Cannot connect to backend server. Please ensure the server is running on http://127.0.0.1:8000')
-      } else if (err.response.status !== 401) {
-        setError(`Failed to load dashboard data: ${err.response?.data?.detail || err.message}`)
-      }
+      if (err.response?.status === 401) throw err
+      setError(!err.response
+        ? '无法连接到服务器，请确认后端服务正在运行。'
+        : `加载失败：${err.response?.data?.detail || err.message}`)
     } finally {
       setLoading(false)
     }
   }
 
-  const activeProjects = projects.filter(p => p.status === 'active').slice(0, 2)
-  
-  const deepTasks = skills
-    .filter(s => s.estimated_time && parseInt(s.estimated_time) > 10)
-    .slice(0, 2)
-  
-  const quickTools = skills
-    .filter(s => !s.estimated_time || parseInt(s.estimated_time) <= 10)
-    .slice(0, 2)
+  // ── Derived ──────────────────────────────────────────────────────────────
+  const nonArchived = useMemo(() => projects.filter(p => p.status !== 'archived'), [projects])
 
-  if (loading) {
-    return (
-      <>
-        <PageTitle title="Dashboard" />
-        <div className="min-h-full bg-surface flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        </div>
-      </>
-    )
+  const stageGroups = useMemo(() =>
+    STAGE_GROUPS.map(g => ({
+      ...g,
+      count: projects.filter(p => g.statuses.includes(p.status)).length,
+    })), [projects])
+
+  const donutSegments = useMemo(() =>
+    stageGroups.filter(g => g.count > 0).map(g => ({ value: g.count, color: g.color, label: g.label })),
+    [stageGroups])
+
+  const totalPipeline = useMemo(() =>
+    nonArchived.reduce((s, p) => s + (p.contract_amount || 0), 0), [nonArchived])
+
+  const topProjects = useMemo(() =>
+    [...nonArchived]
+      .filter(p => (p.contract_amount || 0) > 0)
+      .sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0))
+      .slice(0, 6),
+    [nonArchived])
+  const maxContract = topProjects[0]?.contract_amount || 1
+
+  const recentProjects = useMemo(() =>
+    [...projects]
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .slice(0, 6),
+    [projects])
+
+  const skillsByCategory = useMemo(() => {
+    const map: Record<string, number> = {}
+    skills.forEach(s => { map[s.category] = (map[s.category] || 0) + 1 })
+    return Object.entries(map)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [skills])
+  const maxCatCount = skillsByCategory[0]?.count || 1
+
+  const uniqueClients = useMemo(() =>
+    [...new Set(projects.map(p => p.client).filter(Boolean))], [projects])
+
+  const activityData = useMemo(() => {
+    const counts = Array(14).fill(0)
+    const now = Date.now()
+    conversations.forEach(c => {
+      const diff = Math.floor((now - new Date(c.updated_at).getTime()) / 86400000)
+      if (diff < 14) counts[13 - diff]++
+    })
+    return counts
+  }, [conversations])
+
+  const greeting = () => {
+    const h = new Date().getHours()
+    if (h < 12) return t('dashboard.greeting.morning')
+    if (h < 17) return t('dashboard.greeting.afternoon')
+    return t('dashboard.greeting.evening')
   }
 
-  if (error) {
-    return (
-      <>
-        <PageTitle title="Dashboard" />
-        <div className="min-h-full bg-surface flex items-center justify-center">
-          <div className="text-center max-w-md mx-auto p-8">
-            <AlertCircle className="w-12 h-12 text-error mx-auto mb-4" />
-            <h2 className="text-headline-sm text-on-surface mb-2">Connection Error</h2>
-            <p className="text-body-md text-on-surface-muted mb-6">{error}</p>
-            <button 
-              onClick={fetchDashboardData}
-              className="btn-primary flex items-center gap-2 mx-auto"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Retry
-            </button>
-          </div>
+  // ── States ────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <>
+      <PageTitle title={t('dashboard.title')} />
+      <div className="h-full bg-[#f5f6f8] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+      </div>
+    </>
+  )
+
+  if (error) return (
+    <>
+      <PageTitle title="Dashboard" />
+      <div className="h-full bg-[#f5f6f8] flex items-center justify-center">
+        <div className="text-center max-w-md p-8">
+          <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-4" />
+          <p className="text-gray-700 mb-4">{error}</p>
+          <button onClick={loadData}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+            <RefreshCw className="w-4 h-4" />重试
+          </button>
         </div>
-      </>
-    )
-  }
+      </div>
+    </>
+  )
 
   return (
     <>
       <PageTitle title="Dashboard" />
-      <div className="min-h-full bg-surface">
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Hero Section */}
-        <div className="relative rounded-3xl bg-gradient-hero p-10 mb-10 overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-white/20 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-          </div>
-          
-          <div className="relative z-10">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-sm mb-6">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse"></span>
-              <span className="text-label-sm text-white/80">CONSULTING ELITE EDITION</span>
-            </div>
-            
-            <h1 className="text-display-lg text-white mb-4">
-              Aria AI
-            </h1>
-            <p className="text-body-lg text-white/70 max-w-xl mb-8">
-              Not just chat, handle everything. Your cognitive partner for strategic excellence.
-            </p>
-            
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => navigate('/projects/new')}
-                className="btn-primary flex items-center gap-2"
-              >
-                Start New Project
-              </button>
-              <button 
-                onClick={() => navigate('/skills')}
-                className="px-6 py-3 rounded-xl bg-white/10 text-white font-medium text-sm hover:bg-white/20 transition-all backdrop-blur-sm"
-              >
-                Browse Skills
-              </button>
-            </div>
-          </div>
-        </div>
+      <div className="h-full overflow-auto bg-[#f5f6f8]">
+        <div className="px-8 py-8 space-y-6">
 
-        {/* Deep Tasks & Quick Tools Grid */}
-        <div className="grid grid-cols-12 gap-6 mb-10">
-          {/* Deep Tasks */}
-          <div className="col-span-12 lg:col-span-8">
-            <div className="card h-full">
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <div className="w-12 h-12 rounded-2xl bg-secondary-container flex items-center justify-center mb-4">
-                    <BarChart3 className="w-6 h-6 text-primary" />
-                  </div>
-                  <h2 className="text-headline-sm text-on-surface mb-2">Deep Tasks</h2>
-                  <p className="text-body-md text-on-surface-muted max-w-md">
-                    Execute complex, multi-stage workflows including Market Research and Strategic Planning with high-fidelity output.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => navigate('/skills')}
-                  className="p-2 rounded-xl hover:bg-surface-container-low transition-colors"
-                >
-                  <ArrowRight className="w-5 h-5 text-on-surface-muted" />
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                {deepTasks.length > 0 ? deepTasks.map((task) => (
-                  <div 
-                    key={task.id}
-                    onClick={() => navigate(`/chat?skill=${task.id}`)}
-                    className="p-4 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"
-                  >
-                    <span className="text-label-sm text-on-surface-muted">{task.category.toUpperCase()}</span>
-                    <h3 className="text-label-lg text-on-surface mt-1">{task.name}</h3>
-                    <p className="text-body-sm text-on-surface-muted mt-1 line-clamp-1">{task.description}</p>
-                  </div>
-                )) : (
-                  <div className="col-span-2 p-4 rounded-xl bg-surface-container-low text-on-surface-muted text-center">
-                    No deep tasks available
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          {/* ── Hero ── */}
+          <div className="rounded-2xl bg-gradient-to-br from-primary via-indigo-600 to-indigo-700 p-7 relative overflow-hidden">
+            <div className="absolute -top-16 right-24 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-1/3 w-48 h-48 bg-indigo-400/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="relative z-10 flex items-center gap-10">
 
-          {/* Quick Tools */}
-          <div className="col-span-12 lg:col-span-4">
-            <div className="h-full rounded-3xl bg-gradient-primary p-6 text-white">
-              <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center mb-4">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <h2 className="text-headline-sm text-white mb-2">Quick Tools</h2>
-              <p className="text-body-sm text-white/70 mb-6">
-                Rapid execution for daily consulting essentials. Turn minutes into moments.
-              </p>
-              
-              <div className="space-y-3">
-                {quickTools.length > 0 ? quickTools.map((tool) => (
-                  <button
-                    key={tool.id}
-                    onClick={() => navigate(`/chat?skill=${tool.id}`)}
-                    className="w-full flex items-center justify-between p-4 rounded-xl bg-white/10 hover:bg-white/20 transition-all text-left group"
-                  >
-                    <span className="font-medium text-sm">{tool.name}</span>
-                    <ArrowRight className="w-4 h-4 text-white/60 group-hover:translate-x-1 transition-transform" />
+              {/* Greeting */}
+              <div className="min-w-0">
+                <p className="text-white/80 text-sm mb-0.5">{greeting()},</p>
+                <h1 className="text-[22px] font-bold text-white mb-5 tracking-tight">
+                  {user?.display_name || '欢迎回来'}
+                </h1>
+                <div className="flex items-center gap-2.5">
+                  <button onClick={() => navigate('/chat')}
+                    className="flex items-center gap-2 px-4 py-2 bg-white text-primary rounded-xl text-sm font-semibold hover:bg-white/92 active:scale-[0.98] transition-all shadow-sm">
+                    <Sparkles className="w-4 h-4" />新对话
                   </button>
-                )) : (
-                  <div className="p-4 rounded-xl bg-white/10 text-white/60 text-center text-sm">
-                    No quick tools available
+                  <button onClick={() => navigate('/projects/new')}
+                    className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/15">
+                    <FolderKanban className="w-4 h-4" />新建项目
+                  </button>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="w-px h-16 bg-white/15 flex-shrink-0" />
+
+              {/* Inline KPIs — 4 in a row */}
+              <div className="flex-1 grid grid-cols-4 gap-4">
+                {[
+                  { label: '活跃项目', value: nonArchived.length, icon: FolderKanban, sub: `共 ${projects.length} 个` },
+                  { label: '合同总价值', value: formatCurrency(totalPipeline), icon: DollarSign, sub: `${topProjects.length} 个已报价` },
+                  { label: 'AI 对话', value: conversations.length, icon: MessageSquare, sub: `近14天 ${activityData.reduce((s,v)=>s+v,0)} 次` },
+                  { label: '技能库', value: skills.length, icon: Zap, sub: `${skillsByCategory.length} 个分类` },
+                ].map(kpi => (
+                  <div key={kpi.label} className="bg-white/10 rounded-xl px-4 py-3 backdrop-blur-sm border border-white/10">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <kpi.icon className="w-3.5 h-3.5 text-white/75" />
+                      <span className="text-xs text-white/80 font-medium">{kpi.label}</span>
+                    </div>
+                    <p className="text-[22px] font-bold text-white leading-none mb-0.5">{kpi.value}</p>
+                    <p className="text-xs text-white/70">{kpi.sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Divider */}
+              <div className="w-px h-16 bg-white/15 flex-shrink-0" />
+
+              {/* Donut + legend */}
+              {projects.length > 0 && (
+                <div className="flex items-center gap-6 flex-shrink-0">
+                  <div className="relative w-[84px] h-[84px]">
+                    <DonutChart segments={donutSegments} size={84} sw={9} />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-[20px] font-bold text-white leading-none">{projects.length}</span>
+                      <span className="text-white/70 text-xs mt-0.5">项目</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {stageGroups.filter(g => g.count > 0).map(g => (
+                      <div key={g.key} className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: g.color }} />
+                        <span className="text-white/85 text-xs flex-1 whitespace-nowrap">{g.label}</span>
+                        <span className="text-white font-semibold text-xs pl-2">{g.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── 3-column grid ── */}
+          <div className="grid grid-cols-12 gap-6 items-start">
+
+            {/* ── COL 1: Pipeline + Skills ── */}
+            <div className="col-span-4 space-y-6">
+
+              {/* Stage pipeline */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-gray-700">项目阶段分布</h2>
+                  </div>
+                  <button onClick={() => navigate('/projects')}
+                    className="text-xs text-primary hover:underline flex items-center gap-1">
+                    全部项目 <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {projects.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-6">
+                    暂无项目 —{' '}
+                    <button onClick={() => navigate('/projects/new')} className="text-primary hover:underline">立即新建</button>
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      {stageGroups.map(g => {
+                        const maxCount = Math.max(...stageGroups.map(x => x.count), 1)
+                        const pct = (g.count / maxCount) * 100
+                        return (
+                          <div key={g.key} className="flex items-center gap-3">
+                            <span className="text-sm text-gray-600 w-[4.5rem] flex-shrink-0 text-right">{g.label}</span>
+                            <div className="flex-1 bg-gray-50 rounded-full h-6 overflow-hidden relative">
+                              {g.count > 0 ? (
+                                <div className="h-full rounded-full flex items-center justify-end pr-2.5 transition-all duration-700"
+                                  style={{ width: `${Math.max(pct, 8)}%`, backgroundColor: g.color }}>
+                                  <span className="text-xs font-semibold text-white">{g.count}</span>
+                                </div>
+                              ) : (
+                                <div className="absolute left-1 top-1/2 -translate-y-1/2 w-4 h-1.5 rounded-full bg-gray-200" />
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Summary row */}
+                    <div className="flex items-center gap-3 mt-5 pt-4 border-t border-gray-100">
+                      {[
+                        { label: '全部', value: projects.length, color: 'text-gray-700' },
+                        { label: '进行中', value: nonArchived.filter(p => ['execution','delivery','kickoff','active'].includes(p.status)).length, color: 'text-blue-600' },
+                        { label: '已完成', value: projects.filter(p => p.status === 'completed').length, color: 'text-emerald-600' },
+                        { label: '已归档', value: projects.filter(p => p.status === 'archived').length, color: 'text-gray-500' },
+                      ].map(s => (
+                        <div key={s.label} className="flex-1 text-center">
+                          <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Skills by category */}
+              {skillsByCategory.length > 0 && (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-primary" />
+                      <h2 className="text-sm font-semibold text-gray-700">技能分类</h2>
+                    </div>
+                    <button onClick={() => navigate('/skills')}
+                      className="text-xs text-primary hover:underline flex items-center gap-1">
+                      技能库 <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {skillsByCategory.map((cat, i) => (
+                      <div key={cat.name} className="flex items-center gap-3">
+                        <span className="text-sm text-gray-600 w-20 flex-shrink-0 text-right truncate">{cat.name}</span>
+                        <div className="flex-1 bg-gray-50 rounded-full h-5 overflow-hidden">
+                          <div className="h-full rounded-full flex items-center justify-end pr-2.5 transition-all duration-700"
+                            style={{
+                              width: `${Math.max((cat.count / maxCatCount) * 100, 10)}%`,
+                              backgroundColor: CAT_COLORS[i % CAT_COLORS.length],
+                              opacity: 0.85,
+                            }}>
+                            <span className="text-xs font-semibold text-white">{cat.count}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-4 text-right">共 {skills.length} 个技能</p>
+                </div>
+              )}
+
+              {/* Clients overview */}
+              {uniqueClients.length > 0 && (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Building2 className="w-4 h-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-gray-700">客户覆盖</h2>
+                    <span className="ml-auto text-xs text-gray-500">{uniqueClients.length} 个</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {uniqueClients.slice(0, 10).map(client => (
+                      <span key={client}
+                        className="px-2.5 py-1 rounded-lg bg-gray-50 text-sm text-gray-600 border border-gray-100">
+                        {client}
+                      </span>
+                    ))}
+                    {uniqueClients.length > 10 && (
+                      <span className="px-2.5 py-1 rounded-lg bg-gray-50 text-sm text-gray-500 border border-gray-100">
+                        +{uniqueClients.length - 10}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── COL 2: Contract ranking + Recent projects ── */}
+            <div className="col-span-5 space-y-6">
+
+              {/* Contract ranking */}
+              {topProjects.length > 0 ? (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      <h2 className="text-sm font-semibold text-gray-700">合同金额排名</h2>
+                    </div>
+                    <span className="text-xs text-gray-500">总计 {formatCurrency(totalPipeline)}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {topProjects.map((p, i) => {
+                      const pct = ((p.contract_amount || 0) / maxContract) * 100
+                      const color = STAGE_COLOR[p.status] || '#3b82f6'
+                      return (
+                        <button key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                          className="w-full flex items-center gap-3 group">
+                          <span className="text-xs font-medium text-gray-500 w-4 flex-shrink-0 text-right">{i + 1}</span>
+                          <div className="w-32 flex-shrink-0 text-left min-w-0">
+                            <p className="text-sm font-medium text-gray-700 truncate group-hover:text-primary transition-colors">{p.name}</p>
+                            <p className="text-xs text-gray-500 truncate">{p.client}</p>
+                          </div>
+                          <div className="flex-1 bg-gray-50 rounded-full h-5 overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700"
+                              style={{ width: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: 0.75 }} />
+                          </div>
+                          <span className="text-sm font-semibold text-gray-600 w-16 text-right flex-shrink-0">
+                            {formatCurrency(p.contract_amount || 0)}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                  <div className="flex items-center gap-2 mb-4">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-gray-700">合同金额</h2>
+                  </div>
+                  <p className="text-sm text-gray-500 text-center py-6">暂无合同金额数据</p>
+                </div>
+              )}
+
+              {/* Recently updated projects */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-gray-700">最近更新的项目</h2>
+                  </div>
+                  <button onClick={() => navigate('/projects')}
+                    className="text-xs text-primary hover:underline flex items-center gap-1">
+                    全部 <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+                {recentProjects.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-6">
+                    暂无项目 —{' '}
+                    <button onClick={() => navigate('/projects/new')} className="text-primary hover:underline">立即新建</button>
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {recentProjects.map(p => (
+                      <button key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                        className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-gray-50 transition-colors group text-left">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5"
+                          style={{ backgroundColor: STAGE_COLOR[p.status] || '#94a3b8' }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-700 truncate group-hover:text-primary transition-colors">{p.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{p.client || '—'}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs text-gray-500">{formatRelative(p.updated_at)}</span>
+                          <ChevronRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-all" />
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Project Space */}
-        <div className="mb-10">
-          <div className="flex items-end justify-between mb-6">
-            <div>
-              <h2 className="text-headline-sm text-on-surface mb-2">Project Space</h2>
-              <p className="text-body-md text-on-surface-muted">
-                Centralize your intelligence. Manage multiple client projects with isolated knowledge bases and dedicated AI context.
-              </p>
             </div>
-            <button 
-              onClick={() => navigate('/projects')}
-              className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-container transition-colors"
-            >
-              View all projects
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            {activeProjects.length > 0 ? activeProjects.map((project) => (
-              <div 
-                key={project.id}
-                onClick={() => navigate(`/projects/${project.id}`)}
-                className="card card-interactive cursor-pointer"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 rounded-full bg-active"></span>
-                  <span className="text-label-sm text-active">{project.status.toUpperCase()}</span>
+
+            {/* ── COL 3: Activity + Conversations + Quick actions ── */}
+            <div className="col-span-3 space-y-6">
+
+              {/* 14-day activity */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <MessageSquare className="w-4 h-4 text-primary" />
+                      <h2 className="text-sm font-semibold text-gray-700">对话活跃度</h2>
+                    </div>
+                    <p className="text-xs text-gray-500 ml-6">近 14 天</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[22px] font-bold text-gray-900 leading-none">{conversations.length}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">累计对话</p>
+                  </div>
                 </div>
-                <h3 className="text-label-lg text-on-surface mb-1">{project.name}</h3>
-                <p className="text-body-sm text-on-surface-muted">{project.client}</p>
-              </div>
-            )) : (
-              <div className="col-span-2 card text-center py-8 text-on-surface-muted">
-                No active projects. <button onClick={() => navigate('/projects/new')} className="text-primary hover:underline">Create one</button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Intelligence */}
-        <div>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-headline-sm text-on-surface">Recent Intelligence</h2>
-            <button 
-              onClick={() => navigate('/chat')}
-              className="flex items-center gap-2 text-sm text-on-surface-muted hover:text-on-surface transition-colors"
-            >
-              <History className="w-4 h-4" />
-              History
-            </button>
-          </div>
-          
-          <div className="grid grid-cols-3 gap-4">
-            {conversations.length > 0 ? conversations.map((conv) => (
-              <div 
-                key={conv.id}
-                onClick={() => navigate(`/chat?conversation=${conv.id}`)}
-                className="card border-l-4 border-primary cursor-pointer hover:shadow-lg transition-all"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="px-2 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary">
-                    @conversation
-                  </span>
-                  <span className="text-xs text-on-surface-muted">
-                    {new Date(conv.updated_at).toLocaleDateString()}
-                  </span>
+                <div className="h-14 w-full">
+                  <ActivityBars data={activityData} color="#6366f1" />
                 </div>
-                <h3 className="text-label-lg text-on-surface mb-2 line-clamp-1">{conv.title || 'Untitled Conversation'}</h3>
-                <p className="text-body-sm text-on-surface-muted line-clamp-2">
-                  Click to continue this conversation
-                </p>
+                <div className="flex justify-between mt-2">
+                  <span className="text-xs text-gray-500">14天前</span>
+                  <span className="text-xs text-gray-500">今天</span>
+                </div>
               </div>
-            )) : (
-              <div className="col-span-3 card text-center py-8 text-on-surface-muted">
-                No recent conversations. <button onClick={() => navigate('/chat')} className="text-primary hover:underline">Start one</button>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Footer */}
-        <footer className="mt-16 pt-8 border-t border-outline/10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 text-sm text-on-surface-muted">
-              <span className="font-manrope font-semibold text-on-surface">Aria AI</span>
-              <span>© 2024 Aria AI Consulting Elite</span>
-            </div>
-            <div className="flex items-center gap-6 text-sm text-on-surface-muted">
-              <a href="#" className="hover:text-on-surface transition-colors">Resources</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Legal</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Support</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Language</a>
+              {/* Recent conversations */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-gray-700">最近对话</h2>
+                  <button onClick={() => navigate('/chat')}
+                    className="text-xs text-primary hover:underline flex items-center gap-1">
+                    全部 <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+                {conversations.length === 0 ? (
+                  <div className="py-4 text-center">
+                    <p className="text-sm text-gray-500 mb-2">暂无对话记录</p>
+                    <button onClick={() => navigate('/chat')}
+                      className="text-xs text-primary hover:underline">开始第一次对话</button>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {conversations.slice(0, 6).map(c => (
+                      <button key={c.id} onClick={() => navigate(`/chat?conversation=${c.id}`)}
+                        className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left group">
+                        <div className="w-6 h-6 rounded-md bg-primary/8 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
+                          <MessageSquare className="w-3 h-3 text-primary" />
+                        </div>
+                        <p className="flex-1 text-sm text-gray-700 truncate">{c.title || '新对话'}</p>
+                        <span className="text-xs text-gray-500 flex-shrink-0">{formatRelative(c.updated_at)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Quick actions */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-4">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  快速开始
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: '生成会议纪要', prompt: '请帮我生成一份会议纪要，我将粘贴会议记录内容' },
+                    { label: '风险评估报告', prompt: '请对我当前的项目进行风险评估并输出报告' },
+                    { label: '撰写项目提案', prompt: '请帮我撰写一份咨询项目提案执行摘要' },
+                    { label: '市场规模分析', prompt: '帮我分析一个目标市场的规模和机会' },
+                  ].map(q => (
+                    <button key={q.label}
+                      onClick={() => navigate(`/chat?q=${encodeURIComponent(q.prompt)}`)}
+                      className="p-3 rounded-xl bg-gray-50/80 hover:bg-primary/5 border border-transparent hover:border-primary/15 text-left transition-all group">
+                      <div className="w-5 h-5 rounded-md bg-primary/8 flex items-center justify-center mb-2 group-hover:bg-primary/15 transition-colors">
+                        <Sparkles className="w-3 h-3 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 group-hover:text-primary leading-snug transition-colors">{q.label}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
             </div>
           </div>
-        </footer>
+
+        </div>
       </div>
-    </div>
-  </>
+    </>
   )
 }

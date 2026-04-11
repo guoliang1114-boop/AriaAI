@@ -2,7 +2,7 @@
 import os
 from typing import Optional
 import keyring
-from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI
+from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI, KEYCHAIN_KEY_OPENAI, KEYCHAIN_KEY_DEEPSEEK
 
 
 def _db_get_api_key() -> Optional[str]:
@@ -133,6 +133,134 @@ def delete_kimi_api_key() -> None:
         from app.models.db import Setting
         with Session(engine) as session:
             existing = session.get(Setting, "kimi_api_key")
+            if existing:
+                session.delete(existing)
+                session.commit()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# OpenAI API key
+# ---------------------------------------------------------------------------
+
+def get_openai_api_key() -> Optional[str]:
+    """Retrieve OpenAI API key: Keychain → SQLite → env var."""
+    try:
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_OPENAI)
+        if key:
+            return key
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            setting = session.get(Setting, "openai_api_key")
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    return os.environ.get("OPENAI_API_KEY")
+
+
+def set_openai_api_key(api_key: str) -> None:
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_OPENAI, api_key)
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "openai_api_key")
+            if existing:
+                existing.value = api_key
+                session.add(existing)
+            else:
+                session.add(Setting(key="openai_api_key", value=api_key))
+            session.commit()
+    except Exception:
+        pass
+
+
+def delete_openai_api_key() -> None:
+    try:
+        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_OPENAI)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "openai_api_key")
+            if existing:
+                session.delete(existing)
+                session.commit()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek API key
+# ---------------------------------------------------------------------------
+
+def get_deepseek_api_key() -> Optional[str]:
+    """Retrieve DeepSeek API key: Keychain → SQLite → env var."""
+    try:
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_DEEPSEEK)
+        if key:
+            return key
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            setting = session.get(Setting, "deepseek_api_key")
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    return os.environ.get("DEEPSEEK_API_KEY")
+
+
+def set_deepseek_api_key(api_key: str) -> None:
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_DEEPSEEK, api_key)
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "deepseek_api_key")
+            if existing:
+                existing.value = api_key
+                session.add(existing)
+            else:
+                session.add(Setting(key="deepseek_api_key", value=api_key))
+            session.commit()
+    except Exception:
+        pass
+
+
+def delete_deepseek_api_key() -> None:
+    try:
+        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_DEEPSEEK)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "deepseek_api_key")
             if existing:
                 session.delete(existing)
                 session.commit()

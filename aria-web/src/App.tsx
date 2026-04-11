@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { Login } from './pages/Login'
 import { Welcome } from './pages/Welcome'
@@ -9,6 +9,8 @@ import { Projects } from './pages/projects/Projects'
 import { ProjectDetail } from './pages/projects/ProjectDetail'
 import { NewProject } from './pages/projects/NewProject'
 import { Knowledge } from './pages/knowledge/Knowledge'
+import { Clients } from './pages/clients/Clients'
+import { ClientDetail } from './pages/clients/ClientDetail'
 import { SettingsLayout } from './pages/settings/SettingsLayout'
 import { ProfileSettings } from './pages/settings/ProfileSettings'
 import { AISettings } from './pages/settings/AISettings'
@@ -18,32 +20,22 @@ import { LanguageSettings } from './pages/settings/LanguageSettings'
 import { AboutSettings } from './pages/settings/AboutSettings'
 
 // Auth Guard Component
-function AuthGuard({ children, isAuthenticated }: { children: React.ReactNode; isAuthenticated: boolean }) {
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
   return <>{children}</>
 }
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('authToken'))
-
-  useEffect(() => {
-    const checkAuth = () => {
-      setIsAuthenticated(!!localStorage.getItem('authToken'))
-    }
-    checkAuth()
-    window.addEventListener('storage', checkAuth)
-    return () => window.removeEventListener('storage', checkAuth)
-  }, [])
-
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route
         path="/"
         element={
-          <AuthGuard isAuthenticated={isAuthenticated}>
+          <AuthGuard>
             <Layout />
           </AuthGuard>
         }
@@ -53,8 +45,10 @@ function App() {
         <Route path="skills" element={<Skills />} />
         <Route path="projects" element={<Projects />} />
         <Route path="projects/new" element={<NewProject />} />
-        <Route path="projects/:id" element={<ProjectDetail />} />
+        <Route path="projects/:id/*" element={<ProjectDetail />} />
         <Route path="knowledge" element={<Knowledge />} />
+        <Route path="clients" element={<Clients />} />
+        <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<ProfileSettings />} />
           <Route path="ai" element={<AISettings />} />
@@ -65,6 +59,14 @@ function App() {
         </Route>
       </Route>
     </Routes>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   )
 }
 

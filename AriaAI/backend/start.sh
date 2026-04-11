@@ -4,8 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Local development default: SQLite in the repo. Production should override via env.
-export DATABASE_URL="${DATABASE_URL:-sqlite:///./data/ariaai.db}"
+# 加载 .env 文件 (如果存在) — 用 set -a/source 正确处理含特殊字符的 URL
+if [ -f ".env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+fi
 
 is_windows_bash() {
     case "${OSTYPE:-}" in

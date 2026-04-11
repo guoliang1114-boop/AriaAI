@@ -11,9 +11,11 @@ if DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
     engine_kwargs.update(
-        pool_pre_ping=True,      # 自动检测断开的连接
-        pool_size=20,            # 连接池大小
-        max_overflow=5,          # 最大溢出连接数
+        pool_size=5,             # 连接数不要太多，高延迟下保持少量长连接更好
+        max_overflow=2,          # 最大溢出连接数
+        pool_recycle=1800,       # 30 分钟回收一次，避免服务器端超时断开
+        pool_timeout=30,         # 等待连接超时时间
+        pool_pre_ping=False,     # 关闭：每次请求前的 SELECT 1 在高延迟下浪费 ~1s
     )
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)

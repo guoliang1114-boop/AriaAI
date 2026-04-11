@@ -138,6 +138,7 @@ async def _stream_response_sdk(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> AsyncIterator[str]:
     """Stream using anthropic SDK.
     
@@ -151,6 +152,7 @@ async def _stream_response_sdk(
         "model": model,
         "max_tokens": max_tokens,
         "messages": messages,
+        "temperature": temperature,
     }
     if system:
         kwargs["system"] = system
@@ -200,6 +202,7 @@ async def _complete_sdk(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> str:
     """Complete using anthropic SDK."""
     client = _async_client_sdk()
@@ -235,6 +238,7 @@ async def _stream_response_http(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> AsyncIterator[str]:
     """Stream using raw HTTP requests (no X-Stainless headers)."""
     api_key = get_api_key()
@@ -254,6 +258,7 @@ async def _stream_response_http(
         "max_tokens": max_tokens,
         "messages": messages,
         "stream": True,
+        "temperature": temperature,
     }
     if system:
         data["system"] = system
@@ -348,6 +353,7 @@ async def _complete_http(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> str:
     """Complete using raw HTTP requests (no X-Stainless headers)."""
     api_key = get_api_key()
@@ -366,6 +372,7 @@ async def _complete_http(
         "model": model,
         "max_tokens": max_tokens,
         "messages": messages,
+        "temperature": temperature,
     }
     if system:
         data["system"] = system
@@ -407,6 +414,7 @@ async def stream_response(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> AsyncIterator[str]:
     """Yield text chunks from Claude as they arrive (true async streaming).
     
@@ -420,10 +428,10 @@ async def stream_response(
     use_http = _should_use_http_mode()
     
     if use_http:
-        async for chunk in _stream_response_http(messages, system, model, max_tokens, tools):
+        async for chunk in _stream_response_http(messages, system, model, max_tokens, tools, temperature):
             yield chunk
     else:
-        async for chunk in _stream_response_sdk(messages, system, model, max_tokens, tools):
+        async for chunk in _stream_response_sdk(messages, system, model, max_tokens, tools, temperature):
             yield chunk
 
 
@@ -433,6 +441,7 @@ async def complete(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> str:
     """Return full Claude response as a string (non-streaming).
     
@@ -442,13 +451,14 @@ async def complete(
         model: Model name
         max_tokens: Maximum tokens to generate
         tools: Optional list of tool definitions for function calling
+        temperature: Temperature for generation (0-1)
     """
     use_http = _should_use_http_mode()
     
     if use_http:
-        return await _complete_http(messages, system, model, max_tokens, tools)
+        return await _complete_http(messages, system, model, max_tokens, tools, temperature)
     else:
-        return await _complete_sdk(messages, system, model, max_tokens, tools)
+        return await _complete_sdk(messages, system, model, max_tokens, tools, temperature)
 
 
 def build_system_prompt(
@@ -456,7 +466,52 @@ def build_system_prompt(
     rag_context: str = "",
     project_context: str = "",
 ) -> str:
-    if project_context:
+    # Core identity rules - MUST NOT reveal specific model identity
+    identity_rules = """\
+## Identity Guidelines (CRITICAL - MUST FOLLOW)
+When the user asks "你是谁" (Who are you), "你是什么模型" (What model are you), or similar questions about your identity:
+- NEVER reveal your specific model name (such as Claude, GPT, Kimi, etc.)
+- NEVER mention your training data cutoff date or version numbers
+- DO NOT say "I am an AI assistant created by Anthropic/OpenAI/Moonshot/etc."
+- DO NOT give philosophical or abstract answers about AI consciousness
+- Instead, introduce yourself as **AriaAI** — a consulting AI workbench designed for professional service teams
+
+**When asked about identity, respond as AriaAI:**
+
+Introduce the product's design purpose and value proposition. For example:
+
+"我是 **AriaAI** —— 为咨询顾问和专业服务团队打造的 AI 原生工作台。
+
+我的设计理念源于对顾问工作三大痛点的洞察：
+
+1. **上下文割裂** —— 通用 AI 每次对话从零开始，不了解项目背景。AriaAI 以『项目空间』为核心，让 AI 持续理解项目全貌，实现跨会话的上下文延续。
+
+2. **输出不专业** —— 通用 AI 不懂咨询方法论。AriaAI 内置 9 大业务领域、60+ 个专业技能，严格遵循 Pyramid Principle 等顾问级输出标准。
+
+3. **数据安全** —— 客户信息极度敏感。AriaAI 支持本地运行和私有化部署，知识库向量化在本地完成，数据不出企业。
+
+**四大核心模块支撑完整工作流：**
+- 💬 **对话工作区** —— 流式对话、Agent 执行、文件处理
+- 🛠 **技能中心** —— 快速工具（5分钟）与深度任务（30分钟）两层技能体系
+- 📁 **项目空间** —— 项目档案、文件库、里程碑、上下文自动维护
+- 📚 **知识库** —— 历史案例、行业研究、方法论模板的 RAG 检索
+
+我不只是一个聊天工具，而是贯穿『资料进入 → AI 理解 → 持续协作 → 交付物生成 → 知识沉淀』完整闭环的项目交付系统。"
+
+For all other questions, follow your standard role below.
+"""
+
+    is_workspace_context = project_context.startswith("# 工作台全局数据")
+    if project_context and is_workspace_context:
+        base = (
+            "你是 AriaAI，一个嵌入在咨询项目管理平台中的 AI 助手。"
+            "下方已注入用户工作台的全部活跃项目数据，包括每个项目的客户、阶段、里程碑、财务信息等。"
+            "用户提问时，你必须直接引用这些真实数据作答，不要说「我没有相关信息」或「请告诉我项目详情」。"
+            "回答应具体、有依据，直接点出项目名称、里程碑名称、金额、日期等关键事实。"
+            "如有逾期里程碑或高风险项目，应主动提示。"
+            "输出使用中文，结构清晰，可使用表格或列表增强可读性。"
+        )
+    elif project_context:
         base = (
             "You are an AI consultant assistant embedded in a project management tool. "
             "The current project's full context is provided below — including status, milestones, "
@@ -473,7 +528,7 @@ def build_system_prompt(
             "Provide precise, structured, and actionable analysis."
         )
 
-    parts = [base]
+    parts = [identity_rules, base]
     if skill_prompt:
         parts.append(f"\n\n## Skill Context\n{skill_prompt}")
     if project_context:

@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { api } from '../../api/client'
 import type { Skill } from '../../types'
 
-const categories = [
-  { key: 'consulting', label: '咨询专家' },
-  { key: 'expert', label: '领域专家' },
-  { key: 'assistant', label: 'AI助手' },
+const getCategories = (t: any) => [
+  { key: 'consulting', label: t('skills.form.categories.consulting') },
+  { key: 'expert', label: t('skills.form.categories.expert') },
+  { key: 'assistant', label: t('skills.form.categories.assistant') },
 ]
 
 export function SkillForm() {
+  const { t } = useTranslation()
+  const categories = getCategories(t)
   const navigate = useNavigate()
   const { id } = useParams()
   const isEditing = Boolean(id)
@@ -51,7 +54,7 @@ export function SkillForm() {
       })
     } catch (error) {
       console.error('Failed to fetch skill:', error)
-      alert('加载技能失败')
+      alert(t('skills.form.loadError'))
       navigate('/skills')
     } finally {
       setIsLoading(false)
@@ -71,7 +74,7 @@ export function SkillForm() {
       navigate('/skills')
     } catch (error) {
       console.error('Failed to save skill:', error)
-      alert('保存失败，请重试')
+      alert(t('skills.form.saveError'))
     } finally {
       setIsSaving(false)
     }
@@ -103,7 +106,7 @@ export function SkillForm() {
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-                {isEditing ? '编辑技能' : '创建技能'}
+                {isEditing ? t('skills.form.editTitle') : t('skills.form.createTitle')}
               </h1>
             </div>
             <button
@@ -116,7 +119,7 @@ export function SkillForm() {
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              保存
+              {t('skills.form.save')}
             </button>
           </div>
 
@@ -130,7 +133,7 @@ export function SkillForm() {
                   : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
               }`}
             >
-              基本信息
+              {t('skills.form.basicTab')}
             </button>
             <button
               onClick={() => setActiveTab('prompts')}
@@ -140,7 +143,7 @@ export function SkillForm() {
                   : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
               }`}
             >
-              提示词配置
+              {t('skills.form.promptsTab')}
             </button>
           </div>
         </div>
@@ -154,13 +157,13 @@ export function SkillForm() {
               {/* Name */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  技能名称 *
+                  {t('skills.form.name')} *
                 </label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
-                  placeholder="例如：薪酬分析专家"
+                  placeholder={t('skills.form.namePlaceholder')}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
                   required
                 />
@@ -169,7 +172,7 @@ export function SkillForm() {
               {/* Category */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-3">
-                  技能类别 *
+                  {t('skills.form.category')} *
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => (
@@ -192,12 +195,12 @@ export function SkillForm() {
               {/* Description */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  技能描述 *
+                  {t('skills.form.description')} *
                 </label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => handleChange('description', e.target.value)}
-                  placeholder="简要描述这个技能的功能和适用场景..."
+                  placeholder={t('skills.form.descriptionPlaceholder')}
                   rows={3}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all resize-none"
                   required
@@ -207,13 +210,13 @@ export function SkillForm() {
               {/* Estimated Time */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  预估时间
+                  {t('skills.form.estimatedTime')}
                 </label>
                 <input
                   type="text"
                   value={formData.estimatedTime}
                   onChange={(e) => handleChange('estimatedTime', e.target.value)}
-                  placeholder="例如：10-15分钟"
+                  placeholder={t('skills.form.estimatedTimePlaceholder')}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
                 />
               </div>
@@ -223,10 +226,10 @@ export function SkillForm() {
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="block text-sm font-medium text-[var(--color-text-secondary)]">
-                      引导式工作流
+                      {t('skills.form.guidedWorkflow')}
                     </label>
                     <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                      启用后，用户需要通过分步骤界面输入必要信息，而非直接对话
+                      {t('skills.form.guidedWorkflowHelp')}
                     </p>
                   </div>
                   <button
@@ -250,15 +253,15 @@ export function SkillForm() {
               {/* System Prompt */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  系统提示词 *
+                  {t('skills.form.prompt')} *
                 </label>
                 <p className="text-xs text-[var(--color-text-muted)] mb-2">
-                  定义AI助手的行为模式、专业背景和回答风格。这是最重要的配置项。
+                  {t('skills.form.promptHelp')}
                 </p>
                 <textarea
                   value={formData.systemPrompt}
                   onChange={(e) => handleChange('systemPrompt', e.target.value)}
-                  placeholder="你是一个薪酬分析专家，擅长..."
+                  placeholder={t('skills.form.promptPlaceholder')}
                   rows={12}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all font-mono text-sm"
                   required
@@ -268,15 +271,15 @@ export function SkillForm() {
               {/* User Template */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  用户消息模板
+                  {t('skills.form.userTemplate')}
                 </label>
                 <p className="text-xs text-[var(--color-text-muted)] mb-2">
-                  可选。当用户创建新对话时，自动填充的消息模板。支持 {'{variable}'} 占位符。
+                  {t('skills.form.userTemplateHelp')}
                 </p>
                 <textarea
                   value={formData.userTemplate}
                   onChange={(e) => handleChange('userTemplate', e.target.value)}
-                  placeholder="我的公司情况如下：{company_size}人..."
+                  placeholder={t('skills.form.userTemplatePlaceholder')}
                   rows={6}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all font-mono text-sm"
                 />
@@ -285,15 +288,15 @@ export function SkillForm() {
               {/* Tools Definition */}
               <div className="bg-[var(--color-bg-primary)] rounded-xl border border-[var(--color-border-default)] p-6">
                 <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
-                  工具定义 (JSON)
+                  {t('skills.form.tools')}
                 </label>
                 <p className="text-xs text-[var(--color-text-muted)] mb-2">
-                  可选。定义可用的工具/函数，格式为JSON数组。高级功能，谨慎使用。
+                  {t('skills.form.toolsHelp')}
                 </p>
                 <textarea
                   value={formData.toolsDefinitionJson}
                   onChange={(e) => handleChange('toolsDefinitionJson', e.target.value)}
-                  placeholder='[{ "name": "get_market_data", ... }]'
+                  placeholder={t('skills.form.toolsPlaceholder')}
                   rows={8}
                   className="w-full px-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all font-mono text-sm"
                 />

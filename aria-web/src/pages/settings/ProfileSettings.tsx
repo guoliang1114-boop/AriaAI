@@ -1,94 +1,289 @@
-import { useState } from 'react'
-import { User, Mail, Check, Camera } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock } from 'lucide-react'
+import { api } from '../../api/client'
+import type { User as UserType } from '../../types/api'
 
 export function ProfileSettings() {
-  const [formData, setFormData] = useState({
-    displayName: 'User',
-    email: 'user@example.com',
-    avatar: '',
-  })
-  const [saved, setSaved] = useState(false)
+  const [user, setUser] = useState<UserType | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [savingName, setSavingName] = useState(false)
+  const [nameMsg, setNameMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  // Password dialog state
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [savingPwd, setSavingPwd] = useState(false)
+  const [pwdMsg, setPwdMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    api.get<UserType>('/auth/me').then(u => {
+      setUser(u)
+      setDisplayName(u.display_name)
+    }).catch(() => {})
+  }, [])
+
+  const handleSaveName = async () => {
+    if (!user || !displayName.trim()) return
+    setSavingName(true)
+    setNameMsg(null)
+    try {
+      await api.patch(`/auth/users/${user.id}`, { display_name: displayName.trim() })
+      setNameMsg({ type: 'success', text: '已保存' })
+      setTimeout(() => setNameMsg(null), 3000)
+    } catch (err: any) {
+      setNameMsg({ type: 'error', text: err.response?.data?.detail || '保存失败' })
+    } finally {
+      setSavingName(false)
+    }
   }
 
-  const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+  const openPasswordDialog = () => {
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setPwdMsg(null)
+    setShowPasswordDialog(true)
   }
+
+  const closePasswordDialog = () => {
+    if (savingPwd) return
+    setShowPasswordDialog(false)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setPwdMsg(null)
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) {
+      setPwdMsg({ type: 'error', text: '两次输入的新密码不一致' })
+      return
+    }
+    if (newPassword.length < 6) {
+      setPwdMsg({ type: 'error', text: '新密码至少需要6位' })
+      return
+    }
+    setSavingPwd(true)
+    setPwdMsg(null)
+    try {
+      await api.post('/auth/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPwdMsg({ type: 'success', text: '密码已修改成功' })
+      setTimeout(() => {
+        setShowPasswordDialog(false)
+        setPwdMsg(null)
+      }, 1500)
+    } catch (err: any) {
+      setPwdMsg({ type: 'error', text: err.response?.data?.detail || '修改密码失败' })
+    } finally {
+      setSavingPwd(false)
+    }
+  }
+
+  const inputCls = 'w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all'
 
   return (
-    <div>
-      <h2 className="text-lg font-semibold text-[var(--color-text-primary)] mb-1">个人信息</h2>
-      <p className="text-sm text-[var(--color-text-muted)] mb-6">管理你的个人资料</p>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-label-lg text-on-surface mb-1">个人信息</h2>
+        <p className="text-body-sm text-on-surface-muted">管理你的个人资料</p>
+      </div>
 
-      <div className="space-y-6">
-        {/* Avatar */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-3">
-            头像
-          </label>
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 bg-[var(--color-accent-50)] rounded-2xl flex items-center justify-center">
-              <User className="w-10 h-10 text-[var(--color-accent-600)]" />
-            </div>
-            <button className="flex items-center gap-2 px-4 py-2.5 border border-[var(--color-border-default)] rounded-lg hover:bg-[var(--color-bg-tertiary)] transition-all text-[var(--color-text-secondary)]">
-              <Camera className="w-4 h-4" />
-              更换头像
-            </button>
+      {/* Profile Card */}
+      <div className="card space-y-4">
+        {/* Avatar placeholder */}
+        <div className="flex items-center gap-4 pb-4 border-b border-outline/10">
+          <div className="w-14 h-14 rounded-full bg-gradient-primary flex items-center justify-center text-white font-semibold text-lg">
+            {displayName ? displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : <User className="w-6 h-6" />}
+          </div>
+          <div>
+            <p className="font-medium text-on-surface">{displayName || '—'}</p>
+            <p className="text-sm text-on-surface-muted">{user?.email || '…'}</p>
           </div>
         </div>
 
         {/* Display Name */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+        <div className="space-y-2">
+          <label className="text-label-sm text-on-surface-muted flex items-center gap-1.5">
+            <User className="w-3.5 h-3.5" />
             显示名称
           </label>
-          <div className="relative">
-            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-tertiary)]" />
+          <div className="flex gap-3">
             <input
               type="text"
-              value={formData.displayName}
-              onChange={(e) => handleChange('displayName', e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="你的显示名称"
+              className={inputCls + ' flex-1'}
             />
+            <button
+              onClick={handleSaveName}
+              disabled={savingName || displayName.trim() === (user?.display_name ?? '')}
+              className="btn-primary flex items-center gap-2 px-4 disabled:opacity-40"
+            >
+              {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              保存
+            </button>
           </div>
+          {nameMsg && (
+            <p className={`text-xs flex items-center gap-1 ${nameMsg.type === 'success' ? 'text-active' : 'text-error'}`}>
+              {nameMsg.type === 'error' && <AlertCircle className="w-3 h-3" />}
+              {nameMsg.text}
+            </p>
+          )}
         </div>
 
-        {/* Email */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
+        {/* Email (read-only) */}
+        <div className="space-y-2">
+          <label className="text-label-sm text-on-surface-muted flex items-center gap-1.5">
+            <Mail className="w-3.5 h-3.5" />
             邮箱地址
           </label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-tertiary)]" />
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => handleChange('email', e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]/20 focus:border-[var(--color-accent-500)] transition-all"
-            />
-          </div>
+          <input
+            type="email"
+            value={user?.email ?? ''}
+            readOnly
+            className={inputCls + ' opacity-60 cursor-not-allowed'}
+          />
         </div>
+      </div>
 
-        {/* Save Button */}
-        <div className="pt-4 border-t border-[var(--color-border-default)]">
+      {/* Password Card */}
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-label-lg text-on-surface flex items-center gap-2 mb-1">
+              <KeyRound className="w-4 h-4 text-primary" />
+              密码安全
+            </h3>
+            <p className="text-body-sm text-on-surface-muted">定期更换密码可以保护你的账户安全</p>
+          </div>
           <button
-            onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-700)] text-white rounded-lg font-medium transition-all"
+            onClick={openPasswordDialog}
+            className="btn-secondary flex items-center gap-2"
           >
-            {saved ? (
-              <>
-                <Check className="w-4 h-4" />
-                已保存
-              </>
-            ) : (
-              '保存更改'
-            )}
+            <Lock className="w-4 h-4" />
+            修改密码
           </button>
         </div>
       </div>
+
+      {/* Password Change Dialog */}
+      {showPasswordDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-container-lowest rounded-2xl w-full max-w-md shadow-2xl border border-outline/10 overflow-hidden">
+            {/* Dialog Header */}
+            <div className="px-6 py-4 border-b border-outline/10 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-on-surface">修改密码</h3>
+                  <p className="text-xs text-on-surface-muted">请输入当前密码和新密码</p>
+                </div>
+              </div>
+              <button
+                onClick={closePasswordDialog}
+                disabled={savingPwd}
+                className="p-2 rounded-xl hover:bg-surface-container-low text-on-surface-muted transition-colors disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Dialog Content */}
+            <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-label-sm text-on-surface-muted">当前密码</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="请输入当前密码"
+                  className={inputCls}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-label-sm text-on-surface-muted">新密码</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="至少6位"
+                  className={inputCls}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-label-sm text-on-surface-muted">确认新密码</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入新密码"
+                  className={inputCls}
+                  required
+                />
+              </div>
+              
+              {pwdMsg && (
+                <div className={`p-3 rounded-xl flex items-center gap-2 ${
+                  pwdMsg.type === 'success' 
+                    ? 'bg-success/10 text-success border border-success/20' 
+                    : 'bg-error/10 text-error border border-error/20'
+                }`}>
+                  {pwdMsg.type === 'error' ? (
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  ) : (
+                    <Check className="w-4 h-4 flex-shrink-0" />
+                  )}
+                  <p className="text-sm">{pwdMsg.text}</p>
+                </div>
+              )}
+
+              {/* Dialog Footer */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closePasswordDialog}
+                  disabled={savingPwd}
+                  className="px-4 py-2.5 text-on-surface-muted hover:bg-surface-container-low rounded-xl transition-colors disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPwd || !currentPassword || !newPassword || !confirmPassword}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-xl font-medium transition-all"
+                >
+                  {savingPwd ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      修改中...
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-4 h-4" />
+                      确认修改
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

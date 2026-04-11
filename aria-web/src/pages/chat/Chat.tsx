@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Paperclip,
   FolderKanban,
@@ -20,7 +21,17 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
-  TriangleAlert
+  TriangleAlert,
+  BookOpen,
+  File as FileIcon,
+  ChevronDown,
+  Info,
+  FileText,
+  TrendingUp,
+  Target,
+  Users,
+  Mail,
+  Zap,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
@@ -38,11 +49,10 @@ function formatTime(dateStr: string) {
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
   if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  return d.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-function groupConversations(conversations: Conversation[]) {
+function groupConversations(conversations: Conversation[], t: any) {
   const now = new Date()
   const today: Conversation[] = []
   const yesterday: Conversation[] = []
@@ -58,19 +68,65 @@ function groupConversations(conversations: Conversation[]) {
   }
 
   return [
-    ...(today.length ? [{ label: 'Today', items: today }] : []),
-    ...(yesterday.length ? [{ label: 'Yesterday', items: yesterday }] : []),
-    ...(thisWeek.length ? [{ label: 'This week', items: thisWeek }] : []),
-    ...(older.length ? [{ label: 'Earlier', items: older }] : []),
+    ...(today.length ? [{ label: t('chat.today'), items: today }] : []),
+    ...(yesterday.length ? [{ label: t('chat.yesterday'), items: yesterday }] : []),
+    ...(thisWeek.length ? [{ label: t('chat.thisWeek'), items: thisWeek }] : []),
+    ...(older.length ? [{ label: t('chat.earlier'), items: older }] : []),
   ]
 }
 
-// Suggestion chips shown on the empty state
-const SUGGESTIONS = [
-  'Summarize the latest project status',
-  'Help me draft a client email',
-  'Analyze this week\'s milestones',
-  'What are the key risks in this project?',
+// Prompt cards shown on the empty state
+interface PromptCard {
+  icon: React.ElementType
+  label: string
+  prompt: string
+  color: string
+  bg: string
+}
+
+const getPromptCards = (): PromptCard[] => [
+  {
+    icon: TrendingUp,
+    label: '项目进展速报',
+    prompt: '帮我总结一下当前所有进行中项目的最新进展和关键风险点',
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50 hover:bg-indigo-100 border-indigo-100',
+  },
+  {
+    icon: Target,
+    label: '里程碑检查',
+    prompt: '检查一下近期有哪些里程碑即将到期或已经逾期，给出优先级建议',
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-100',
+  },
+  {
+    icon: FileText,
+    label: '起草项目方案',
+    prompt: '我需要为客户起草一份项目实施方案，帮我梳理结构和关键内容',
+    color: 'text-violet-600',
+    bg: 'bg-violet-50 hover:bg-violet-100 border-violet-100',
+  },
+  {
+    icon: Mail,
+    label: '撰写客户邮件',
+    prompt: '帮我写一封向客户汇报本阶段项目进展的邮件，语气专业且简洁',
+    color: 'text-sky-600',
+    bg: 'bg-sky-50 hover:bg-sky-100 border-sky-100',
+  },
+  {
+    icon: Users,
+    label: '商务谈判准备',
+    prompt: '我们即将和客户进行合同续签谈判，帮我梳理谈判要点和注意事项',
+    color: 'text-amber-600',
+    bg: 'bg-amber-50 hover:bg-amber-100 border-amber-100',
+  },
+  {
+    icon: Zap,
+    label: '风险识别分析',
+    prompt: '基于项目现状，帮我识别当前最主要的交付风险，并给出应对策略',
+    color: 'text-rose-600',
+    bg: 'bg-rose-50 hover:bg-rose-100 border-rose-100',
+  },
 ]
 
 // ─── CopyButton (for individual messages) ──────────────────────────────────
@@ -86,9 +142,9 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handle}
       title="Copy message"
-      className="p-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container-high text-on-surface-muted hover:text-on-surface transition-colors"
+      className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   )
 }
@@ -97,12 +153,14 @@ function CopyButton({ text }: { text: string }) {
 
 export function Chat() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const conversationId = searchParams.get('conversation')
   const skillId = searchParams.get('skill')
   const projectId = searchParams.get('project')
+  const prefilledQ = searchParams.get('q')
 
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(prefilledQ || '')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [conversation, setConversation] = useState<Conversation | null>(null)
@@ -116,12 +174,25 @@ export function Chat() {
   const [isThinking, setIsThinking] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [showSkillDropdown, setShowSkillDropdown] = useState(false)
+  const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>('all')
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [isLoadingConversations, setIsLoadingConversations] = useState(true)
+  const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false)
+  const [skillTemplateData, setSkillTemplateData] = useState<{
+    skill: Skill
+    variables: { name: string; value: string }[]
+    preview: string
+  } | null>(null)
+  const processedSkillRef = useRef<number | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -135,6 +206,12 @@ export function Chat() {
   const abortControllerRef = useRef<AbortController | null>(null)
   // remember whether the current conversation was brand-new (so we refresh title after first reply)
   const isNewConvRef = useRef(false)
+  // Store first message for auto-renaming
+  const firstMessageRef = useRef('')
+  // track if we just loaded a conversation (to avoid smooth scroll on initial load)
+  const justLoadedRef = useRef(false)
+  // prevent loadConversation from firing when sendMessage triggers navigate to the new conv
+  const skipNextConvLoadRef = useRef(false)
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => { fetchInitialData() }, [])
@@ -149,6 +226,10 @@ export function Chat() {
 
   useEffect(() => {
     if (conversationId) {
+      if (skipNextConvLoadRef.current) {
+        skipNextConvLoadRef.current = false
+        return
+      }
       loadConversation(parseInt(conversationId))
     } else {
       setLoading(false)
@@ -177,15 +258,21 @@ export function Chat() {
   const fetchInitialData = async () => {
     try {
       const [convsData, projectsData, skillsData] = await Promise.all([
-        api.get<Conversation[]>('/chat/conversations'),
+        api.get<Conversation[]>('/chat/conversations?standalone=true'),
         api.get<Project[]>('/projects'),
         api.get<Skill[]>('/skills'),
       ])
       setConversations(convsData)
       setProjects(projectsData)
       setSkills(skillsData)
+      // Auto-select first conversation if none is active
+      if (!searchParams.get('conversation') && convsData.length > 0) {
+        navigate(`/chat?conversation=${convsData[0].id}`, { replace: true })
+      }
     } catch (err) {
       console.error('Failed to fetch initial data:', err)
+    } finally {
+      setIsLoadingConversations(false)
     }
   }
 
@@ -217,6 +304,8 @@ export function Chat() {
         setMessages(prev => [...data, ...prev])
       } else {
         setMessages(data)
+        // Mark as just loaded so we can jump to bottom without animation
+        justLoadedRef.current = true
       }
       setHasMore(data.length === PAGE_SIZE)
     } catch (err) {
@@ -262,7 +351,13 @@ export function Chat() {
 
   // auto-scroll on new messages
   useEffect(() => {
-    if (!isStreamingRef.current && isNearBottomRef.current) scrollToBottom()
+    if (!isStreamingRef.current && isNearBottomRef.current) {
+      // If we just loaded a conversation, jump directly without animation
+      const behavior: ScrollBehavior = justLoadedRef.current ? 'auto' : 'smooth'
+      justLoadedRef.current = false
+      // Use setTimeout to ensure DOM has updated before scrolling
+      setTimeout(() => scrollToBottom(behavior), 0)
+    }
   }, [messages])
 
   // auto-scroll while streaming
@@ -270,34 +365,117 @@ export function Chat() {
     if (streamingContent && isNearBottomRef.current) scrollToBottom('auto')
   }, [streamingContent])
 
+  // ── Skill Template Modal ─────────────────────────────────────────────────
+  // Auto-open template modal when skill with user_template is selected
+  useEffect(() => {
+    if (selectedSkill && !showSkillTemplateModal && processedSkillRef.current !== selectedSkill) {
+      const skill = skills.find(s => s.id === selectedSkill)
+      if (skill?.user_template) {
+        // Extract variables from template
+        // Format 1: [变量名] or {{变量名}}
+        // Format 2: 变量名： or 变量名: (lines ending with colon)
+        const template = skill.user_template
+        const varRegex = /\[([^\]]+)\]|\{\{([^}]+)\}\}/g
+        const matches: string[] = []
+        let match
+        
+        // Check for [variable] or {{variable}} format (skip [ ] checkboxes)
+        while ((match = varRegex.exec(template)) !== null) {
+          const varName = (match[1] || match[2] || '').trim()
+          if (varName && !matches.includes(varName)) {
+            matches.push(varName)
+          }
+        }
+
+        // If no named placeholders found, extract lines that END with a colon as editable fields
+        if (matches.length === 0) {
+          const lines = template.split('\n')
+          lines.forEach((line) => {
+            const trimmed = line.trim()
+            // Only match lines where colon is at the very end (field label without a value)
+            const colonMatch = trimmed.match(/^(?:[-•]\s*)?(.+?)：\s*$/) || trimmed.match(/^(?:[-•]\s*)?(.+?):\s*$/)
+            if (colonMatch && colonMatch[1].trim()) {
+              const varName = colonMatch[1].trim()
+              if (!matches.includes(varName) && varName.length < 50) {
+                matches.push(varName)
+              }
+            }
+          })
+        }
+        
+        setSkillTemplateData({
+          skill,
+          variables: matches.map(name => ({ name, value: '' })),
+          preview: template
+        })
+        setShowSkillTemplateModal(true)
+        // Mark this skill as processed to prevent reopening
+        processedSkillRef.current = selectedSkill
+      }
+    }
+  }, [selectedSkill, skills, showSkillTemplateModal])
+
+  const handleApplyTemplate = async (filledTemplate: string) => {
+    setShowSkillTemplateModal(false)
+    setSkillTemplateData(null)
+    // Auto-send with the filled template content
+    await sendMessage(filledTemplate)
+  }
+
+  const handleCancelTemplate = () => {
+    setShowSkillTemplateModal(false)
+    setSkillTemplateData(null)
+    // Mark as processed so it doesn't reopen
+    if (selectedSkill) {
+      processedSkillRef.current = selectedSkill
+    }
+  }
+
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior })
   }
 
   // ── Conversation actions ──────────────────────────────────────────────────
-  const createNewConversation = async () => {
-    try {
-      setConversation(null); setMessages([]); setStreamingContent('')
-      setSending(false); setHasMore(false); setErrorMsg(null)
-      const newConv = await api.post<Conversation>('/chat/conversations', {
-        project_id: selectedProject, skill_id: selectedSkill,
-      })
-      setConversations(prev => [newConv, ...prev])
-      navigate(`/chat?conversation=${newConv.id}`, { replace: true })
-    } catch (err) {
-      console.error('Failed to create conversation:', err)
-    }
+  const createNewConversation = () => {
+    // Don't create conversation upfront — create lazily on first message send.
+    // This avoids the flash: empty-state → loading → empty-state.
+    setConversation(null)
+    setMessages([])
+    setStreamingContent('')
+    setSending(false)
+    setHasMore(false)
+    setErrorMsg(null)
+    navigate('/chat', { replace: true })
   }
 
-  const deleteConversation = async (e: React.MouseEvent, convId: number) => {
+  const deleteConversation = (e: React.MouseEvent, convId: number) => {
     e.preventDefault(); e.stopPropagation()
-    try {
-      await api.delete(`/chat/conversations/${convId}`)
-      setConversations(prev => prev.filter(c => c.id !== convId))
-      if (conversationId === String(convId)) navigate('/chat', { replace: true })
-    } catch (err) {
-      console.error('Failed to delete conversation:', err)
-    }
+    setDeleteTargetId(convId)
+    setShowDeleteDialog(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return
+    const targetId = deleteTargetId
+    setShowDeleteDialog(false)
+    setDeleteTargetId(null)
+    // Start exit animation
+    setDeletingId(targetId)
+    // Wait for animation (300ms), then remove from list and call API
+    setTimeout(async () => {
+      setDeletingId(null)
+      const remaining = conversations.filter(c => c.id !== targetId)
+      setConversations(remaining)
+      if (conversationId === String(targetId)) {
+        const next = remaining[0]
+        navigate(next ? `/chat?conversation=${next.id}` : '/chat', { replace: true })
+      }
+      try {
+        await api.delete(`/chat/conversations/${targetId}`)
+      } catch (err) {
+        console.error('Failed to delete conversation:', err)
+      }
+    }, 280)
   }
 
   // ── Input helpers ─────────────────────────────────────────────────────────
@@ -322,20 +500,20 @@ export function Chat() {
     abortControllerRef.current?.abort()
   }
 
-  // ── Send message ──────────────────────────────────────────────────────────
-  const handleSend = async () => {
-    if (!input.trim() || sending) return
+  // ── Send message wrapper ──────────────────────────────────────────────────
+  const handleSend = () => sendMessage(input)
+
+  // ── Send message (internal implementation) ─────────────────────────────────
+  const sendMessage = async (msgText: string) => {
+    if (!msgText.trim() || sending) return
 
     setSending(true)
+    setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setErrorMsg(null)
     streamingContentRef.current = ''
     setStreamingContent('')
     isStreamingRef.current = true
-    isNearBottomRef.current = true
-
-    const msgText = input
-    setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -343,14 +521,22 @@ export function Chat() {
     try {
       let currentConvId = conversation?.id
       if (!currentConvId) {
+        // Auto-generate title from first message
+        const cleanContent = msgText.replace(/[#*`\[\]]/g, '').trim()
+        const title = cleanContent
+          ? cleanContent.slice(0, 15) + (cleanContent.length > 15 ? '...' : '')
+          : t('chat.newChat', 'New Chat')
+        
         const newConv = await api.post<Conversation>('/chat/conversations', {
-          project_id: selectedProject, skill_id: selectedSkill,
+          project_id: selectedProject, skill_id: selectedSkill, title,
         })
         currentConvId = newConv.id
         setConversation(newConv)
         setConversations(prev => [newConv, ...prev])
+        skipNextConvLoadRef.current = true
         navigate(`/chat?conversation=${newConv.id}`, { replace: true })
         isNewConvRef.current = true
+        firstMessageRef.current = msgText
       }
 
       const userMsg: Message = {
@@ -362,7 +548,8 @@ export function Chat() {
         created_at: new Date().toISOString(),
       }
       setMessages(prev => [...prev, userMsg])
-      scrollToBottom()
+      // Scroll after DOM update
+      setTimeout(() => scrollToBottom(), 0)
       setIsThinking(true)
 
       const token = localStorage.getItem('authToken')
@@ -407,12 +594,16 @@ export function Chat() {
           if (!line.startsWith('data: ')) continue
           try {
             const data = JSON.parse(line.slice(6))
-            if (data.type === 'chunk' && data.content) {
+            if ((data.type === 'text' || data.type === 'chunk') && data.content) {
               assistantContent += data.content
               streamingContentRef.current = assistantContent
               if (!updateTimer) {
                 updateTimer = setTimeout(() => { flushUpdate(); updateTimer = null }, 80)
               }
+            } else if (data.type === 'tool_executing') {
+              setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
+            } else if (data.type === 'tool_result') {
+              setToolStatus(null)
             } else if (data.type === 'done') {
               streamDone = true
               if (updateTimer) { clearTimeout(updateTimer); updateTimer = null }
@@ -431,17 +622,43 @@ export function Chat() {
               streamingContentRef.current = ''
               isStreamingRef.current = false
               setIsThinking(false)
+              setToolStatus(null)
 
-              // Refresh conversation list to pick up the auto-generated title
+              // Refresh conversation list to pick up the auto-generated title.
+              // Delay to allow backend background title generation to complete first.
               if (isNewConvRef.current) {
                 isNewConvRef.current = false
-                api.get<Conversation[]>('/chat/conversations')
-                  .then(data => setConversations(data))
-                  .catch(() => {})
+                const targetConvId = currentConvId
+                const targetTitle = firstMessageRef.current
+                firstMessageRef.current = ''
+                
+                setTimeout(async () => {
+                  try {
+                    // First, try to rename the conversation with the first message
+                    if (targetConvId && targetTitle) {
+                      const cleanTitle = targetTitle
+                        .replace(/[#*`\[\]]/g, '')
+                        .trim()
+                        .slice(0, 15) + (targetTitle.replace(/[#*`\[\]]/g, '').trim().length > 15 ? '...' : '')
+                      
+                      await api.patch(`/chat/conversations/${targetConvId}`, { title: cleanTitle })
+                      
+                      // Update current conversation
+                      setConversation(prev => prev ? { ...prev, title: cleanTitle } : prev)
+                    }
+                    
+                    // Then refresh the full list
+                    const data = await api.get<Conversation[]>('/chat/conversations?standalone=true')
+                    setConversations(data)
+                  } catch (err) {
+                    console.error('Failed to rename conversation:', err)
+                  }
+                }, 500)
               }
             } else if (data.type === 'error') {
+              setToolStatus(null)
               if (updateTimer) { clearTimeout(updateTimer); updateTimer = null }
-              setErrorMsg(data.error || 'An error occurred. Please try again.')
+              setErrorMsg(data.message || data.error || 'An error occurred. Please try again.')
               isStreamingRef.current = false
               setIsThinking(false)
             }
@@ -499,95 +716,130 @@ export function Chat() {
         (c.title || '').toLowerCase().includes(sidebarSearch.toLowerCase())
       )
     : conversations
-  const conversationGroups = groupConversations(filteredConversations)
+  const conversationGroups = groupConversations(filteredConversations, t)
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex bg-surface">
-      <PageTitle title="Chat" />
+    <div className="h-full flex bg-[#f5f6f8]">
+      <PageTitle title={t('chat.title')} />
 
       {/* ── Sidebar ── */}
       {sidebarOpen && (
-        <div className="w-72 border-r border-outline/10 flex flex-col bg-surface-container-low/30 flex-shrink-0">
+        <div className="w-64 border-r border-gray-100 flex flex-col bg-white flex-shrink-0 shadow-sm">
           {/* Sidebar header */}
-          <div className="p-3 border-b border-outline/10 flex flex-col gap-2">
-            <div className="flex items-center gap-2">
+          <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={createNewConversation}
-                className="flex-1 btn-primary flex items-center justify-center gap-2 py-2.5"
+                className="flex-1 bg-primary text-white rounded-xl font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
               >
-                <Plus className="w-4 h-4" />
-                New Chat
+                <Plus className="w-3.5 h-3.5" />
+                {t('chat.newChat')}
               </button>
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="p-2.5 rounded-xl hover:bg-surface-container-high text-on-surface-muted transition-colors"
-                title="Collapse sidebar"
+                className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 transition-colors"
+                title={t('chat.collapseSidebar')}
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
             </div>
             {/* Search */}
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface-muted pointer-events-none" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
               <input
                 type="text"
                 value={sidebarSearch}
                 onChange={e => setSidebarSearch(e.target.value)}
-                placeholder="Search conversations…"
-                className="w-full pl-8 pr-3 py-2 bg-surface-container-lowest rounded-lg text-sm text-on-surface placeholder:text-on-surface-muted outline-none border border-outline/10 focus:border-primary/30 transition-colors"
+                placeholder={t('chat.searchConversations')}
+                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 rounded-lg text-[12px] text-gray-700 placeholder:text-gray-400 outline-none border border-gray-100 focus:border-primary/30 transition-colors"
               />
               {sidebarSearch && (
-                <button
-                  onClick={() => setSidebarSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-muted hover:text-on-surface"
-                >
-                  <X className="w-3.5 h-3.5" />
+                <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+                  <X className="w-3 h-3" />
                 </button>
               )}
             </div>
           </div>
 
           {/* Conversation list */}
-          <div className="flex-1 overflow-auto p-2">
-            {filteredConversations.length === 0 && sidebarSearch ? (
-              <p className="text-sm text-on-surface-muted text-center py-8">No results</p>
-            ) : (
-              conversationGroups.map(group => (
-                <div key={group.label}>
-                  <p className="px-3 py-1.5 text-label-sm text-on-surface-muted">{group.label}</p>
-                  {group.items.map(conv => (
-                    <Link
-                      key={conv.id}
-                      to={`/chat?conversation=${conv.id}`}
-                      className={`group flex items-start gap-2.5 p-2.5 rounded-xl mb-0.5 transition-colors ${
-                        conversationId === String(conv.id)
-                          ? 'bg-secondary-container/50'
-                          : 'hover:bg-surface-container-low'
-                      }`}
-                    >
-                      <MessageSquare className="w-4 h-4 text-on-surface-muted mt-0.5 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm truncate leading-snug ${
-                          conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-on-surface'
-                        }`}>
-                          {conv.title || 'New Conversation'}
-                        </p>
-                        <p className="text-xs text-on-surface-muted flex items-center gap-1 mt-0.5">
-                          <Clock className="w-3 h-3" />
-                          {formatTime(conv.updated_at)}
-                        </p>
-                      </div>
-                      <button
-                        onClick={e => deleteConversation(e, conv.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-error/10 hover:text-error text-on-surface-muted transition-all flex-shrink-0 mt-0.5"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </Link>
-                  ))}
+          <div className="flex-1 overflow-auto px-2 pb-2">
+            {isLoadingConversations ? (
+              <div className="space-y-0.5 pt-1">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl animate-pulse">
+                    <div className="w-3.5 h-3.5 rounded bg-gray-100 flex-shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 rounded bg-gray-100" style={{ width: `${55 + (i % 3) * 18}%` }} />
+                      <div className="h-2 rounded bg-gray-100 w-16" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !conversationId && !sidebarSearch ? (
+              <div className="pt-1">
+                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-primary/8 mb-0.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] truncate text-primary font-medium">{t('chat.newConversation')}</p>
+                  </div>
                 </div>
-              ))
+                {conversationGroups.map(group => (
+                  <div key={group.label}>
+                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{group.label}</p>
+                    {group.items.map(conv => (
+                      <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
+                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-colors hover:bg-gray-50"
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] truncate text-gray-700">{conv.title || t('chat.newConversation')}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : filteredConversations.length === 0 && sidebarSearch ? (
+              <p className="text-xs text-gray-300 text-center py-8">{t('chat.noResults')}</p>
+            ) : (
+              <div className="pt-1">
+                {conversationGroups.map(group => (
+                  <div key={group.label}>
+                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{group.label}</p>
+                    {group.items.map(conv => (
+                      <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
+                        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden ${
+                          deletingId === conv.id
+                            ? 'opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none'
+                            : conversationId === String(conv.id)
+                            ? 'bg-primary/8'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
+                          conversationId === String(conv.id) ? 'bg-primary' : 'bg-gray-200'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[13px] truncate transition-colors ${
+                            conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-gray-700'
+                          }`}>
+                            {conv.title || t('chat.newConversation')}
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                        </div>
+                        <button
+                          onClick={e => deleteConversation(e, conv.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 hover:text-red-400 text-gray-300 transition-all flex-shrink-0"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -597,135 +849,141 @@ export function Chat() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Header */}
-        <div className="glass border-b border-outline/10 px-5 py-3.5 flex-shrink-0">
+        <div className="bg-white/80 backdrop-blur-sm border-b border-gray-100 px-5 py-3 flex-shrink-0">
           <div className="flex items-center gap-3">
-            {/* Expand sidebar button (when collapsed) */}
             {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="p-2 rounded-xl hover:bg-surface-container-low text-on-surface-muted transition-colors"
-                title="Open sidebar"
+              <button onClick={() => setSidebarOpen(true)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+                title={t('chat.openSidebar')}
               >
                 <PanelLeftOpen className="w-4 h-4" />
               </button>
             )}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                {(selectedProjectData || selectedSkillData) && (
-                  <span className="px-2.5 py-1 rounded-full bg-secondary-container/50 text-label-sm text-primary">
-                    {selectedProjectData ? 'PROJECT' : 'SKILL'}
-                  </span>
-                )}
-                <h1 className="text-headline-sm text-on-surface truncate">
-                  {conversation?.title || 'New Conversation'}
-                </h1>
-              </div>
+            <div className="flex-1 min-w-0 flex items-center gap-2.5">
               {(selectedProjectData || selectedSkillData) && (
-                <p className="text-body-sm text-on-surface-muted mt-0.5">
-                  {selectedProjectData
-                    ? `${selectedProjectData.name} · ${selectedProjectData.client}`
-                    : `${selectedSkillData!.name} · ${selectedSkillData!.category}`}
-                </p>
+                <span className="px-2 py-0.5 rounded-md bg-primary/8 text-xs font-medium text-primary flex-shrink-0">
+                  {selectedProjectData ? selectedProjectData.name : selectedSkillData!.name}
+                </span>
               )}
+              <h1 className="text-[15px] font-semibold text-gray-800 truncate">
+                {conversation?.title || t('chat.newConversation')}
+              </h1>
             </div>
           </div>
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-auto px-6 py-6 relative">
-          <div className="max-w-3xl mx-auto">
+        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-8 relative">
+          <div className={`mx-auto px-8 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
 
             {/* Load more */}
             {loadingMore && (
-              <div className="flex items-center justify-center gap-2 py-3 text-sm text-on-surface-muted mb-4">
-                <Loader2 className="w-4 h-4 animate-spin" />Loading earlier messages…
+              <div className="flex items-center justify-center gap-2 py-3 text-sm text-gray-400 mb-4">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span className="text-xs">加载中…</span>
               </div>
             )}
             {!loadingMore && hasMore && messages.length > 0 && (
-              <button
-                onClick={loadMoreMessages}
-                className="w-full flex items-center justify-center gap-2 py-2.5 mb-4 text-sm text-on-surface-muted hover:text-primary transition-colors"
+              <button onClick={loadMoreMessages}
+                className="w-full flex items-center justify-center gap-2 py-2 mb-6 text-xs text-gray-400 hover:text-primary transition-colors"
               >
-                <ChevronUp className="w-4 h-4" />
-                Load earlier messages
+                <ChevronUp className="w-3.5 h-3.5" />
+                {t('chat.loadEarlierMessages')}
               </button>
             )}
 
             {/* Loading skeleton */}
             {loading && conversationId && messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-24">
-                <div className="relative w-12 h-12 rounded-2xl bg-gradient-primary flex items-center justify-center">
-                  <Sparkles className="w-6 h-6 text-white" />
-                  <div className="absolute inset-0 rounded-2xl bg-gradient-primary animate-ping opacity-20" />
+              <div className="flex flex-col items-center justify-center py-32">
+                <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
+                  <Sparkles className="w-5 h-5 text-white" />
+                  <div className="absolute inset-0 rounded-2xl bg-primary animate-ping opacity-15" />
                 </div>
-                <p className="mt-4 text-body-md text-on-surface-muted">Loading conversation…</p>
+                <p className="mt-4 text-sm text-gray-400">{t('chat.loading')}</p>
               </div>
 
             ) : messages.length === 0 && !streamingContent ? (
               /* ── Empty state ── */
-              <div className="text-center py-16">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-primary flex items-center justify-center mx-auto mb-5">
-                  <Sparkles className="w-7 h-7 text-white" />
+              <div className="flex flex-col items-center py-16 animate-fade-in">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center mb-4 shadow-lg shadow-primary/25">
+                  <Sparkles className="w-6 h-6 text-white" />
                 </div>
-                <h2 className="text-headline-sm text-on-surface mb-2">How can I help you today?</h2>
-                <p className="text-body-md text-on-surface-muted max-w-sm mx-auto mb-8">
-                  Start a conversation or select a project/skill below.
+                <h2 className="text-xl font-semibold text-gray-800 mb-1.5">你好，我是 Aria</h2>
+                <p className="text-sm text-gray-400 max-w-xs text-center mb-10 leading-relaxed">
+                  你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
                 </p>
-                {/* Suggestion chips */}
-                <div className="flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => fillSuggestion(s)}
-                      className="px-4 py-2 rounded-full bg-surface-container-low border border-outline/15 text-sm text-on-surface hover:bg-secondary-container/40 hover:border-primary/20 transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
+                <div className="w-full max-w-2xl grid grid-cols-2 gap-2.5">
+                  {getPromptCards().map(card => {
+                    const Icon = card.icon
+                    return (
+                      <button key={card.label} onClick={() => fillSuggestion(card.prompt)}
+                        className={`flex items-start gap-3 p-4 rounded-2xl border text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98] ${card.bg}`}
+                      >
+                        <div className="w-7 h-7 rounded-xl bg-white/80 flex items-center justify-center flex-shrink-0 shadow-sm">
+                          <Icon className={`w-3.5 h-3.5 ${card.color}`} />
+                        </div>
+                        <div>
+                          <p className={`text-[13px] font-semibold ${card.color} mb-0.5`}>{card.label}</p>
+                          <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{card.prompt}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-8">
                 {messages.map(msg => (
                   <MessageRow key={msg.id} message={msg} />
                 ))}
 
-                {/* Streaming / thinking bubble */}
+                {/* Streaming / thinking */}
                 {(isThinking || streamingContent) && (
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-primary flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="flex items-start gap-3.5 animate-fade-in">
+                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm shadow-primary/20">
                       <Sparkles className="w-3.5 h-3.5 text-white" />
                     </div>
-                    <div className="flex-1 px-5 py-4 bg-surface-container-lowest rounded-2xl rounded-tl-sm border border-outline/10">
-                      {streamingContent ? (
-                        <>
-                          <div className="md-root">
-                            <MarkdownRenderer content={streamingContent} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-gray-300 mb-2">Aria</p>
+                      <div className="text-[15px] text-gray-700 leading-[1.8]">
+                        {streamingContent ? (
+                          <>
+                            <div className="md-root">
+                              <MarkdownRenderer content={streamingContent} />
+                            </div>
+                            {toolStatus && (
+                              <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                {toolStatus}
+                              </div>
+                            )}
+                            <span className="inline-block w-0.5 h-[1.1em] bg-primary/50 ml-0.5 animate-pulse rounded-full align-middle" />
+                          </>
+                        ) : toolStatus ? (
+                          <div className="flex items-center gap-2 text-gray-400 py-1">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
+                            <span className="text-sm text-primary/70">{toolStatus}</span>
                           </div>
-                          <span className="inline-block w-0.5 h-[1em] bg-primary ml-0.5 animate-pulse rounded-full align-middle" />
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 text-on-surface-muted py-0.5">
-                          <span className="flex gap-1">
-                            {[0, 150, 300].map(d => (
-                              <span key={d} className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce"
+                        ) : (
+                          <div className="flex items-center gap-1.5 py-1">
+                            {[0, 120, 240].map(d => (
+                              <span key={d} className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce"
                                 style={{ animationDelay: `${d}ms` }} />
                             ))}
-                          </span>
-                          <span className="text-sm">Thinking…</span>
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {/* Error banner */}
                 {errorMsg && (
-                  <div className="flex items-start gap-3 px-5 py-3.5 rounded-xl bg-error/5 border border-error/20">
-                    <TriangleAlert className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-error flex-1">{errorMsg}</p>
-                    <button onClick={() => setErrorMsg(null)} className="text-error/60 hover:text-error">
+                  <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl bg-red-50 border border-red-100">
+                    <TriangleAlert className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-500 flex-1">{errorMsg}</p>
+                    <button onClick={() => setErrorMsg(null)} className="text-red-300 hover:text-red-500">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -738,23 +996,24 @@ export function Chat() {
 
           {/* Scroll-to-bottom fab */}
           {showScrollBtn && (
-            <button
-              onClick={() => scrollToBottom()}
-              className="absolute bottom-5 right-5 w-8 h-8 rounded-full bg-surface-container-lowest border border-outline/20 shadow-md flex items-center justify-center text-on-surface-muted hover:text-primary hover:border-primary/30 transition-all"
+            <button onClick={() => scrollToBottom()}
+              className="absolute bottom-6 right-6 w-8 h-8 rounded-full bg-white border border-gray-200 shadow-md flex items-center justify-center text-gray-400 hover:text-primary hover:border-primary/30 hover:shadow-lg transition-all"
             >
-              <ArrowDown className="w-4 h-4" />
+              <ArrowDown className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
         {/* ── Input area ── */}
-        <div className="glass border-t border-outline/10 px-5 py-3.5 flex-shrink-0">
-          <div className="max-w-3xl mx-auto">
+        <div className="relative flex-shrink-0 px-6 pb-5 pt-3 bg-[#f5f6f8]">
+          {/* Gradient fade — blends messages area into footer */}
+          <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-[#f5f6f8] -translate-y-full pointer-events-none" />
+          <div className={`mx-auto ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
             {/* Context pills */}
-            <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <div className="flex items-center gap-1 mb-2 flex-wrap">
               <ContextPill
                 ref={projectDropdownRef}
-                icon={<FolderKanban className="w-4 h-4" />}
+                icon={<FolderKanban className="w-3 h-3" />}
                 label={selectedProjectData ? selectedProjectData.name : 'Project'}
                 active={!!selectedProject}
                 open={showProjectDropdown}
@@ -776,7 +1035,7 @@ export function Chat() {
 
               <ContextPill
                 ref={skillDropdownRef}
-                icon={<Wrench className="w-4 h-4" />}
+                icon={<Wrench className="w-3 h-3" />}
                 label={selectedSkillData ? selectedSkillData.name : '@ Skills'}
                 active={!!selectedSkill}
                 secondary
@@ -784,59 +1043,393 @@ export function Chat() {
                 onToggle={() => setShowSkillDropdown(v => !v)}
               >
                 {showSkillDropdown && (
-                  <DropdownMenu>
-                    <DropdownItem onClick={() => { setSelectedSkill(null); setShowSkillDropdown(false) }} muted>
-                      Clear selection
+                  <DropdownMenu wide>
+                    <DropdownItem onClick={() => { setSelectedSkill(null); setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
+                      {t('skills.clearSelection') || 'Clear selection'}
                     </DropdownItem>
-                    {skills.map(s => (
-                      <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); setShowSkillDropdown(false) }}>
-                        {s.name}
-                      </DropdownItem>
-                    ))}
+                    {(() => {
+                      const categories = ['all', ...Array.from(new Set(skills.map(s => s.category)))]
+                      return (
+                        <div className="px-3 py-2 border-b border-gray-100">
+                          <div className="flex flex-wrap gap-1">
+                            {categories.map(cat => (
+                              <button key={cat} onClick={e => { e.stopPropagation(); setSkillCategoryFilter(cat) }}
+                                className={`px-2 py-0.5 text-xs rounded-md transition-colors ${
+                                  skillCategoryFilter === cat ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                }`}
+                              >
+                                {cat === 'all' ? (t('skills.allCategories') || '全部') : cat}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    <div className="max-h-60 overflow-y-auto">
+                      {(() => {
+                        const filteredSkills = skillCategoryFilter === 'all' ? skills : skills.filter(s => s.category === skillCategoryFilter)
+                        if (skillCategoryFilter === 'all') {
+                          const grouped = filteredSkills.reduce((acc, s) => {
+                            if (!acc[s.category]) acc[s.category] = []
+                            acc[s.category].push(s)
+                            return acc
+                          }, {} as Record<string, Skill[]>)
+                          return Object.entries(grouped).map(([category, categorySkills]) => (
+                            <div key={category}>
+                              <div className="px-4 py-1.5 text-xs font-medium text-gray-400 bg-gray-50">{category}</div>
+                              {categorySkills.map(s => (
+                                <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); setShowSkillDropdown(false) }}>
+                                  <div className="flex flex-col">
+                                    <span>{s.name}</span>
+                                    {s.estimated_time && <span className="text-xs text-gray-400">{s.estimated_time}</span>}
+                                  </div>
+                                </DropdownItem>
+                              ))}
+                            </div>
+                          ))
+                        }
+                        return filteredSkills.map(s => (
+                          <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); setShowSkillDropdown(false) }}>
+                            <div className="flex flex-col">
+                              <span>{s.name}</span>
+                              {s.estimated_time && <span className="text-xs text-gray-400">{s.estimated_time}</span>}
+                            </div>
+                          </DropdownItem>
+                        ))
+                      })()}
+                    </div>
                   </DropdownMenu>
                 )}
               </ContextPill>
             </div>
 
+            {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
+
             {/* Textarea + actions */}
-            <div className="flex items-end gap-2 bg-surface-container-lowest rounded-2xl px-3 py-2 shadow-sm border border-outline/10 focus-within:border-primary/30 transition-colors">
-              <button className="p-2.5 rounded-xl hover:bg-surface-container-low transition-colors text-on-surface-muted flex-shrink-0 mb-0.5">
-                <Paperclip className="w-4.5 h-4.5" />
+            <div className="flex items-end gap-3 bg-white rounded-2xl px-4 py-3 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] focus-within:ring-primary/20 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] transition-all duration-200">
+              <button className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-300 hover:text-gray-500 flex-shrink-0 mb-0.5">
+                <Paperclip className="w-4 h-4" />
               </button>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Message… (Shift+Enter for new line)"
+                placeholder={t('chat.placeholder')}
                 disabled={sending}
                 rows={1}
-                className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface-muted outline-none py-2.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
-                style={{ minHeight: '40px', maxHeight: '180px' }}
+                className="flex-1 bg-transparent text-[15px] text-gray-700 placeholder:text-gray-300 outline-none py-1.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
+                style={{ minHeight: '36px', maxHeight: '180px' }}
               />
-              {/* Stop / Send */}
               {sending ? (
-                <button
-                  onClick={handleStop}
-                  title="Stop generation"
-                  className="p-2.5 rounded-xl bg-surface-container-high hover:bg-surface-container-highest text-on-surface transition-colors flex-shrink-0 mb-0.5"
+                <button onClick={handleStop} title={t('chat.stopGeneration')}
+                  className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors flex-shrink-0 mb-0.5"
                 >
-                  <Square className="w-4 h-4 fill-current" />
+                  <Square className="w-3.5 h-3.5 fill-current" />
                 </button>
               ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  className="p-2.5 rounded-xl bg-gradient-primary text-white hover:shadow-lg hover:shadow-primary/25 transition-all disabled:opacity-40 flex-shrink-0 mb-0.5"
+                <button onClick={handleSend} disabled={!input.trim()}
+                  className="p-2 rounded-xl bg-gradient-to-br from-primary to-indigo-500 text-white hover:opacity-90 active:scale-95 transition-all disabled:opacity-25 flex-shrink-0 mb-0.5 shadow-sm shadow-primary/20"
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
-            <p className="text-xs text-on-surface-muted mt-1.5 text-center">
-              Shift+Enter for new line · Enter to send
+            <p className="text-[11px] text-gray-300 mt-2 text-center tracking-wide">
+              {t('chat.shiftEnter')} · {t('chat.enterToSend')}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('chat.deleteTitle')}</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              {t('chat.deleteConfirm')} {t('chat.deleteWarning')}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowDeleteDialog(false); setDeleteTargetId(null) }}
+                className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+              >
+                {t('common.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skill Template Modal */}
+      {showSkillTemplateModal && skillTemplateData && (
+        <SkillTemplateModal
+          skill={skillTemplateData.skill}
+          variables={skillTemplateData.variables}
+          onApply={handleApplyTemplate}
+          onCancel={handleCancelTemplate}
+        />
+      )}
+    </div>
+  )
+}
+
+// Helper to extract minutes from estimated_time like "~2 min", "~10 min", "15–20 分钟"
+const extractMinutes = (estimatedTime?: string): number => {
+  if (!estimatedTime) return 0
+  const match = estimatedTime.match(/(\d+)/)
+  return match ? parseInt(match[1]) : 0
+}
+
+// ─── SkillRequirementsPanel ─────────────────────────────────────────────────
+function SkillRequirementsPanel({ skill }: { skill: Skill }) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  
+  const isQuick = extractMinutes(skill.estimated_time) <= 10
+  
+  return (
+    <div className="mb-3 rounded-xl bg-primary/5 border border-gray-200 overflow-hidden">
+      {/* Header - always visible */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3 hover:bg-primary/10 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-primary" />
+          <span className="text-sm font-medium text-gray-700">
+            {t('chat.skillRequirements') || '技能要求'}
+          </span>
+          <span className="text-xs text-gray-400">
+            {skill.name}
+          </span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            isQuick ? 'bg-emerald-500/10 text-emerald-600' : 'bg-primary/10 text-primary'
+          }`}>
+            {isQuick ? (t('skills.types.quick') || '快速') : (t('skills.types.deep') || '深度')}
+          </span>
+          {skill.estimated_time && (
+            <span className="flex items-center gap-1 text-xs text-gray-400">
+              <Clock className="w-3 h-3" />
+              {skill.estimated_time}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {/* Expanded content */}
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-gray-200">
+          <div className="pt-3 space-y-3">
+            {/* Description */}
+            {skill.description && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">
+                  {t('skills.description') || '描述'}
+                </p>
+                <p className="text-sm text-gray-700">{skill.description}</p>
+              </div>
+            )}
+            
+            {/* System Prompt */}
+            {skill.system_prompt && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">
+                  {t('skills.systemPrompt') || '系统提示词'}
+                </p>
+                <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+                  <p className="text-xs text-gray-700 leading-relaxed line-clamp-4 font-mono">
+                    {skill.system_prompt}
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* User Template */}
+            {skill.user_template && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">
+                  {t('skills.userTemplate') || '用户模板'}
+                </p>
+                <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+                  <p className="text-xs text-gray-700 leading-relaxed font-mono">
+                    {skill.user_template}
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            {/* Category & Tools */}
+            <div className="flex items-center gap-4 pt-1">
+              <div>
+                <span className="text-xs text-gray-400">{t('skills.category') || '类别'}: </span>
+                <span className="text-xs font-medium text-gray-700">{skill.category}</span>
+              </div>
+              {skill.tools_definition_json && (
+                <div>
+                  <span className="text-xs text-gray-400">{t('skills.tools') || '工具'}: </span>
+                  <span className="text-xs font-medium text-gray-700">
+                    {(() => {
+                      try {
+                        const tools = JSON.parse(skill.tools_definition_json)
+                        return Array.isArray(tools) ? tools.length + ' tools' : 'enabled'
+                      } catch {
+                        return 'enabled'
+                      }
+                    })()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Helper to escape special regex characters
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// ─── SkillTemplateModal ─────────────────────────────────────────────────────
+interface SkillTemplateModalProps {
+  skill: Skill
+  variables: { name: string; value: string }[]
+  onApply: (filledTemplate: string) => void | Promise<void>
+  onCancel: () => void
+}
+
+function SkillTemplateModal({ skill, variables, onApply, onCancel }: SkillTemplateModalProps) {
+  const { t } = useTranslation()
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    variables.forEach(v => { initial[v.name] = v.value })
+    return initial
+  })
+
+  // Generate preview by replacing variables in template
+  const preview = useMemo(() => {
+    let result = skill.user_template || ''
+    Object.entries(values).forEach(([name, value]) => {
+      if (!value) return
+      
+      // Format 1: [变量名] or {{变量名}}
+      const placeholderRegex = new RegExp(`\\[${escapeRegex(name)}\\]|\\{\\{${escapeRegex(name)}\\}\\}`, 'g')
+      result = result.replace(placeholderRegex, value)
+      
+      // Format 2: 变量名： or 变量名: (append value after colon)
+      // Match lines like "公司 / 产品：" or "- 客户数量级："
+      const lines = result.split('\n')
+      const updatedLines = lines.map(line => {
+        const trimmed = line.trim()
+        // Check if line starts with the variable name followed by colon
+        const colonMatch = trimmed.match(/^(?:[-•]\s*)?(.+?)([：:])\s*$/)
+        if (colonMatch) {
+          const lineVarName = colonMatch[1].trim()
+          if (lineVarName === name || lineVarName.includes(name)) {
+            // Replace empty line with filled value
+            return line + value
+          }
+        }
+        return line
+      })
+      result = updatedLines.join('\n')
+    })
+    return result
+  }, [values, skill.user_template])
+
+  const handleApply = async () => {
+    await onApply(preview)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-gray-200 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">{skill.name}</h3>
+              <p className="text-xs text-gray-500">{t('chat.fillTemplate') || '填写模板变量'}</p>
+            </div>
+          </div>
+          <button 
+            onClick={onCancel}
+            className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="px-6 py-4 max-h-[60vh] overflow-auto">
+          {/* Description */}
+          {skill.description && (
+            <p className="text-sm text-gray-500 mb-4">{skill.description}</p>
+          )}
+
+          {/* Variable Inputs */}
+          {variables.length > 0 ? (
+            <div className="space-y-3 mb-4">
+              {variables.map((variable, idx) => (
+                <div key={variable.name}>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    {variable.name}
+                  </label>
+                  <input
+                    type="text"
+                    value={values[variable.name] || ''}
+                    onChange={(e) => setValues(prev => ({ ...prev, [variable.name]: e.target.value }))}
+                    placeholder={`请输入${variable.name}...`}
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-primary/50 transition-colors"
+                    autoFocus={idx === 0}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mb-4 p-3 rounded-xl bg-gray-50 border border-gray-200">
+              <p className="text-sm text-gray-500">{t('chat.noVariables') || '此模板没有需要填写的变量'}</p>
+            </div>
+          )}
+
+          {/* Preview */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">{t('chat.preview') || '预览'}</p>
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{preview}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-xl transition-colors"
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl transition-colors flex items-center gap-2"
+          >
+            <Send className="w-4 h-4" />
+            {t('chat.applyAndSend') || '应用并发送'}
+          </button>
         </div>
       </div>
     </div>
@@ -845,34 +1438,69 @@ export function Chat() {
 
 // ─── MessageRow ─────────────────────────────────────────────────────────────
 function MessageRow({ message }: { message: Message }) {
+  const { t } = useTranslation()
   const isUser = message.role === 'user'
 
+  // Parse references from metadata_json
+  let references: Array<{ type: string; id: number; title: string }> = []
+  try {
+    const meta = JSON.parse(message.metadata_json || '{}')
+    references = meta.references || []
+  } catch (_) {}
+
   return (
-    <div className={`flex items-start gap-3 group ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
-      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-1 text-xs font-semibold ${
+      <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
         isUser
-          ? 'bg-surface-container-high text-on-surface-muted'
-          : 'bg-gradient-primary text-white'
+          ? 'bg-gray-200'
+          : 'bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20'
       }`}>
-        {isUser ? 'You' : <Sparkles className="w-3.5 h-3.5" />}
+        {isUser ? (
+          <span className="text-[10px] font-semibold text-gray-500">{t('chat.you')}</span>
+        ) : (
+          <Sparkles className="w-3.5 h-3.5 text-white" />
+        )}
       </div>
 
-      {/* Bubble + actions */}
-      <div className={`flex-1 flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className={`max-w-[85%] px-5 py-3.5 ${
+      {/* Content + actions */}
+      <div className={`flex-1 flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+        {/* Role label */}
+        <p className="text-[11px] font-medium text-gray-300 mb-1.5 px-0.5">
+          {isUser ? t('chat.you') : 'Aria'}
+        </p>
+
+        <div className={`max-w-[85%] ${
           isUser
-            ? 'bg-surface-container-high rounded-2xl rounded-tr-sm'
-            : 'bg-surface-container-lowest rounded-2xl rounded-tl-sm border border-outline/10'
+            ? 'px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]'
+            : 'text-[15px] leading-[1.8] text-gray-700'
         }`}>
-          <div className="md-root">
-            <MarkdownRenderer content={message.content} />
-          </div>
+          {isUser ? (
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : (
+            <div className="prose prose-base max-w-none prose-headings:text-gray-900 prose-headings:font-semibold prose-headings:mt-5 prose-headings:mb-2 prose-p:text-gray-700 prose-p:leading-[1.8] prose-p:my-2 prose-strong:text-gray-900 prose-code:text-primary prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded-xl prose-li:text-gray-700 prose-li:leading-[1.8] prose-ul:my-2 prose-ol:my-2">
+              <MarkdownRenderer content={message.content} />
+            </div>
+          )}
         </div>
 
+        {/* References */}
+        {!isUser && references.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {references.map((ref, i) => (
+              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200">
+                {ref.type === 'skill' && <Wrench className="w-3 h-3" />}
+                {ref.type === 'doc' && <BookOpen className="w-3 h-3" />}
+                {ref.type === 'file' && <FileIcon className="w-3 h-3" />}
+                {ref.title}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Timestamp + copy — visible on hover */}
-        <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'flex-row-reverse' : ''}`}>
-          <span className="text-xs text-on-surface-muted px-1">{formatTime(message.created_at)}</span>
+        <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+          <span className="text-[11px] text-gray-300 px-0.5">{formatTime(message.created_at)}</span>
           <CopyButton text={message.content} />
         </div>
       </div>
@@ -895,12 +1523,12 @@ const ContextPill = forwardRef<HTMLDivElement, {
   <div className="relative" ref={ref}>
     <button
       onClick={onToggle}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] transition-colors ${
         active
           ? secondary
-            ? 'bg-secondary-container text-on-secondary-container'
-            : 'bg-primary/10 text-primary'
-          : 'bg-surface-container-low text-on-surface-muted hover:text-on-surface hover:bg-surface-container-high'
+            ? 'bg-gray-100/80 text-gray-600'
+            : 'bg-primary/8 text-primary'
+          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100/70'
       }`}
     >
       {icon}
@@ -912,9 +1540,9 @@ const ContextPill = forwardRef<HTMLDivElement, {
 ContextPill.displayName = 'ContextPill'
 
 // ─── Dropdown primitives ─────────────────────────────────────────────────────
-function DropdownMenu({ children }: { children: React.ReactNode }) {
+function DropdownMenu({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-60 bg-surface-container-lowest rounded-xl shadow-lg border border-outline/10 py-1.5 z-50">
+    <div className={`absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 py-1.5 z-50 ${wide ? 'w-80' : 'w-60'}`}>
       {children}
     </div>
   )
@@ -928,8 +1556,8 @@ function DropdownItem({ onClick, children, muted }: {
   return (
     <button
       onClick={onClick}
-      className={`w-full px-4 py-2 text-left text-sm hover:bg-surface-container-low transition-colors ${
-        muted ? 'text-on-surface-muted' : 'text-on-surface'
+      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors ${
+        muted ? 'text-gray-400' : 'text-gray-700'
       }`}
     >
       {children}

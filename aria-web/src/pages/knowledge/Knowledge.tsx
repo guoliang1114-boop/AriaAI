@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { 
   BookOpen, 
   Upload, 
@@ -29,19 +30,21 @@ const fileTypeIcons: Record<string, string> = {
   ppt: 'bg-orange-50 text-orange-500',
 }
 
-const statusConfig = {
-  pending: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: 'Processing' },
-  indexed: { icon: CheckCircle2, color: 'text-active', bg: 'bg-active/10', label: 'Indexed' },
-  failed: { icon: AlertCircle, color: 'text-error', bg: 'bg-error/10', label: 'Failed' },
-}
+const getStatusConfig = (t: (key: string) => string) => ({
+  pending: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: t('knowledge.processing') },
+  indexed: { icon: CheckCircle2, color: 'text-active', bg: 'bg-active/10', label: t('knowledge.indexed') },
+  failed: { icon: AlertCircle, color: 'text-error', bg: 'bg-error/10', label: t('knowledge.failed') },
+})
 
 export function Knowledge() {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
   const [stats, setStats] = useState<KnowledgeStats>({ document_count: 0, total_vectors: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [uploading, setUploading] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [uploadCategory, setUploadCategory] = useState<string>('general')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -72,7 +75,7 @@ export function Knowledge() {
       setUploading(true)
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('category', 'general')
+      formData.append('category', uploadCategory)
 
       await api.post('/knowledge/documents', formData, {
         headers: {
@@ -113,7 +116,7 @@ export function Knowledge() {
   if (loading) {
     return (
       <>
-        <PageTitle title="Knowledge Base" />
+        <PageTitle title={t('knowledge.title')} />
         <div className="min-h-full bg-surface flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
@@ -123,29 +126,47 @@ export function Knowledge() {
 
   return (
     <>
-      <PageTitle title="Knowledge Base" />
+      <PageTitle title={t('knowledge.title')} />
       <div className="min-h-full bg-surface">
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-headline-md text-on-surface mb-2">Knowledge Base</h1>
+            <h1 className="text-headline-md text-on-surface mb-2">{t('knowledge.title')}</h1>
             <p className="text-body-md text-on-surface-muted">
-              Manage your consulting knowledge documents for AI-powered retrieval.
+              {t('knowledge.subtitle')}
             </p>
           </div>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="btn-primary flex items-center gap-2"
-          >
-            {uploading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4" />
-            )}
-            Upload Document
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Category selector for upload */}
+            <div className="flex items-center gap-1 bg-surface-container-low rounded-xl p-1">
+              {(['general', 'consulting', 'research', 'templates'] as const).map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setUploadCategory(cat)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    uploadCategory === cat
+                      ? 'bg-surface-container-lowest text-on-surface shadow-sm'
+                      : 'text-on-surface-muted hover:text-on-surface'
+                  }`}
+                >
+                  {t(`knowledge.${cat}`)}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="btn-primary flex items-center gap-2"
+            >
+              {uploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4" />
+              )}
+              {t('knowledge.upload')}
+            </button>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -164,7 +185,7 @@ export function Knowledge() {
               </div>
               <div>
                 <p className="text-3xl font-manrope font-bold">{stats.document_count}</p>
-                <p className="text-sm text-white/70">Total Documents</p>
+                <p className="text-sm text-white/70">{t('knowledge.totalDocuments')}</p>
               </div>
             </div>
           </div>
@@ -175,7 +196,7 @@ export function Knowledge() {
               </div>
               <div>
                 <p className="text-3xl font-manrope font-bold text-on-surface">{stats.total_vectors}</p>
-                <p className="text-sm text-on-surface-muted">Vector Embeddings</p>
+                <p className="text-sm text-on-surface-muted">{t('knowledge.vectorEmbeddings')}</p>
               </div>
             </div>
           </div>
@@ -188,7 +209,7 @@ export function Knowledge() {
                 <p className="text-3xl font-manrope font-bold text-on-surface">
                   {documents.filter(d => d.vector_status === 'indexed').length}
                 </p>
-                <p className="text-sm text-on-surface-muted">Indexed</p>
+                <p className="text-sm text-on-surface-muted">{t('knowledge.indexed')}</p>
               </div>
             </div>
           </div>
@@ -200,7 +221,7 @@ export function Knowledge() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-on-surface-muted" />
             <input
               type="text"
-              placeholder="Search documents..."
+              placeholder={t('knowledge.searchDocuments')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-surface-container-lowest rounded-xl border-none text-on-surface placeholder:text-on-surface-muted outline-none focus:ring-2 focus:ring-primary/20"
@@ -218,7 +239,7 @@ export function Knowledge() {
                     : 'text-on-surface-muted hover:text-on-surface'
                 }`}
               >
-                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                {cat === 'all' ? t('knowledge.all') : t(`knowledge.${cat}`)}
               </button>
             ))}
           </div>
@@ -228,23 +249,23 @@ export function Knowledge() {
         {filteredDocuments.length === 0 ? (
           <div className="card text-center py-16">
             <BookOpen className="w-12 h-12 text-on-surface-muted mx-auto mb-4" />
-            <h3 className="text-headline-sm text-on-surface mb-2">No documents found</h3>
+            <h3 className="text-headline-sm text-on-surface mb-2">{t('knowledge.noDocuments')}</h3>
             <p className="text-body-md text-on-surface-muted mb-6">
-              {searchQuery ? 'Try adjusting your search query.' : 'Upload your first document to get started.'}
+              {searchQuery ? 'Try adjusting your search query.' : t('knowledge.noDocumentsDesc')}
             </p>
             {!searchQuery && (
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="btn-primary"
               >
-                Upload Document
+                {t('knowledge.uploadDocument')}
               </button>
             )}
           </div>
         ) : (
           <div className="space-y-3">
             {filteredDocuments.map((doc) => {
-              const status = statusConfig[doc.vector_status]
+              const status = getStatusConfig(t)[doc.vector_status]
               const StatusIcon = status.icon
               const iconStyle = fileTypeIcons[doc.file_type.toLowerCase()] || 'bg-gray-50 text-gray-500'
               
@@ -261,6 +282,13 @@ export function Knowledge() {
                       <span className="text-xs text-on-surface-muted">
                         {new Date(doc.uploaded_at).toLocaleDateString()}
                       </span>
+                      {doc.size != null && (
+                        <span className="text-xs text-on-surface-muted">
+                          {doc.size < 1024 * 1024
+                            ? `${Math.round(doc.size / 1024)} KB`
+                            : `${(doc.size / 1024 / 1024).toFixed(1)} MB`}
+                        </span>
+                      )}
                       {doc.category && (
                         <span className="px-2 py-0.5 rounded-md bg-surface-container-low text-xs text-on-surface-muted">
                           {doc.category}
@@ -291,7 +319,7 @@ export function Knowledge() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 text-sm text-on-surface-muted">
               <span className="font-manrope font-semibold text-on-surface">Aria AI Consulting Elite</span>
-              <span>© 2024 Aria AI Consulting Elite</span>
+              <span>© 2026 Aria AI Consulting Elite</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-on-surface-muted">
               <a href="#" className="hover:text-on-surface transition-colors">Resources</a>

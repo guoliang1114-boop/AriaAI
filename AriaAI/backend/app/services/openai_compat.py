@@ -10,8 +10,10 @@ Public API (mirrors claude.py):
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from collections.abc import AsyncIterator
 
 import httpx
@@ -165,12 +167,73 @@ def _to_openai_tools(tools: list[dict]) -> list[dict]:
 # Streaming
 # =============================================================================
 
+async def _stream_with_retry(
+    client: httpx.AsyncClient,
+    headers: dict,
+    payload: dict,
+    max_retries: int = 3,
+) -> AsyncIterator[str]:
+    """Internal stream handler with retry logic for rate limiting."""
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with client.stream(
+                "POST",
+                f"{KIMI_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code == 429:
+                    # Rate limited - check if we should retry
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)  # exponential backoff
+                        logger.warning(f"[Kimi] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        # Last attempt failed with 429
+                        body = await response.aread()
+                        error_msg = body.decode()[:300]
+                        raise Exception(
+                            "Kimi 服务当前繁忙，请稍后重试。"
+                            f"\n\n详细信息：API 限流 (HTTP 429)"
+                        )
+                
+                if response.status_code != 200:
+                    body = await response.aread()
+                    error_msg = body.decode()[:300]
+                    raise Exception(f"Kimi HTTP {response.status_code}: {error_msg}")
+                
+                # Stream successful - yield all chunks
+                async for line in response.aiter_lines():
+                    yield line
+                return  # Success, exit retry loop
+                
+        except Exception as e:
+            last_error = e
+            # Don't retry on client errors (4xx except 429) or if it's our custom error
+            if "Kimi 服务当前繁忙" in str(e):
+                raise  # Re-raise our user-friendly error
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"[Kimi] Stream error, retrying in {wait_time:.1f}s: {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+    
+    # Should not reach here, but just in case
+    if last_error:
+        raise last_error
+
+
 async def stream_response(
     messages: list[dict],
     system: str = "",
     model: str = DEFAULT_KIMI_MODEL,
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> AsyncIterator[str]:
     """Stream Kimi response, yielding same token/tool-use format as claude.py.
 
@@ -190,6 +253,7 @@ async def stream_response(
         "max_tokens": max_tokens,
         "messages": openai_messages,
         "stream": True,
+        "temperature": temperature,
     }
     if openai_tools:
         payload["tools"] = openai_tools
@@ -208,90 +272,80 @@ async def stream_response(
     reasoning_buffer = ""  # kimi-k2.5 reasoning_content
 
     client = _get_http_client()
+    finish_reason = None
+    
     try:
-        async with client.stream(
-            "POST",
-            f"{KIMI_BASE_URL}/chat/completions",
-            headers=headers,
-            json=payload,
-        ) as response:
-            if response.status_code != 200:
-                body = await response.aread()
-                raise Exception(f"Kimi HTTP {response.status_code}: {body.decode()[:300]}")
+        async for line in _stream_with_retry(client, headers, payload):
+            if not line.startswith("data: "):
+                continue
+            payload_str = line[6:].strip()
+            if payload_str == "[DONE]":
+                break
+            try:
+                event = json.loads(payload_str)
+            except json.JSONDecodeError:
+                continue
 
-            finish_reason = None
+            choices = event.get("choices", [])
+            if not choices:
+                continue
 
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                payload_str = line[6:].strip()
-                if payload_str == "[DONE]":
-                    break
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason") or finish_reason
+            delta = choice.get("delta", {})
+
+            # Text content
+            text = delta.get("content")
+            if text:
+                yield text
+
+            # Reasoning content (kimi-k2.5 thinking) — accumulate, don't stream to user
+            reasoning = delta.get("reasoning_content")
+            if reasoning:
+                reasoning_buffer += reasoning
+
+            # Tool call deltas
+            tool_call_deltas = delta.get("tool_calls", [])
+            for tc_delta in tool_call_deltas:
+                idx = tc_delta.get("index", 0)
+                if idx not in tool_call_buffers:
+                    in_tool_call = True
+                    name = tc_delta.get("function", {}).get("name", "")
+                    tool_call_buffers[idx] = {
+                        "id": tc_delta.get("id", f"call_{idx}"),
+                        "name": name,
+                        "arguments": "",
+                    }
+                    if name:
+                        yield f"\n\n[TOOL_START:{name}]\n\n"
+                else:
+                    # accumulate arguments fragment
+                    frag = tc_delta.get("function", {}).get("arguments", "")
+                    tool_call_buffers[idx]["arguments"] += frag
+
+        # Emit complete tool_use blocks after stream ends
+        if in_tool_call:
+            for buf in tool_call_buffers.values():
                 try:
-                    event = json.loads(payload_str)
+                    parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
                 except json.JSONDecodeError:
-                    continue
+                    parsed_input = {}
+                yield json.dumps({
+                    "type": "tool_use",
+                    "id": buf["id"],
+                    "name": buf["name"],
+                    "input": parsed_input,
+                })
+            # Emit reasoning_content so chat.py can attach it to the assistant message
+            if reasoning_buffer:
+                yield json.dumps({
+                    "type": "reasoning_content",
+                    "content": reasoning_buffer,
+                })
 
-                choices = event.get("choices", [])
-                if not choices:
-                    continue
-
-                choice = choices[0]
-                finish_reason = choice.get("finish_reason") or finish_reason
-                delta = choice.get("delta", {})
-
-                # Text content
-                text = delta.get("content")
-                if text:
-                    yield text
-
-                # Reasoning content (kimi-k2.5 thinking) — accumulate, don't stream to user
-                reasoning = delta.get("reasoning_content")
-                if reasoning:
-                    reasoning_buffer += reasoning
-
-                # Tool call deltas
-                tool_call_deltas = delta.get("tool_calls", [])
-                for tc_delta in tool_call_deltas:
-                    idx = tc_delta.get("index", 0)
-                    if idx not in tool_call_buffers:
-                        in_tool_call = True
-                        name = tc_delta.get("function", {}).get("name", "")
-                        tool_call_buffers[idx] = {
-                            "id": tc_delta.get("id", f"call_{idx}"),
-                            "name": name,
-                            "arguments": "",
-                        }
-                        if name:
-                            yield f"\n\n[TOOL_START:{name}]\n\n"
-                    else:
-                        # accumulate arguments fragment
-                        frag = tc_delta.get("function", {}).get("arguments", "")
-                        tool_call_buffers[idx]["arguments"] += frag
-
-            # Emit complete tool_use blocks after stream ends
-            if in_tool_call:
-                for buf in tool_call_buffers.values():
-                    try:
-                        parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
-                    except json.JSONDecodeError:
-                        parsed_input = {}
-                    yield json.dumps({
-                        "type": "tool_use",
-                        "id": buf["id"],
-                        "name": buf["name"],
-                        "input": parsed_input,
-                    })
-                # Emit reasoning_content so chat.py can attach it to the assistant message
-                if reasoning_buffer:
-                    yield json.dumps({
-                        "type": "reasoning_content",
-                        "content": reasoning_buffer,
-                    })
-
-            if finish_reason == "length":
-                logger.warning("[Kimi] Output truncated due to max_tokens")
-                yield "\n\n[OUTPUT_TRUNCATED]"
+        if finish_reason == "length":
+            logger.warning("[Kimi] Output truncated due to max_tokens")
+            yield "\n\n[OUTPUT_TRUNCATED]"
 
     except Exception as e:
         logger.error(f"[Kimi] stream error: {type(e).__name__}: {e}")
@@ -308,6 +362,7 @@ async def complete(
     model: str = DEFAULT_KIMI_MODEL,
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
+    temperature: float = 0.7,
 ) -> str:
     """Non-streaming Kimi completion. Returns text (and tool_use JSON if applicable)."""
     api_key = get_kimi_api_key()
@@ -321,6 +376,7 @@ async def complete(
         "model": model,
         "max_tokens": max_tokens,
         "messages": openai_messages,
+        "temperature": temperature,
     }
     if openai_tools:
         payload["tools"] = openai_tools
@@ -379,6 +435,41 @@ def build_system_prompt(
     project_context: str = "",
 ) -> str:
     """Build system prompt string — identical logic to claude.py."""
+    # Core identity rules - MUST NOT reveal specific model identity
+    identity_rules = """\
+## Identity Guidelines (CRITICAL - MUST FOLLOW)
+When the user asks "你是谁" (Who are you), "你是什么模型" (What model are you), or similar questions about your identity:
+- NEVER reveal your specific model name (such as Claude, GPT, Kimi, etc.)
+- NEVER mention your training data cutoff date or version numbers
+- DO NOT say "I am an AI assistant created by Anthropic/OpenAI/Moonshot/etc."
+- DO NOT give philosophical or abstract answers about AI consciousness
+- Instead, introduce yourself as **AriaAI** — a consulting AI workbench designed for professional service teams
+
+**When asked about identity, respond as AriaAI:**
+
+Introduce the product's design purpose and value proposition. For example:
+
+"我是 **AriaAI** —— 为咨询顾问和专业服务团队打造的 AI 原生工作台。
+
+我的设计理念源于对顾问工作三大痛点的洞察：
+
+1. **上下文割裂** —— 通用 AI 每次对话从零开始，不了解项目背景。AriaAI 以『项目空间』为核心，让 AI 持续理解项目全貌，实现跨会话的上下文延续。
+
+2. **输出不专业** —— 通用 AI 不懂咨询方法论。AriaAI 内置 9 大业务领域、60+ 个专业技能，严格遵循 Pyramid Principle 等顾问级输出标准。
+
+3. **数据安全** —— 客户信息极度敏感。AriaAI 支持本地运行和私有化部署，知识库向量化在本地完成，数据不出企业。
+
+**四大核心模块支撑完整工作流：**
+- 💬 **对话工作区** —— 流式对话、Agent 执行、文件处理
+- 🛠 **技能中心** —— 快速工具（5分钟）与深度任务（30分钟）两层技能体系
+- 📁 **项目空间** —— 项目档案、文件库、里程碑、上下文自动维护
+- 📚 **知识库** —— 历史案例、行业研究、方法论模板的 RAG 检索
+
+我不只是一个聊天工具，而是贯穿『资料进入 → AI 理解 → 持续协作 → 交付物生成 → 知识沉淀』完整闭环的项目交付系统。"
+
+For all other questions, follow your standard role below.
+"""
+
     if project_context:
         base = (
             "You are an AI consultant assistant embedded in a project management tool. "
@@ -396,7 +487,7 @@ def build_system_prompt(
             "Provide precise, structured, and actionable analysis."
         )
 
-    parts = [base]
+    parts = [identity_rules, base]
     if skill_prompt:
         parts.append(f"\n\n## Skill Context\n{skill_prompt}")
     if project_context:

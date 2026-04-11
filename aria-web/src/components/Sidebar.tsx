@@ -1,26 +1,30 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { 
   MessageSquare, 
   Wrench, 
   FolderKanban, 
   BookOpen, 
   Clock,
+  Building2,
   Plus,
   Settings,
   LogOut,
   Sparkles
 } from 'lucide-react'
 
-const navItems = [
-  { path: '/chat', icon: MessageSquare, label: '对话' },
-  { path: '/skills', icon: Wrench, label: '技能中心' },
-  { path: '/projects', icon: FolderKanban, label: '项目空间' },
-  { path: '/knowledge', icon: BookOpen, label: '知识库' },
-  { path: '/tasks', icon: Clock, label: '定时任务' },
-]
-
 export function Sidebar() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
+
+  const navItems = [
+    { path: '/chat', icon: MessageSquare, label: t('nav.chat') },
+    { path: '/skills', icon: Wrench, label: t('nav.skills') },
+    { path: '/projects', icon: FolderKanban, label: t('nav.projects') },
+    { path: '/clients', icon: Building2, label: t('nav.clients') || '客户' },
+    { path: '/knowledge', icon: BookOpen, label: t('nav.knowledge') },
+    { path: '/tasks', icon: Clock, label: t('nav.tasks') || '定时任务' },
+  ]
 
   const handleLogout = () => {
     localStorage.removeItem('authToken')
@@ -46,7 +50,7 @@ export function Sidebar() {
           className="w-full flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
         >
           <Plus className="w-4 h-4" />
-          新任务
+          {t('nav.newTask') || '新任务'}
         </button>
       </div>
 
@@ -83,14 +87,14 @@ export function Sidebar() {
           }
         >
           <Settings className="w-4 h-4" />
-          设置
+          {t('nav.settings')}
         </NavLink>
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-all"
         >
           <LogOut className="w-4 h-4" />
-          退出登录
+          {t('settings.signOut') || '退出登录'}
         </button>
       </div>
     </aside>

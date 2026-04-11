@@ -1,27 +1,505 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { 
-  FolderKanban, 
-  Plus, 
-  Calendar, 
-  FileText, 
-  Download,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
+import { useTranslation } from 'react-i18next'
+import {
+  FolderKanban,
+  Plus,
   Building2,
-  Zap,
-  Loader2
+  Loader2,
+  Search,
+  Target,
+  Lightbulb,
+  FileText,
+  Handshake,
+  PenTool,
+  Rocket,
+  Cog,
+  Package,
+  Headphones,
+  Archive,
+  ChevronRight,
+  Calendar,
+  TrendingUp,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { Project } from '../../types/api'
 
+// Format number with thousand separators
+const formatAmountInTenThousand = (amount: number | undefined | null): string => {
+  if (!amount || amount === 0) return '0'
+  const tenThousand = amount / 10000
+  if (tenThousand < 1) {
+    return amount.toLocaleString('zh-CN')
+  }
+  const hasFraction = tenThousand % 1 !== 0
+  return hasFraction ? tenThousand.toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : tenThousand.toLocaleString('zh-CN')
+}
+
+// Project Stage Types
+type ProjectStage = 
+  | 'lead_discovery'
+  | 'opportunity_qualified'
+  | 'proposal'
+  | 'negotiation'
+  | 'contracting'
+  | 'kickoff'
+  | 'execution'
+  | 'delivery'
+  | 'support'
+  | 'archived'
+
+type ProjectPhase = 'business' | 'delivery' | 'archived'
+
+interface StageConfig {
+  id: ProjectStage
+  label: string
+  labelZh: string
+  description: string
+  color: string
+  bgColor: string
+  borderColor: string
+  lightColor: string
+  icon: typeof Building2
+  phase: ProjectPhase
+}
+
+const STAGES: StageConfig[] = [
+  {
+    id: 'lead_discovery',
+    label: 'Lead Discovery',
+    labelZh: '线索发现',
+    description: '初步接触，需求挖掘',
+    color: 'text-slate-600',
+    bgColor: 'bg-slate-50',
+    borderColor: 'border-slate-200',
+    lightColor: 'bg-slate-200',
+    icon: Lightbulb,
+    phase: 'business',
+  },
+  {
+    id: 'opportunity_qualified',
+    label: 'Opportunity Qualified',
+    labelZh: '商机确认',
+    description: '需求明确，预算确认',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    lightColor: 'bg-blue-200',
+    icon: Target,
+    phase: 'business',
+  },
+  {
+    id: 'proposal',
+    label: 'Proposal & Bidding',
+    labelZh: '方案投标',
+    description: '方案设计，投标应标',
+    color: 'text-indigo-600',
+    bgColor: 'bg-indigo-50',
+    borderColor: 'border-indigo-200',
+    lightColor: 'bg-indigo-200',
+    icon: FileText,
+    phase: 'business',
+  },
+  {
+    id: 'negotiation',
+    label: 'Negotiation',
+    labelZh: '商务谈判',
+    description: '价格商议，条款确定',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50',
+    borderColor: 'border-violet-200',
+    lightColor: 'bg-violet-200',
+    icon: Handshake,
+    phase: 'business',
+  },
+  {
+    id: 'contracting',
+    label: 'Contracting',
+    labelZh: '合同签订',
+    description: '合同签署，正式立项',
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-200',
+    lightColor: 'bg-purple-200',
+    icon: PenTool,
+    phase: 'business',
+  },
+  {
+    id: 'kickoff',
+    label: 'Project Kickoff',
+    labelZh: '项目启动',
+    description: '团队组建，计划制定',
+    color: 'text-cyan-600',
+    bgColor: 'bg-cyan-50',
+    borderColor: 'border-cyan-200',
+    lightColor: 'bg-cyan-200',
+    icon: Rocket,
+    phase: 'delivery',
+  },
+  {
+    id: 'execution',
+    label: 'Execution',
+    labelZh: '项目执行',
+    description: '按计划推进，阶段性交付',
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    lightColor: 'bg-emerald-200',
+    icon: Cog,
+    phase: 'delivery',
+  },
+  {
+    id: 'delivery',
+    label: 'Final Delivery',
+    labelZh: '项目交付',
+    description: '最终交付，客户验收',
+    color: 'text-teal-600',
+    bgColor: 'bg-teal-50',
+    borderColor: 'border-teal-200',
+    lightColor: 'bg-teal-200',
+    icon: Package,
+    phase: 'delivery',
+  },
+  {
+    id: 'support',
+    label: 'Ongoing Support',
+    labelZh: '运维支持',
+    description: '售后支持，持续优化',
+    color: 'text-sky-600',
+    bgColor: 'bg-sky-50',
+    borderColor: 'border-sky-200',
+    lightColor: 'bg-sky-200',
+    icon: Headphones,
+    phase: 'delivery',
+  },
+  {
+    id: 'archived',
+    label: 'Archived',
+    labelZh: '已归档',
+    description: '项目完成，历史归档',
+    color: 'text-gray-600',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    lightColor: 'bg-gray-200',
+    icon: Archive,
+    phase: 'archived',
+  },
+]
+
+type PhaseConfig = {
+  id: ProjectPhase
+  label: string
+  labelZh: string
+  subtitle: string
+  subtitleEn: string
+  icon: typeof TrendingUp
+  color: string
+  bgColor: string
+  gradient: string
+  stages: ProjectStage[]
+}
+
+const PHASES: Record<ProjectPhase, PhaseConfig> = {
+  business: {
+    id: 'business',
+    label: 'Business Development',
+    labelZh: '商机阶段',
+    subtitle: '从线索发现到合同签订',
+    subtitleEn: 'From lead discovery to contract signing',
+    icon: TrendingUp,
+    color: 'text-indigo-600',
+    bgColor: 'bg-indigo-50',
+    gradient: 'from-indigo-500/10 via-purple-500/10 to-blue-500/10',
+    stages: ['lead_discovery', 'opportunity_qualified', 'proposal', 'negotiation', 'contracting'],
+  },
+  delivery: {
+    id: 'delivery',
+    label: 'Delivery Phase',
+    labelZh: '交付阶段',
+    subtitle: '从项目启动到运维支持',
+    subtitleEn: 'From kickoff to ongoing support',
+    icon: Package,
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-50',
+    gradient: 'from-emerald-500/10 via-teal-500/10 to-cyan-500/10',
+    stages: ['kickoff', 'execution', 'delivery', 'support'],
+  },
+  archived: {
+    id: 'archived',
+    label: 'Archived',
+    labelZh: '归档',
+    subtitle: '已完成项目的历史归档',
+    subtitleEn: 'Historical archive of completed projects',
+    icon: Archive,
+    color: 'text-gray-600',
+    bgColor: 'bg-gray-50',
+    gradient: 'from-gray-500/5 to-slate-500/5',
+    stages: ['archived'],
+  },
+}
+
+const ALL_STAGE_IDS: ProjectStage[] = ['lead_discovery', 'opportunity_qualified', 'proposal', 'negotiation', 'contracting', 'kickoff', 'execution', 'delivery', 'support', 'archived']
+
+// Map project status to stage (handles both new 10-stage values and legacy 4-value status)
+function getProjectStage(project: Project): ProjectStage {
+  if (ALL_STAGE_IDS.includes(project.status as ProjectStage)) return project.status as ProjectStage
+  switch (project.status) {
+    case 'lead': return 'lead_discovery'
+    case 'active': return 'execution'
+    case 'completed': return 'delivery'
+    case 'archived': return 'archived'
+    default: return 'lead_discovery'
+  }
+}
+
+// Project Card Component
+function ProjectCard({
+  project,
+  stage,
+  onClick,
+}: {
+  project: Project
+  stage: StageConfig
+  onClick: () => void
+}) {
+  const { i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+
+  return (
+    <div
+      onClick={onClick}
+      className="group relative bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden"
+    >
+      {/* Left accent bar */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${stage.lightColor}`} />
+      
+      <div className="pl-3">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                {project.client}
+              </span>
+            </div>
+            <h4 className="font-semibold text-sm text-gray-900 leading-snug line-clamp-2">
+              {project.name}
+            </h4>
+          </div>
+        </div>
+
+        {/* Description */}
+        {project.description && (
+          <p className="text-xs text-gray-500 line-clamp-2 mb-3 leading-relaxed">
+            {project.description}
+          </p>
+        )}
+
+        {/* Stage badge */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${stage.bgColor} ${stage.color}`}>
+            <stage.icon className="w-3 h-3" />
+            {isZh ? stage.labelZh : stage.label}
+          </span>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+          <div className="flex items-center gap-2">
+            {project.contract_amount ? (
+              <span className="text-xs font-bold text-gray-800">
+                ¥{formatAmountInTenThousand(project.contract_amount)}万
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                {isZh ? '待报价' : 'Quote Pending'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <Calendar className="w-3 h-3" />
+            <span>{new Date(project.updated_at).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { 
+              month: 'short', 
+              day: 'numeric' 
+            })}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Stage Column Component
+function StageColumn({
+  stage,
+  projects,
+  onProjectClick,
+}: {
+  stage: StageConfig
+  projects: Project[]
+  onProjectClick: (id: number) => void
+}) {
+  const { i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+  const Icon = stage.icon
+  const totalValue = projects.reduce((sum, p) => sum + (p.contract_amount || 0), 0)
+
+  return (
+    <div className="flex flex-col h-full min-w-[260px]">
+      {/* Stage Header */}
+      <div className={`p-3 rounded-xl border ${stage.borderColor} ${stage.bgColor} mb-3`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-white/80 flex items-center justify-center shadow-sm">
+              <Icon className={`w-3.5 h-3.5 ${stage.color}`} />
+            </div>
+            <span className={`font-semibold text-sm ${stage.color}`}>
+              {isZh ? stage.labelZh : stage.label}
+            </span>
+          </div>
+          <span className="text-xs font-bold bg-white/80 px-2 py-0.5 rounded-full shadow-sm min-w-[24px] text-center">
+            {projects.length}
+          </span>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-gray-500 truncate">{isZh ? stage.description : stage.description}</p>
+          {totalValue > 0 && (
+            <span className="text-xs font-medium text-gray-600">
+              ¥{(totalValue / 10000).toFixed(0)}万
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Projects List */}
+      <div className="flex-1 space-y-3 min-h-[100px]">
+        {projects.map((project) => (
+          <ProjectCard
+            key={project.id}
+            project={project}
+            stage={stage}
+            onClick={() => onProjectClick(project.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Phase Section Component
+function PhaseSection({
+  phase,
+  projects,
+  onProjectClick,
+  isExpanded,
+  onToggle,
+}: {
+  phase: PhaseConfig
+  projects: Project[]
+  onProjectClick: (id: number) => void
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  const { i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+  const Icon = phase.icon
+
+  const phaseStages = STAGES.filter(s => phase.stages.includes(s.id))
+  
+  const stageProjects = phaseStages.map(stage => ({
+    stage,
+    projects: projects.filter(p => getProjectStage(p) === stage.id),
+  }))
+
+  const totalProjects = stageProjects.reduce((sum, sp) => sum + sp.projects.length, 0)
+  const totalValue = projects.reduce((sum, p) => sum + (p.contract_amount || 0), 0)
+
+  return (
+    <div className="mb-8">
+      {/* Phase Header Card */}
+      <div 
+        onClick={onToggle}
+        className={`relative overflow-hidden rounded-2xl border cursor-pointer transition-all duration-300 ${
+          isExpanded 
+            ? `bg-gradient-to-r ${phase.gradient} border-gray-200 shadow-sm` 
+            : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-md'
+        }`}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-14 h-14 rounded-xl ${phase.bgColor} flex items-center justify-center shadow-sm`}>
+                <Icon className={`w-7 h-7 ${phase.color}`} />
+              </div>
+              <div>
+                <h2 className={`font-bold text-xl ${phase.color}`}>
+                  {isZh ? phase.labelZh : phase.label}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {isZh ? phase.subtitle : phase.subtitleEn}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-8">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-gray-900">{totalProjects}</p>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mt-0.5">
+                  {isZh ? '项目' : 'Projects'}
+                </p>
+              </div>
+              {totalValue > 0 && (
+                <div className="text-center px-8 border-l border-gray-200">
+                  <p className="text-xl font-bold text-gray-900">¥{(totalValue / 10000).toFixed(0)}万</p>
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mt-0.5">
+                    {isZh ? '金额' : 'Value'}
+                  </p>
+                </div>
+              )}
+              <div className={`w-12 h-12 rounded-full ${isExpanded ? phase.bgColor : 'bg-gray-50'} flex items-center justify-center transition-all duration-300`}>
+                <ChevronRight className={`w-6 h-6 text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-90' : ''}`} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Phase Content */}
+      {isExpanded && (
+        <div className="mt-6 animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+            <div className="overflow-x-auto pb-4 -mx-2 px-2">
+              <div className="flex gap-5 min-w-max">
+                {phaseStages.map((stage) => (
+                  <div key={stage.id} className="w-[260px] flex-shrink-0">
+                    <StageColumn
+                      stage={stage}
+                      projects={projects.filter(p => getProjectStage(p) === stage.id)}
+                      onProjectClick={onProjectClick}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Main Component
 export function Projects() {
   const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+  
   const [loading, setLoading] = useState(true)
   const [projects, setProjects] = useState<Project[]>([])
-  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedPhase, setExpandedPhase] = useState<ProjectPhase | null>('business')
 
   useEffect(() => {
     fetchProjects()
@@ -39,40 +517,38 @@ export function Projects() {
     }
   }
 
-  const filteredProjects = projects.filter(p => {
-    if (activeTab === 'all') return true
-    if (activeTab === 'active') return p.status === 'active' || p.status === 'lead'
-    if (activeTab === 'completed') return p.status === 'completed' || p.status === 'archived'
-    return true
+  // Filter projects by search
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return projects
+    const query = searchQuery.toLowerCase()
+    return projects.filter(p => 
+      p.name.toLowerCase().includes(query) ||
+      p.client.toLowerCase().includes(query) ||
+      (p.description && p.description.toLowerCase().includes(query))
+    )
+  }, [projects, searchQuery])
+
+  // Split by phase
+  const businessProjects = filteredProjects.filter(p => {
+    const stage = getProjectStage(p)
+    return STAGES.find(s => s.id === stage)?.phase === 'business'
   })
 
-  const featuredProject = filteredProjects[0]
-  const otherProjects = filteredProjects.slice(1, 4)
+  const deliveryProjects = filteredProjects.filter(p => {
+    const stage = getProjectStage(p)
+    return STAGES.find(s => s.id === stage)?.phase === 'delivery'
+  })
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-active/10 text-active'
-      case 'lead': return 'bg-warning/10 text-warning'
-      case 'completed': return 'bg-on-surface-muted/10 text-on-surface-muted'
-      case 'archived': return 'bg-outline/20 text-on-surface-muted'
-      default: return 'bg-surface-container-high text-on-surface-muted'
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active': return <span className="w-1.5 h-1.5 rounded-full bg-active"></span>
-      case 'lead': return <Clock className="w-3 h-3" />
-      case 'completed': return <CheckCircle2 className="w-3 h-3" />
-      default: return null
-    }
-  }
+  const archivedProjects = filteredProjects.filter(p => {
+    const stage = getProjectStage(p)
+    return STAGES.find(s => s.id === stage)?.phase === 'archived'
+  })
 
   if (loading) {
     return (
       <>
-        <PageTitle title="Projects" />
-        <div className="min-h-full bg-surface flex items-center justify-center">
+        <PageTitle title={t('projects.title')} />
+        <div className="min-h-full bg-gray-50 flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       </>
@@ -81,242 +557,79 @@ export function Projects() {
 
   return (
     <>
-      <PageTitle title="Projects" />
-      <div className="min-h-full bg-surface">
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <PageTitle title={t('projects.title')} />
+      <div className="min-h-full bg-gradient-to-b from-gray-50 to-white">
         {/* Header */}
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h1 className="text-headline-md text-on-surface mb-2">Consulting Portfolio</h1>
-            <p className="text-body-md text-on-surface-muted">Strategic project management and delivery hub.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex bg-surface-container-low rounded-xl p-1">
-              {(['all', 'active', 'completed'] as const).map((tab) => (
+        <div className="bg-white border-b border-gray-100">
+          <div className="max-w-full mx-auto px-6 py-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <FolderKanban className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900">
+                      {isZh ? '项目空间' : 'Project Workspace'}
+                    </h1>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {isZh ? '从商机发现到交付运维，全流程可视化管理' : 'Visual management from lead to delivery'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={isZh ? '搜索项目...' : 'Search projects...'}
+                    className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all"
+                  />
+                </div>
                 <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === tab
-                      ? 'bg-surface-container-lowest text-on-surface shadow-sm'
-                      : 'text-on-surface-muted hover:text-on-surface'
-                  }`}
+                  onClick={() => navigate('/projects/new')}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20 transition-all"
                 >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  <Plus className="w-4 h-4" />
+                  {isZh ? '新建项目' : 'New Project'}
                 </button>
-              ))}
+              </div>
             </div>
           </div>
         </div>
 
-        {filteredProjects.length === 0 ? (
-          <div className="card text-center py-16">
-            <FolderKanban className="w-12 h-12 text-on-surface-muted mx-auto mb-4" />
-            <h3 className="text-headline-sm text-on-surface mb-2">No projects found</h3>
-            <p className="text-body-md text-on-surface-muted mb-6">Get started by creating your first consulting project.</p>
-            <button className="btn-primary">Create Project</button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-12 gap-6">
-            {/* Left Column - Projects */}
-            <div className="col-span-12 lg:col-span-8 space-y-6">
-              {/* Featured Project */}
-              {featuredProject && (
-                <div className="card bg-surface-container-low">
-                  <div className="flex gap-6">
-                    <div className="w-48 h-32 rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 flex flex-col items-center justify-center relative overflow-hidden flex-shrink-0">
-                      <div className="absolute inset-0 opacity-20">
-                        <div className="absolute top-2 left-2 text-white/30 text-xs font-mono">PROJECT</div>
-                        <div className="absolute top-8 left-2 text-white/30 text-xs font-mono">CONTEXT</div>
-                        <div className="absolute bottom-8 left-2 text-white/30 text-xs font-mono">WORK</div>
-                      </div>
-                      <FolderKanban className="w-12 h-12 text-white/40" />
-                      <span className="absolute bottom-3 left-3 px-2 py-1 bg-primary rounded text-xs font-medium text-white">
-                        PRIORITY 01
-                      </span>
-                    </div>
-                    <div className="flex-1 py-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <span className="text-label-sm text-on-surface-muted">{featuredProject.client}</span>
-                        <span className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(featuredProject.status)}`}>
-                          {getStatusIcon(featuredProject.status)}
-                          {featuredProject.status.toUpperCase()}
-                        </span>
-                      </div>
-                      <h3 className="text-headline-sm text-on-surface mb-2">{featuredProject.name}</h3>
-                      <p className="text-body-sm text-on-surface-muted mb-4">
-                        {featuredProject.description || 'No description available'}
-                      </p>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-on-surface-muted">Overall Progress</span>
-                          <span className="text-sm font-medium text-on-surface">
-                            {featuredProject.status === 'completed' ? '100' : '74'}%
-                          </span>
-                        </div>
-                        <div className="h-2 bg-surface-container-high rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-primary rounded-full transition-all duration-500"
-                            style={{ width: featuredProject.status === 'completed' ? '100%' : '74%' }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+        {/* Content */}
+        <div className="max-w-full mx-auto px-6 py-8">
+          {/* Phase Sections */}
+          <PhaseSection
+            phase={PHASES.business}
+            projects={businessProjects}
+            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            isExpanded={expandedPhase === 'business'}
+            onToggle={() => setExpandedPhase(expandedPhase === 'business' ? null : 'business')}
+          />
 
-              {/* Project Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                {otherProjects.map((project) => (
-                  <div 
-                    key={project.id} 
-                    onClick={() => navigate(`/projects/${project.id}`)}
-                    className="card card-interactive cursor-pointer"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className={`w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center`}>
-                        <Building2 className="w-5 h-5 text-primary" />
-                      </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                        {project.status.toUpperCase()}
-                      </span>
-                    </div>
-                    <p className="text-label-sm text-on-surface-muted mb-1">{project.client}</p>
-                    <h4 className="text-label-lg text-on-surface mb-3">{project.name}</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-on-surface-muted">
-                          {new Date(project.updated_at).toLocaleDateString()}
-                        </span>
-                        <span className="text-xs font-medium text-on-surface">
-                          {project.status === 'completed' ? '100' : project.status === 'active' ? '42' : '15'}%
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-surface-container-low rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            project.status === 'completed' ? 'bg-on-surface-muted' : 'bg-primary'
-                          }`}
-                          style={{ width: project.status === 'completed' ? '100%' : project.status === 'active' ? '42%' : '15%' }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                {/* New Project Card */}
-                <button 
-                  onClick={() => navigate('/projects/new')}
-                  className="card border-2 border-dashed border-outline/30 hover:border-primary/50 hover:bg-surface-container-low/50 transition-all flex flex-col items-center justify-center min-h-[200px]"
-                >
-                  <div className="w-12 h-12 rounded-full bg-surface-container-low flex items-center justify-center mb-3">
-                    <Plus className="w-6 h-6 text-on-surface-muted" />
-                  </div>
-                  <span className="text-label-lg text-on-surface-muted">Initiate New Consulting Project</span>
-                </button>
-              </div>
-            </div>
+          <PhaseSection
+            phase={PHASES.delivery}
+            projects={deliveryProjects}
+            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            isExpanded={expandedPhase === 'delivery'}
+            onToggle={() => setExpandedPhase(expandedPhase === 'delivery' ? null : 'delivery')}
+          />
 
-            {/* Right Column - AI Context & Milestones */}
-            <div className="col-span-12 lg:col-span-4 space-y-6">
-              {/* AI Context Intelligence */}
-              <div className="card bg-surface-container-low">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-                  <span className="text-label-sm text-primary">AI CONTEXT INTELLIGENCE</span>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-surface-container-lowest">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium text-on-surface">Portfolio Synthesis</span>
-                    </div>
-                    <p className="text-body-sm text-on-surface-muted italic">
-                      "Cross-project analysis indicates a 15% efficiency gain when sharing architectural patterns between active modules."
-                    </p>
-                  </div>
-                  
-                  <div className="p-4 rounded-xl bg-warning/5">
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="w-4 h-4 text-warning" />
-                      <span className="text-sm font-medium text-on-surface">Risk Warning</span>
-                    </div>
-                    <p className="text-body-sm text-on-surface-muted">
-                      Compliance bottlenecks detected in active projects regarding data handling protocols.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Global Milestones */}
-              <div className="card">
-                <h3 className="text-label-lg text-on-surface mb-4">Global Milestones</h3>
-                <div className="space-y-4">
-                  {projects.slice(0, 3).map((project, idx) => (
-                    <div key={project.id} className="flex gap-3">
-                      <div className={`w-8 h-8 rounded-lg ${idx === 0 ? 'bg-primary/10' : 'bg-surface-container-low'} flex items-center justify-center flex-shrink-0`}>
-                        <Calendar className={`w-4 h-4 ${idx === 0 ? 'text-primary' : 'text-on-surface-muted'}`} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-primary mb-0.5">
-                          {new Date(project.updated_at).toLocaleDateString()}
-                        </p>
-                        <h4 className="text-sm font-medium text-on-surface">{project.name}</h4>
-                        <p className="text-xs text-on-surface-muted">{project.client}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Recent Library */}
-              <div className="card">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-label-lg text-on-surface">Recent Library</h3>
-                  <button className="text-sm text-primary hover:text-primary-container transition-colors">
-                    View All
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {projects.slice(0, 3).map((project, index) => (
-                    <div key={project.id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-container-low transition-colors cursor-pointer">
-                      <div className={`w-10 h-10 rounded-lg ${['bg-red-50', 'bg-blue-50', 'bg-green-50'][index]} flex items-center justify-center`}>
-                        <FileText className={`w-5 h-5 ${['text-red-500', 'text-blue-500', 'text-green-500'][index]}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-on-surface truncate">{project.name}.pdf</p>
-                        <p className="text-xs text-on-surface-muted">{project.client} • 2.4 MB</p>
-                      </div>
-                      <button className="p-1.5 rounded-lg hover:bg-surface-container-high transition-colors">
-                        <Download className="w-4 h-4 text-on-surface-muted" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Footer */}
-        <footer className="mt-16 pt-8 border-t border-outline/10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 text-sm text-on-surface-muted">
-              <span className="font-manrope font-semibold text-on-surface">Aria AI Consulting Elite</span>
-              <span>© 2024 Aria AI Consulting Elite</span>
-            </div>
-            <div className="flex items-center gap-6 text-sm text-on-surface-muted">
-              <a href="#" className="hover:text-on-surface transition-colors">Resources</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Legal</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Support</a>
-              <a href="#" className="hover:text-on-surface transition-colors">Language</a>
-            </div>
-          </div>
-        </footer>
+          <PhaseSection
+            phase={PHASES.archived}
+            projects={archivedProjects}
+            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            isExpanded={expandedPhase === 'archived'}
+            onToggle={() => setExpandedPhase(expandedPhase === 'archived' ? null : 'archived')}
+          />
+        </div>
       </div>
-    </div>
-  </>
+    </>
   )
 }
