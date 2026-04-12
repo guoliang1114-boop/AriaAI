@@ -778,7 +778,7 @@ function OverviewTab({
                 {new Date(project.created_at).toLocaleDateString()}
               </span>
             </div>
-            {project.contract_amount > 0 && (
+            {(project.contract_amount ?? 0) > 0 && (
               <div className="flex items-center gap-3">
                 <DollarSign className="w-4 h-4 text-gray-400" />
                 <span className="text-sm text-gray-600">
@@ -3971,8 +3971,8 @@ function SettingsTab({
     notes: project.notes || "",
     status: project.status,
     contract_amount: project.contract_amount || 0,
-    start_date: project.start_date || "",
-    end_date: project.end_date || "",
+    start_date: (project as any).start_date || "",
+    end_date: (project as any).end_date || "",
   });
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -4147,8 +4147,8 @@ function SettingsTab({
       notes: project.notes || "",
       status: project.status,
       contract_amount: project.contract_amount || 0,
-      start_date: project.start_date || "",
-      end_date: project.end_date || "",
+      start_date: (project as any).start_date || "",
+      end_date: (project as any).end_date || "",
     });
     setIsEditing(false);
     setShowSuggestions(false);
