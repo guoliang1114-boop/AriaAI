@@ -1,26 +1,27 @@
 # AriaAI RAG 演进方案
 
 > 更新日期：2026-04-12
-> 说明：结合最新 `context_builder.py` 重新描述 RAG 在系统中的位置
+> 说明：结合最新 `context_builder.py` 与 `rag.py` 状态重写
 
 ---
 
 ## 1. 当前结论
 
-RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰了。
+RAG 仍然是可运行的 baseline，但已经从“纯 prompt 注入工具”迈向“带结构化引用结果的上下文服务”。
 
-本轮更新后：
+本轮关键变化：
 
-- RAG 不再只是散落在 `chat.py` 里的逻辑片段
-- 它开始通过 `context_builder.py` 参与统一的聊天上下文组装
+- `retrieve_structured()` 已返回结构化结果
+- `RetrievalResult` / `RetrievalContext` 已支持来源信息
+- `context_builder.py` 已把 RAG 纳入统一聊天上下文组装
 
-这是一种重要但仍未完成的架构改进。
+这意味着 RAG 不再只是检索文本片段，而开始服务前端引用展示和更清晰的上下文注入。
 
 ---
 
 ## 2. 当前实现
 
-路径大致是：
+当前链路：
 
 ```text
 上传文档
@@ -28,24 +29,26 @@ RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰�
 -> 切块
 -> embedding
 -> 存入 DocumentChunk
--> 查询 top-k
--> 通过 context_builder 注入聊天上下文
+-> retrieve_structured(query)
+-> 生成 text + results
+-> context_builder 注入聊天上下文
+-> chat.py 将 references 推给前端
 ```
 
 关键文件：
 
-- `AriaAI/backend/app/routers/knowledge.py`
-- `AriaAI/backend/app/services/parser.py`
 - `AriaAI/backend/app/services/rag.py`
 - `AriaAI/backend/app/services/context_builder.py`
+- `AriaAI/backend/app/routers/knowledge.py`
+- `AriaAI/backend/app/routers/chat.py`
 
 ---
 
 ## 3. 当前优点
 
-- 已经能够为聊天提供真实文档上下文
-- 与项目/技能上下文组装方向开始统一
-- 结构比之前更清晰
+- 已支持结构化引用结果
+- 已与聊天上下文组装统一
+- 已经具备向前端展示 citation 的基础
 
 ---
 
@@ -53,8 +56,8 @@ RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰�
 
 - embedding 仍存为 JSON
 - 检索仍偏简单 top-k
-- 元数据过滤能力有限
-- 前端对引用来源的解释性仍不够强
+- metadata filter 能力有限
+- rerank 尚未引入
 
 ---
 
@@ -62,8 +65,8 @@ RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰�
 
 ### Phase 1
 
-- 让 `context_builder` 持续成为统一注入入口
-- 把引用来源在前端展示得更清楚
+- 继续强化前端引用展示
+- 明确项目 / 客户 / 全局知识的优先级
 
 ### Phase 2
 
@@ -81,10 +84,10 @@ RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰�
 
 ## 6. 与产品主线的关系
 
-RAG 的意义不在“能搜”，而在：
+RAG 的核心价值不是“能搜”，而是：
 
 - 让项目内对话更懂上下文
-- 让生成物更有依据
+- 让导出与生成物更有依据
 - 让客户和项目知识能复用
 
-所以 RAG 的演进优先级，应始终服从项目工作流闭环。
+所以 RAG 演进仍应优先服务项目工作流闭环，而不是孤立追求更复杂的检索技术。
