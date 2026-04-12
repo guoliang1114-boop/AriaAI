@@ -15,6 +15,7 @@ import {
   ExternalLink
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { getApiBaseUrl, saveApiBaseUrl } from '../../config/api'
 
 interface ServerInfo {
   version: string
@@ -122,11 +123,11 @@ export function ServerSettings() {
       // Save to backend settings
       await api.put('/settings/api_base_url', { value: serverUrl.trim() })
       
-      // Also save to localStorage for immediate effect
-      localStorage.setItem('serverUrl', serverUrl.trim())
+      // Also save to localStorage for immediate effect using unified config
+      saveApiBaseUrl(serverUrl.trim())
       
-      // Update API client base URL
-      window.location.reload() // Reload to apply new API URL
+      // Reload to apply new API URL
+      window.location.reload()
       
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)

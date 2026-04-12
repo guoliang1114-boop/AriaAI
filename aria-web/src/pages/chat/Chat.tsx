@@ -34,11 +34,12 @@ import {
   Zap,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
 import type { Conversation, Message, Project, Skill } from '../../types/api'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = getApiBaseUrl()
 const PAGE_SIZE = 20
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -553,7 +554,7 @@ export function Chat() {
       setIsThinking(true)
 
       const token = localStorage.getItem('authToken')
-      const response = await fetch(`${API_BASE_URL}/chat/send`, {
+      const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token || '' },
         body: JSON.stringify({

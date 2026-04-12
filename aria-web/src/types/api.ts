@@ -25,7 +25,7 @@ export interface Project {
   name: string
   client: string
   description: string
-  status: 'lead_discovery' | 'opportunity_qualified' | 'proposal' | 'negotiation' | 'contracting' | 'kickoff' | 'execution' | 'delivery' | 'support' | 'archived' | 'lead' | 'active' | 'completed'
+  status: 'lead' | 'opportunity' | 'won' | 'delivering' | 'archived'
   created_at: string
   updated_at: string
   context_summary?: string

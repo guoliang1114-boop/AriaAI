@@ -1,6 +1,7 @@
-"""Execute scheduled AI tasks synchronously."""
+"""Execute scheduled AI tasks asynchronously."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -11,7 +12,7 @@ from app.models.db import ScheduledTask, Skill, Project, Conversation, Message
 from app.services.claude import complete, build_system_prompt
 
 
-def run_task(task_id: int) -> None:
+async def run_task(task_id: int) -> None:
     with Session(engine) as session:
         task = session.get(ScheduledTask, task_id)
         if not task or not task.is_enabled:
@@ -37,7 +38,7 @@ def run_task(task_id: int) -> None:
 
             system = build_system_prompt(skill_prompt, project_context=project_context)
             messages = [{"role": "user", "content": task.prompt or f"Run scheduled analysis: {task.name}"}]
-            response = complete(messages, system=system)
+            response = await complete(messages, system=system)
 
             conv = Conversation(
                 title=f"[Scheduled] {task.name}",

@@ -1,7 +1,5 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosError } from 'axios'
-
-// Use relative path for API - Vite dev server will proxy to backend
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+import { getApiBaseUrlForAxios } from '../config/api'
 
 class ApiClient {
   private client: AxiosInstance
@@ -9,7 +7,7 @@ class ApiClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: getApiBaseUrlForAxios(),
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',

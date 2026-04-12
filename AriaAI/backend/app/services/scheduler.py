@@ -7,8 +7,12 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.executors.pool import ThreadPoolExecutor
 
-_scheduler = BackgroundScheduler()
+# Use ThreadPoolExecutor to support async functions
+_scheduler = BackgroundScheduler(
+    executors={'default': ThreadPoolExecutor(max_workers=10)}
+)
 
 
 def start() -> None:
@@ -64,11 +68,13 @@ def remove_task(task_id: int) -> None:
 
 
 def trigger_now(task) -> None:
+    import asyncio
     from app.services.task_runner import run_task
-    run_task(task.id)
+    asyncio.run(run_task(task.id))
 
 
 def _add_job(task) -> None:
+    import asyncio
     from app.services.task_runner import run_task
 
     job_id = f"task_{task.id}"
@@ -88,4 +94,8 @@ def _add_job(task) -> None:
     else:
         return
 
-    _scheduler.add_job(run_task, trigger=trigger, args=[task.id], id=job_id, replace_existing=True)
+    # Wrap async function for scheduler
+    def _run_async_task(task_id: int):
+        asyncio.run(run_task(task_id))
+
+    _scheduler.add_job(_run_async_task, trigger=trigger, args=[task.id], id=job_id, replace_existing=True)
