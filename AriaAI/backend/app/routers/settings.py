@@ -176,6 +176,22 @@ def remove_api_key():
     return {"ok": True}
 
 
+# Setting metadata for frontend (read-only, shows setting hierarchy)
+_SETTING_METADATA = {
+    # LLM Settings (Layer 3: Runtime user settings)
+    "selected_model": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
+    "llm_provider": {"layer": 3, "category": "llm", "editable": True, "type": "string"},
+    "temperature": {"layer": 3, "category": "llm", "editable": True, "type": "float", "min": 0, "max": 2},
+    "max_tokens": {"layer": 3, "category": "llm", "editable": True, "type": "int", "min": 256, "max": 8192},
+    "top_p": {"layer": 3, "category": "llm", "editable": True, "type": "float", "min": 0, "max": 1},
+    "presence_penalty": {"layer": 3, "category": "llm", "editable": True, "type": "float", "min": -2, "max": 2},
+    "frequency_penalty": {"layer": 3, "category": "llm", "editable": True, "type": "float", "min": -2, "max": 2},
+    # App Settings (Layer 3)
+    "theme": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
+    "language": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
+}
+
+
 @router.get("/")
 def get_all_settings(session: Session = Depends(get_session)):
     cached = _settings_cache.get(_ALL_KEY)
@@ -187,6 +203,32 @@ def get_all_settings(session: Session = Depends(get_session)):
     result = {s.key: s.value for s in settings}
     _settings_cache.set(_ALL_KEY, result, _SETTINGS_TTL)
     return result
+
+
+@router.get("/metadata")
+def get_settings_metadata():
+    """Get setting metadata (layer, category, editable)."""
+    return _SETTING_METADATA
+
+
+@router.get("/hierarchy")
+def get_settings_hierarchy():
+    """
+    Explain the three-layer configuration hierarchy.
+    
+    Layer 1: Environment variables (deployment config)
+    Layer 2: Code defaults (app/config.py)
+    Layer 3: Runtime user settings (database)
+    """
+    return {
+        "layers": {
+            "1": {"name": "Deployment", "source": "Environment variables / .env", "restart_required": True},
+            "2": {"name": "Defaults", "source": "app/config.py", "restart_required": False},
+            "3": {"name": "Runtime", "source": "Database (Setting table)", "restart_required": False},
+        },
+        "resolution_order": "3 → 1 → 2 (first available wins)",
+        "current_settings": _SETTING_METADATA,
+    }
 
 
 @router.put("/{key}")
