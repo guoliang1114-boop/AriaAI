@@ -580,3 +580,203 @@ async def test_model(req: TestModelRequest):
         }
     except Exception as e:
         return {"success": False, "message": f"Model test failed: {str(e)}"}
+
+
+# ── Export Endpoints ──────────────────────────────────────────────────────────
+
+class ExportConversationRequest(BaseModel):
+    format: str  # "markdown" or "pdf"
+
+
+@router.post("/conversations/{conv_id}/export")
+async def export_conversation(
+    conv_id: int,
+    req: ExportConversationRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    Export a conversation as Markdown or PDF.
+    
+    - format: "markdown" | "pdf"
+    """
+    # Get conversation
+    conv = session.get(Conversation, conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    
+    # Get all messages
+    messages = session.exec(
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at)
+    ).all()
+    
+    if not messages:
+        raise HTTPException(400, "Conversation has no messages")
+    
+    format_type = req.format.lower()
+    
+    if format_type == "markdown":
+        return _export_markdown(conv, messages)
+    elif format_type == "pdf":
+        return await _export_pdf(conv, messages)
+    else:
+        raise HTTPException(400, f"Unsupported format: {format_type}. Use 'markdown' or 'pdf'")
+
+
+def _export_markdown(conv: Conversation, messages: List[Message]):
+    """Export conversation as Markdown."""
+    lines = [
+        f"# {conv.title or 'Untitled Conversation'}",
+        "",
+        f"**Created:** {conv.created_at.strftime('%Y-%m-%d %H:%M')}",
+        f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        "",
+        "---",
+        "",
+    ]
+    
+    for msg in messages:
+        role_label = "**User**" if msg.role == "user" else "**Assistant**"
+        time_str = msg.created_at.strftime('%H:%M')
+        lines.append(f"{role_label} *({time_str})*")
+        lines.append("")
+        lines.append(msg.content)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+    
+    markdown_content = "\n".join(lines)
+    
+    # Create filename
+    safe_title = "".join(c for c in (conv.title or "conversation") if c.isalnum() or c in " _-").strip()
+    filename = f"{safe_title}_{conv.created_at.strftime('%Y%m%d')}.md"
+    
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=markdown_content,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+async def _export_pdf(conv: Conversation, messages: List[Message]):
+    """Export conversation as PDF."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib.enums import TA_LEFT
+        from io import BytesIO
+        
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18,
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=12,
+        )
+        
+        user_style = ParagraphStyle(
+            'UserLabel',
+            parent=styles['Heading3'],
+            fontSize=11,
+            textColor='#2563eb',  # blue-600
+            spaceAfter=6,
+        )
+        
+        assistant_style = ParagraphStyle(
+            'AssistantLabel',
+            parent=styles['Heading3'],
+            fontSize=11,
+            textColor='#7c3aed',  # violet-600
+            spaceAfter=6,
+        )
+        
+        content_style = ParagraphStyle(
+            'Content',
+            parent=styles['BodyText'],
+            fontSize=10,
+            leading=14,
+            spaceAfter=12,
+        )
+        
+        separator_style = ParagraphStyle(
+            'Separator',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor='#9ca3af',  # gray-400
+            alignment=1,  # center
+            spaceBefore=12,
+            spaceAfter=12,
+        )
+        
+        story = []
+        
+        # Title
+        story.append(Paragraph(conv.title or "Untitled Conversation", title_style))
+        story.append(Spacer(1, 0.1 * inch))
+        
+        # Metadata
+        meta_text = f"Created: {conv.created_at.strftime('%Y-%m-%d %H:%M')} | Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+        story.append(Paragraph(f"<i>{meta_text}</i>", styles['Normal']))
+        story.append(Spacer(1, 0.2 * inch))
+        story.append(Paragraph("—" * 40, separator_style))
+        story.append(Spacer(1, 0.1 * inch))
+        
+        # Messages
+        for msg in messages:
+            role = msg.role
+            time_str = msg.created_at.strftime('%H:%M')
+            
+            if role == "user":
+                story.append(Paragraph(f"User ({time_str})", user_style))
+            else:
+                story.append(Paragraph(f"Assistant ({time_str})", assistant_style))
+            
+            # Convert markdown-style formatting for PDF
+            content = msg.content
+            # Escape HTML special characters
+            content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            # Convert markdown bold/italic
+            content = content.replace('**', '<b>').replace('__', '<i>')
+            # Convert line breaks
+            content = content.replace('\n', '<br/>')
+            
+            story.append(Paragraph(content, content_style))
+            story.append(Spacer(1, 0.1 * inch))
+        
+        doc.build(story)
+        
+        pdf_content = buffer.getvalue()
+        buffer.close()
+        
+        # Create filename
+        safe_title = "".join(c for c in (conv.title or "conversation") if c.isalnum() or c in " _-").strip()
+        filename = f"{safe_title}_{conv.created_at.strftime('%Y%m%d')}.pdf"
+        
+        from fastapi.responses import Response
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+        
+    except ImportError:
+        raise HTTPException(500, "PDF generation requires reportlab. Install with: pip install reportlab")
+    except Exception as e:
+        raise HTTPException(500, f"PDF generation failed: {str(e)}")
+

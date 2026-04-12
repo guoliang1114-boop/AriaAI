@@ -2402,6 +2402,105 @@ const QUICK_PROMPTS = [
 // MBA-style messaging — aligned with main Chat.tsx design
 // Defined outside ChatTab to keep stable identity across renders — prevents unmount/remount flicker.
 
+// Export dropdown for conversation
+const ExportDropdown = memo<{ conversationId: number; conversationTitle?: string; isZh: boolean }>(
+  ({ conversationId, conversationTitle, isZh }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    
+    useEffect(() => {
+      const handleClickOutside = (e: MouseEvent) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+          setIsOpen(false);
+        }
+      };
+      if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isOpen]);
+    
+    const handleExport = async (format: "markdown" | "pdf") => {
+      setIsExporting(true);
+      try {
+        const token = localStorage.getItem("authToken");
+        const baseUrl = import.meta.env.VITE_API_URL || "/api";
+        const response = await fetch(`${baseUrl}/chat/conversations/${conversationId}/export`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Auth-Token": token || "",
+          },
+          body: JSON.stringify({ format }),
+        });
+        
+        if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        
+        const contentDisposition = response.headers.get("content-disposition");
+        let filename = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1];
+        if (!filename) {
+          const safeTitle = (conversationTitle || "conversation").replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
+          filename = `${safeTitle}.${format === "markdown" ? "md" : "pdf"}`;
+        }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        setIsOpen(false);
+      } catch (err) {
+        console.error("Export failed:", err);
+        alert(isZh ? "导出失败，请重试" : "Export failed, please try again");
+      } finally {
+        setIsExporting(false);
+      }
+    };
+    
+    return (
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={isExporting}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {isExporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          <span className="hidden sm:inline">{isZh ? "导出" : "Export"}</span>
+          <ChevronDown className="w-3 h-3" />
+        </button>
+        
+        {isOpen && (
+          <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+            <button
+              onClick={() => handleExport("markdown")}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <FileText className="w-4 h-4 text-gray-400" />
+              {isZh ? "导出为 Markdown" : "Export as Markdown"}
+            </button>
+            <button
+              onClick={() => handleExport("pdf")}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <FileText className="w-4 h-4 text-red-400" />
+              {isZh ? "导出为 PDF" : "Export as PDF"}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+);
+ExportDropdown.displayName = "ExportDropdown";
+
 // Copy button for assistant messages
 const MessageCopyButton = memo(({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
@@ -3053,6 +3152,15 @@ function ChatTab({ project }: { project: Project }) {
               </p>
             </div>
           </div>
+          
+          {/* Export button */}
+          {activeConversation?.id && (
+            <ExportDropdown 
+              conversationId={activeConversation.id}
+              conversationTitle={activeConversation.title}
+              isZh={isZh}
+            />
+          )}
         </div>
 
         {/* Messages Area */}
