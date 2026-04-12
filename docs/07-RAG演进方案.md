@@ -1,151 +1,90 @@
 # AriaAI RAG 演进方案
 
 > 更新日期：2026-04-12
-> 说明：基于当前 `knowledge.py`、`parser.py`、`rag.py` 与模型定义整理
+> 说明：结合最新 `context_builder.py` 重新描述 RAG 在系统中的位置
 
 ---
 
 ## 1. 当前结论
 
-当前 RAG 已经不是空壳，而是一个可运行的 baseline：
+RAG 仍然是可运行的 baseline，但它在架构中的位置已经更清晰了。
 
-```text
-上传文档
--> 解析文本
--> 切块
--> 生成 embedding
--> 存储到 DocumentChunk
--> query top-k
--> 注入聊天上下文
-```
+本轮更新后：
 
-它已经能支持第一阶段产品验证，但还没有达到稳定生产级检索系统的成熟度。
+- RAG 不再只是散落在 `chat.py` 里的逻辑片段
+- 它开始通过 `context_builder.py` 参与统一的聊天上下文组装
+
+这是一种重要但仍未完成的架构改进。
 
 ---
 
 ## 2. 当前实现
 
-### 2.1 关键文件
+路径大致是：
+
+```text
+上传文档
+-> 解析文本
+-> 切块
+-> embedding
+-> 存入 DocumentChunk
+-> 查询 top-k
+-> 通过 context_builder 注入聊天上下文
+```
+
+关键文件：
 
 - `AriaAI/backend/app/routers/knowledge.py`
 - `AriaAI/backend/app/services/parser.py`
 - `AriaAI/backend/app/services/rag.py`
-- `AriaAI/backend/app/models/db.py`
-
-### 2.2 当前配置
-
-在 `app/config.py` 中：
-
-- `CHUNK_SIZE = 800`
-- `CHUNK_OVERLAP = 100`
-- `TOP_K_RESULTS = 5`
-- `EMBEDDING_MODEL = "all-MiniLM-L6-v2"`
-
-### 2.3 当前数据模型
-
-- `KnowledgeDocument`
-- `DocumentChunk`
-
-其中：
-
-- `KnowledgeDocument.vector_status` 管理索引状态
-- `DocumentChunk.embedding_json` 用 JSON 保存向量
+- `AriaAI/backend/app/services/context_builder.py`
 
 ---
 
-## 3. 当前方案的优点
+## 3. 当前优点
 
-- 简单直接，易于调试
-- 不依赖外部向量数据库
-- 与当前 SQLite / PostgreSQL 模型兼容
-- 适合小规模知识库验证
-
----
-
-## 4. 当前方案的限制
-
-### 4.1 embedding 存储方式偏重
-
-- JSON 序列化体积大
-- 不适合规模扩大
-
-### 4.2 检索方式偏 baseline
-
-- 主要是向量相似度 + top-k
-- 缺少 rerank、metadata filter、query rewrite
-
-### 4.3 可解释性有限
-
-- 前端还没有完整展示 chunk 来源、分数和命中原因
-
-### 4.4 项目/客户上下文还未深度融入 RAG
-
-- 现在知识库是可用的
-- 但“客户知识”“项目知识”“全局知识”的层级仍不够清晰
+- 已经能够为聊天提供真实文档上下文
+- 与项目/技能上下文组装方向开始统一
+- 结构比之前更清晰
 
 ---
 
-## 5. 建议演进路线
+## 4. 当前限制
 
-### Phase 1：稳定 baseline
+- embedding 仍存为 JSON
+- 检索仍偏简单 top-k
+- 元数据过滤能力有限
+- 前端对引用来源的解释性仍不够强
 
-- 清理乱码和状态文案
-- 补充更多检索日志
-- 明确 chunk metadata
-- 让前端显示引用来源
+---
 
-### Phase 2：增强检索质量
+## 5. 后续演进建议
 
-- 增加 metadata filter
-- 增加 query rewrite
-- 增加 rerank
-- 区分客户 / 项目 / 全局知识空间
+### Phase 1
 
-### Phase 3：提升规模能力
+- 让 `context_builder` 持续成为统一注入入口
+- 把引用来源在前端展示得更清楚
 
-- 把 embedding 存储从 JSON 迁出
-- 引入向量索引或专门向量数据库
-- 加入增量索引和后台任务
+### Phase 2
+
+- metadata filter
+- rerank
+- query rewrite
+
+### Phase 3
+
+- 向量索引 / 专门向量库
+- 多知识空间
+- 检索评估体系
 
 ---
 
 ## 6. 与产品主线的关系
 
-RAG 的真正价值不在“能搜文档”，而在于为项目工作流服务：
+RAG 的意义不在“能搜”，而在：
 
 - 让项目内对话更懂上下文
-- 让技能输出更少幻觉
-- 让客户知识可复用
-- 让生成物有来源依据
+- 让生成物更有依据
+- 让客户和项目知识能复用
 
-所以 RAG 演进应该优先服务：
-
-- 项目
-- 客户
-- 生成物
-
-而不是孤立地追求更复杂的检索技术。
-
----
-
-## 7. 短期建议
-
-接下来最值得先做的几件事：
-
-1. 给 chunk 加更清晰的 metadata。
-2. 在聊天结果中展示引用来源。
-3. 明确项目知识与全局知识的检索优先级。
-4. 为知识同步增加更稳定的状态流转。
-
----
-
-## 8. 中长期方向
-
-当产品进入更大规模团队使用后，再考虑：
-
-- 向量索引服务
-- 多知识空间权限
-- 检索质量评估集
-- 混合检索与 rerank
-
-在那之前，最重要的是让当前这套 baseline 稳定、可解释、可维护。
+所以 RAG 的演进优先级，应始终服从项目工作流闭环。
