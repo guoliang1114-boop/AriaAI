@@ -119,7 +119,11 @@
     "fillTemplate": "Fill Template Variables",
     "noVariables": "This template has no variables to fill",
     "preview": "Preview",
-    "applyAndSend": "Apply & Send"
+    "applyAndSend": "Apply & Send",
+    "export": "Export",
+    "exportMarkdown": "Export as Markdown",
+    "exportPDF": "Export as PDF",
+    "exportFailed": "Export failed, please try again"
   },
   "projects": {
     "title": "Project Workspace",

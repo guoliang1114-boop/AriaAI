@@ -119,7 +119,11 @@
     "fillTemplate": "填写模板变量",
     "noVariables": "此模板没有需要填写的变量",
     "preview": "预览",
-    "applyAndSend": "应用并发送"
+    "applyAndSend": "应用并发送",
+    "export": "导出",
+    "exportMarkdown": "导出为 Markdown",
+    "exportPDF": "导出为 PDF",
+    "exportFailed": "导出失败，请重试"
   },
   "projects": {
     "title": "项目空间",

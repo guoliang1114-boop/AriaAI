@@ -1507,7 +1507,7 @@ function ExportDropdown({ conversationId, conversationTitle }: {
       setIsOpen(false)
     } catch (err) {
       console.error('Export failed:', err)
-      alert(t('chat.exportFailed') || '导出失败，请重试')
+      alert(t('chat.exportFailed'))
     } finally {
       setIsExporting(false)
     }
@@ -1519,14 +1519,14 @@ function ExportDropdown({ conversationId, conversationTitle }: {
         onClick={() => setIsOpen(!isOpen)}
         disabled={isExporting}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-        title={t('chat.export') || '导出对话'}
+        title={t('chat.export')}
       >
         {isExporting ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (
           <Download className="w-4 h-4" />
         )}
-        <span className="hidden sm:inline">{t('chat.export') || '导出'}</span>
+        <span className="hidden sm:inline">{t('chat.export')}</span>
         <ChevronDown className="w-3 h-3" />
       </button>
       
@@ -1537,14 +1537,14 @@ function ExportDropdown({ conversationId, conversationTitle }: {
             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <FileText className="w-4 h-4 text-gray-400" />
-            {t('chat.exportMarkdown') || '导出为 Markdown'}
+            {t('chat.exportMarkdown')}
           </button>
           <button
             onClick={() => handleExport('pdf')}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <FileIcon className="w-4 h-4 text-red-400" />
-            {t('chat.exportPDF') || '导出为 PDF'}
+            {t('chat.exportPDF')}
           </button>
         </div>
       )}
