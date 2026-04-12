@@ -190,7 +190,7 @@ async def generate_ppt(
             right_box.text_frame.word_wrap = True
             right_box.text_frame.text = slide_data.get("right_content", "")
 
-    # ── Move back cover to the end ───���────────────────────────────────────────
+    # ── Move back cover to the end ────────────────────────────────────────────
     # Template order after adding slides: [cover, back_cover, content1, content2, ...]
     # Desired order:                       [cover, content1, content2, ..., back_cover]
     if using_template and len(prs.slides) >= 2:
