@@ -43,7 +43,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          port: ${{ secrets.SSH_PORT || '22' }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
           source: "aria-web/dist/,AriaAI/backend/"
           target: "/www/wwwroot/AriaAI/"
           strip_components: 0
@@ -55,7 +55,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          port: ${{ secrets.SSH_PORT || '22' }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
           script: |
             cd /www/wwwroot/AriaAI/AriaAI/backend
             
