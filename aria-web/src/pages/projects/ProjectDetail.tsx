@@ -57,6 +57,9 @@ import {
   Package,
   Headphones,
   Archive,
+  Copy,
+  BookOpen,
+  Wrench,
 } from "lucide-react";
 import { api } from "../../api/client";
 import { PageTitle } from "../../components/PageTitle";
@@ -2396,37 +2399,101 @@ const QUICK_PROMPTS = [
 ];
 
 // ==================== Chat Message Components ====================
+// MBA-style messaging — aligned with main Chat.tsx design
 // Defined outside ChatTab to keep stable identity across renders — prevents unmount/remount flicker.
+
+// Copy button for assistant messages
+const MessageCopyButton = memo(({ text }: { text: string }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+      title="复制内容"
+    >
+      {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+});
+MessageCopyButton.displayName = "MessageCopyButton";
+
 const ChatMessageBubble = memo<{ msg: ChatMessage }>(
   ({ msg }) => {
+    const { t } = useTranslation();
     const isUser = msg.role === "user";
+    
+    // Parse references from metadata if any
+    let references: Array<{ type: string; id: number; title: string }> = [];
+    try {
+      const meta = JSON.parse((msg as any).metadata_json || '{}');
+      references = meta.references || [];
+    } catch (_) {}
+
     return (
-      <div className={`flex gap-3 ${isUser ? "justify-end" : ""}`}>
-        {!isUser && (
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20">
-            <Sparkles className="w-4 h-4 text-primary" />
-          </div>
-        )}
-        <div
-          className={`max-w-[85%] px-4 py-3 rounded-xl text-sm leading-relaxed shadow-sm border ${
-            isUser
-              ? "bg-primary text-white border-primary/20 rounded-tr-sm"
-              : "bg-white text-gray-700 border-gray-200 rounded-tl-sm"
-          }`}
-        >
+      <div className={`flex items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
+        {/* Avatar */}
+        <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+          isUser
+            ? 'bg-gray-200'
+            : 'bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20'
+        }`}>
           {isUser ? (
-            <p className="whitespace-pre-wrap">{msg.content}</p>
+            <span className="text-[10px] font-semibold text-gray-500">{t('chat.you', '你')}</span>
           ) : (
-            <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-code:text-primary prose-code:bg-gray-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200">
-              <MarkdownRenderer content={msg.content} />
-            </div>
+            <Sparkles className="w-3.5 h-3.5 text-white" />
           )}
         </div>
-        {isUser && (
-          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 border border-gray-200">
-            <User className="w-4 h-4 text-gray-500" />
+
+        {/* Content + actions */}
+        <div className={`flex-1 flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+          {/* Role label */}
+          <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">
+            {isUser ? t('chat.you', '你') : 'Aria'}
+          </p>
+
+          {/* Message bubble */}
+          <div className={`max-w-[85%] ${
+            isUser
+              ? 'px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]'
+              : 'text-[15px] leading-[1.8] text-gray-700'
+          }`}>
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+            ) : (
+              <div className="md-root">
+                <MarkdownRenderer content={msg.content} />
+              </div>
+            )}
           </div>
-        )}
+
+          {/* References — for AI messages */}
+          {!isUser && references.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {references.map((ref, i) => (
+                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200">
+                  {ref.type === 'skill' && <Wrench className="w-3 h-3" />}
+                  {ref.type === 'doc' && <BookOpen className="w-3 h-3" />}
+                  {ref.type === 'file' && <FileText className="w-3 h-3" />}
+                  {ref.title}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Timestamp + copy — visible on hover */}
+          <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+            <span className="text-[11px] text-gray-300 px-0.5">
+              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            {!isUser && <MessageCopyButton text={msg.content} />}
+          </div>
+        </div>
       </div>
     );
   },
@@ -2436,19 +2503,29 @@ const ChatMessageBubble = memo<{ msg: ChatMessage }>(
 ChatMessageBubble.displayName = "ChatMessageBubble";
 
 const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
+  const { t } = useTranslation();
   const renderedContent = useMemo(
     () => <MarkdownRenderer content={content} />,
     [content],
   );
   return (
-    <div className="flex gap-3">
-      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20">
-        <Sparkles className="w-4 h-4 text-primary" />
+    <div className="flex items-start gap-3.5">
+      {/* Avatar */}
+      <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20">
+        <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
-      <div className="bg-white rounded-xl rounded-tl-sm px-4 py-3 max-w-[85%] text-sm leading-relaxed shadow-sm border border-gray-200">
-        <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-code:text-primary prose-code:bg-gray-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200">
-          {renderedContent}
-          <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
+
+      {/* Content */}
+      <div className="flex-1 flex flex-col items-start">
+        {/* Role label */}
+        <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">Aria</p>
+
+        {/* Message content — MBA style: no bubble, just text */}
+        <div className="max-w-[85%] text-[15px] leading-[1.8] text-gray-700">
+          <div className="md-root">
+            {renderedContent}
+            <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
+          </div>
         </div>
       </div>
     </div>
