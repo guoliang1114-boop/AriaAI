@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from pathlib import Path
+
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,89 +12,19 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import Conversation, Message, Milestone, Project, ProjectFile, ProjectPayment, Skill
-from app.services import claude, rag, openai_compat
+from app.models.db import Conversation, Message
+from app.services import claude, openai_compat
 from app.services.cache import conversations_cache
+from app.services.context_builder import build_chat_context
+from app.config import (
+    CONVERSATION_CACHE_TTL, MODEL_ALIASES, DEFAULT_MODELS,
+    DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
+)
 
-_CONV_TTL = 20.0
+_CONV_TTL = CONVERSATION_CACHE_TTL
 from app.models.db import Setting as _Setting
-from app.services.tool_executor import format_tools_for_claude
 from app.tools import registry
-
-try:
-    import pdfplumber as _pdfplumber
-    _HAS_PDF = True
-except ImportError:
-    _HAS_PDF = False
-
-try:
-    from docx import Document as _DocxDocument
-    _HAS_DOCX = True
-except ImportError:
-    _HAS_DOCX = False
-
-try:
-    from pptx import Presentation as _Presentation
-    _HAS_PPTX = True
-except ImportError:
-    _HAS_PPTX = False
-
-try:
-    import openpyxl as _openpyxl
-    _HAS_XLSX = True
-except ImportError:
-    _HAS_XLSX = False
-
-
-def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
-    """Extract plain text from a project file for AI context injection."""
-    if not path.exists():
-        return "[File not found]"
-    try:
-        ft = file_type.lower()
-        if ft == "pdf" and _HAS_PDF:
-            with _pdfplumber.open(path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages[:15]]
-            text = "\n".join(pages)
-        elif ft == "docx" and _HAS_DOCX:
-            doc = _DocxDocument(str(path))
-            text = "\n".join(p.text for p in doc.paragraphs)
-        elif ft == "pptx" and _HAS_PPTX:
-            prs = _Presentation(str(path))
-            parts = []
-            for i, slide in enumerate(prs.slides):
-                slide_texts = []
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        slide_texts.append(shape.text.strip())
-                if slide_texts:
-                    parts.append(f"[Slide {i+1}]\n" + "\n".join(slide_texts))
-            text = "\n\n".join(parts)
-        elif ft in ("xlsx", "xls") and _HAS_XLSX:
-            wb = _openpyxl.load_workbook(str(path), read_only=True, data_only=True)
-            parts = []
-            for sheet in wb.worksheets:
-                rows = []
-                for row in sheet.iter_rows(max_row=200, values_only=True):
-                    cells = [str(c) if c is not None else "" for c in row]
-                    if any(c.strip() for c in cells):
-                        rows.append("\t".join(cells))
-                if rows:
-                    parts.append(f"[Sheet: {sheet.title}]\n" + "\n".join(rows))
-            wb.close()
-            text = "\n\n".join(parts)
-        elif ft in ("txt", "md", "csv", "json"):
-            text = path.read_text(encoding="utf-8", errors="replace")
-        else:
-            return "[Binary file — text extraction not supported for this format]"
-        text = text.strip()
-        if len(text) > max_chars:
-            return text[:max_chars] + "\n…[truncated]"
-        return text if text else "[File appears to be empty]"
-    except Exception as exc:
-        return f"[Could not extract text: {exc}]"
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -138,26 +68,14 @@ def _get_llm(session: Session):
     return claude
 
 
-# Old short aliases → correct full model IDs
-_MODEL_ALIASES: dict[str, str] = {
-    "claude-opus-4":   "claude-opus-4-6",
-    "claude-sonnet-4": "claude-sonnet-4-6",
-    "claude-haiku-4":  "claude-haiku-4-5-20251001",
-}
-
-
 def _get_selected_model(session: Session, provider: str) -> str:
     """Get the selected model for the given provider."""
     setting = session.get(_Setting, "selected_model")
     if setting and setting.value:
         model = setting.value.strip()
-        return _MODEL_ALIASES.get(model, model)
+        return MODEL_ALIASES.get(model, model)
     # Return default model based on provider
-    if provider == "kimi":
-        return "moonshot-v1-32k"
-    if provider == "bigmodel":
-        return "glm-5.1"
-    return "claude-sonnet-4-6"
+    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["claude"])
 
 
 def _get_setting_value(session: Session, key: str, default: str = "") -> str:
@@ -333,161 +251,25 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     session.add(user_msg)
     session.commit()
 
-    # Build system prompt and load tools
-    skill_prompt = ""
-    tools = None
-    # Read max_tokens and temperature from DB settings (fallback to defaults)
-    max_tokens = _get_int_setting(session, "max_tokens", 4096) or 4096
-    temperature = _get_float_setting(session, "temperature", 0.7) or 0.7
-    if req.skill_id:
-        skill = session.get(Skill, req.skill_id)
-        if skill:
-            skill_prompt = skill.system_prompt
-            max_tokens = skill.max_tokens or max_tokens
-            # Load tools from skill
-            if skill.tools_definition_json and skill.tools_definition_json.strip():
-                try:
-                    tools = format_tools_for_claude(json.loads(skill.tools_definition_json))
-                except json.JSONDecodeError:
-                    pass
-
-    project_context = ""
-    if not req.project_id:
-        # ── Global workspace context ──────────────────────────────────────────
-        # Inject a compact overview of all non-archived projects so the AI can
-        # answer portfolio-level questions (progress, milestones, risks, etc.)
-        all_projects = session.exec(
-            select(Project).where(Project.status != "archived").order_by(Project.updated_at.desc())
-        ).all()
-        if all_projects:
-            today_str = datetime.utcnow().strftime("%Y-%m-%d")
-            ws_lines = [
-                f"# 工作台全局数据（截至 {today_str}）",
-                f"当前共有 {len(all_projects)} 个活跃项目。以下是每个项目的详细信息：\n",
-            ]
-            for p in all_projects:
-                ws_lines.append(f"## 项目：{p.name}")
-                ws_lines.append(f"- 客户：{p.client}")
-                ws_lines.append(f"- 阶段：{p.status}")
-                if p.contract_amount:
-                    ws_lines.append(f"- 合同金额：¥{p.contract_amount:,.0f}")
-                if p.description:
-                    ws_lines.append(f"- 简介：{p.description[:200]}")
-                if p.context_summary:
-                    ws_lines.append(f"- AI 摘要：{p.context_summary[:300]}")
-                if p.notes:
-                    ws_lines.append(f"- 项目笔记：{p.notes[:200]}")
-                # Milestones
-                milestones = session.exec(
-                    select(Milestone).where(Milestone.project_id == p.id)
-                ).all()
-                if milestones:
-                    done = sum(1 for m in milestones if m.is_done)
-                    overdue = [m for m in milestones if not m.is_done and m.due_date and m.due_date < today_str]
-                    ws_lines.append(f"- 里程碑：{done}/{len(milestones)} 已完成" + (f"，{len(overdue)} 个已逾期" if overdue else ""))
-                    for m in milestones:
-                        status_icon = "✓" if m.is_done else ("⚠ 逾期" if m.due_date and m.due_date < today_str else "○")
-                        due = f"（截止 {m.due_date}）" if m.due_date else ""
-                        priority = "【高优先级】" if m.priority == "high" else ""
-                        ws_lines.append(f"  {status_icon} {m.title}{priority}{due}")
-                # Financials
-                payments = session.exec(
-                    select(ProjectPayment).where(ProjectPayment.project_id == p.id)
-                ).all()
-                if payments:
-                    received = sum(pay.amount for pay in payments if pay.payment_type == "received")
-                    expense = sum(pay.amount for pay in payments if pay.payment_type == "expense")
-                    if received or expense:
-                        ws_lines.append(f"- 财务：已收款 ¥{received:,.0f}，支出 ¥{abs(expense):,.0f}")
-                ws_lines.append("")
-            project_context = "\n".join(ws_lines)
-
-    if req.project_id:
-        project = session.get(Project, req.project_id)
-        if project:
-            lines = [
-                f"**Project Name:** {project.name}",
-                f"**Client:** {project.client}",
-                f"**Status:** {project.status}",
-            ]
-            if project.description:
-                lines.append(f"**Description:** {project.description}")
-            if project.contract_amount:
-                lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
-
-            # AI-generated context summary (V1.1)
-            if project.context_summary:
-                lines.append(f"\n**Project Context Summary:**\n{project.context_summary}")
-
-            # Accumulated project notes (V1.1)
-            if project.notes:
-                lines.append(f"\n**Project Notes:**\n{project.notes}")
-
-            milestones = session.exec(
-                select(Milestone).where(Milestone.project_id == project.id)
-            ).all()
-            if milestones:
-                lines.append("\n**Milestones:**")
-                for m in milestones:
-                    status_icon = "✓" if m.is_done else "○"
-                    due = f" (due: {m.due_date})" if m.due_date else ""
-                    priority = f" [{m.priority} priority]" if m.priority == "high" else ""
-                    lines.append(f"  {status_icon} {m.title}{priority}{due}")
-
-            files = session.exec(
-                select(ProjectFile).where(ProjectFile.project_id == project.id)
-            ).all()
-            file_content_sections = []
-            if files:
-                lines.append("\n**Uploaded Documents (full content auto-injected below):**")
-                total_chars = 0
-                MAX_TOTAL_CHARS = 40000  # cap total injected content to ~10k tokens
-                for f in files:
-                    summary_hint = f" — {f.summary[:80]}" if f.summary else ""
-                    lines.append(f"  - {f.name} ({f.file_type.upper()}){summary_hint}")
-                    # Auto-inject readable file content (skip if budget exceeded)
-                    if f.file_type.lower() in ("pdf", "docx", "pptx", "xlsx", "xls", "txt", "md", "csv", "json") and total_chars < MAX_TOTAL_CHARS:
-                        full_path = UPLOADS_DIR / f.path
-                        text = _extract_file_text(full_path, f.file_type, max_chars=min(8000, MAX_TOTAL_CHARS - total_chars))
-                        if text and not text.startswith("["):
-                            file_content_sections.append(f"### {f.name}\n{text}")
-                            total_chars += len(text)
-
-            payments = session.exec(
-                select(ProjectPayment).where(ProjectPayment.project_id == project.id)
-            ).all()
-            if payments:
-                received = sum(p.amount for p in payments if p.payment_type == "received")
-                expense = sum(p.amount for p in payments if p.payment_type == "expense")
-                if received or expense:
-                    lines.append(f"\n**Financials:** Received ¥{received:,.0f} | Expenses ¥{abs(expense):,.0f}")
-
-            project_context = "\n".join(lines)
-
-            # Append auto-injected file contents after the summary block
-            if file_content_sections:
-                project_context += "\n\n## Project File Contents\n" + "\n\n---\n\n".join(file_content_sections)
-
-    rag_context = ""
-    if req.rag_doc_ids:
-        rag_context = rag.retrieve(req.content, session, req.rag_doc_ids)
-    elif "#doc" in req.content:
-        rag_context = rag.retrieve(req.content, session)
-
-    # Inject selected project file contents
-    print(f"[chat] file_ids received: {req.file_ids}", flush=True)
-    if req.file_ids:
-        file_sections = []
-        for fid in req.file_ids:
-            pf = session.get(ProjectFile, fid)
-            if pf:
-                full_path = UPLOADS_DIR / pf.path
-                text = _extract_file_text(full_path, pf.file_type)
-                file_sections.append(f"### {pf.name}\n{text}")
-        if file_sections:
-            attachment_block = "\n\n---\n\n".join(file_sections)
-            project_context = (project_context + "\n\n## Attached Files\n" + attachment_block
-                               if project_context else "## Attached Files\n" + attachment_block)
+    # Build chat context using context_builder
+    max_tokens = _get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
+    temperature = _get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
+    
+    chat_ctx = build_chat_context(
+        session=session,
+        skill_id=req.skill_id,
+        project_id=req.project_id,
+        rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
+        file_ids=req.file_ids if req.file_ids else None,
+        content=req.content,
+        default_max_tokens=max_tokens,
+    )
+    
+    skill_prompt = chat_ctx.skill_prompt
+    project_context = chat_ctx.project_context
+    rag_context = chat_ctx.rag_context
+    tools = chat_ctx.tools
+    max_tokens = chat_ctx.max_tokens
 
     llm = _get_llm(session)
     provider = "kimi" if llm == openai_compat else "claude"
@@ -821,8 +603,8 @@ async def test_connection(req: TestConnectionRequest):
 class TestModelRequest(BaseModel):
     message: str
     model: str
-    temperature: float = 0.7
-    max_tokens: int = 100
+    temperature: float = DEFAULT_TEMPERATURE
+    max_tokens: int = 100  # Keep 100 for test endpoint (low cost)
 
 
 @router.post("/test-model")

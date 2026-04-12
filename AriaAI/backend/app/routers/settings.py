@@ -15,9 +15,10 @@ from app.core.security import (
 from app.database import get_session
 from app.models.db import Setting
 from app.services.cache import TTLCache
+from app.config import SETTINGS_CACHE_TTL
 
 _settings_cache = TTLCache()
-_SETTINGS_TTL = 300.0  # 5 min — settings change only when the user explicitly edits them
+_SETTINGS_TTL = SETTINGS_CACHE_TTL  # Use unified config
 
 _ALL_KEY = "__all__"
 

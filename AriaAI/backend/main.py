@@ -1,5 +1,4 @@
 """AriaAI FastAPI backend — entry point."""
-import os
 import time
 import logging
 from contextlib import asynccontextmanager
@@ -9,6 +8,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.config import (
+    LOG_LEVEL, LOG_FORMAT, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS,
+    JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL
+)
 from app.database import create_db, migrate_db, engine
 from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, artifacts
 from app.routers import auth as auth_router
@@ -21,11 +24,12 @@ from app.routers.skills import DEFAULT_SKILLS
 from app.routers.projects import _init_default_folders
 from sqlmodel import Session, select
 from app.models.db import Project, Skill, ProjectFolder, User, UserToken
+from app.config import JWT_SECRET  # Fallback for admin seed
 
-# 配置日志
+# Configure logging from unified config
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    format=LOG_FORMAT,
     handlers=[logging.StreamHandler()]
 )
 
@@ -61,11 +65,13 @@ async def lifespan(app: FastAPI):
     _backfill_folders()
     _patch_templates()
     # Seed default admin (only if no users exist)
-    admin_email = os.getenv("ADMIN_EMAIL", "admin@d2cgo.com")
-    admin_password = os.getenv("ADMIN_PASSWORD", "Admin@d2cgo")
+    from app.config import os as config_os  # Import os locally to avoid shadowing
+    admin_email = config_os.getenv("ADMIN_EMAIL", "admin@d2cgo.com")
+    admin_password = config_os.getenv("ADMIN_PASSWORD", "Admin@d2cgo")
     with Session(engine) as session:
         seed_admin_user(session, email=admin_email, password=admin_password, display_name="Admin")
-    scheduler.start()
+    if SCHEDULER_ENABLED:
+        scheduler.start()
     yield
     # Shutdown
     scheduler.shutdown()
@@ -79,16 +85,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     expose_headers=["*"],
 )
 
 # Auth token in-memory cache: token → (user_id, expiry_timestamp)
 _TOKEN_CACHE: dict[str, tuple[int, float]] = {}
-_TOKEN_CACHE_TTL = 300  # 5 minutes
+_TOKEN_CACHE_TTL = int(SETTINGS_CACHE_TTL)  # Use config value (default 300s / 5min)
 
 
 def _get_cached_user_id(token: str) -> Optional[int]:
