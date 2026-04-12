@@ -40,9 +40,9 @@ jobs:
       - name: Deploy to Server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SSH_PORT || '22' }}
           source: "aria-web/dist/,AriaAI/backend/"
           target: "/www/wwwroot/AriaAI/"
@@ -52,9 +52,9 @@ jobs:
       - name: Execute Remote Deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SSH_PORT || '22' }}
           script: |
             cd /www/wwwroot/AriaAI/AriaAI/backend
