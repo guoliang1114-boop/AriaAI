@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  db:
+    image: postgres:15-alpine
+    container_name: ariaai-db
+    restart: always
+    environment:
+      POSTGRES_DB: ariaai
+      POSTGRES_USER: ariaai
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ariaai-network
+
+  # 后端 API
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ariaai-backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://ariaai:${DB_PASSWORD:-changeme123}@db:5432/ariaai
+      JWT_SECRET: ${JWT_SECRET:-changeme-secret}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      CORS_ORIGINS: "*"
+      ENABLE_BIGMODEL: "true"
+      ENABLE_RAG: "true"
+      ENABLE_FILE_GENERATION: "true"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      - db
+    networks:
+      - ariaai-network
+
+  # 前端 Nginx
+  frontend:
+    build:
+      context: ../aria-web
+      dockerfile: Dockerfile
+    container_name: ariaai-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - ariaai-network
+
+volumes:
+  postgres_data:
+  uploads:
+
+networks:
+  ariaai-network:
+    driver: bridge
