@@ -7,10 +7,40 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.database import get_session
+from app.database import get_session, engine
 from app.models.db import User, UserToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _fix_user_id_sequence(session: Session) -> None:
+    """
+    Fix PostgreSQL sequence for user.id when it falls out of sync.
+    
+    This happens when:
+    - Data was manually inserted with explicit IDs
+    - Database was migrated from SQLite
+    - Sequence was not updated after bulk operations
+    """
+    # Only run for PostgreSQL
+    if "postgresql" not in str(engine.url).lower():
+        return
+    
+    try:
+        # Reset sequence to the maximum id in the table
+        from sqlalchemy import text
+        session.exec(text("""
+            SELECT setval(
+                pg_get_serial_sequence('"user"', 'id'),
+                COALESCE((SELECT MAX(id) FROM "user"), 0) + 1,
+                false
+            )
+        """))
+        session.commit()
+    except Exception:
+        # If it fails (e.g., sequence doesn't exist), ignore
+        session.rollback()
+        pass
 
 
 def _hash(password: str) -> str:
@@ -212,6 +242,9 @@ def create_user(
         raise HTTPException(status_code=409, detail="Email already registered")
     if len(body.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    # Fix sequence before creating user (PostgreSQL only)
+    _fix_user_id_sequence(session)
 
     user = User(
         email=body.email.lower().strip(),
