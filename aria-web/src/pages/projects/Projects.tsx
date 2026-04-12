@@ -246,8 +246,9 @@ function getProjectStage(project: Project): ProjectStage {
   if (ALL_STAGE_IDS.includes(project.status as ProjectStage)) return project.status as ProjectStage
   switch (project.status) {
     case 'lead': return 'lead_discovery'
-    case 'active': return 'execution'
-    case 'completed': return 'delivery'
+    case 'opportunity': return 'execution'
+    case 'won': return 'delivery'
+    case 'delivering': return 'delivery'
     case 'archived': return 'archived'
     default: return 'lead_discovery'
   }

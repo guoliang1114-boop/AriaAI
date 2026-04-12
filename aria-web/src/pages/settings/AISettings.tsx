@@ -323,14 +323,15 @@ export function AISettings() {
         model: selectedModel 
       })
       
-      if (result.success) {
+      const res = result as { success: boolean; message?: string }
+      if (res.success) {
         setSuccessMessage(
           t('settings.ai.testSuccess', { provider: providerNames[provider] }) || 
           `${providerNames[provider]} connection successful`
         )
         setApiKeyStatus(prev => ({ ...prev, [provider]: true }))
       } else {
-        setError(result.message || 'Connection test failed')
+        setError(res.message || 'Connection test failed')
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Connection test failed')
@@ -353,10 +354,11 @@ export function AISettings() {
         max_tokens: maxTokens,
       })
       
-      if (result.success) {
+      const res = result as { success: boolean; message?: string }
+      if (res.success) {
         setSuccessMessage('Model test successful! Response received.')
       } else {
-        setError(result.message || 'Model test failed')
+        setError(res.message || 'Model test failed')
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Model test failed')

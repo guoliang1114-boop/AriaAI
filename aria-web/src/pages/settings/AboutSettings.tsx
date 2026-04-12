@@ -103,8 +103,8 @@ export function AboutSettings() {
         setSystemInfo(prev => ({
           ...prev,
           apiStatus: 'online',
-          apiVersion: health.version,
-          environment: health.environment || 'production',
+          apiVersion: (health as any).version,
+          environment: (health as any).environment || 'production',
         }))
       } catch {
         setSystemInfo(prev => ({

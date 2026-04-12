@@ -46,11 +46,11 @@ export function SkillForm() {
         name: skill.name,
         category: skill.category,
         description: skill.description,
-        systemPrompt: skill.systemPrompt,
-        userTemplate: skill.userTemplate,
-        estimatedTime: skill.estimatedTime,
-        toolsDefinitionJson: skill.toolsDefinitionJson,
-        isGuidedWorkflow: skill.isGuidedWorkflow,
+        systemPrompt: (skill as any).systemPrompt || skill.system_prompt,
+        userTemplate: (skill as any).userTemplate || skill.user_template,
+        estimatedTime: (skill as any).estimatedTime || skill.estimated_time,
+        toolsDefinitionJson: (skill as any).toolsDefinitionJson || skill.tools_definition_json,
+        isGuidedWorkflow: (skill as any).isGuidedWorkflow || false,
       })
     } catch (error) {
       console.error('Failed to fetch skill:', error)

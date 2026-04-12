@@ -359,7 +359,7 @@ export function Welcome() {
                       {[
                         { label: '全部', value: projects.length, color: 'text-gray-700' },
                         { label: '进行中', value: nonArchived.filter(p => ['execution','delivery','kickoff','active'].includes(p.status)).length, color: 'text-blue-600' },
-                        { label: '已完成', value: projects.filter(p => p.status === 'completed').length, color: 'text-emerald-600' },
+                        { label: '已交付', value: projects.filter(p => p.status === 'delivering' || p.status === 'won').length, color: 'text-emerald-600' },
                         { label: '已归档', value: projects.filter(p => p.status === 'archived').length, color: 'text-gray-500' },
                       ].map(s => (
                         <div key={s.label} className="flex-1 text-center">
