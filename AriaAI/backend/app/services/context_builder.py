@@ -15,7 +15,7 @@ from app.models.db import (
     ProjectPayment,
     Skill,
 )
-from app.services import rag
+from app.services.rag import retrieve_structured
 from app.services.tool_executor import format_tools_for_claude
 
 try:
@@ -306,17 +306,26 @@ def build_rag_context(
     query: str,
     rag_doc_ids: Optional[list[int]] = None,
     auto_trigger: bool = True,
-) -> str:
-    """Build RAG context from knowledge documents."""
-    # Explicit RAG doc IDs
-    if rag_doc_ids:
-        return rag.retrieve(query, session, rag_doc_ids)
+) -> dict:
+    """
+    Build RAG context from knowledge documents.
     
-    # Auto-trigger via #doc keyword
-    if auto_trigger and "#doc" in query:
-        return rag.retrieve(query, session)
+    Returns structured dict with both text for LLM and sources for citations.
+    """
+    # Check if RAG should trigger
+    should_retrieve = bool(rag_doc_ids) or (auto_trigger and "#doc" in query)
     
-    return ""
+    if not should_retrieve:
+        return {"text": "", "sources": []}
+    
+    # Perform structured retrieval
+    ctx = retrieve_structured(query, session, rag_doc_ids)
+    
+    return {
+        "text": ctx.to_text(),
+        "sources": [r.to_dict() for r in ctx.results],
+        "query": ctx.query,
+    }
 
 
 class ChatContext:
@@ -326,12 +335,14 @@ class ChatContext:
         skill_prompt: str = "",
         project_context: str = "",
         rag_context: str = "",
+        rag_sources: Optional[list] = None,
         tools: Optional[list] = None,
         max_tokens: int = 4096,
     ):
         self.skill_prompt = skill_prompt
         self.project_context = project_context
         self.rag_context = rag_context
+        self.rag_sources = rag_sources or []
         self.tools = tools
         self.max_tokens = max_tokens
 
@@ -356,12 +367,13 @@ def build_chat_context(
         project_context = build_global_workspace_context(session)
     
     # Build RAG context
-    rag_context = build_rag_context(session, content, rag_doc_ids)
+    rag_data = build_rag_context(session, content, rag_doc_ids)
     
     return ChatContext(
         skill_prompt=skill_ctx.skill_prompt,
         project_context=project_context,
-        rag_context=rag_context,
+        rag_context=rag_data["text"],
+        rag_sources=rag_data["sources"],
         tools=skill_ctx.tools,
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
     )

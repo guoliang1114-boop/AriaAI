@@ -191,6 +191,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     skill_prompt = chat_ctx.skill_prompt
     project_context = chat_ctx.project_context
     rag_context = chat_ctx.rag_context
+    rag_sources = chat_ctx.rag_sources
     tools = chat_ctx.tools
     max_tokens = chat_ctx.max_tokens
 
@@ -214,6 +215,10 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     async def event_stream():
         conv_id = conv.id
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': conv_id})}\n\n"
+        
+        # Send RAG sources if available (for citation display)
+        if rag_sources:
+            yield f"data: {json.dumps({'type': 'references', 'references': rag_sources})}\n\n"
 
         try:
             # ── Phase 1: stream first Claude turn ────────────────────────────

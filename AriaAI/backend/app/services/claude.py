@@ -11,7 +11,9 @@ from collections.abc import AsyncIterator
 import httpx
 import anthropic
 from app.core.security import get_api_key
-from app.config import DEFAULT_MODEL, DEFAULT_MAX_TOKENS
+from app.config import DEFAULT_MODELS, DEFAULT_MAX_TOKENS
+
+DEFAULT_MODEL = DEFAULT_MODELS["claude"]
 from app.database import engine
 from sqlmodel import Session
 from app.models.db import Setting

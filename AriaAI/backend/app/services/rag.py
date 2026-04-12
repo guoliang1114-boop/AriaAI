@@ -43,7 +43,59 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     return float(np.dot(va, vb) / denom)
 
 
-def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) -> str:
+class RetrievalResult:
+    """Structured RAG retrieval result with source attribution."""
+    def __init__(self, content: str, document_name: str, document_id: int, 
+                 chunk_index: int, score: float):
+        self.content = content
+        self.document_name = document_name
+        self.document_id = document_id
+        self.chunk_index = chunk_index
+        self.score = score
+    
+    def to_dict(self) -> dict:
+        return {
+            "content": self.content,
+            "document_name": self.document_name,
+            "document_id": self.document_id,
+            "chunk_index": self.chunk_index,
+            "score": round(self.score, 4),
+        }
+
+
+class RetrievalContext:
+    """Complete RAG context with sources for frontend display."""
+    def __init__(self, results: List[RetrievalResult], query: str):
+        self.results = results
+        self.query = query
+    
+    def to_text(self) -> str:
+        """Convert to legacy text format for LLM prompt."""
+        if not self.results:
+            return ""
+        lines = []
+        for r in self.results:
+            lines.append(f"[{r.document_name}] {r.content}")
+        return "\n\n---\n\n".join(lines)
+    
+    def to_dict(self) -> dict:
+        """Convert to structured format for API response."""
+        return {
+            "query": self.query,
+            "results_count": len(self.results),
+            "results": [r.to_dict() for r in self.results],
+            "text": self.to_text(),
+        }
+
+
+def retrieve_structured(query: str, session: Session, 
+                        doc_ids: Optional[List[int]] = None) -> RetrievalContext:
+    """
+    Retrieve relevant chunks with full source attribution.
+    
+    This is the new primary retrieval function. Use to_text() for LLM prompts,
+    or to_dict() for API responses with citation support.
+    """
     query_embedding = embed_texts([query])[0]
 
     stmt = select(DocumentChunk)
@@ -52,7 +104,7 @@ def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) 
 
     chunks = session.exec(stmt).all()
     if not chunks:
-        return ""
+        return RetrievalContext([], query)
 
     scored = [
         (cosine_similarity(query_embedding, chunk.embedding), chunk)
@@ -63,17 +115,36 @@ def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) 
     top = scored[:TOP_K_RESULTS]
 
     if not top:
-        return ""
+        return RetrievalContext([], query)
 
-    lines = []
-    doc_ids = [chunk.document_id for _, chunk in top]
-    docs = session.exec(select(KnowledgeDocument).where(KnowledgeDocument.id.in_(doc_ids))).all()
-    doc_map = {d.id: d.name for d in docs}
+    # Fetch document names
+    doc_ids_found = list(set(chunk.document_id for _, chunk in top))
+    docs = session.exec(select(KnowledgeDocument).where(
+        KnowledgeDocument.id.in_(doc_ids_found)
+    )).all()
+    doc_map = {d.id: d for d in docs}
+
+    results = []
     for score, chunk in top:
-        doc_name = doc_map.get(chunk.document_id, "Unknown")
-        lines.append(f"[{doc_name}] {chunk.content}")
+        doc = doc_map.get(chunk.document_id)
+        results.append(RetrievalResult(
+            content=chunk.content,
+            document_name=doc.name if doc else "Unknown",
+            document_id=chunk.document_id,
+            chunk_index=chunk.chunk_index,
+            score=score,
+        ))
 
-    return "\n\n---\n\n".join(lines)
+    return RetrievalContext(results, query)
+
+
+def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) -> str:
+    """
+    Legacy retrieve function — returns text for LLM prompt.
+    
+    Use retrieve_structured() for new code that needs source attribution.
+    """
+    return retrieve_structured(query, session, doc_ids).to_text()
 
 
 async def index_document(document: KnowledgeDocument, text: str, session: Session) -> None:
