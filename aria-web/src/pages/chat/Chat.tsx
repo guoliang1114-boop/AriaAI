@@ -196,6 +196,8 @@ export function Chat() {
     preview: string
   } | null>(null)
   const processedSkillRef = useRef<number | null>(null)
+  // Track streaming state for recovery after navigation
+  const streamingConvIdRef = useRef<number | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -219,6 +221,21 @@ export function Chat() {
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => { fetchInitialData() }, [])
 
+  // ── Recover streaming state on mount ───────────────────────────────────────
+  useEffect(() => {
+    // Check if we have a pending streaming conversation
+    const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
+    if (pendingConvId) {
+      const convId = parseInt(pendingConvId)
+      sessionStorage.removeItem('pendingStreamingConvId')
+      // If we're not already on this conversation, we'll load it
+      // The loadConversation effect will handle refreshing messages
+      if (!conversationId || parseInt(conversationId) !== convId) {
+        navigate(`/chat?conversation=${convId}`, { replace: true })
+      }
+    }
+  }, [])
+
   // Once conversations list loads, backfill conversation info if not yet set
   useEffect(() => {
     if (conversationId && conversations.length > 0 && !conversation) {
@@ -233,7 +250,40 @@ export function Chat() {
         skipNextConvLoadRef.current = false
         return
       }
-      loadConversation(parseInt(conversationId))
+      const convId = parseInt(conversationId)
+      loadConversation(convId)
+      
+      // If we're recovering from a streaming interruption, poll for updates
+      const pendingId = sessionStorage.getItem('pendingStreamingConvId')
+      if (pendingId && parseInt(pendingId) === convId) {
+        // Poll for message completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const msgs = await api.get<Message[]>(`/chat/conversations/${convId}/messages?limit=5`)
+            // Check if the last assistant message has complete content
+            const lastAssistantMsg = [...msgs].reverse().find(m => m.role === 'assistant')
+            if (lastAssistantMsg) {
+              // Check if there's a newer complete message than what we have
+              const currentLastMsg = [...messages].reverse().find(m => m.role === 'assistant')
+              if (!currentLastMsg || lastAssistantMsg.id !== currentLastMsg.id || 
+                  lastAssistantMsg.content !== currentLastMsg.content) {
+                setMessages(msgs)
+              }
+              // Check if streaming is done (no pending marker)
+              if (!sessionStorage.getItem('pendingStreamingConvId')) {
+                clearInterval(pollInterval)
+              }
+            }
+          } catch (e) {
+            console.error('Poll error:', e)
+          }
+        }, 2000) // Poll every 2 seconds
+        
+        // Stop polling after 2 minutes (max streaming time)
+        setTimeout(() => clearInterval(pollInterval), 120000)
+        
+        return () => clearInterval(pollInterval)
+      }
     } else {
       setLoading(false)
       setMessages([])
@@ -255,6 +305,19 @@ export function Chat() {
     }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  // Save streaming state when component unmounts (user navigates away)
+  useEffect(() => {
+    return () => {
+      // If we're streaming and user navigates away, keep the pending state
+      // The state is already saved in sessionStorage when streaming starts
+      // Just abort the connection to avoid memory leaks
+      if (isStreamingRef.current && streamingConvIdRef.current) {
+        // Don't remove from sessionStorage - we want to recover when user comes back
+        abortControllerRef.current?.abort()
+      }
+    }
   }, [])
 
   // ── Data fetch ────────────────────────────────────────────────────────────
@@ -520,6 +583,9 @@ export function Chat() {
 
     const controller = new AbortController()
     abortControllerRef.current = controller
+    
+    // Will be set when conversation is created/confirmed
+    let currentConvIdForCleanup: number | null = null
 
     try {
       let currentConvId = conversation?.id
@@ -534,12 +600,20 @@ export function Chat() {
           project_id: selectedProject, skill_id: selectedSkill, title,
         })
         currentConvId = newConv.id
+        currentConvIdForCleanup = newConv.id
+        streamingConvIdRef.current = newConv.id
+        // Save to sessionStorage for recovery if user navigates away
+        sessionStorage.setItem('pendingStreamingConvId', String(newConv.id))
         setConversation(newConv)
         setConversations(prev => [newConv, ...prev])
         skipNextConvLoadRef.current = true
         navigate(`/chat?conversation=${newConv.id}`, { replace: true })
         isNewConvRef.current = true
         firstMessageRef.current = msgText
+      } else {
+        currentConvIdForCleanup = currentConvId
+        streamingConvIdRef.current = currentConvId
+        sessionStorage.setItem('pendingStreamingConvId', String(currentConvId))
       }
 
       const userMsg: Message = {
@@ -611,6 +685,9 @@ export function Chat() {
               streamDone = true
               if (updateTimer) { clearTimeout(updateTimer); updateTimer = null }
               flushUpdate()
+              // Clear pending streaming state as it's complete
+              sessionStorage.removeItem('pendingStreamingConvId')
+              streamingConvIdRef.current = null
               await new Promise(r => setTimeout(r, 50))
               const assistantMsg: Message = {
                 id: Date.now() + 1,
@@ -693,9 +770,13 @@ export function Chat() {
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         // normal stop — already handled above
+        // Keep sessionStorage in case user wants to resume
       } else {
         console.error('Send failed:', err)
         setErrorMsg('Failed to send message. Please check your connection.')
+        // Clear pending state on actual errors
+        sessionStorage.removeItem('pendingStreamingConvId')
+        streamingConvIdRef.current = null
       }
       setIsThinking(false)
       isStreamingRef.current = false
