@@ -1,7 +1,6 @@
 """Chat router — SSE streaming, conversation history, RAG injection."""
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime
 
@@ -14,96 +13,20 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import Conversation, Message
-from app.services import claude, openai_compat
 from app.services.cache import conversations_cache
 from app.services.context_builder import build_chat_context
+from app.services.provider_selector import get_provider_module, get_provider_name, get_selected_model
+from app.services.settings_helper import get_int_setting, get_float_setting
+from app.services.title_generator import schedule_title_generation
 from app.config import (
-    CONVERSATION_CACHE_TTL, MODEL_ALIASES, DEFAULT_MODELS,
-    DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
+    CONVERSATION_CACHE_TTL,
+    DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 )
-
-_CONV_TTL = CONVERSATION_CACHE_TTL
-from app.models.db import Setting as _Setting
 from app.tools import registry
 
+_CONV_TTL = CONVERSATION_CACHE_TTL
+
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-async def _generate_title_bg(conv_id: int, user_content: str, bind, complete_fn) -> None:
-    """Generate conversation title in the background — called after SSE done is sent."""
-    from sqlmodel import Session as _Sess
-    try:
-        raw = await complete_fn(
-            messages=[{"role": "user", "content": (
-                f"Write a short title for this conversation (max 12 Chinese characters "
-                f"or 6 English words, no quotes, no punctuation at end).\n"
-                f"User said: {user_content[:200]}\n"
-                f"Return ONLY the title."
-            )}],
-            max_tokens=20,
-        )
-        title = raw.strip().strip('"').strip("'")[:60] or user_content[:40]
-    except Exception:
-        return
-    try:
-        with _Sess(bind) as s:
-            c = s.get(Conversation, conv_id)
-            if c:
-                c.title = title
-                s.add(c)
-                s.commit()
-                conversations_cache.delete_prefix("list:")
-    except Exception:
-        pass
-
-
-def _get_llm(session: Session):
-    """Return the active LLM service module based on the llm_provider setting."""
-    setting = session.get(_Setting, "llm_provider")
-    provider = (setting.value if setting and setting.value else "claude").lower().strip()
-    if provider == "kimi":
-        return openai_compat
-    if provider == "bigmodel":
-        return openai_compat
-    return claude
-
-
-def _get_selected_model(session: Session, provider: str) -> str:
-    """Get the selected model for the given provider."""
-    setting = session.get(_Setting, "selected_model")
-    if setting and setting.value:
-        model = setting.value.strip()
-        return MODEL_ALIASES.get(model, model)
-    # Return default model based on provider
-    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["claude"])
-
-
-def _get_setting_value(session: Session, key: str, default: str = "") -> str:
-    """Get a setting value from database."""
-    setting = session.get(_Setting, key)
-    return setting.value if setting and setting.value else default
-
-
-def _get_float_setting(session: Session, key: str, default: float = 0.0) -> float:
-    """Get a float setting value from database."""
-    value = _get_setting_value(session, key)
-    if value:
-        try:
-            return float(value)
-        except ValueError:
-            pass
-    return default
-
-
-def _get_int_setting(session: Session, key: str, default: int = 0) -> int:
-    """Get an int setting value from database."""
-    value = _get_setting_value(session, key)
-    if value:
-        try:
-            return int(value)
-        except ValueError:
-            pass
-    return default
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -252,8 +175,8 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     session.commit()
 
     # Build chat context using context_builder
-    max_tokens = _get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
-    temperature = _get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
+    max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
+    temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
     
     chat_ctx = build_chat_context(
         session=session,
@@ -271,9 +194,9 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     tools = chat_ctx.tools
     max_tokens = chat_ctx.max_tokens
 
-    llm = _get_llm(session)
-    provider = "kimi" if llm == openai_compat else "claude"
-    selected_model = _get_selected_model(session, provider)
+    llm = get_provider_module(session)
+    provider = get_provider_name(session)
+    selected_model = get_selected_model(session, provider)
     system = llm.build_system_prompt(skill_prompt, rag_context, project_context)
 
     # Build message history — skip empty assistant messages (from prior failures)
@@ -478,12 +401,12 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
 
         # Generate title in background (after done is already sent to client)
         if need_title and full_text:
-            asyncio.ensure_future(_generate_title_bg(
+            schedule_title_generation(
                 conv_id=conv_id,
                 user_content=req.content,
                 bind=session.get_bind(),
                 complete_fn=llm.complete,
-            ))
+            )
 
     return StreamingResponse(
         event_stream(),
@@ -603,7 +526,7 @@ async def test_connection(req: TestConnectionRequest):
 class TestModelRequest(BaseModel):
     message: str
     model: str
-    temperature: float = DEFAULT_TEMPERATURE
+    temperature: float = 0.7
     max_tokens: int = 100  # Keep 100 for test endpoint (low cost)
 
 
