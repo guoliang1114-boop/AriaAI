@@ -1,45 +1,89 @@
-name: Auto Deploy to Server
+name: Deploy to Production
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, master]
+  workflow_dispatch:  # 支持手动触发
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Deploy to Server
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        # 或者用密钥: key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /www/wwwroot/AriaAI
-          git pull origin main
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: aria-web/package-lock.json
           
-          # 部署后端
-          cd AriaAI/backend
-          source .venv/bin/activate
-          pip install -r requirements.txt -q
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
           
-          # 数据库迁移（如果有）
-          # alembic upgrade head
-          
-          # 重启后端
-          pm2 restart ariaai-backend || pm2 start "uvicorn main:app --host 127.0.0.1 --port 8000" --name ariaai-backend --interpreter ./.venv/bin/python
-          
-          # 部署前端
-          cd ../../aria-web
-          npm install
+      - name: Build Frontend
+        run: |
+          cd aria-web
+          npm ci
           npm run build
           
-          # 复制到网站目录
-          cp -r dist/* /www/wwwroot/${{ secrets.DOMAIN }}/
+      - name: Prepare Backend
+        run: |
+          cd AriaAI/AriaAI/backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
           
-          echo "部署完成！"
+      - name: Deploy to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: "aria-web/dist/,AriaAI/AriaAI/backend/"
+          target: "/www/wwwroot/AriaAI/"
+          strip_components: 0
+          overwrite: true
+          
+      - name: Execute Remote Deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            cd /www/wwwroot/AriaAI/AriaAI/backend
+            
+            # 激活虚拟环境
+            source .venv/bin/activate
+            
+            # 安装依赖（如果有新增）
+            pip install -r requirements.txt
+            
+            # 运行数据库迁移（如有需要）
+            # python migrate_fix.py
+            
+            # 重启 PM2 服务
+            pm2 reload ariaai-backend --update-env
+            
+            # 复制前端构建文件到 Nginx 目录
+            rm -rf /www/wwwroot/aria.d2cgo.co/*
+            cp -r /www/wwwroot/AriaAI/aria-web/dist/* /www/wwwroot/aria.d2cgo.co/
+            
+            # 重启 Nginx
+            nginx -t && nginx -s reload
+            
+            echo "部署完成!"
+            
+      - name: Notify Success
+        if: success()
+        run: echo "✅ 部署成功!"
+        
+      - name: Notify Failure
+        if: failure()
+        run: echo "❌ 部署失败!"
