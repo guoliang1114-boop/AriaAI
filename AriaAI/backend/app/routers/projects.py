@@ -47,6 +47,8 @@ async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
     model = _MODEL_ALIASES.get(raw_model, raw_model) if raw_model else None
     if provider.lower() == "kimi":
         return await _kimi_svc.complete(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens)
+    if provider.lower() == "bigmodel":
+        return await _kimi_svc.complete(messages, model=model or "glm-5.1", max_tokens=max_tokens)
     return await _claude_svc.complete(messages, model=model or "claude-sonnet-4-6", max_tokens=max_tokens)
 
 async def _stream(messages: list[dict], max_tokens: int = 4000):
@@ -60,6 +62,9 @@ async def _stream(messages: list[dict], max_tokens: int = 4000):
     model = _MODEL_ALIASES.get(raw_model, raw_model) if raw_model else None
     if provider.lower() == "kimi":
         async for chunk in _kimi_svc.stream_response(messages, model=model or "moonshot-v1-32k", max_tokens=max_tokens):
+            yield chunk
+    elif provider.lower() == "bigmodel":
+        async for chunk in _kimi_svc.stream_response(messages, model=model or "glm-5.1", max_tokens=max_tokens):
             yield chunk
     else:
         async for chunk in _claude_svc.stream_response(messages, model=model or "claude-sonnet-4-6", max_tokens=max_tokens):

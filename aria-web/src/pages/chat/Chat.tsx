@@ -1478,7 +1478,7 @@ function MessageRow({ message }: { message: Message }) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose prose-base max-w-none prose-headings:text-gray-900 prose-headings:font-semibold prose-headings:mt-5 prose-headings:mb-2 prose-p:text-gray-700 prose-p:leading-[1.8] prose-p:my-2 prose-strong:text-gray-900 prose-code:text-primary prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[13px] prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded-xl prose-li:text-gray-700 prose-li:leading-[1.8] prose-ul:my-2 prose-ol:my-2">
+            <div className="md-root">
               <MarkdownRenderer content={message.content} />
             </div>
           )}

@@ -24,6 +24,7 @@ from app.models.db import Setting
 logger = logging.getLogger(__name__)
 
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
 # Persistent HTTP client for Kimi/OpenAI-compat calls
 _http_client: httpx.AsyncClient | None = None
@@ -35,8 +36,10 @@ def _get_http_client() -> httpx.AsyncClient:
         _http_client = httpx.AsyncClient(timeout=300.0)
     return _http_client
 DEFAULT_KIMI_MODEL = "moonshot-v1-32k"
+DEFAULT_BIGMODEL_MODEL = "glm-5.1"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
+SETTING_BIGMODEL_API_KEY = "bigmodel_api_key"
 SETTING_LLM_PROVIDER = "llm_provider"
 
 
@@ -74,6 +77,28 @@ def get_kimi_api_key() -> str | None:
     # 3. Try environment variable
     import os
     return os.environ.get("MOONSHOT_API_KEY")
+
+
+def get_bigmodel_api_key() -> str | None:
+    """Retrieve BigModel (Zhipu AI) API key: Keychain → SQLite → env var."""
+    # 1. Try Keychain first
+    try:
+        import keyring
+        from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL)
+        if key:
+            return key
+    except Exception:
+        pass
+    
+    # 2. Try database
+    key = _get_setting(SETTING_BIGMODEL_API_KEY)
+    if key:
+        return key
+    
+    # 3. Try environment variable
+    import os
+    return os.environ.get("BIGMODEL_API_KEY")
 
 
 # =============================================================================
@@ -235,12 +260,20 @@ async def stream_response(
     tools: list[dict] | None = None,
     temperature: float = 0.7,
 ) -> AsyncIterator[str]:
-    """Stream Kimi response, yielding same token/tool-use format as claude.py.
+    """Stream OpenAI-compatible response, yielding same token/tool-use format as claude.py.
 
     Text chunks are yielded as plain strings.
     Complete tool_use blocks are yielded as JSON strings matching:
         {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
+    
+    Automatically selects the correct provider based on model name.
     """
+    # Auto-detect provider from model name
+    if model.startswith("glm-"):
+        async for chunk in stream_response_bigmodel(messages, system, model, max_tokens, tools, temperature):
+            yield chunk
+        return
+    
     api_key = get_kimi_api_key()
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
@@ -364,7 +397,14 @@ async def complete(
     tools: list[dict] | None = None,
     temperature: float = 0.7,
 ) -> str:
-    """Non-streaming Kimi completion. Returns text (and tool_use JSON if applicable)."""
+    """Non-streaming OpenAI-compatible completion. Returns text (and tool_use JSON if applicable).
+    
+    Automatically selects the correct provider based on model name.
+    """
+    # Auto-detect provider from model name
+    if model.startswith("glm-"):
+        return await complete_bigmodel(messages, system, model, max_tokens, tools, temperature)
+    
     api_key = get_kimi_api_key()
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
@@ -495,3 +535,235 @@ For all other questions, follow your standard role below.
     if rag_context:
         parts.append(f"\n\n## Relevant Knowledge Base Excerpts\n{rag_context}")
     return "\n".join(parts)
+
+
+# =============================================================================
+# BigModel (Zhipu AI) Streaming
+# =============================================================================
+
+async def _stream_bigmodel_with_retry(
+    client: httpx.AsyncClient,
+    headers: dict,
+    payload: dict,
+    max_retries: int = 3,
+) -> AsyncIterator[str]:
+    """Internal stream handler with retry logic for rate limiting."""
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with client.stream(
+                "POST",
+                f"{BIGMODEL_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"[BigModel] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        body = await response.aread()
+                        error_msg = body.decode()[:300]
+                        raise Exception(
+                            "BigModel 服务当前繁忙，请稍后重试。"
+                            f"\n\n详细信息：API 限流 (HTTP 429)"
+                        )
+                
+                if response.status_code != 200:
+                    body = await response.aread()
+                    error_msg = body.decode()[:300]
+                    raise Exception(f"BigModel HTTP {response.status_code}: {error_msg}")
+                
+                async for line in response.aiter_lines():
+                    yield line
+                return
+                
+        except Exception as e:
+            last_error = e
+            if "BigModel 服务当前繁忙" in str(e):
+                raise
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"[BigModel] Stream error, retrying in {wait_time:.1f}s: {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+    
+    if last_error:
+        raise last_error
+
+
+async def stream_response_bigmodel(
+    messages: list[dict],
+    system: str = "",
+    model: str = DEFAULT_BIGMODEL_MODEL,
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    temperature: float = 0.7,
+) -> AsyncIterator[str]:
+    """Stream BigModel response, yielding same token/tool-use format as claude.py."""
+    api_key = get_bigmodel_api_key()
+    if not api_key:
+        raise ValueError("No BigModel API key configured. Visit Settings to add one.")
+
+    openai_messages = _to_openai_messages(messages, system)
+    openai_tools = _to_openai_tools(tools) if tools else None
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": openai_messages,
+        "stream": True,
+        "temperature": temperature,
+    }
+    if openai_tools:
+        payload["tools"] = openai_tools
+
+    logger.info(f"[BigModel] STREAM model={model} msgs={len(openai_messages)} tools={len(openai_tools) if openai_tools else 0}")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    tool_call_buffers: dict[int, dict] = {}
+    in_tool_call = False
+
+    client = _get_http_client()
+    finish_reason = None
+    
+    try:
+        async for line in _stream_bigmodel_with_retry(client, headers, payload):
+            if not line.startswith("data: "):
+                continue
+            payload_str = line[6:].strip()
+            if payload_str == "[DONE]":
+                break
+            try:
+                event = json.loads(payload_str)
+            except json.JSONDecodeError:
+                continue
+
+            choices = event.get("choices", [])
+            if not choices:
+                continue
+
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason") or finish_reason
+            delta = choice.get("delta", {})
+
+            text = delta.get("content")
+            if text:
+                yield text
+
+            tool_call_deltas = delta.get("tool_calls", [])
+            for tc_delta in tool_call_deltas:
+                idx = tc_delta.get("index", 0)
+                if idx not in tool_call_buffers:
+                    in_tool_call = True
+                    name = tc_delta.get("function", {}).get("name", "")
+                    tool_call_buffers[idx] = {
+                        "id": tc_delta.get("id", f"call_{idx}"),
+                        "name": name,
+                        "arguments": "",
+                    }
+                    if name:
+                        yield f"\n\n[TOOL_START:{name}]\n\n"
+                else:
+                    frag = tc_delta.get("function", {}).get("arguments", "")
+                    tool_call_buffers[idx]["arguments"] += frag
+
+        if in_tool_call:
+            for buf in tool_call_buffers.values():
+                try:
+                    parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
+                except json.JSONDecodeError:
+                    parsed_input = {}
+                yield json.dumps({
+                    "type": "tool_use",
+                    "id": buf["id"],
+                    "name": buf["name"],
+                    "input": parsed_input,
+                })
+
+        if finish_reason == "length":
+            logger.warning("[BigModel] Output truncated due to max_tokens")
+            yield "\n\n[OUTPUT_TRUNCATED]"
+
+    except Exception as e:
+        logger.error(f"[BigModel] stream error: {type(e).__name__}: {e}")
+        raise
+
+
+# =============================================================================
+# BigModel (Zhipu AI) Non-streaming
+# =============================================================================
+
+async def complete_bigmodel(
+    messages: list[dict],
+    system: str = "",
+    model: str = DEFAULT_BIGMODEL_MODEL,
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    temperature: float = 0.7,
+) -> str:
+    """Non-streaming BigModel completion. Returns text (and tool_use JSON if applicable)."""
+    api_key = get_bigmodel_api_key()
+    if not api_key:
+        raise ValueError("No BigModel API key configured. Visit Settings to add one.")
+
+    openai_messages = _to_openai_messages(messages, system)
+    openai_tools = _to_openai_tools(tools) if tools else None
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": openai_messages,
+        "temperature": temperature,
+    }
+    if openai_tools:
+        payload["tools"] = openai_tools
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    client = _get_http_client()
+    try:
+        response = await client.post(
+            f"{BIGMODEL_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code != 200:
+            raise Exception(f"BigModel HTTP {response.status_code}: {response.text[:300]}")
+
+        result = response.json()
+        choice = result.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        parts: list[str] = []
+
+        text = message.get("content") or ""
+        if text:
+            parts.append(text)
+
+        for tc in message.get("tool_calls", []):
+            try:
+                parsed = json.loads(tc["function"]["arguments"])
+            except (json.JSONDecodeError, KeyError):
+                parsed = {}
+            parts.append(json.dumps({
+                "type": "tool_use",
+                "id": tc.get("id", ""),
+                "name": tc.get("function", {}).get("name", ""),
+                "input": parsed,
+            }, ensure_ascii=False))
+
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"[BigModel] complete error: {type(e).__name__}: {e}")
+        raise

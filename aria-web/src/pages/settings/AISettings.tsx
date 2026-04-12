@@ -19,7 +19,7 @@ import { api } from '../../api/client'
 interface AIModel {
   id: string
   name: string
-  provider: 'anthropic' | 'openai' | 'moonshot' | 'deepseek' | 'custom'
+  provider: 'anthropic' | 'openai' | 'moonshot' | 'deepseek' | 'bigmodel' | 'custom'
   description: string
   maxTokens: number
   supportsTools: boolean
@@ -80,16 +80,69 @@ const models: AIModel[] = [
     supportsVision: false,
     icon: '✨',
   },
+  // BigModel (Zhipu AI)
+  {
+    id: 'glm-5.1',
+    name: 'GLM-5.1',
+    provider: 'bigmodel',
+    description: '最强 Coding 能力，对标 Claude Opus 4.6，支持 8 小时长程任务',
+    maxTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '🦞',
+  },
+  {
+    id: 'glm-5v-turbo',
+    name: 'GLM-5V-Turbo',
+    provider: 'bigmodel',
+    description: '多模态 Coding 基座模型，支持视觉理解',
+    maxTokens: 8192,
+    supportsTools: true,
+    supportsVision: true,
+    icon: '👁️',
+  },
+  {
+    id: 'glm-5-turbo',
+    name: 'GLM-5-Turbo',
+    provider: 'bigmodel',
+    description: '龙虾增强基座模型，面向 OpenClaw 场景优化',
+    maxTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '⚡',
+  },
+  {
+    id: 'glm-4-plus',
+    name: 'GLM-4-Plus',
+    provider: 'bigmodel',
+    description: 'GLM-4 最强模型，综合性能优异',
+    maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '🔮',
+  },
+  {
+    id: 'glm-4-air',
+    name: 'GLM-4-Air',
+    provider: 'bigmodel',
+    description: 'GLM-4 高性价比版本',
+    maxTokens: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    icon: '💨',
+  },
 ]
 
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
   moonshot: 'Moonshot',
+  bigmodel: 'BigModel',
 }
 
 const providerColors: Record<string, string> = {
   anthropic: 'bg-orange-500/10 text-orange-600 border-orange-200',
   moonshot: 'bg-purple-500/10 text-purple-600 border-purple-200',
+  bigmodel: 'bg-blue-500/10 text-blue-600 border-blue-200',
 }
 
 export function AISettings() {
@@ -102,6 +155,7 @@ export function AISettings() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({
     anthropic: '',
     moonshot: '',
+    bigmodel: '',
   })
   
   // Parameters
@@ -164,6 +218,7 @@ export function AISettings() {
       const providerEndpoints: Record<string, string> = {
         anthropic: '/settings/api-key-status',
         moonshot: '/settings/kimi-api-key-status',
+        bigmodel: '/settings/bigmodel-api-key-status',
       }
       const newStatus: Record<string, boolean> = {}
       
@@ -193,8 +248,13 @@ export function AISettings() {
     setSuccessMessage('')
 
     try {
-      // Determine provider from selected model (use moonshot- prefix to detect kimi)
-      const provider = selectedModel.startsWith('moonshot-') ? 'kimi' : 'claude'
+      // Determine provider from selected model
+      let provider = 'claude'
+      if (selectedModel.startsWith('moonshot-')) {
+        provider = 'kimi'
+      } else if (selectedModel.startsWith('glm-')) {
+        provider = 'bigmodel'
+      }
       
       // Save settings (use same keys as Mac App)
       const settingsToSave = [
@@ -211,9 +271,14 @@ export function AISettings() {
       // Save API keys if provided
       Object.entries(apiKeys).forEach(([keyProvider, key]) => {
         if (key.trim()) {
-          const endpoint = keyProvider === 'anthropic' 
-            ? '/settings/api-key' 
-            : `/settings/${keyProvider}-api-key`
+          let endpoint: string
+          if (keyProvider === 'anthropic') {
+            endpoint = '/settings/api-key'
+          } else if (keyProvider === 'moonshot') {
+            endpoint = '/settings/kimi-api-key'
+          } else {
+            endpoint = `/settings/${keyProvider}-api-key`
+          }
           settingsToSave.push(
             api.post(endpoint, { api_key: key.trim() })
           )
@@ -229,6 +294,7 @@ export function AISettings() {
       setApiKeys({
         anthropic: '',
         moonshot: '',
+        bigmodel: '',
       })
       
       // Refresh status
@@ -303,7 +369,7 @@ export function AISettings() {
   const selectedProvider = selectedModelData?.provider || 'anthropic'
   
   // Only test connection for supported providers
-  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot'].includes(provider)
+  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'bigmodel'].includes(provider)
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)
@@ -517,6 +583,48 @@ export function AISettings() {
                 placeholder={apiKeyStatus.moonshot ? 'Configured (enter to update)' : '...'}
                 className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
               />
+            </div>
+
+            {/* BigModel */}
+            <div className="p-4 bg-surface-container-low rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  BigModel API Key
+                  {apiKeyStatus.bigmodel && (
+                    <span className="ml-2 text-xs text-success">● Configured</span>
+                  )}
+                </label>
+                <button
+                  onClick={() => handleTestConnection('bigmodel')}
+                  disabled={testingProvider === 'bigmodel'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testingProvider === 'bigmodel' ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <TestTube className="w-3 h-3" />
+                  )}
+                  Test
+                </button>
+              </div>
+              <input
+                type="password"
+                value={apiKeys.bigmodel}
+                onChange={(e) => setApiKeys(prev => ({ ...prev, bigmodel: e.target.value }))}
+                placeholder={apiKeyStatus.bigmodel ? 'Configured (enter to update)' : 'Enter BigModel API Key'}
+                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+              />
+              <p className="text-xs text-on-surface-muted mt-1.5">
+                Get your API key from {' '}
+                <a 
+                  href="https://open.bigmodel.cn/usercenter/apikeys" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  open.bigmodel.cn
+                </a>
+              </p>
             </div>
           </div>
         )}

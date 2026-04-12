@@ -6,6 +6,8 @@ struct AIConfigView: View {
     
     // Provider selection
     @State private var llmProvider = "claude"
+    @State private var bigmodelKeyConfigured = false
+    @State private var bigmodelKeyMasked = ""
     @State private var isSavingProvider = false
     @State private var providerSaveSuccess = false
     
@@ -31,6 +33,14 @@ struct AIConfigView: View {
     @State private var kimiKeyConfigured = false
     @State private var kimiKeyMasked = ""
     
+    // BigModel settings
+    @State private var bigmodelApiKey = ""
+    @State private var showBigmodelKey = false
+    @State private var isSavingBigmodelKey = false
+    @State private var bigmodelKeySaveSuccess = false
+    @State private var bigmodelKeyError: String? = nil
+    @State private var bigmodelModel = "glm-4-plus"
+    
     let claudeModels = [
         ("claude-opus-4-6", "Claude Opus 4.6", "最强大，适合复杂任务"),
         ("claude-sonnet-4-6", "Claude Sonnet 4.6", "平衡性能，推荐"),
@@ -42,6 +52,16 @@ struct AIConfigView: View {
         ("moonshot-v1-128k", "Moonshot v1 128K", "长文档处理"),
         ("moonshot-v1-8k", "Moonshot v1 8K", "轻量快速"),
         ("kimi-k2.5", "Kimi K2.5", "最新模型")
+    ]
+    
+    let bigmodelModels = [
+        ("glm-5.1", "GLM-5.1", "最强 Coding - 对标 Claude Opus 4.6"),
+        ("glm-5v-turbo", "GLM-5V-Turbo", "多模态 Coding - 视觉理解"),
+        ("glm-5-turbo", "GLM-5-Turbo", "龙虾场景优化 - OpenClaw"),
+        ("glm-4-plus", "GLM-4-Plus", "GLM-4 最强模型"),
+        ("glm-4-air", "GLM-4-Air", "高性价比"),
+        ("glm-4-flash", "GLM-4-Flash", "轻量快速"),
+        ("glm-4-long", "GLM-4-Long", "长上下文")
     ]
     
     let httpModes = [
@@ -59,8 +79,10 @@ struct AIConfigView: View {
                 // Dynamic Configuration Card based on provider
                 if llmProvider == "claude" {
                     claudeConfigCard
-                } else {
+                } else if llmProvider == "kimi" {
                     kimiConfigCard
+                } else {
+                    bigmodelConfigCard
                 }
             }
             .padding(Spacing.xxl)
@@ -82,34 +104,43 @@ struct AIConfigView: View {
             proxy:    cached.proxyURL,
             mode:     cached.httpMode,
             kimiConfigured: cached.kimiConfigured,
-            kimiMasked:     cached.kimiMasked
+            kimiMasked:     cached.kimiMasked,
+            bigmodelConfigured: cached.bigmodelConfigured,
+            bigmodelMasked:     cached.bigmodelMasked
         )
 
-        // Step 2: 后台并行刷新（1 次 GET /settings/ + 1 次 kimi-status）
-        async let fresh     = dataStore.refreshAISettingsFromAPI()
-        async let kimiStatus = dataStore.kimiApiKeyStatus()
-        let (f, kimi) = await (fresh, kimiStatus)
+        // Step 2: 后台并行刷新（1 次 GET /settings/ + 各 provider status）
+        async let fresh         = dataStore.refreshAISettingsFromAPI()
+        async let kimiStatus    = dataStore.kimiApiKeyStatus()
+        async let bigmodelStatus = dataStore.bigmodelApiKeyStatus()
+        let (f, kimi, bigmodel) = await (fresh, kimiStatus, bigmodelStatus)
 
         applySettings(
             provider: f.provider,
             model:    f.model,
             proxy:    f.proxyURL,
-            mode:     f.httpMode,
+            httpMode: f.httpMode,
             kimiConfigured: kimi.configured,
-            kimiMasked:     kimi.masked
+            kimiMasked:     kimi.masked,
+            bigmodelConfigured: bigmodel.configured,
+            bigmodelMasked:     bigmodel.masked
         )
     }
 
     @MainActor
     private func applySettings(provider: String, model: String, proxy: String, mode: String,
-                                kimiConfigured: Bool, kimiMasked: String) {
+                                kimiConfigured: Bool, kimiMasked: String,
+                                bigmodelConfigured: Bool = false, bigmodelMasked: String = "") {
         llmProvider       = provider
         claudeProxyURL    = proxy
         claudeHttpMode    = mode
         kimiKeyConfigured = kimiConfigured
         kimiKeyMasked     = kimiMasked
+        bigmodelKeyConfigured = bigmodelConfigured
+        bigmodelKeyMasked     = bigmodelMasked
         claudeModel = claudeModels.contains(where: { $0.0 == model }) ? model : "claude-sonnet-4-6"
         kimiModel   = kimiModels.contains(where:   { $0.0 == model }) ? model : "moonshot-v1-32k"
+        bigmodelModel = bigmodelModels.contains(where: { $0.0 == model }) ? model : "glm-5.1"
     }
     
     // MARK: - Provider Card
@@ -160,6 +191,17 @@ struct AIConfigView: View {
                         status: kimiKeyConfigured ? .configured : .notConfigured
                     ) {
                         llmProvider = "kimi"
+                        saveProvider()
+                    }
+                    
+                    ProviderButton(
+                        icon: "bolt.fill",
+                        name: "BigModel",
+                        description: "智谱 AI",
+                        isSelected: llmProvider == "bigmodel",
+                        status: bigmodelKeyConfigured ? .configured : .notConfigured
+                    ) {
+                        llmProvider = "bigmodel"
                         saveProvider()
                     }
                 }
@@ -410,6 +452,115 @@ struct AIConfigView: View {
         }
     }
     
+    // MARK: - BigModel Config Card
+    private var bigmodelConfigCard: some View {
+        CardContainer {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                // Header
+                HStack(spacing: Spacing.md) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.purple.opacity(0.1))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.purple)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("BigModel 配置")
+                            .font(TextStyle.titleMD)
+                            .foregroundColor(.onSurface)
+                        Text("智谱 AI 服务设置")
+                            .font(TextStyle.bodySM)
+                            .foregroundColor(.onSurfaceVariant)
+                    }
+                    
+                    Spacer()
+                    
+                    if bigmodelKeyConfigured {
+                        StatusBadge(text: "已配置", type: .success)
+                    } else {
+                        StatusBadge(text: "未配置", type: .warning)
+                    }
+                }
+                
+                Divider().opacity(0.4)
+                
+                // Model Selection
+                configSectionTitle("模型选择", "选择 BigModel 模型")
+                
+                LazyVGrid(columns: [GridItem(.flexible())], spacing: Spacing.sm) {
+                    ForEach(bigmodelModels, id: \.0) { id, name, desc in
+                        ModelOptionCard(
+                            name: name,
+                            description: desc,
+                            isSelected: bigmodelModel == id
+                        ) {
+                            bigmodelModel = id
+                        }
+                    }
+                }
+                
+                // API Key
+                configSectionTitle("API 密钥", "智谱 AI API Key")
+                
+                VStack(spacing: Spacing.xs) {
+                    HStack {
+                        if showBigmodelKey {
+                            TextField("sk-...", text: $bigmodelApiKey)
+                                .textFieldStyle(.plain)
+                        } else {
+                            SecureField("sk-...", text: $bigmodelApiKey)
+                                .textFieldStyle(.plain)
+                        }
+                        
+                        Button {
+                            showBigmodelKey.toggle()
+                        } label: {
+                            Image(systemName: showBigmodelKey ? "eye.slash" : "eye")
+                                .foregroundColor(.onSurfaceVariant)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(Spacing.md)
+                    .background(Color.surfaceContainerHighest)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+                    
+                    if bigmodelKeyConfigured && !bigmodelKeyMasked.isEmpty {
+                        Text("已配置 Key: \(bigmodelKeyMasked)")
+                            .font(TextStyle.labelSM)
+                            .foregroundColor(.statusActive)
+                    }
+                    
+                    if let error = bigmodelKeyError {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.statusFailed)
+                            Text(error)
+                                .font(TextStyle.labelSM)
+                                .foregroundColor(.statusFailed)
+                        }
+                    }
+                }
+                
+                // Save Button
+                HStack {
+                    Spacer()
+                    PrimaryButton(
+                        bigmodelKeySaveSuccess ? "已保存 ✓" : (isSavingBigmodelKey ? "保存中..." : "保存 BigModel 配置"),
+                        icon: bigmodelKeySaveSuccess ? "checkmark" : "arrow.up.circle"
+                    ) {
+                        saveBigmodelSettings()
+                    }
+                    .disabled(isSavingBigmodelKey || (bigmodelApiKey.isEmpty && !bigmodelKeyConfigured))
+                }
+                .padding(.top, Spacing.md)
+            }
+            .padding(Spacing.xl)
+        }
+    }
+    
     // MARK: - Helpers
     private func configSectionTitle(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -430,7 +581,13 @@ struct AIConfigView: View {
         Task {
             await dataStore.saveLLMProvider(llmProvider)
             // Save the appropriate default model
-            let defaultModel = llmProvider == "kimi" ? kimiModel : claudeModel
+            let defaultModel: String = {
+                switch llmProvider {
+                case "kimi": return kimiModel
+                case "bigmodel": return bigmodelModel
+                default: return claudeModel
+                }
+            }()
             await dataStore.saveSelectedModel(defaultModel)
             isSavingProvider = false
             providerSaveSuccess = true
@@ -504,6 +661,38 @@ struct AIConfigView: View {
             kimiKeySaveSuccess = true
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             kimiKeySaveSuccess = false
+        }
+    }
+    
+    private func saveBigmodelSettings() {
+        bigmodelKeyError = nil
+        isSavingBigmodelKey = true
+        bigmodelKeySaveSuccess = false
+        
+        Task { @MainActor in
+            // Save API key if provided
+            if !bigmodelApiKey.isEmpty {
+                let ok = await dataStore.saveBigmodelApiKey(bigmodelApiKey)
+                if !ok {
+                    bigmodelKeyError = dataStore.error ?? "保存 API Key 失败"
+                    isSavingBigmodelKey = false
+                    return
+                }
+            }
+            
+            // Save model
+            await dataStore.saveSelectedModel(bigmodelModel)
+            
+            // Refresh BigModel key status to get updated masked key
+            let bigmodelStatus = await dataStore.bigmodelApiKeyStatus()
+            bigmodelKeyConfigured = bigmodelStatus.configured
+            bigmodelKeyMasked = bigmodelStatus.masked
+            bigmodelApiKey = ""
+            
+            isSavingBigmodelKey = false
+            bigmodelKeySaveSuccess = true
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            bigmodelKeySaveSuccess = false
         }
     }
 }

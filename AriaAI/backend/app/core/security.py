@@ -2,7 +2,7 @@
 import os
 from typing import Optional
 import keyring
-from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI, KEYCHAIN_KEY_OPENAI, KEYCHAIN_KEY_DEEPSEEK
+from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI, KEYCHAIN_KEY_OPENAI, KEYCHAIN_KEY_DEEPSEEK, KEYCHAIN_KEY_BIGMODEL
 
 
 def _db_get_api_key() -> Optional[str]:
@@ -261,6 +261,70 @@ def delete_deepseek_api_key() -> None:
         from app.models.db import Setting
         with Session(engine) as session:
             existing = session.get(Setting, "deepseek_api_key")
+            if existing:
+                session.delete(existing)
+                session.commit()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# BigModel (Zhipu AI) API key
+# ---------------------------------------------------------------------------
+
+def get_bigmodel_api_key() -> Optional[str]:
+    """Retrieve BigModel API key: Keychain → SQLite → env var."""
+    try:
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL)
+        if key:
+            return key
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            setting = session.get(Setting, "bigmodel_api_key")
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    return os.environ.get("BIGMODEL_API_KEY")
+
+
+def set_bigmodel_api_key(api_key: str) -> None:
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL, api_key)
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "bigmodel_api_key")
+            if existing:
+                existing.value = api_key
+                session.add(existing)
+            else:
+                session.add(Setting(key="bigmodel_api_key", value=api_key))
+            session.commit()
+    except Exception:
+        pass
+
+
+def delete_bigmodel_api_key() -> None:
+    try:
+        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "bigmodel_api_key")
             if existing:
                 session.delete(existing)
                 session.commit()

@@ -133,6 +133,8 @@ def _get_llm(session: Session):
     provider = (setting.value if setting and setting.value else "claude").lower().strip()
     if provider == "kimi":
         return openai_compat
+    if provider == "bigmodel":
+        return openai_compat
     return claude
 
 
@@ -153,6 +155,8 @@ def _get_selected_model(session: Session, provider: str) -> str:
     # Return default model based on provider
     if provider == "kimi":
         return "moonshot-v1-32k"
+    if provider == "bigmodel":
+        return "glm-5.1"
     return "claude-sonnet-4-6"
 
 
@@ -675,9 +679,9 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
             # Check for specific error patterns
             if "429" in error_msg or "engine_overloaded" in error_msg:
                 user_friendly_msg = "AI 服务当前繁忙，请稍后重试。这是临时状况，几秒钟后再试即可。"
-            elif "Kimi 服务当前繁忙" in error_msg:
+            elif "Kimi 服务当前繁忙" in error_msg or "BigModel 服务当前繁忙" in error_msg:
                 user_friendly_msg = error_msg  # Already user-friendly
-            elif "No Kimi API key" in error_msg or "No Claude API key" in error_msg:
+            elif "No Kimi API key" in error_msg or "No Claude API key" in error_msg or "No BigModel API key" in error_msg:
                 user_friendly_msg = "请先配置 API Key。前往「设置」页面添加您的 API Key。"
             elif "timeout" in error_msg.lower() or "Connection refused" in error_msg:
                 user_friendly_msg = "连接超时，请检查网络或稍后重试。"
@@ -731,12 +735,12 @@ class TestConnectionRequest(BaseModel):
 @router.post("/test-connection")
 async def test_connection(req: TestConnectionRequest):
     """Test API key connectivity for a provider."""
-    from app.core.security import get_api_key, get_kimi_api_key
+    from app.core.security import get_api_key, get_kimi_api_key, get_bigmodel_api_key
     
     provider = req.provider
     
-    # Only support anthropic and moonshot for now
-    if provider not in ["anthropic", "moonshot"]:
+    # Support anthropic, moonshot, and bigmodel
+    if provider not in ["anthropic", "moonshot", "bigmodel"]:
         return {"success": False, "message": f"Provider not supported: {provider}"}
     
     try:
@@ -786,6 +790,27 @@ async def test_connection(req: TestConnectionRequest):
                     return {"success": True, "message": "Connection successful"}
                 else:
                     return {"success": False, "message": f"API error: {resp.status_code}"}
+                    
+        elif provider == "bigmodel":
+            api_key = get_bigmodel_api_key()
+            if not api_key:
+                return {"success": False, "message": "No API key configured"}
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": req.model or "glm-4-plus",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 10,
+                    },
+                    timeout=30.0,
+                )
+                if resp.status_code == 200:
+                    return {"success": True, "message": "Connection successful"}
+                else:
+                    return {"success": False, "message": f"API error: {resp.status_code}"}
         else:
             return {"success": False, "message": f"Unknown provider: {provider}"}
             
@@ -806,21 +831,25 @@ async def test_model(req: TestModelRequest):
     try:
         # Determine provider from model
         provider = "anthropic"
-        if req.model.startswith("moonshot-"):
+        if req.model.startswith("moonshot-") or req.model.startswith("kimi-"):
             provider = "moonshot"
         elif req.model.startswith("claude-"):
             provider = "anthropic"
+        elif req.model.startswith("glm-") or req.model.startswith("GLM-"):
+            provider = "bigmodel"
         else:
             return {"success": False, "message": f"Model not supported: {req.model}"}
         
-        # Only support anthropic and moonshot for now
-        if provider not in ["anthropic", "moonshot"]:
+        # Support anthropic, moonshot, and bigmodel
+        if provider not in ["anthropic", "moonshot", "bigmodel"]:
             return {"success": False, "message": f"Provider not supported: {provider}"}
         
         # Get the appropriate LLM client
         if provider == "anthropic":
             from app.services import claude as llm
         elif provider == "moonshot":
+            from app.services import openai_compat as llm
+        elif provider == "bigmodel":
             from app.services import openai_compat as llm
         else:
             return {"success": False, "message": f"Unsupported provider: {provider}"}

@@ -741,10 +741,12 @@ final class DataStore: ObservableObject {
         static let httpMode      = "cache_claude_http_mode"
         static let kimiConfigured = "cache_kimi_configured"
         static let kimiMasked    = "cache_kimi_masked"
+        static let bigmodelConfigured = "cache_bigmodel_configured"
+        static let bigmodelMasked    = "cache_bigmodel_masked"
     }
 
     /// Read all AI settings from local cache — returns instantly, no network.
-    func readCachedAISettings() -> (provider: String, model: String, proxyURL: String, httpMode: String, kimiConfigured: Bool, kimiMasked: String) {
+    func readCachedAISettings() -> (provider: String, model: String, proxyURL: String, httpMode: String, kimiConfigured: Bool, kimiMasked: String, bigmodelConfigured: Bool, bigmodelMasked: String) {
         let ud = UserDefaults.standard
         return (
             provider:       ud.string(forKey: AISettingsCache.llmProvider)   ?? "claude",
@@ -752,7 +754,9 @@ final class DataStore: ObservableObject {
             proxyURL:       ud.string(forKey: AISettingsCache.proxyURL)       ?? "",
             httpMode:       ud.string(forKey: AISettingsCache.httpMode)       ?? "auto",
             kimiConfigured: ud.bool(forKey: AISettingsCache.kimiConfigured),
-            kimiMasked:     ud.string(forKey: AISettingsCache.kimiMasked)     ?? ""
+            kimiMasked:     ud.string(forKey: AISettingsCache.kimiMasked)     ?? "",
+            bigmodelConfigured: ud.bool(forKey: AISettingsCache.bigmodelConfigured),
+            bigmodelMasked:     ud.string(forKey: AISettingsCache.bigmodelMasked)     ?? ""
         )
     }
 
@@ -827,6 +831,32 @@ final class DataStore: ObservableObject {
         struct Body: Encodable { let apiKey: String }
         do {
             try await APIClient.shared.post("/settings/kimi-api-key", body: Body(apiKey: key))
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    // MARK: - BigModel / Provider
+
+    func bigmodelApiKeyStatus() async -> (configured: Bool, masked: String) {
+        struct StatusResponse: Decodable { let configured: Bool; let masked: String? }
+        do {
+            let s: StatusResponse = try await APIClient.shared.get("/settings/bigmodel-api-key-status")
+            let ud = UserDefaults.standard
+            ud.set(s.configured,    forKey: AISettingsCache.bigmodelConfigured)
+            ud.set(s.masked ?? "", forKey: AISettingsCache.bigmodelMasked)
+            return (s.configured, s.masked ?? "")
+        } catch {
+            return (false, "")
+        }
+    }
+
+    func saveBigmodelApiKey(_ key: String) async -> Bool {
+        struct Body: Encodable { let apiKey: String }
+        do {
+            try await APIClient.shared.post("/settings/bigmodel-api-key", body: Body(apiKey: key))
             return true
         } catch {
             self.error = error.localizedDescription

@@ -24,6 +24,7 @@ KEYCHAIN_KEY_CLAUDE = "claude_api_key"
 KEYCHAIN_KEY_KIMI = "kimi_api_key"
 KEYCHAIN_KEY_OPENAI = "openai_api_key"
 KEYCHAIN_KEY_DEEPSEEK = "deepseek_api_key"
+KEYCHAIN_KEY_BIGMODEL = "bigmodel_api_key"
 
 # LLM provider: "claude" | "kimi"
 DEFAULT_PROVIDER = "claude"
