@@ -1,520 +1,225 @@
-﻿# AriaAI Skill 开发指南
+# AriaAI Skill 开发指南
 
-本指南面向希望为 AriaAI 平台开发新 Skill 的开发者，涵盖 Skill 设计标准、工具开发规范、提交流程和最佳实践。
-
----
-
-## 目录
-
-1. [Skill 概述](#skill-概述)
-2. [分类体系](#分类体系)
-3. [核心组件](#核心组件)
-4. [工具开发（Function Calling）](#工具开发function-calling)
-5. [开发流程](#开发流程)
-6. [最佳实践](#最佳实践)
-7. [审核清单](#审核清单)
-8. [示例](#示例)
+> 更新日期：2026-04-12
+> 适用范围：当前仓库中的数据库 Skill 模型与后端工具注册机制
 
 ---
 
-## Skill 概述
+## 1. 当前 Skill 的真实形态
 
-### 什么是 Skill？
+在当前代码里，Skill 不是单独的文件协议，而是数据库中的一条记录，定义在：
 
-Skill 是 AriaAI 平台的核心功能单元，是一个**针对特定咨询场景的 AI 工作流**，包含：
-- 系统提示词（System Prompt）：定义 AI 的角色和行为
-- 用户模板（User Template）：引导用户提供必要信息
-- 工具定义（Tools）：允许 AI 生成文件、执行计算等操作
+- `AriaAI/backend/app/models/db.py`
 
-### Skill 类型
+关键字段：
 
-| 类型 | 描述 | 典型耗时 | 示例 |
-|------|------|---------|------|
-| **Quick Tool** | 快速分析工具，单次交互完成 | 1-3 分钟 | 执行摘要、市场速算 |
-| **Deep Task** | 深度分析任务，多轮对话 | 10-30 分钟 | 尽职调查、战略路线图 |
-| **Guided Workflow** | 引导式工作流，分阶段进行 | 15-45 分钟 | 根因分析、项目启动 |
+| 字段 | 说明 |
+|---|---|
+| `name` | 技能名称 |
+| `category` | 分类，当前是自由文本 |
+| `description` | 简述 |
+| `system_prompt` | 系统提示词 |
+| `user_template` | 用户输入模板 |
+| `estimated_time` | 预计耗时 |
+| `max_tokens` | 最大 tokens |
+| `tools_definition_json` | Claude 标准 tools 定义 |
+| `tools_json` | 兼容旧版的工具名列表 |
 
----
+结论：
 
-## 分类体系
-
-所有 Skill 必须归属于以下 9 大业务领域之一：
-
-```
-📊 战略与增长          # 市场分析、竞争策略、增长规划
-📋 提案与项目交付      # 报告撰写、交付物审查、项目管理
-💰 财务咨询            # 财务分析、估值建模、ROI 计算
-💻 数字化与技术        # AI 战略、数字化转型、技术架构
-⚖️ 风险与合规          # 风险评估、合规审查、内控设计
-👥 组织与人才          # 组织架构、OKR、变革管理
-🎯 市场与客户          # 客户细分、GTM 策略、品牌定位
-🤝 并购与交易          # 并购分析、交易结构、整合规划
-⚙️ 运营与效能          # 流程优化、供应链、精益管理
-```
+- 当前系统支持“完整 tool schema”
+- 同时保留“旧版工具名列表”兼容层
 
 ---
 
-## 核心组件
+## 2. Skill 的接口
 
-### 1. 基础信息
+当前 Skill 相关接口在：
+
+- `AriaAI/backend/app/routers/skills.py`
+
+主要接口：
+
+- `GET /skills`
+- `POST /skills`
+- `PATCH /skills/{skill_id}`
+- `DELETE /skills/{skill_id}`
+- `POST /skills/migrate-categories`
+- `POST /skills/seed-pro`
+- `POST /skills/seed`
+- `POST /skills/seed-templates`
+- `GET /skills/tools/available`
+- `GET /skills/tools/schemas`
+- `POST /skills/tools/validate`
+- `POST /skills/{skill_id}/tools/test`
+
+---
+
+## 3. 一个 Skill 最少需要什么
+
+建议最少提供：
 
 ```json
 {
-  "name": "Skill 名称（简洁、专业）",
-  "category": "业务领域（9大分类之一）",
-  "description": "一句话描述 Skill 的核心价值",
-  "estimated_time": "预估耗时（如 ~15 min）"
+  "name": "Executive Summary",
+  "category": "提案与项目交付",
+  "description": "把复杂材料压缩成管理层摘要",
+  "system_prompt": "你是一名资深咨询顾问……",
+  "user_template": "请基于以下内容生成执行摘要：",
+  "estimated_time": "~2 min",
+  "tools_definition_json": "[]"
 }
 ```
 
-**命名规范**：
-- 使用中文或英文专业术语
-- 简洁有力，不超过 10 个字
-- 避免模糊词汇（如"分析器"、"助手"）
-- 好例子：「根因分析」、「财务健康诊断」、「GTM 上市策略」
-
-### 2. System Prompt（系统提示词）
-
-System Prompt 定义 AI 的角色、行为准则和输出规范。
-
-#### 标准结构
-
-```markdown
-## 角色定义
-你是[具体角色]，专精于[专业领域]，遵循[方法论/框架]。
-
-## 核心原则
-- 原则 1：...
-- 原则 2：...
-
-## 工作流程
-**Phase 1 — 阶段名称**
-- 具体步骤
-- 输出要求
-
-**Phase 2 — 阶段名称**
-...
-
-## 输出格式
-- 格式要求 1
-- 格式要求 2
-
-## 限制
-- 绝对不做的事
-- 遇到 X 情况时的处理方式
-```
-
-#### 质量检查清单
-
-- [ ] **角色具体**：不是"你是一个助手"，而是"你是麦肯锡项目经理"
-- [ ] **方法明确**：引用了具体的咨询框架（MECE、金字塔原则、SCQA 等）
-- [ ] **流程清晰**：分阶段、有明确的进入/退出条件
-- [ ] **格式规范**：输出有标准模板，便于用户预期
-- [ ] **边界清晰**：明确说明什么不做、什么情况下拒绝
-
-### 3. User Template（用户模板）
-
-User Template 是提供给用户的输入框架，引导他们提供必要信息。
-
-#### 设计原则
-
-1. **必需 vs 可选**：明确标注哪些信息是必需的
-2. **示例引导**：提供填写示例，降低用户认知负担
-3. **结构化**：使用分段、列表，避免大段空白文本框
-4. **渐进式**：复杂 Skill 采用分阶段收集信息
-
-#### 标准模板
-
-```markdown
-请提供以下信息：
-
-**基本信息**
-- 项目名称：
-- 所属行业：
-- 时间周期：
-
-**背景描述**（必需）
-请用 2-3 句话描述当前情况：
-
-**关键约束**（可选）
-- 预算范围：
-- 时间限制：
-- 禁区（绝对不能做的事）：
-
-**已有材料**（可选）
-可粘贴相关数据、文档或前期分析：
-```
-
-### 4. Tools Definition（工具定义）
-
-Tools 允许 Skill 生成文件、执行计算、调用外部 API。
-
-#### Claude Function Calling 格式
-
-```json
-{
-  "name": "工具名称（英文，snake_case）",
-  "description": "工具功能的自然语言描述，Claude 据此决定是否调用",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "param_name": {
-        "type": "string|number|boolean|array|object",
-        "description": "参数的描述，说明用途和格式"
-      }
-    },
-    "required": ["必需参数列表"]
-  }
-}
-```
+如果要接工具，优先使用 `tools_definition_json`。
 
 ---
 
-## 工具开发（Function Calling）
+## 4. Tool 定义格式
 
-### 可用工具类型
-
-#### 1. 文件生成工具（内置）
-
-平台已内置以下文件生成工具，Skill 可以直接调用：
-
-| 工具名 | 功能 | 典型用途 |
-|--------|------|---------|
-| `generate_ppt` | 生成 PPT | 汇报材料、提案演示 |
-| `generate_docx` | 生成 Word | 分析报告、合同文档 |
-| `generate_xlsx` | 生成 Excel | 数据表、财务模型 |
-| `generate_pdf` | 生成 PDF | 正式交付物、证书 |
-| `save_json` | 保存 JSON | 结构化数据导出 |
-| `save_text` | 保存文本 | 笔记、代码、Markdown |
-
-#### 2. 自定义工具
-
-如果内置工具不满足需求，可以开发自定义工具。
-
-##### 开发步骤
-
-1. **在 `app/tools/` 目录创建新文件**
-
-```python
-# app/tools/my_custom_tool.py
-from __future__ import annotations
-from typing import Any
-from app.tools import registry
-
-@registry.register(
-    name="my_tool_name",  # 工具唯一标识
-    description="工具的自然语言描述",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "param1": {
-                "type": "string",
-                "description": "参数描述"
-            },
-            "param2": {
-                "type": "number",
-                "description": "参数描述"
-            }
-        },
-        "required": ["param1"]
-    }
-)
-async def my_tool_handler(param1: str, param2: float = 0.0) -> dict[str, Any]:
-    """工具实现函数"""
-    try:
-        # 业务逻辑
-        result = do_something(param1, param2)
-        
-        return {
-            "success": True,
-            "result": result,
-            "message": "操作成功"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-```
-
-2. **在 `main.py` 导入工具模块**
-
-```python
-# main.py
-from app.tools import file_generators  # noqa: F401
-from app.tools import my_custom_tool    # noqa: F401  # 新增
-```
-
-3. **重启服务器**，工具自动注册
-
-##### 工具开发规范
-
-- **函数必须是 async**：所有工具处理函数必须是异步的
-- **返回标准格式**：统一返回 `{"success": bool, ...}` 格式
-- **错误处理**：使用 try-except 捕获异常，返回友好错误信息
-- **幂等性**：同一输入应产生相同输出，不依赖外部状态
-- **安全性**：验证所有输入，防止注入攻击
-
----
-
-## 开发流程
-
-### Step 1: 需求分析
-
-在开发前回答以下问题：
-
-1. **用户是谁**？（咨询顾问、企业高管、分析师）
-2. **解决什么问题**？（具体业务场景）
-3. **现有方案为什么不满足**？（差异化价值）
-4. **输出是什么**？（报告、数据、决策建议）
-5. **需要生成文件吗**？（PPT/Word/Excel/PDF）
-
-### Step 2: 设计 System Prompt
-
-遵循以下框架设计：
-
-```
-1. 角色定义（我是谁）
-2. 核心原则（我的价值观）
-3. 工作流程（我如何工作）
-4. 输出格式（我交付什么）
-5. 边界条件（我不做什么）
-```
-
-### Step 3: 设计 User Template
-
-- 识别必需信息 vs 可选信息
-- 提供填写示例
-- 考虑多轮对话的信息收集策略
-
-### Step 4: 配置工具（如需要）
-
-在 `tools_definition_json` 中定义工具：
+当前工具格式遵循 Anthropic tools schema，形态如下：
 
 ```json
 [
   {
     "name": "generate_ppt",
-    "description": "生成 PowerPoint 演示文稿",
-    "input_schema": { ... }
-  },
-  {
-    "name": "generate_xlsx",
-    "description": "生成 Excel 数据表",
-    "input_schema": { ... }
+    "description": "Generate a PowerPoint presentation",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "slides": { "type": "array" }
+      },
+      "required": ["title", "slides"]
+    }
   }
 ]
 ```
 
-### Step 5: 测试验证
+工具注册入口在：
 
-使用以下测试用例验证 Skill：
+- `AriaAI/backend/app/tools/__init__.py`
 
-1. **正常流程**：提供完整信息，验证输出质量
-2. **边界情况**：提供不完整信息，验证追问逻辑
-3. **错误处理**：提供错误信息，验证错误提示
-4. **工具调用**：验证文件生成正确
-5. **多轮对话**：测试复杂场景的多轮交互
+工具执行服务在：
 
-### Step 6: 提交审核
-
-提交内容：
-- Skill JSON 配置
-- 测试用例和结果
-- 使用说明文档
+- `AriaAI/backend/app/services/tool_executor.py`
 
 ---
 
-## 最佳实践
+## 5. 当前已注册工具
 
-### 1. System Prompt 设计
+当前 `file_generators.py` 中注册的工具包括：
 
-#### ✅ 好的示例
+- `generate_ppt`
+- `generate_ppt_from_skill`
+- `generate_docx`
+- `generate_xlsx`
+- `generate_pdf`
+- `save_json`
+- `save_text`
 
-```markdown
-你是一位资深财务顾问（CFO 级）。请对提供的财务数据进行系统性健康诊断，
-覆盖四个维度：
-1) 盈利能力（毛利率/净利率/EBITDA Margin 趋势）
-2) 流动性（流动比率/速动比率/现金转换周期）
-3) 杠杆率（资产负债率/利息覆盖倍数）
-4) 增长质量（收入增速/利润含金量/自由现金流）
-
-每个维度给出红🔴/黄🟡/绿🟢三色评级，并附关键风险或亮点。
-最后给出综合评级和优先处理事项。
-```
-
-#### ❌ 差的示例
-
-```markdown
-你是一个财务分析助手。请分析用户的财务数据，给出建议。
-```
-
-### 2. 工具使用
-
-#### ✅ 好的工具描述
-
-```json
-{
-  "name": "generate_ppt",
-  "description": "生成 PowerPoint (.pptx) 演示文稿，用于客户汇报和提案。当用户需要创建演示材料、汇报文档或可视化展示时使用此工具。",
-  "input_schema": { ... }
-}
-```
-
-#### ❌ 差的工具描述
-
-```json
-{
-  "name": "generate_ppt",
-  "description": "生成 PPT 文件",
-  "input_schema": { ... }
-}
-```
-
-### 3. 渐进式信息收集
-
-对于复杂 Skill，不要一次性要求所有信息：
-
-**第一轮**：收集基本信息
-**第二轮**：根据初步分析，追问关键数据
-**第三轮**：确认假设，生成最终输出
-
-### 4. 错误处理
-
-当用户输入不足时，明确说明需要什么：
-
-```markdown
-我需要更多信息才能进行分析：
-
-❌ 不好的："请提供更多背景信息"
-✅ 好的："请提供以下数据：1) 过去 3 年的收入数据；2) 主要竞争对手名单；3) 您的目标市场份额"
-```
+这些工具主要负责生成交付物或保存文本结果。
 
 ---
 
-## 审核清单
+## 6. 推荐的 Skill 设计方式
 
-提交新 Skill 前，请确认以下事项：
+### 6.1 Quick Tool
 
-### 基础信息
-- [ ] 名称符合命名规范（简洁、专业）
-- [ ] 分类正确（9大业务领域之一）
-- [ ] 描述清晰，一句话说明价值
-- [ ] 预估时间合理
+适合：
 
-### System Prompt
-- [ ] 角色定义具体（不是"助手"，而是具体职位）
-- [ ] 引用了明确的咨询方法论
-- [ ] 工作流程分阶段，有清晰的进入/退出条件
-- [ ] 输出格式规范（使用模板、表格、分级）
-- [ ] 边界条件明确（什么不做、什么情况下拒绝）
-- [ ] 长度适中（不超过 2000 字）
+- 执行摘要
+- 市场速算
+- 客户邮件草稿
 
-### User Template
-- [ ] 区分必需和可选信息
-- [ ] 提供填写示例
-- [ ] 结构化（分段、列表）
-- [ ] 语言简洁，无歧义
+特点：
 
-### Tools（如使用）
-- [ ] 工具选择合理（真的能解决问题）
-- [ ] 工具描述清晰（Claude 能判断何时调用）
-- [ ] 参数定义完整（类型、描述、必需性）
-- [ ] 已测试工具调用流程
+- 单轮或少量轮次
+- `user_template` 明确
+- 工具依赖少
 
-### 测试
-- [ ] 正常输入测试通过
-- [ ] 边界情况测试通过
-- [ ] 多轮对话测试通过
-- [ ] 工具生成文件验证成功
+### 6.2 Deep Task
 
----
+适合：
 
-## 示例
+- 尽调
+- 战略路线图
+- 根因分析
 
-### 示例 1: 执行摘要生成器
+特点：
 
-```json
-{
-  "name": "执行摘要",
-  "category": "提案与项目交付",
-  "description": "将复杂文档浓缩为 C 级别高管可快速阅读的执行摘要",
-  "estimated_time": "~3 min",
-  "system_prompt": "你是一位资深麦肯锡咨询顾问，专精为 C 级别高管撰写执行摘要。\n\n## 核心原则\n1. 结论先行：最重要的信息在第一句\n2. MECE 原则：分类互斥且穷尽\n3. 行动导向：每条建议都有明确下一步\n\n## 输出格式\n\n**执行摘要**（1 段，不超过 100 字）\n\n**关键发现**（3-5 条，每条 1 句话）\n- 发现 1\n- 发现 2\n\n**核心建议**（2-3 条，按优先级排序）\n1. **建议标题**：具体行动 + 预期效果\n2. ...\n\n**下一步行动**（具体、可执行）\n- [ ] 行动 1（负责人 + 截止时间）\n- [ ] 行动 2\n\n## 限制\n- 绝不使用行话或缩写，除非用户先使用\n- 每个数字必须有来源或标注为"估算"\n- 如果不确定，明确说明而非猜测",
-  "user_template": "请为以下材料生成执行摘要：\n\n**文档主题**：\n（一句话说明这是什么文档）\n\n**目标受众**：\n（如：董事会、CEO、投资委员会）\n\n**核心诉求**：\n（如：争取批准、汇报进展、寻求决策）\n\n**原始内容**：\n（粘贴需要总结的文档内容）",
-  "tools_definition_json": "[]"
-}
-```
+- prompt 更长
+- 需要项目上下文
+- 可能伴随文件生成
 
-### 示例 2: 市场测算（带 Excel 输出）
+### 6.3 Guided Workflow
 
-```json
-{
-  "name": "市场测算",
-  "category": "战略与增长",
-  "description": "TAM/SAM/SOM 市场规模测算，生成 Excel 模型",
-  "estimated_time": "~10 min",
-  "system_prompt": "你是一位市场战略顾问，专精市场规模测算。使用 TAM/SAM/SOM 框架进行分析。\n\n## 分析方法\n1. **Top-down**：从宏观市场数据出发，逐级细分\n2. **Bottom-up**：从单个用户/交易出发，逐级汇总\n3. **三角验证**：两种方法交叉验证，识别关键假设\n\n## 输出格式\n\n**测算结果**\n| 指标 | 数值 | 方法论 | 关键假设 |\n|------|------|--------|----------|\n| TAM  | ...  | ...    | ...      |\n| SAM  | ...  | ...    | ...      |\n| SOM  | ...  | ...    | ...      |\n\n**敏感性分析**\n如果关键假设变化 ±20%，结果如何变化\n\n**数据来源与局限性**\n- 数据 1：来源 + 可信度评级\n- 局限性：可能影响结果的因素",
-  "user_template": "请进行市场规模测算：\n\n**目标市场**：\n（产品/服务 + 地理范围）\n\n**已知数据**（如有）：\n- 行业总体规模：\n- 目标用户数量：\n- 平均客单价：\n\n**关键假设**（可选）：\n- 市场增长率：\n- 渗透率预期：\n\n**其他背景**：",
-  "tools_definition_json": [
-    {
-      "name": "generate_xlsx",
-      "description": "生成 Excel 电子表格，包含市场规模测算模型。当用户需要可编辑的财务模型或数据表时使用此工具。",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "sheets": {
-            "type": "array",
-            "description": "工作表数组，每个工作表包含市场规模数据",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {"type": "string", "description": "工作表名称，如 'TAM分析'"},
-                "headers": {
-                  "type": "array",
-                  "items": {"type": "string"},
-                  "description": "列标题"
-                },
-                "data": {
-                  "type": "array",
-                  "description": "行数据",
-                  "items": {
-                    "type": "array",
-                    "items": {"type": ["string", "number"]}
-                  }
-                }
-              },
-              "required": ["name", "headers", "data"]
-            }
-          }
-        },
-        "required": ["sheets"]
-      }
-    }
-  ]
-}
-```
+适合：
+
+- 分阶段追问
+- 结构化信息采集
+- 多步输出
+
+特点：
+
+- `user_template` 像表单
+- prompt 中应明确阶段和输出格式
 
 ---
 
-## 提交方式
+## 7. Skill 编写建议
 
-1. **Fork 项目仓库**
-2. **在 `skills/` 目录添加 Skill JSON 文件**
-3. **提交 Pull Request**，包含：
-   - Skill JSON 文件
-   - 测试截图（至少 3 个测试用例）
-   - 简要说明 Skill 的用途和价值
+### 7.1 Prompt 层
+
+- 先写角色，再写任务，再写输出格式
+- 明确输出结构，避免只写“请详细分析”
+- 如果需要工具，prompt 中要告诉模型什么时候应该用工具
+
+### 7.2 Template 层
+
+- 把用户必须提供的信息做成槽位
+- 优先使用短段落 + 列表
+- 避免自由发挥过多，降低输入质量波动
+
+### 7.3 Tool 层
+
+- 工具定义尽量小而稳定
+- 输入 schema 不要过度复杂
+- 工具名要和用途一一对应
 
 ---
 
-## 更新日志
+## 8. 开发流程
 
-| 日期 | 版本 | 变更内容 |
-|------|------|---------|
-| 2024-03 | 1.0 | 初始版本 |
+1. 先确定 Skill 的目标用户和目标交付物。
+2. 写 `system_prompt` 和 `user_template`。
+3. 如果需要文件生成，再定义 `tools_definition_json`。
+4. 用 `/skills/tools/validate` 检查 schema。
+5. 通过 `/skills/{id}/tools/test` 做验证。
+6. 在 Web 或 macOS 端实测对话链路。
 
 ---
 
-**问题反馈**：如有问题，请提交 Issue 或联系维护团队。
+## 9. 常见问题
 
+### 9.1 分类是否有严格枚举？
+
+当前没有。`category` 在模型里仍是自由文本，所以要靠约定保持一致。
+
+### 9.2 是否必须写工具？
+
+不是。纯 prompt Skill 仍然是有效的。
+
+### 9.3 Skill 是否一定要在仓库里建目录？
+
+不一定。当前主线产品里的 Skill 主要存数据库。仓库里的 `AriaAI/skills/ai-strategy-report` 更像一个带模板资产的特殊示例。
+
+---
+
+## 10. 当前阶段最值得改进的点
+
+- 为 category 建立统一枚举和中英映射
+- 把 Skill 的 tool 使用说明做成显式字段
+- 给 Skill 增加版本号和发布状态
+- 增加 Skill 导入导出能力
+- 让模板资产和数据库 Skill 建立正式关联

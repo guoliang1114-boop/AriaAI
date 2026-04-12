@@ -1,360 +1,151 @@
-﻿# AriaAI RAG 演进方案
+# AriaAI RAG 演进方案
 
-> 日期：2026-03-26  
-> 目的：说明当前 RAG 为什么属于轻量实现，以及下一阶段如何演进到更稳的生产级方案
-
----
-
-## 1. 一句话结论
-
-当前 RAG 已经完成了：
-
-> **从 0 到 1 的可用实现**
-
-但还没有完成：
-
-> **从“能检索”到“稳定、高质量、可解释地支持真实项目交付”**
-
-所以这里说“RAG 仍偏轻量实现”，意思不是它没价值，而是它现在更像一个清晰、简洁、可运行的 baseline。
+> 更新日期：2026-04-12
+> 说明：基于当前 `knowledge.py`、`parser.py`、`rag.py` 与模型定义整理
 
 ---
 
-## 2. 当前 RAG 的实际实现
+## 1. 当前结论
 
-基于现有代码，当前核心路径大致是：
+当前 RAG 已经不是空壳，而是一个可运行的 baseline：
 
 ```text
 上传文档
 -> 解析文本
--> 按固定 chunk_size / overlap 切块
--> sentence-transformers 生成 embedding
--> 存入 DocumentChunk.embedding_json
--> 查询时对所有 chunk 做 cosine similarity
--> 取 top-k
--> 拼接为字符串注入 prompt
+-> 切块
+-> 生成 embedding
+-> 存储到 DocumentChunk
+-> query top-k
+-> 注入聊天上下文
 ```
 
-当前关键实现文件：
+它已经能支持第一阶段产品验证，但还没有达到稳定生产级检索系统的成熟度。
 
-- `AriaAI/backend/app/services/rag.py`
+---
+
+## 2. 当前实现
+
+### 2.1 关键文件
+
 - `AriaAI/backend/app/routers/knowledge.py`
 - `AriaAI/backend/app/services/parser.py`
+- `AriaAI/backend/app/services/rag.py`
+- `AriaAI/backend/app/models/db.py`
 
-当前配置：
+### 2.2 当前配置
+
+在 `app/config.py` 中：
 
 - `CHUNK_SIZE = 800`
 - `CHUNK_OVERLAP = 100`
 - `TOP_K_RESULTS = 5`
 - `EMBEDDING_MODEL = "all-MiniLM-L6-v2"`
 
----
+### 2.3 当前数据模型
 
-## 3. 为什么说它“偏轻量”
+- `KnowledgeDocument`
+- `DocumentChunk`
 
-## 3.1 检索流程是标准 baseline，而不是增强版检索
+其中：
 
-当前实现本质上是：
-
-- 向量化
-- 余弦相似度
-- top-k 返回
-
-这是最典型的第一阶段 RAG 实现。
-
-优点：
-
-- 简单
-- 稳定
-- 容易理解
-- 成本低
-
-限制：
-
-- 对复杂场景区分能力不够
-- 对高质量召回缺少进一步筛选
+- `KnowledgeDocument.vector_status` 管理索引状态
+- `DocumentChunk.embedding_json` 用 JSON 保存向量
 
 ---
 
-## 3.2 没有 rerank 层
+## 3. 当前方案的优点
 
-当前流程中，embedding 相似度高的 chunk 会直接进入结果。
-
-但在真实业务场景里：
-
-- 语义相近，不等于真正相关
-- 真正相关，不等于最值得放进 prompt
-- 多个候选块之间，常常需要二次排序
-
-当前没有额外的重排逻辑，因此召回质量会依赖 embedding baseline 本身。
-
-这就是轻量实现的一个典型特征。
+- 简单直接，易于调试
+- 不依赖外部向量数据库
+- 与当前 SQLite / PostgreSQL 模型兼容
+- 适合小规模知识库验证
 
 ---
 
-## 3.3 chunk 策略偏朴素
+## 4. 当前方案的限制
 
-当前分块方式是固定长度分块。
+### 4.1 embedding 存储方式偏重
 
-这种方式的问题在复杂文档里会很明显：
+- JSON 序列化体积大
+- 不适合规模扩大
 
-- 标题和正文可能被拆开
-- 表格和说明可能被截断
-- 段落语义边界不被尊重
-- PDF 页结构没有被充分利用
+### 4.2 检索方式偏 baseline
 
-对于咨询类文档，这种问题尤其明显，因为这类文档经常有：
+- 主要是向量相似度 + top-k
+- 缺少 rerank、metadata filter、query rewrite
 
-- 页标题
-- 小结
-- 图表说明
-- 表格
-- 多级结构
+### 4.3 可解释性有限
 
-如果 chunk 不理解结构，只按长度切，很容易“切得技术上对，语义上不对”。
+- 前端还没有完整展示 chunk 来源、分数和命中原因
 
----
+### 4.4 项目/客户上下文还未深度融入 RAG
 
-## 3.4 结果返回还是字符串导向
-
-当前 `retrieve()` 返回的是拼接后的文本。
-
-这说明当前 RAG 更像是：
-
-> 给 LLM 塞参考材料
-
-而不是：
-
-> 返回结构化检索结果，供系统进一步加工和展示
-
-这会限制后续能力，比如：
-
-- 显示引用来源
-- 命中结果评分可视化
-- 前端展示“来自哪一份文档”
-- 后端分析“为什么命中这几段”
+- 现在知识库是可用的
+- 但“客户知识”“项目知识”“全局知识”的层级仍不够清晰
 
 ---
 
-## 3.5 缺少质量控制策略
+## 5. 建议演进路线
 
-成熟一些的 RAG 通常会考虑：
+### Phase 1：稳定 baseline
 
-- 最低相似度阈值
-- 去重
-- 同文档过多结果抑制
-- 项目文档优先
-- 最近文档优先
-- 文档类型差异处理
+- 清理乱码和状态文案
+- 补充更多检索日志
+- 明确 chunk metadata
+- 让前端显示引用来源
 
-当前实现没有这类明显的控制层，所以更像“召回了就给模型”。
+### Phase 2：增强检索质量
 
----
+- 增加 metadata filter
+- 增加 query rewrite
+- 增加 rerank
+- 区分客户 / 项目 / 全局知识空间
 
-## 3.6 缺少检索可观测性
+### Phase 3：提升规模能力
 
-当前系统还不太容易回答这些问题：
-
-- 哪些文档最常被命中
-- 哪些查询经常召回失败
-- 哪些 chunk 总被误命中
-- 模型最终用了哪些引用
-
-这意味着后续优化会更多依赖体感，而不是数据反馈。
+- 把 embedding 存储从 JSON 迁出
+- 引入向量索引或专门向量数据库
+- 加入增量索引和后台任务
 
 ---
 
-## 4. 当前架构图
+## 6. 与产品主线的关系
 
-```mermaid
-flowchart TD
-    DOC[Uploaded Document]
-    PARSER[parser.py]
-    CHUNK[Fixed-size Chunking]
-    EMBED[SentenceTransformer]
-    DB[(DocumentChunk.embedding_json)]
-    QUERY[User Query]
-    SIM[Cosine Similarity]
-    TOPK[Top-K Chunks]
-    PROMPT[Concatenated Context String]
-    LLM[Claude]
+RAG 的真正价值不在“能搜文档”，而在于为项目工作流服务：
 
-    DOC --> PARSER
-    PARSER --> CHUNK
-    CHUNK --> EMBED
-    EMBED --> DB
+- 让项目内对话更懂上下文
+- 让技能输出更少幻觉
+- 让客户知识可复用
+- 让生成物有来源依据
 
-    QUERY --> EMBED
-    DB --> SIM
-    EMBED --> SIM
-    SIM --> TOPK
-    TOPK --> PROMPT
-    PROMPT --> LLM
-```
+所以 RAG 演进应该优先服务：
+
+- 项目
+- 客户
+- 生成物
+
+而不是孤立地追求更复杂的检索技术。
 
 ---
 
-## 5. 下一阶段增强版 RAG 应该长什么样
+## 7. 短期建议
 
-## 5.1 目标
+接下来最值得先做的几件事：
 
-下一阶段不是推翻，而是增强。
-
-目标是把当前 RAG 升级成：
-
-- 更稳定
-- 更可解释
-- 更适合项目场景
-- 更容易调优
+1. 给 chunk 加更清晰的 metadata。
+2. 在聊天结果中展示引用来源。
+3. 明确项目知识与全局知识的检索优先级。
+4. 为知识同步增加更稳定的状态流转。
 
 ---
 
-## 5.2 建议的增强结构
+## 8. 中长期方向
 
-```mermaid
-flowchart TD
-    DOC[Uploaded Document]
-    PARSER[Structured Parsing]
-    CHUNK[Structure-aware Chunking]
-    EMBED[Embedding Service]
-    INDEX[(Chunk Store + Metadata)]
+当产品进入更大规模团队使用后，再考虑：
 
-    QUERY[User Query]
-    FILTER[Scope Filter\nproject / docs / category]
-    RETRIEVE[Vector Retrieve]
-    RERANK[Rerank / Score Adjust]
-    DEDUP[Dedup / Diversity Control]
-    RESULT[Structured Retrieval Hits]
-    PROMPT[Prompt Context Builder]
-    UI[Source Display]
-    LLM[Claude]
+- 向量索引服务
+- 多知识空间权限
+- 检索质量评估集
+- 混合检索与 rerank
 
-    DOC --> PARSER
-    PARSER --> CHUNK
-    CHUNK --> EMBED
-    EMBED --> INDEX
-
-    QUERY --> FILTER
-    FILTER --> RETRIEVE
-    INDEX --> RETRIEVE
-    RETRIEVE --> RERANK
-    RERANK --> DEDUP
-    DEDUP --> RESULT
-    RESULT --> PROMPT
-    RESULT --> UI
-    PROMPT --> LLM
-```
-
----
-
-## 6. 建议分三步演进
-
-## 第一步：结构化返回
-
-### 目标
-
-不再只返回拼接字符串，而是返回结构化结果。
-
-### 建议输出结构
-
-```json
-[
-  {
-    "document_id": 12,
-    "document_name": "某客户项目背景资料.pdf",
-    "chunk_index": 3,
-    "score": 0.82,
-    "content": "命中的文本片段"
-  }
-]
-```
-
-### 为什么先做这个
-
-这是后续一切增强的基础：
-
-- 前端引用展示
-- 日志分析
-- rerank
-- 去重
-- prompt 组装策略
-
----
-
-## 第二步：增强召回质量
-
-### 目标
-
-让“召回相关”变成“召回有用”。
-
-### 建议补充
-
-- score threshold
-- 同文档命中数限制
-- 多文档平衡
-- 项目文档优先
-- category filter
-- doc_ids filter 强化
-
-### 进一步增强
-
-- 轻量 rerank
-- 基于 query + chunk 的二次打分
-
----
-
-## 第三步：结构感知切块
-
-### 目标
-
-让 chunk 更贴近文档语义，而不是只贴近长度。
-
-### 建议方向
-
-- 按标题切块
-- 按段落切块
-- 表格单独处理
-- PDF 页面结构保留
-- 大段落再做二次切块
-
-### 这一步的价值
-
-它会直接提升：
-
-- 检索质量
-- 引用可读性
-- LLM 使用上下文的效果
-
----
-
-## 7. 建议新增的数据结构
-
-后续可以考虑增加：
-
-- `RetrievalHit`
-- `DocumentSection`
-- `ConversationRetrievalLog`
-- `ProjectKnowledgeScope`
-
-不一定要一开始就落库，但建议在代码结构上提前留接口。
-
----
-
-## 8. 对当前项目最现实的短期建议
-
-如果只做最划算的几件事，我建议按这个顺序：
-
-1. `retrieve()` 返回结构化结果
-2. 增加 score 阈值和基础去重
-3. 在聊天链路中显示引用来源
-4. 为项目 / 文档范围控制留标准接口
-5. 再考虑 rerank 和结构感知切块
-
----
-
-## 9. 一句话理解“轻量实现”
-
-如果要最直白地解释：
-
-> 当前 RAG 已经能工作，但它更像“向量检索 baseline + prompt 注入”，还不是“面向复杂项目场景的成熟检索系统”。
-
-这就是“RAG 仍偏轻量实现”的真正含义。
+在那之前，最重要的是让当前这套 baseline 稳定、可解释、可维护。
