@@ -5,25 +5,51 @@
  * Priority order:
  * 1. localStorage.serverUrl (user saved setting)
  * 2. import.meta.env.VITE_API_URL (environment variable)
- * 3. Default: 'http://127.0.0.1:8000'
+ * 3. Default: '/api' (production) or 'http://127.0.0.1:8000' (development)
  */
 
-const DEFAULT_API_URL = 'http://127.0.0.1:8000'
+const DEV_DEFAULT_URL = 'http://127.0.0.1:8000'
+const PROD_DEFAULT_URL = '/api'
 
-export function getApiBaseUrl(): string {
+/** Detect if running in production mode */
+function isProduction(): boolean {
+  return import.meta.env.PROD || window.location.hostname !== 'localhost'
+}
+
+/** Get default URL based on environment */
+function getDefaultUrl(): string {
+  return isProduction() ? PROD_DEFAULT_URL : DEV_DEFAULT_URL
+}
+
+/** Source of the current API URL */
+export type ApiUrlSource = 'localStorage' | 'env' | 'default'
+
+export interface ApiConfig {
+  url: string
+  source: ApiUrlSource
+  isDefault: boolean
+}
+
+export function getApiConfig(): ApiConfig {
   // Priority 1: User saved setting
   const savedUrl = localStorage.getItem('serverUrl')
   if (savedUrl) {
-    return savedUrl
+    return { url: savedUrl, source: 'localStorage', isDefault: false }
   }
   
   // Priority 2: Environment variable
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL
+  const envUrl = import.meta.env.VITE_API_URL
+  if (envUrl) {
+    return { url: envUrl, source: 'env', isDefault: false }
   }
   
   // Priority 3: Default
-  return DEFAULT_API_URL
+  return { url: getDefaultUrl(), source: 'default', isDefault: true }
+}
+
+/** Get API base URL (backward compatible) */
+export function getApiBaseUrl(): string {
+  return getApiConfig().url
 }
 
 export function getApiBaseUrlForAxios(): string {
