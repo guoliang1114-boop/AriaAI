@@ -4591,7 +4591,7 @@ export function ProjectDetail() {
   const isChatTab = location.pathname.endsWith("/chat");
   const isNotesTab = location.pathname.endsWith("/notes");
   const isTodosTab = location.pathname.endsWith("/todos");
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(
     null,
   );
@@ -4604,7 +4604,6 @@ export function ProjectDetail() {
 
   const fetchProjectDetail = async (projectId: number) => {
     try {
-      setLoading(true);
       const data = await api.get<ProjectDetailType>(
         `/projects/${projectId}/detail`,
       );
@@ -4612,11 +4611,11 @@ export function ProjectDetail() {
     } catch (error) {
       console.error("Failed to fetch project detail:", error);
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
     }
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <>
         <PageTitle title="Project" />

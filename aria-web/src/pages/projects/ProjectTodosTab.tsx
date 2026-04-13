@@ -149,8 +149,17 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const [users, setUsers] = useState<UserItem[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
 
+  const currentUser = (() => {
+    try {
+      const raw = localStorage.getItem('user')
+      return raw ? (JSON.parse(raw) as { id?: number }) : null
+    } catch {
+      return null
+    }
+  })()
+
   const [newContent, setNewContent] = useState('')
-  const [newAssignee, setNewAssignee] = useState<number | null>(null)
+  const [newAssignee, setNewAssignee] = useState<number | null>(currentUser?.id ?? null)
   const [isAdding, setIsAdding] = useState(false)
 
   const [savingId, setSavingId] = useState<number | null>(null)
@@ -185,7 +194,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         assigned_to_user_id: newAssignee,
       })
       setNewContent('')
-      setNewAssignee(null)
+      setNewAssignee(currentUser?.id ?? null)
       onUpdate()
     } catch (error) {
       console.error('Failed to create todo:', error)
