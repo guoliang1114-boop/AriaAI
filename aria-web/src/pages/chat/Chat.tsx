@@ -249,6 +249,9 @@ export function Chat() {
     }
   }, [conversations])
 
+  // Track if we've already loaded this conversation to prevent double-load in StrictMode
+  const loadedConvIdRef = useRef<number | null>(null)
+  
   useEffect(() => {
     if (conversationId) {
       if (skipNextConvLoadRef.current) {
@@ -256,7 +259,15 @@ export function Chat() {
         return
       }
       const convId = parseInt(conversationId)
+      
+      // Prevent loading the same conversation twice (React StrictMode)
+      if (loadedConvIdRef.current === convId && messages.length > 0) {
+        console.log('[Chat] Already loaded conversation:', convId)
+        return
+      }
+      
       console.log('[Chat] Loading conversation:', convId)
+      loadedConvIdRef.current = convId
       loadConversation(convId)
     }
   }, [conversationId])
@@ -537,10 +548,14 @@ export function Chat() {
   // ── Send message wrapper ──────────────────────────────────────────────────
   const handleSend = () => sendMessage(input)
 
+  // Prevent duplicate sends
+  const isSendingRef = useRef(false)
+  
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
-    if (!msgText.trim() || sending) return
-
+    if (!msgText.trim() || sending || isSendingRef.current) return
+    
+    isSendingRef.current = true
     setSending(true)
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -755,6 +770,7 @@ export function Chat() {
       }
     } finally {
       setSending(false)
+      isSendingRef.current = false
       abortControllerRef.current = null
     }
   }
