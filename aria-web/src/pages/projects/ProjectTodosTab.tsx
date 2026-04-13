@@ -166,6 +166,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
   const [editAssignee, setEditAssignee] = useState<number | null>(null)
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
 
   const completedCount = todos.filter((t) => t.is_done).length
   const progress = todos.length > 0 ? (completedCount / todos.length) * 100 : 0
@@ -221,12 +222,19 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
 
   const handleDelete = async (todoId: number) => {
     if (!confirm(isZh ? '确定要删除这个待办吗？' : 'Are you sure you want to delete this todo?')) return
+    setDeletingIds((prev) => new Set(prev).add(todoId))
     try {
       await api.delete(`/projects/${projectId}/todos/${todoId}`)
-      onUpdate()
+      await onUpdate()
     } catch (error) {
       console.error('Failed to delete todo:', error)
       toast.error(isZh ? '删除失败' : 'Failed to delete')
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(todoId)
+        return next
+      })
     }
   }
 
@@ -329,101 +337,109 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {todos.map((todo) => (
-              <div
-                key={todo.id}
-                className={`flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors group ${
-                  todo.is_done ? 'bg-gray-50/50' : ''
-                }`}
-              >
-                <button
-                  onClick={() => handleToggle(todo)}
-                  disabled={savingId === todo.id}
-                  className="flex-shrink-0 text-gray-400 hover:text-primary transition-colors disabled:opacity-50"
+            {todos
+              .filter((todo) => !deletingIds.has(todo.id))
+              .map((todo) => (
+                <div
+                  key={todo.id}
+                  className={`flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors group ${
+                    todo.is_done ? 'bg-gray-50/50' : ''
+                  }`}
                 >
-                  {savingId === todo.id ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : todo.is_done ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                  ) : (
-                    <Circle className="w-5 h-5" />
-                  )}
-                </button>
+                  <div className="flex-shrink-0 text-gray-400">
+                    {savingId === todo.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : todo.is_done ? (
+                      <button
+                        onClick={() => handleToggle(todo)}
+                        className="text-gray-400 hover:text-primary transition-colors"
+                      >
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggle(todo)}
+                        className="text-gray-400 hover:text-primary transition-colors"
+                      >
+                        <Circle className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
 
-                <div className="flex-1 min-w-0">
-                  {editingId === todo.id ? (
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSaveEdit(todo.id)
-                          if (e.key === 'Escape') cancelEdit()
-                        }}
-                        autoFocus
-                        className="flex-1 px-3 py-1.5 bg-white border border-primary/30 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                      <div className="sm:w-44">
-                        <UserPicker
-                          users={users}
-                          value={editAssignee}
-                          onChange={setEditAssignee}
+                  <div className="flex-1 min-w-0">
+                    {editingId === todo.id ? (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(todo.id)
+                            if (e.key === 'Escape') cancelEdit()
+                          }}
+                          autoFocus
+                          className="flex-1 px-3 py-1.5 bg-white border border-primary/30 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleSaveEdit(todo.id)}
-                          disabled={savingId === todo.id}
-                          className="p-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-                        >
-                          {savingId === todo.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                        <button
-                          onClick={cancelEdit}
-                          className="p-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      <p className={`text-sm ${todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                        {todo.content}
-                      </p>
-                      {todo.assigned_user && (
-                        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                          <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
-                            {todo.assigned_user.display_name.charAt(0)}
-                          </div>
-                          <span>{todo.assigned_user.display_name}</span>
+                        <div className="sm:w-44">
+                          <UserPicker
+                            users={users}
+                            value={editAssignee}
+                            onChange={setEditAssignee}
+                          />
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleSaveEdit(todo.id)}
+                            disabled={savingId === todo.id}
+                            className="p-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {savingId === todo.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="p-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <p className={`text-sm ${todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                          {todo.content}
+                        </p>
+                        {todo.assigned_user && (
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
+                              {todo.assigned_user.display_name.charAt(0)}
+                            </div>
+                            <span>{todo.assigned_user.display_name}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => startEdit(todo)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(todo.id)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => startEdit(todo)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(todo.id)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         )}
       </div>
