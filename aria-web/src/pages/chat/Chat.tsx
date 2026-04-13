@@ -160,6 +160,7 @@ export function Chat() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const conversationId = searchParams.get('conversation')
+  const conversationIdFromQuery = conversationId ? parseInt(conversationId, 10) : null
   const skillId = searchParams.get('skill')
   const projectId = searchParams.get('project')
   const prefilledQ = searchParams.get('q')
@@ -848,6 +849,10 @@ export function Chat() {
   // ── Derived values ────────────────────────────────────────────────────────
   const selectedProjectData = projects.find(p => p.id === selectedProject)
   const selectedSkillData = skills.find(s => s.id === selectedSkill)
+  const activeConversationId =
+    conversation?.id ??
+    (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
+  const activeConversationTitle = conversation?.title || t('chat.newConversation')
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
@@ -1009,10 +1014,10 @@ export function Chat() {
             </div>
             
             {/* Export dropdown */}
-            {conversation?.id && (
+            {activeConversationId && (
               <ExportDropdown 
-                conversationId={conversation.id} 
-                conversationTitle={conversation.title}
+                conversationId={activeConversationId}
+                conversationTitle={activeConversationTitle}
               />
             )}
           </div>
