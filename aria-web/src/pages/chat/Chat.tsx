@@ -198,6 +198,8 @@ export function Chat() {
   const processedSkillRef = useRef<number | null>(null)
   // Track streaming state for recovery after navigation
   const streamingConvIdRef = useRef<number | null>(null)
+  // Track conversation ID for reliable save on unmount
+  const conversationIdRef = useRef<number | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -227,13 +229,16 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Found pending conversation in sessionStorage:', convId)
-      // Don't remove from sessionStorage here - let the polling logic handle it
+      console.log('[Chat] Found pending conversation in sessionStorage:', convId, 'current:', conversationId)
+      
       if (!conversationId || parseInt(conversationId) !== convId) {
+        // Navigate to the pending conversation
         console.log('[Chat] Navigating to pending conversation:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
       } else {
-        console.log('[Chat] Already on pending conversation:', convId)
+        // Already on the conversation, force refresh messages
+        console.log('[Chat] Already on pending conversation, refreshing messages:', convId)
+        loadConversation(convId)
       }
     }
   }, [])
@@ -326,22 +331,29 @@ export function Chat() {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
+  // Save conversation ID when it changes
+  useEffect(() => {
+    if (conversation?.id) {
+      conversationIdRef.current = conversation.id
+    }
+  }, [conversation?.id])
+
   // Save streaming state when component unmounts (user navigates away)
   useEffect(() => {
     return () => {
-      // Save state if we have an active conversation
-      // This covers both streaming and just-finished states
-      const currentConvId = conversation?.id || streamingConvIdRef.current
+      // Use ref to get the most recent conversation ID
+      // This is more reliable than state during unmount
+      const currentConvId = streamingConvIdRef.current || conversationIdRef.current
       if (currentConvId) {
-        console.log('[Chat] User navigated away, saving conversation state:', currentConvId)
+        console.log('[Chat] Component unmounting, saving conversation:', currentConvId)
         sessionStorage.setItem('pendingStreamingConvId', String(currentConvId))
       }
-      // Abort any ongoing request
+      // Abort any ongoing request to prevent memory leaks
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
       }
     }
-  }, [conversation?.id])
+  }, [])
 
   // ── Data fetch ────────────────────────────────────────────────────────────
   const fetchInitialData = async () => {
