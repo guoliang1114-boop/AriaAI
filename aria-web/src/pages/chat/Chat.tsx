@@ -227,10 +227,10 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      sessionStorage.removeItem('pendingStreamingConvId')
-      // If we're not already on this conversation, we'll load it
-      // The loadConversation effect will handle refreshing messages
+      // Don't remove from sessionStorage here - let the polling logic handle it
+      // This allows the user to see the recovery state
       if (!conversationId || parseInt(conversationId) !== convId) {
+        // Navigate to the conversation with streaming recovery flag
         navigate(`/chat?conversation=${convId}`, { replace: true })
       }
     }
@@ -256,33 +256,46 @@ export function Chat() {
       // If we're recovering from a streaming interruption, poll for updates
       const pendingId = sessionStorage.getItem('pendingStreamingConvId')
       if (pendingId && parseInt(pendingId) === convId) {
+        console.log('[Chat] Recovering streaming for conversation:', convId)
         // Poll for message completion
         const pollInterval = setInterval(async () => {
           try {
-            const msgs = await api.get<Message[]>(`/chat/conversations/${convId}/messages?limit=5`)
-            // Check if the last assistant message has complete content
-            const lastAssistantMsg = [...msgs].reverse().find(m => m.role === 'assistant')
-            if (lastAssistantMsg) {
-              // Check if there's a newer complete message than what we have
-              const currentLastMsg = [...messages].reverse().find(m => m.role === 'assistant')
-              if (!currentLastMsg || lastAssistantMsg.id !== currentLastMsg.id || 
-                  lastAssistantMsg.content !== currentLastMsg.content) {
-                setMessages(msgs)
-              }
-              // Check if streaming is done (no pending marker)
-              if (!sessionStorage.getItem('pendingStreamingConvId')) {
-                clearInterval(pollInterval)
-              }
+            // Get latest messages (fetch more to ensure we get the complete state)
+            const msgs = await api.get<Message[]>(`/chat/conversations/${convId}/messages?limit=20`)
+            
+            // Always update messages to get latest state
+            setMessages(msgs)
+            
+            // Check if streaming is done (no pending marker)
+            if (!sessionStorage.getItem('pendingStreamingConvId')) {
+              console.log('[Chat] Streaming recovery complete')
+              clearInterval(pollInterval)
+            }
+            
+            // Also check if we have a complete assistant message as last message
+            const lastMsg = msgs[msgs.length - 1]
+            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+              // Wait a bit more to ensure it's fully saved, then clear recovery state
+              setTimeout(() => {
+                sessionStorage.removeItem('pendingStreamingConvId')
+              }, 5000)
             }
           } catch (e) {
-            console.error('Poll error:', e)
+            console.error('[Chat] Poll error:', e)
           }
-        }, 2000) // Poll every 2 seconds
+        }, 1500) // Poll every 1.5 seconds
         
-        // Stop polling after 2 minutes (max streaming time)
-        setTimeout(() => clearInterval(pollInterval), 120000)
+        // Stop polling after 3 minutes (max streaming time)
+        const timeoutId = setTimeout(() => {
+          console.log('[Chat] Polling timeout, clearing recovery state')
+          sessionStorage.removeItem('pendingStreamingConvId')
+          clearInterval(pollInterval)
+        }, 180000)
         
-        return () => clearInterval(pollInterval)
+        return () => {
+          clearInterval(pollInterval)
+          clearTimeout(timeoutId)
+        }
       }
     } else {
       setLoading(false)
@@ -310,11 +323,12 @@ export function Chat() {
   // Save streaming state when component unmounts (user navigates away)
   useEffect(() => {
     return () => {
-      // If we're streaming and user navigates away, keep the pending state
-      // The state is already saved in sessionStorage when streaming starts
-      // Just abort the connection to avoid memory leaks
+      // If we're streaming and user navigates away, save the state
       if (isStreamingRef.current && streamingConvIdRef.current) {
-        // Don't remove from sessionStorage - we want to recover when user comes back
+        console.log('[Chat] User navigated away while streaming, saving state:', streamingConvIdRef.current)
+        // Ensure the pending state is saved (it should already be saved in sendMessage)
+        sessionStorage.setItem('pendingStreamingConvId', String(streamingConvIdRef.current))
+        // Abort the connection to avoid memory leaks
         abortControllerRef.current?.abort()
       }
     }
