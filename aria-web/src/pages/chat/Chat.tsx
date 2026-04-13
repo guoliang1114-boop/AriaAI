@@ -227,17 +227,19 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Recovery - Found pending conversation:', convId)
+      console.log('[Chat] Recovery - Found pending conversation:', convId, 'current:', conversationId)
       
-      // Clear the marker
+      // Clear the marker immediately
       sessionStorage.removeItem('pendingStreamingConvId')
       
       // If we're not on this conversation, navigate to it
       if (!conversationId || parseInt(conversationId) !== convId) {
         console.log('[Chat] Recovery - Navigating to:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
+      } else {
+        // Already on the conversation but need to refresh to get latest messages
+        console.log('[Chat] Recovery - Already on conversation, will refresh via useEffect')
       }
-      // If already on the conversation, the conversationId useEffect will load it
     }
   }, [])
 
@@ -260,13 +262,17 @@ export function Chat() {
       }
       const convId = parseInt(conversationId)
       
+      // Check if this is a recovered conversation (need to force refresh)
+      const isRecovered = loadedConvIdRef.current === convId && messages.length > 0
+      
       // Prevent loading the same conversation twice (React StrictMode)
-      if (loadedConvIdRef.current === convId && messages.length > 0) {
+      // But allow if we're recovering from a navigation
+      if (isRecovered && !sessionStorage.getItem('pendingStreamingConvId')) {
         console.log('[Chat] Already loaded conversation:', convId)
         return
       }
       
-      console.log('[Chat] Loading conversation:', convId)
+      console.log('[Chat] Loading conversation:', convId, isRecovered ? '(recovery)' : '')
       loadedConvIdRef.current = convId
       loadConversation(convId)
     }
@@ -284,14 +290,30 @@ export function Chat() {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  // Cleanup on unmount - save state only if currently streaming
+  // Track previous conversation ID to detect switches
+  const prevConversationIdRef = useRef<string | null>(null)
+  
+  // Handle conversation switch - save state if streaming
   useEffect(() => {
-    return () => {
-      // Only save if we're in the middle of streaming a response
+    const currentConvId = conversationId
+    const prevConvId = prevConversationIdRef.current
+    
+    // If we switched from one conversation to another
+    if (prevConvId && prevConvId !== currentConvId) {
+      // Check if we were streaming in the previous conversation
       if (isStreamingRef.current && streamingConvIdRef.current) {
-        console.log('[Chat] Unmounting while streaming, saving:', streamingConvIdRef.current)
+        console.log('[Chat] Switched while streaming, saving:', streamingConvIdRef.current)
         sessionStorage.setItem('pendingStreamingConvId', String(streamingConvIdRef.current))
       }
+    }
+    
+    // Update ref
+    prevConversationIdRef.current = currentConvId
+  }, [conversationId])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
       // Abort any ongoing request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
