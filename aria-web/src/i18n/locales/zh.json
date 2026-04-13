@@ -409,8 +409,15 @@
       "disconnected": "未连接",
       "checking": "检查中...",
       "checkingStatus": "正在检查服务器状态...",
-      "cannotConnect": "无法连接到服务器"
-    }
+      "cannotConnect": "无法连接到服务器",
+      "currentSource": "当前生效来源",
+      "currentValue": "当前生效地址",
+      "backendValue": "后端存储值",
+      "sourceLocal": "浏览器本地设置",
+      "sourceEnv": "环境变量",
+      "sourceDefault": "默认值",
+      "notSet": "未设置"
+      }
   },
   "language": {
     "title": "语言设置",

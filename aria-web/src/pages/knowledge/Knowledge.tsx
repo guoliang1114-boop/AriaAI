@@ -11,11 +11,13 @@ import {
   AlertCircle,
   Clock,
   Database,
-  Filter
+  Filter,
+  type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
+import type { VectorStatus } from '../../types/enums'
 
 const fileTypeIcons: Record<string, string> = {
   pdf: 'bg-red-50 text-red-500',
@@ -30,9 +32,10 @@ const fileTypeIcons: Record<string, string> = {
   ppt: 'bg-orange-50 text-orange-500',
 }
 
-const getStatusConfig = (t: (key: string) => string) => ({
+const getStatusConfig = (t: (key: string) => string): Record<VectorStatus, { icon: LucideIcon; color: string; bg: string; label: string }> => ({
   pending: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: t('knowledge.processing') },
-  indexed: { icon: CheckCircle2, color: 'text-active', bg: 'bg-active/10', label: t('knowledge.indexed') },
+  processing: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: t('knowledge.processing') },
+  synced: { icon: CheckCircle2, color: 'text-active', bg: 'bg-active/10', label: t('knowledge.indexed') },
   failed: { icon: AlertCircle, color: 'text-error', bg: 'bg-error/10', label: t('knowledge.failed') },
 })
 
@@ -207,7 +210,7 @@ export function Knowledge() {
               </div>
               <div>
                 <p className="text-3xl font-manrope font-bold text-on-surface">
-                  {documents.filter(d => d.vector_status === 'indexed').length}
+                  {documents.filter(d => d.vector_status === 'synced').length}
                 </p>
                 <p className="text-sm text-on-surface-muted">{t('knowledge.indexed')}</p>
               </div>

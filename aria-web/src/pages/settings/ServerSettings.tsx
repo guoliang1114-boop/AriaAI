@@ -15,7 +15,7 @@ import {
   ExternalLink
 } from 'lucide-react'
 import { api } from '../../api/client'
-import { getApiBaseUrl, saveApiBaseUrl } from '../../config/api'
+import { getApiConfig, saveApiBaseUrl, type ApiUrlSource } from '../../config/api'
 
 interface ServerInfo {
   version: string
@@ -26,12 +26,24 @@ interface ServerInfo {
 export function ServerSettings() {
   const { t } = useTranslation()
   const [serverUrl, setServerUrl] = useState('')
+  const [initialServerUrl, setInitialServerUrl] = useState('')
+  const [backendServerUrl, setBackendServerUrl] = useState('')
+  const [effectiveUrl, setEffectiveUrl] = useState('')
+  const [effectiveSource, setEffectiveSource] = useState<ApiUrlSource>('default')
   const [isChecking, setIsChecking] = useState(false)
   const [status, setStatus] = useState<'idle' | 'online' | 'offline'>('idle')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
   const [error, setError] = useState('')
+
+  const sourceLabels: Record<ApiUrlSource, string> = {
+    localStorage: t('settings.server.sourceLocal') || '浏览器本地设置',
+    env: t('settings.server.sourceEnv') || '环境变量',
+    default: t('settings.server.sourceDefault') || '默认值',
+  }
+
+  const hasUnsavedChanges = serverUrl.trim() !== initialServerUrl.trim()
 
   // Load saved server URL on mount
   useEffect(() => {
@@ -42,29 +54,25 @@ export function ServerSettings() {
     try {
       setLoading(true)
       setError('')
-      
-      // Try to get from settings API first
+      const apiConfig = getApiConfig()
+      setEffectiveUrl(apiConfig.url)
+      setEffectiveSource(apiConfig.source)
+
+      let resolvedUrl = apiConfig.url
+
       try {
         const settings = await api.get<Record<string, string>>('/settings/')
         if (settings.api_base_url) {
-          setServerUrl(settings.api_base_url)
-        } else {
-          // Fallback to localStorage
-          const saved = localStorage.getItem('serverUrl')
-          if (saved) {
-            setServerUrl(saved)
-          } else {
-            setServerUrl(import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000')
-          }
+          setBackendServerUrl(settings.api_base_url)
+          resolvedUrl = settings.api_base_url
         }
       } catch {
-        // Fallback to localStorage if API fails
-        const saved = localStorage.getItem('serverUrl')
-        setServerUrl(saved || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000')
+        setBackendServerUrl('')
       }
-      
-      // Auto-check connection on load
-      await checkConnection()
+
+      setServerUrl(resolvedUrl)
+      setInitialServerUrl(resolvedUrl)
+      await checkConnection(resolvedUrl)
     } catch (err: any) {
       setError(err.message || 'Failed to load settings')
     } finally {
@@ -237,6 +245,23 @@ export function ServerSettings() {
         </div>
 
         <div className="space-y-3">
+          <div className="rounded-xl bg-surface-container-low p-4 space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-on-surface-muted">{t('settings.server.currentSource') || '当前生效来源'}</span>
+              <span className="font-medium text-on-surface">{sourceLabels[effectiveSource]}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-on-surface-muted">{t('settings.server.currentValue') || '当前生效地址'}</span>
+              <span className="font-mono text-on-surface text-right break-all">{effectiveUrl}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-on-surface-muted">{t('settings.server.backendValue') || '后端存储值'}</span>
+              <span className="font-mono text-on-surface text-right break-all">
+                {backendServerUrl || (t('settings.server.notSet') || '未设置')}
+              </span>
+            </div>
+          </div>
+
           <div className="flex gap-2">
             <input
               type="text"
@@ -341,7 +366,7 @@ export function ServerSettings() {
               <Check className="w-4 h-4" />
               {t('settings.saved') || '已保存'}
             </span>
-          ) : serverUrl !== (localStorage.getItem('serverUrl') || import.meta.env.VITE_API_URL) ? (
+          ) : hasUnsavedChanges ? (
             t('settings.unsavedChanges') || '有未保存的更改'
           ) : (
             t('settings.allSaved') || '所有更改已保存'

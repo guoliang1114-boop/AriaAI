@@ -11,49 +11,13 @@ import {
   Wand2,
   Lightbulb,
   ChevronDown,
-  Target,
-  Handshake,
-  PenTool,
-  Rocket,
-  Cog,
-  Package,
-  Headphones,
-  Archive,
   Check,
   Plus,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { Project } from '../../types/api'
-
-// ─── Stage config (mirrors ProjectDetail) ──────────────────────────────────
-type ProjectStage =
-  | 'lead_discovery' | 'opportunity_qualified' | 'proposal' | 'negotiation' | 'contracting'
-  | 'kickoff' | 'execution' | 'delivery' | 'support' | 'archived'
-
-interface StageConfig {
-  id: ProjectStage
-  labelZh: string
-  descZh: string
-  color: string
-  bgColor: string
-  borderColor: string
-  icon: typeof Lightbulb
-  phase: 'business' | 'delivery' | 'archived'
-}
-
-const PROJECT_STAGES: StageConfig[] = [
-  { id: 'lead_discovery',       labelZh: '线索发现', descZh: '初步接触，需求挖掘', color: 'text-slate-600',    bgColor: 'bg-slate-50',    borderColor: 'border-slate-200',   icon: Lightbulb,  phase: 'business' },
-  { id: 'opportunity_qualified',labelZh: '商机确认', descZh: '需求明确，预算确认', color: 'text-blue-600',     bgColor: 'bg-blue-50',     borderColor: 'border-blue-200',    icon: Target,     phase: 'business' },
-  { id: 'proposal',             labelZh: '方案投标', descZh: '方案设计，投标应标', color: 'text-indigo-600',   bgColor: 'bg-indigo-50',   borderColor: 'border-indigo-200',  icon: FileText,   phase: 'business' },
-  { id: 'negotiation',          labelZh: '商务谈判', descZh: '价格商议，条款确定', color: 'text-violet-600',   bgColor: 'bg-violet-50',   borderColor: 'border-violet-200',  icon: Handshake,  phase: 'business' },
-  { id: 'contracting',          labelZh: '合同签订', descZh: '合同签署，正式立项', color: 'text-purple-600',   bgColor: 'bg-purple-50',   borderColor: 'border-purple-200',  icon: PenTool,    phase: 'business' },
-  { id: 'kickoff',              labelZh: '项目启动', descZh: '团队组建，计划制定', color: 'text-cyan-600',     bgColor: 'bg-cyan-50',     borderColor: 'border-cyan-200',    icon: Rocket,     phase: 'delivery' },
-  { id: 'execution',            labelZh: '项目执行', descZh: '按计划推进，阶段交付', color: 'text-emerald-600', bgColor: 'bg-emerald-50',  borderColor: 'border-emerald-200', icon: Cog,        phase: 'delivery' },
-  { id: 'delivery',             labelZh: '项目交付', descZh: '最终交付，客户验收', color: 'text-teal-600',     bgColor: 'bg-teal-50',     borderColor: 'border-teal-200',    icon: Package,    phase: 'delivery' },
-  { id: 'support',              labelZh: '运维支持', descZh: '售后支持，持续优化', color: 'text-sky-600',      bgColor: 'bg-sky-50',      borderColor: 'border-sky-200',     icon: Headphones, phase: 'delivery' },
-  { id: 'archived',             labelZh: '已归档',   descZh: '项目完成，历史归档', color: 'text-gray-500',     bgColor: 'bg-gray-50',     borderColor: 'border-gray-200',    icon: Archive,    phase: 'archived' },
-]
+import { PROJECT_STAGE_CONFIGS, type ProjectStage, toBackendStatus } from '../../types/enums'
 
 interface AISuggestion {
   name: string
@@ -128,7 +92,7 @@ export function NewProject() {
         client: formData.client.trim(),
         description: formData.description,
         notes: formData.notes,
-        status: formData.status,
+        status: toBackendStatus(formData.status),
         contract_amount: formData.contract_amount ? parseFloat(formData.contract_amount) : 0,
       })
       const projectId = result?.id ?? result?.project?.id
@@ -167,7 +131,7 @@ export function NewProject() {
     }
   }
 
-  const currentStage = PROJECT_STAGES.find(s => s.id === formData.status)!
+  const currentStage = PROJECT_STAGE_CONFIGS.find(s => s.id === formData.status) || PROJECT_STAGE_CONFIGS[0]
 
   return (
     <>
@@ -370,13 +334,13 @@ export function NewProject() {
               <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border mb-4 ${currentStage.bgColor} ${currentStage.borderColor}`}>
                 {(() => { const Icon = currentStage.icon; return <Icon className={`w-4 h-4 ${currentStage.color}`} /> })()}
                 <span className={`text-sm font-medium ${currentStage.color}`}>{currentStage.labelZh}</span>
-                <span className="text-xs text-on-surface-muted ml-1">— {currentStage.descZh}</span>
+                <span className="text-xs text-on-surface-muted ml-1">— {currentStage.description}</span>
               </div>
 
               {/* Business phase */}
               <p className="text-xs font-medium text-on-surface-muted uppercase tracking-wide mb-2">商机阶段</p>
               <div className="grid grid-cols-5 gap-2 mb-4">
-                {PROJECT_STAGES.filter(s => s.phase === 'business').map(stage => {
+                {PROJECT_STAGE_CONFIGS.filter(s => s.phase === 'business').map(stage => {
                   const Icon = stage.icon
                   const active = formData.status === stage.id
                   return (
@@ -401,7 +365,7 @@ export function NewProject() {
               {/* Delivery phase */}
               <p className="text-xs font-medium text-on-surface-muted uppercase tracking-wide mb-2">交付阶段</p>
               <div className="grid grid-cols-4 gap-2 mb-4">
-                {PROJECT_STAGES.filter(s => s.phase === 'delivery').map(stage => {
+                {PROJECT_STAGE_CONFIGS.filter(s => s.phase === 'delivery').map(stage => {
                   const Icon = stage.icon
                   const active = formData.status === stage.id
                   return (
@@ -425,7 +389,7 @@ export function NewProject() {
 
               {/* Archived */}
               {(() => {
-                const stage = PROJECT_STAGES.find(s => s.id === 'archived')!
+                const stage = PROJECT_STAGE_CONFIGS.find(s => s.id === 'archived') || PROJECT_STAGE_CONFIGS[0]
                 const Icon = stage.icon
                 const active = formData.status === 'archived'
                 return (

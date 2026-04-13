@@ -402,15 +402,22 @@
       "production": "Production",
       "security": "Connection Security",
       "securityDesc": "Use HTTP for local development, HTTPS is recommended for production. All API requests require authentication.",
-      "help": "How to set up server?",
-      "save": "Save & Apply",
-      "emptyUrl": "Please enter server address",
-      "connected": "Connected",
-      "disconnected": "Disconnected",
-      "checking": "Checking...",
-      "checkingStatus": "Checking server status...",
-      "cannotConnect": "Cannot connect to server"
-    }
+        "help": "How to set up server?",
+        "save": "Save & Apply",
+        "emptyUrl": "Please enter server address",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "checking": "Checking...",
+        "checkingStatus": "Checking server status...",
+        "cannotConnect": "Cannot connect to server",
+        "currentSource": "Current source",
+        "currentValue": "Effective URL",
+        "backendValue": "Backend stored value",
+        "sourceLocal": "Browser local setting",
+        "sourceEnv": "Environment variable",
+        "sourceDefault": "Default value",
+        "notSet": "Not set"
+      }
   },
   "language": {
     "title": "Language Settings",

@@ -48,15 +48,6 @@ import {
   X,
   ChevronUp,
   ChevronDown,
-  Lightbulb,
-  Target,
-  Handshake,
-  PenTool,
-  Rocket,
-  Cog,
-  Package,
-  Headphones,
-  Archive,
   Copy,
   BookOpen,
   Wrench,
@@ -65,6 +56,7 @@ import { api } from "../../api/client";
 import { PageTitle } from "../../components/PageTitle";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
+import { PROJECT_STAGE_CONFIGS, resolveProjectStage, toBackendStatus } from "../../types/enums";
 import type {
   ProjectDetail as ProjectDetailType,
   Project,
@@ -73,41 +65,6 @@ import type {
   ProjectFolder,
   ProjectPayment,
 } from "../../types/api";
-
-// ==================== Stage Config ====================
-type ProjectStage = 'lead_discovery' | 'opportunity_qualified' | 'proposal' | 'negotiation' | 'contracting' | 'kickoff' | 'execution' | 'delivery' | 'support' | 'archived'
-
-interface StageConfig {
-  id: ProjectStage
-  labelZh: string
-  color: string
-  bgColor: string
-  borderColor: string
-  icon: typeof Lightbulb
-  phase: 'business' | 'delivery' | 'archived'
-}
-
-const PROJECT_STAGES: StageConfig[] = [
-  { id: 'lead_discovery',      labelZh: '线索发现', color: 'text-slate-600',   bgColor: 'bg-slate-50',   borderColor: 'border-slate-200',  icon: Lightbulb, phase: 'business' },
-  { id: 'opportunity_qualified', labelZh: '商机确认', color: 'text-blue-600',   bgColor: 'bg-blue-50',    borderColor: 'border-blue-200',   icon: Target,    phase: 'business' },
-  { id: 'proposal',            labelZh: '方案投标', color: 'text-indigo-600', bgColor: 'bg-indigo-50',  borderColor: 'border-indigo-200', icon: FileText,  phase: 'business' },
-  { id: 'negotiation',         labelZh: '商务谈判', color: 'text-violet-600', bgColor: 'bg-violet-50',  borderColor: 'border-violet-200', icon: Handshake, phase: 'business' },
-  { id: 'contracting',         labelZh: '合同签订', color: 'text-purple-600', bgColor: 'bg-purple-50',  borderColor: 'border-purple-200', icon: PenTool,   phase: 'business' },
-  { id: 'kickoff',             labelZh: '项目启动', color: 'text-cyan-600',   bgColor: 'bg-cyan-50',    borderColor: 'border-cyan-200',   icon: Rocket,    phase: 'delivery' },
-  { id: 'execution',           labelZh: '项目执行', color: 'text-emerald-600',bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200',icon: Cog,       phase: 'delivery' },
-  { id: 'delivery',            labelZh: '项目交付', color: 'text-teal-600',   bgColor: 'bg-teal-50',    borderColor: 'border-teal-200',   icon: Package,   phase: 'delivery' },
-  { id: 'support',             labelZh: '运维支持', color: 'text-sky-600',    bgColor: 'bg-sky-50',     borderColor: 'border-sky-200',    icon: Headphones,phase: 'delivery' },
-  { id: 'archived',            labelZh: '已归档',   color: 'text-gray-500',   bgColor: 'bg-gray-50',    borderColor: 'border-gray-200',   icon: Archive,   phase: 'archived' },
-]
-
-const LEGACY_STAGE_MAP: Record<string, ProjectStage> = {
-  lead: 'lead_discovery', active: 'execution', completed: 'delivery', archived: 'archived',
-}
-
-function resolveStage(status: string): StageConfig {
-  const id = (PROJECT_STAGES.find(s => s.id === status)?.id ?? LEGACY_STAGE_MAP[status] ?? 'lead_discovery') as ProjectStage
-  return PROJECT_STAGES.find(s => s.id === id)!
-}
 
 // ==================== Helper Functions ====================
 // Format number with thousand separators
@@ -752,7 +709,7 @@ function OverviewTab({
           <div className="space-y-3">
             {/* Status Badge */}
             {(() => {
-              const stage = resolveStage(project.status)
+              const stage = resolveProjectStage(project.status)
               const Icon = stage.icon
               return (
                 <div className="flex items-center gap-3">
@@ -4122,7 +4079,7 @@ function SettingsTab({
         client: formData.client,
         description: formData.description,
         notes: formData.notes,
-        status: formData.status,
+        status: toBackendStatus(formData.status),
         contract_amount: Number(formData.contract_amount) || 0,
         start_date: formData.start_date || null,
         end_date: formData.end_date || null,
@@ -4299,9 +4256,9 @@ function SettingsTab({
                     {/* Business Phase */}
                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">商机阶段</p>
                     <div className="grid grid-cols-5 gap-1.5 mb-3">
-                      {PROJECT_STAGES.filter(s => s.phase === 'business').map(stage => {
+                      {PROJECT_STAGE_CONFIGS.filter(s => s.phase === 'business').map(stage => {
                         const Icon = stage.icon
-                        const isActive = resolveStage(formData.status).id === stage.id
+                        const isActive = resolveProjectStage(formData.status).id === stage.id
                         return (
                           <button
                             key={stage.id}
@@ -4322,9 +4279,9 @@ function SettingsTab({
                     {/* Delivery Phase */}
                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">交付阶段</p>
                     <div className="grid grid-cols-4 gap-1.5 mb-3">
-                      {PROJECT_STAGES.filter(s => s.phase === 'delivery').map(stage => {
+                      {PROJECT_STAGE_CONFIGS.filter(s => s.phase === 'delivery').map(stage => {
                         const Icon = stage.icon
-                        const isActive = resolveStage(formData.status).id === stage.id
+                        const isActive = resolveProjectStage(formData.status).id === stage.id
                         return (
                           <button
                             key={stage.id}
@@ -4344,9 +4301,9 @@ function SettingsTab({
                     </div>
                     {/* Archived */}
                     {(() => {
-                      const stage = PROJECT_STAGES.find(s => s.id === 'archived')!
+                      const stage = PROJECT_STAGE_CONFIGS.find(s => s.id === 'archived') || PROJECT_STAGE_CONFIGS[0]
                       const Icon = stage.icon
-                      const isActive = resolveStage(formData.status).id === 'archived'
+                      const isActive = resolveProjectStage(formData.status).id === 'archived'
                       return (
                         <button
                           type="button"
@@ -4365,7 +4322,7 @@ function SettingsTab({
                   </div>
                 ) : (
                   (() => {
-                    const stage = resolveStage(formData.status)
+                    const stage = resolveProjectStage(formData.status)
                     const Icon = stage.icon
                     return (
                       <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${stage.bgColor} ${stage.color} ${stage.borderColor}`}>

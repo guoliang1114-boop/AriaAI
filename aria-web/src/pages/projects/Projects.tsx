@@ -4,18 +4,9 @@ import { useTranslation } from 'react-i18next'
 import {
   FolderKanban,
   Plus,
-  Building2,
   Loader2,
   Search,
-  Target,
-  Lightbulb,
-  FileText,
-  Handshake,
-  PenTool,
-  Rocket,
-  Cog,
   Package,
-  Headphones,
   Archive,
   ChevronRight,
   Calendar,
@@ -23,6 +14,14 @@ import {
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
+import {
+  PROJECT_STAGE_CONFIGS,
+  PROJECT_STAGE_IDS,
+  resolveProjectStage,
+  type ProjectPhase,
+  type ProjectStage,
+  type ProjectStageConfig,
+} from '../../types/enums'
 import type { Project } from '../../types/api'
 
 // Format number with thousand separators
@@ -35,157 +34,6 @@ const formatAmountInTenThousand = (amount: number | undefined | null): string =>
   const hasFraction = tenThousand % 1 !== 0
   return hasFraction ? tenThousand.toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : tenThousand.toLocaleString('zh-CN')
 }
-
-// Project Stage Types
-type ProjectStage = 
-  | 'lead_discovery'
-  | 'opportunity_qualified'
-  | 'proposal'
-  | 'negotiation'
-  | 'contracting'
-  | 'kickoff'
-  | 'execution'
-  | 'delivery'
-  | 'support'
-  | 'archived'
-
-type ProjectPhase = 'business' | 'delivery' | 'archived'
-
-interface StageConfig {
-  id: ProjectStage
-  label: string
-  labelZh: string
-  description: string
-  color: string
-  bgColor: string
-  borderColor: string
-  lightColor: string
-  icon: typeof Building2
-  phase: ProjectPhase
-}
-
-const STAGES: StageConfig[] = [
-  {
-    id: 'lead_discovery',
-    label: 'Lead Discovery',
-    labelZh: '线索发现',
-    description: '初步接触，需求挖掘',
-    color: 'text-slate-600',
-    bgColor: 'bg-slate-50',
-    borderColor: 'border-slate-200',
-    lightColor: 'bg-slate-200',
-    icon: Lightbulb,
-    phase: 'business',
-  },
-  {
-    id: 'opportunity_qualified',
-    label: 'Opportunity Qualified',
-    labelZh: '商机确认',
-    description: '需求明确，预算确认',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    lightColor: 'bg-blue-200',
-    icon: Target,
-    phase: 'business',
-  },
-  {
-    id: 'proposal',
-    label: 'Proposal & Bidding',
-    labelZh: '方案投标',
-    description: '方案设计，投标应标',
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
-    lightColor: 'bg-indigo-200',
-    icon: FileText,
-    phase: 'business',
-  },
-  {
-    id: 'negotiation',
-    label: 'Negotiation',
-    labelZh: '商务谈判',
-    description: '价格商议，条款确定',
-    color: 'text-violet-600',
-    bgColor: 'bg-violet-50',
-    borderColor: 'border-violet-200',
-    lightColor: 'bg-violet-200',
-    icon: Handshake,
-    phase: 'business',
-  },
-  {
-    id: 'contracting',
-    label: 'Contracting',
-    labelZh: '合同签订',
-    description: '合同签署，正式立项',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
-    lightColor: 'bg-purple-200',
-    icon: PenTool,
-    phase: 'business',
-  },
-  {
-    id: 'kickoff',
-    label: 'Project Kickoff',
-    labelZh: '项目启动',
-    description: '团队组建，计划制定',
-    color: 'text-cyan-600',
-    bgColor: 'bg-cyan-50',
-    borderColor: 'border-cyan-200',
-    lightColor: 'bg-cyan-200',
-    icon: Rocket,
-    phase: 'delivery',
-  },
-  {
-    id: 'execution',
-    label: 'Execution',
-    labelZh: '项目执行',
-    description: '按计划推进，阶段性交付',
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
-    borderColor: 'border-emerald-200',
-    lightColor: 'bg-emerald-200',
-    icon: Cog,
-    phase: 'delivery',
-  },
-  {
-    id: 'delivery',
-    label: 'Final Delivery',
-    labelZh: '项目交付',
-    description: '最终交付，客户验收',
-    color: 'text-teal-600',
-    bgColor: 'bg-teal-50',
-    borderColor: 'border-teal-200',
-    lightColor: 'bg-teal-200',
-    icon: Package,
-    phase: 'delivery',
-  },
-  {
-    id: 'support',
-    label: 'Ongoing Support',
-    labelZh: '运维支持',
-    description: '售后支持，持续优化',
-    color: 'text-sky-600',
-    bgColor: 'bg-sky-50',
-    borderColor: 'border-sky-200',
-    lightColor: 'bg-sky-200',
-    icon: Headphones,
-    phase: 'delivery',
-  },
-  {
-    id: 'archived',
-    label: 'Archived',
-    labelZh: '已归档',
-    description: '项目完成，历史归档',
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-50',
-    borderColor: 'border-gray-200',
-    lightColor: 'bg-gray-200',
-    icon: Archive,
-    phase: 'archived',
-  },
-]
 
 type PhaseConfig = {
   id: ProjectPhase
@@ -239,19 +87,12 @@ const PHASES: Record<ProjectPhase, PhaseConfig> = {
   },
 }
 
-const ALL_STAGE_IDS: ProjectStage[] = ['lead_discovery', 'opportunity_qualified', 'proposal', 'negotiation', 'contracting', 'kickoff', 'execution', 'delivery', 'support', 'archived']
+const STAGES = PROJECT_STAGE_CONFIGS
 
-// Map project status to stage (handles both new 10-stage values and legacy 4-value status)
 function getProjectStage(project: Project): ProjectStage {
-  if (ALL_STAGE_IDS.includes(project.status as ProjectStage)) return project.status as ProjectStage
-  switch (project.status) {
-    case 'lead': return 'lead_discovery'
-    case 'opportunity': return 'execution'
-    case 'won': return 'delivery'
-    case 'delivering': return 'delivery'
-    case 'archived': return 'archived'
-    default: return 'lead_discovery'
-  }
+  const explicit = project.status as ProjectStage
+  if (PROJECT_STAGE_IDS.includes(explicit)) return explicit
+  return resolveProjectStage(project.status).id
 }
 
 // Project Card Component
@@ -261,7 +102,7 @@ function ProjectCard({
   onClick,
 }: {
   project: Project
-  stage: StageConfig
+  stage: ProjectStageConfig
   onClick: () => void
 }) {
   const { i18n } = useTranslation()
@@ -337,7 +178,7 @@ function StageColumn({
   projects,
   onProjectClick,
 }: {
-  stage: StageConfig
+  stage: ProjectStageConfig
   projects: Project[]
   onProjectClick: (id: number) => void
 }) {

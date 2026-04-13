@@ -156,7 +156,7 @@ export interface KnowledgeDocument {
   path: string
   category: string
   size?: number
-  vector_status: 'pending' | 'indexed' | 'failed'
+  vector_status: 'pending' | 'processing' | 'synced' | 'failed'
   uploaded_at: string
 }
 
