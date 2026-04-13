@@ -25,7 +25,12 @@ interface AIModel {
   supportsTools: boolean
   supportsVision: boolean
   icon: string
-  temperatureFixed?: boolean  // If true, temperature is fixed (e.g., Kimi K2.5 only supports 1)
+  fixedParams?: {  // If set, these parameters are fixed for the model
+    temperature: number
+    topP: number
+    presencePenalty: number
+    frequencyPenalty: number
+  }
 }
 
 const models: AIModel[] = [
@@ -65,11 +70,11 @@ const models: AIModel[] = [
     id: 'kimi-k2.5',
     name: 'Kimi K2.5 (最新)',
     provider: 'moonshot',
-    description: 'Moonshot 最新主力模型，超长上下文，强大推理能力。注意：temperature 固定为 1',
-    maxTokens: 8192,
+    description: 'Moonshot 最新主力模型，256K 上下文，支持多模态、深度思考',
+    maxTokens: 32768,
     supportsTools: true,
     supportsVision: true,
-    temperatureFixed: true,  // Kimi K2.5 only supports temperature = 1
+    fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
     icon: '🔥',
   },
   {
@@ -80,6 +85,7 @@ const models: AIModel[] = [
     maxTokens: 4096,
     supportsTools: true,
     supportsVision: false,
+    fixedParams: { temperature: 0.6, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
     icon: '🌙',
   },
   {
@@ -90,6 +96,7 @@ const models: AIModel[] = [
     maxTokens: 4096,
     supportsTools: true,
     supportsVision: false,
+    fixedParams: { temperature: 0.6, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
     icon: '🌙',
   },
   {
@@ -100,6 +107,7 @@ const models: AIModel[] = [
     maxTokens: 4096,
     supportsTools: false,
     supportsVision: false,
+    fixedParams: { temperature: 0.6, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
     icon: '✨',
   },
   // BigModel (Zhipu AI)
@@ -369,15 +377,23 @@ export function AISettings() {
     setError('')
     
     try {
-      // Kimi K2.5 only supports temperature = 1
+      // Use fixed params for Moonshot models
       const modelData = models.find(m => m.id === selectedModel)
-      const effectiveTemperature = modelData?.temperatureFixed ? 1 : temperature
+      const effectiveParams = modelData?.fixedParams || {
+        temperature,
+        topP,
+        presencePenalty,
+        frequencyPenalty
+      }
       
       const result = await api.post('/chat/test-model', {
         message: testMessage,
         model: selectedModel,
-        temperature: effectiveTemperature,
+        temperature: effectiveParams.temperature,
         max_tokens: maxTokens,
+        top_p: effectiveParams.topP,
+        presence_penalty: effectiveParams.presencePenalty,
+        frequency_penalty: effectiveParams.frequencyPenalty,
       })
       
       const res = result as { success: boolean; message?: string }
@@ -684,12 +700,12 @@ export function AISettings() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-on-surface-secondary">
                   Temperature
-                  {selectedModelData?.temperatureFixed && (
-                    <span className="ml-2 text-xs text-warning">(Fixed to 1 for this model)</span>
+                  {selectedModelData?.fixedParams && (
+                    <span className="ml-2 text-xs text-warning">(Fixed: {selectedModelData.fixedParams.temperature})</span>
                   )}
                 </label>
                 <span className="text-sm font-mono text-primary">
-                  {selectedModelData?.temperatureFixed ? 1 : temperature}
+                  {selectedModelData?.fixedParams?.temperature ?? temperature}
                 </span>
               </div>
               <input
@@ -697,9 +713,9 @@ export function AISettings() {
                 min="0"
                 max="2"
                 step="0.1"
-                value={selectedModelData?.temperatureFixed ? 1 : temperature}
+                value={selectedModelData?.fixedParams?.temperature ?? temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                disabled={selectedModelData?.temperatureFixed}
+                disabled={!!selectedModelData?.fixedParams}
                 className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <div className="flex justify-between text-xs text-on-surface-muted mt-1">
@@ -707,11 +723,6 @@ export function AISettings() {
                 <span>Balanced ({selectedProvider === 'anthropic' ? '0.7' : '1.0'})</span>
                 <span>More creative (2)</span>
               </div>
-              {selectedModelData?.temperatureFixed && (
-                <p className="text-xs text-warning mt-1">
-                  {selectedModelData.name} only supports temperature = 1
-                </p>
-              )}
             </div>
 
             {/* Max Tokens */}
@@ -743,17 +754,23 @@ export function AISettings() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-on-surface-secondary">
                   Top P
+                  {selectedModelData?.fixedParams && (
+                    <span className="ml-2 text-xs text-warning">(Fixed: {selectedModelData.fixedParams.topP})</span>
+                  )}
                 </label>
-                <span className="text-sm font-mono text-primary">{topP}</span>
+                <span className="text-sm font-mono text-primary">
+                  {selectedModelData?.fixedParams?.topP ?? topP}
+                </span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.1"
-                value={topP}
+                value={selectedModelData?.fixedParams?.topP ?? topP}
                 onChange={(e) => setTopP(parseFloat(e.target.value))}
-                className="w-full accent-primary"
+                disabled={!!selectedModelData?.fixedParams}
+                className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <p className="text-xs text-on-surface-muted mt-1">
                 Alternative to temperature. 1.0 means no filtering.
@@ -765,17 +782,23 @@ export function AISettings() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-on-surface-secondary">
                   Presence Penalty
+                  {selectedModelData?.fixedParams && (
+                    <span className="ml-2 text-xs text-warning">(Fixed: {selectedModelData.fixedParams.presencePenalty})</span>
+                  )}
                 </label>
-                <span className="text-sm font-mono text-primary">{presencePenalty}</span>
+                <span className="text-sm font-mono text-primary">
+                  {selectedModelData?.fixedParams?.presencePenalty ?? presencePenalty}
+                </span>
               </div>
               <input
                 type="range"
                 min="-2"
                 max="2"
                 step="0.1"
-                value={presencePenalty}
+                value={selectedModelData?.fixedParams?.presencePenalty ?? presencePenalty}
                 onChange={(e) => setPresencePenalty(parseFloat(e.target.value))}
-                className="w-full accent-primary"
+                disabled={!!selectedModelData?.fixedParams}
+                className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -784,17 +807,23 @@ export function AISettings() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-on-surface-secondary">
                   Frequency Penalty
+                  {selectedModelData?.fixedParams && (
+                    <span className="ml-2 text-xs text-warning">(Fixed: {selectedModelData.fixedParams.frequencyPenalty})</span>
+                  )}
                 </label>
-                <span className="text-sm font-mono text-primary">{frequencyPenalty}</span>
+                <span className="text-sm font-mono text-primary">
+                  {selectedModelData?.fixedParams?.frequencyPenalty ?? frequencyPenalty}
+                </span>
               </div>
               <input
                 type="range"
                 min="-2"
                 max="2"
                 step="0.1"
-                value={frequencyPenalty}
+                value={selectedModelData?.fixedParams?.frequencyPenalty ?? frequencyPenalty}
                 onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))}
-                className="w-full accent-primary"
+                disabled={!!selectedModelData?.fixedParams}
+                className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>

@@ -564,7 +564,8 @@ async def test_model(req: TestModelRequest):
         else:
             return {"success": False, "message": f"Unsupported provider: {provider}"}
         
-        # Make a simple completion
+        # Moonshot models have fixed parameters - let the service handle it
+        # The openai_compat.complete() will override temperature for Moonshot models
         messages = [{"role": "user", "content": req.message}]
         response = await llm.complete(
             messages=messages,

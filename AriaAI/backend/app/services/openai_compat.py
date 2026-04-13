@@ -278,9 +278,15 @@ async def stream_response(
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
 
-    # Kimi K2.5 only supports temperature = 1
+    # Moonshot models have fixed parameters
     if model == "kimi-k2.5":
+        # Kimi K2.5: temperature fixed to 1.0, top_p fixed to 0.95
         temperature = 1.0
+        top_p = 0.95
+    elif model.startswith("moonshot-"):
+        # Moonshot V1 series: temperature fixed to 0.6, top_p fixed to 0.95
+        temperature = 0.6
+        top_p = 0.95
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
@@ -413,9 +419,15 @@ async def complete(
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
 
-    # Kimi K2.5 only supports temperature = 1
+    # Moonshot models have fixed parameters
     if model == "kimi-k2.5":
+        # Kimi K2.5: temperature fixed to 1.0, top_p fixed to 0.95
         temperature = 1.0
+        top_p = 0.95
+    elif model.startswith("moonshot-"):
+        # Moonshot V1 series: temperature fixed to 0.6, top_p fixed to 0.95
+        temperature = 0.6
+        top_p = 0.95
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
