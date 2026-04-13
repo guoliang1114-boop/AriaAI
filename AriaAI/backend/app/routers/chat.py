@@ -1,181 +1,60 @@
 """Chat router — SSE streaming, conversation history, RAG injection."""
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
-from typing import List, Optional
+import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.database import get_session
 from app.models.db import Conversation, Message
-from app.services.cache import conversations_cache
+from app.routers.chat_conversations import router as conversations_router
+from app.routers.chat_export import router as export_router
+from app.routers.chat_schemas import SendMessageRequest, TestConnectionRequest, TestModelRequest
 from app.services.context_builder import build_chat_context
 from app.services.provider_selector import (
-    get_provider_module, get_provider_name, get_selected_model,
+    get_selected_model,
     resolve_provider_from_model, _load_provider_module
+)
+from app.services.chat_store import (
+    build_message_metadata,
+    get_full_message_history,
+    get_or_create_conversation,
+    persist_user_message,
 )
 from app.services.settings_helper import get_int_setting, get_float_setting
 from app.services.title_generator import schedule_title_generation
 from app.config import (
-    CONVERSATION_CACHE_TTL,
     DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 )
 from app.tools import registry
 
-_CONV_TTL = CONVERSATION_CACHE_TTL
-
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-# ── Schemas ──────────────────────────────────────────────────────────────────
-
-class SendMessageRequest(BaseModel):
-    conversation_id: Optional[int] = None
-    content: str
-    project_id: Optional[int] = None
-    skill_id: Optional[int] = None
-    rag_doc_ids: List[int] = []
-    file_ids: List[int] = []
-
-
-class ConversationOut(BaseModel):
-    id: int
-    title: str
-    project_id: Optional[int]
-    skill_id: Optional[int]
-    created_at: datetime
-    updated_at: datetime
-
-
-class MessageOut(BaseModel):
-    id: int
-    conversation_id: int
-    role: str
-    content: str
-    metadata_json: str = "{}"  # references: skill_id, doc_ids, etc.
-    created_at: datetime
-    
-    @property
-    def metadata(self) -> dict:
-        try:
-            import json
-            return json.loads(self.metadata_json)
-        except:
-            return {}
-
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
-@router.get("/conversations", response_model=List[ConversationOut])
-def list_conversations(
-    project_id: Optional[int] = None,
-    standalone: bool = False,
-    session: Session = Depends(get_session),
-):
-    cache_key = f"list:{project_id or ''}:{'s' if standalone else ''}"
-    cached = conversations_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    stmt = select(Conversation).order_by(Conversation.updated_at.desc()).limit(100)
-    if project_id:
-        stmt = stmt.where(Conversation.project_id == project_id)
-    elif standalone:
-        # Only return conversations not associated with any project
-        stmt = stmt.where(Conversation.project_id == None)  # noqa: E711
-    result = session.exec(stmt).all()
-    conversations_cache.set(cache_key, result, _CONV_TTL)
-    return result
-
-
-@router.get("/conversations/{conv_id}", response_model=ConversationOut)
-def get_conversation(conv_id: int, session: Session = Depends(get_session)):
-    conv = session.get(Conversation, conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    return conv
-
-
-class CreateConversationRequest(BaseModel):
-    project_id: Optional[int] = None
-    skill_id: Optional[int] = None
-    title: Optional[str] = None
-
-
-@router.post("/conversations", response_model=ConversationOut)
-def create_conversation(
-    req: CreateConversationRequest,
-    session: Session = Depends(get_session),
-):
-    conv = Conversation(project_id=req.project_id, skill_id=req.skill_id, title=req.title or "")
-    session.add(conv)
-    session.commit()
-    session.refresh(conv)
-    conversations_cache.delete_prefix("list:")
-    return conv
-
-
-@router.get("/conversations/{conv_id}/messages", response_model=List[MessageOut])
-def get_messages(
-    conv_id: int,
-    limit: int = 30,
-    before_id: Optional[int] = None,
-    session: Session = Depends(get_session),
-):
-    conv = session.get(Conversation, conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    stmt = (
-        select(Message)
-        .where(Message.conversation_id == conv_id)
-        .order_by(Message.created_at.desc())
-        .limit(limit)
-    )
-    if before_id is not None:
-        stmt = stmt.where(Message.id < before_id)
-    msgs = session.exec(stmt).all()
-    msgs.reverse()  # restore chronological order for the client
-    return msgs
+router.include_router(conversations_router)
+router.include_router(export_router)
 
 
 @router.post("/send")
 async def send_message(req: SendMessageRequest, session: Session = Depends(get_session)):
     """Stream Claude response via SSE. Creates conversation if needed."""
 
-    # Get or create conversation
-    if req.conversation_id:
-        conv = session.get(Conversation, req.conversation_id)
-        if not conv:
-            raise HTTPException(404, "Conversation not found")
-    else:
-        conv = Conversation(project_id=req.project_id, skill_id=req.skill_id)
-        session.add(conv)
-        session.commit()
-        session.refresh(conv)
-
-    # Persist user message with metadata (references)
-    metadata = {}
-    if req.skill_id:
-        metadata["skill_id"] = req.skill_id
-    if req.rag_doc_ids:
-        metadata["doc_ids"] = req.rag_doc_ids
-    if req.file_ids:
-        metadata["file_ids"] = req.file_ids
-    if req.project_id:
-        metadata["project_id"] = req.project_id
-    
-    user_msg = Message(
-        conversation_id=conv.id, 
-        role="user", 
-        content=req.content,
-        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else "{}"
+    conv = get_or_create_conversation(
+        session,
+        req.conversation_id,
+        project_id=req.project_id,
+        skill_id=req.skill_id,
     )
-    session.add(user_msg)
-    session.commit()
+
+    metadata = build_message_metadata(
+        project_id=req.project_id,
+        skill_id=req.skill_id,
+        rag_doc_ids=req.rag_doc_ids,
+        file_ids=req.file_ids,
+    )
+    persist_user_message(session, conv.id, req.content, metadata)
 
     # Build chat context using context_builder
     max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
@@ -206,11 +85,7 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     system = llm.build_system_prompt(skill_prompt, rag_context, project_context)
 
     # Build message history — skip empty assistant messages (from prior failures)
-    history = session.exec(
-        select(Message)
-        .where(Message.conversation_id == conv.id)
-        .order_by(Message.created_at)
-    ).all()
+    history = get_full_message_history(session, conv.id)
     api_messages = [
         {"role": m.role, "content": m.content}
         for m in history
@@ -424,27 +299,9 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
-
-@router.delete("/conversations/{conv_id}")
-def delete_conversation(conv_id: int, session: Session = Depends(get_session)):
-    conv = session.get(Conversation, conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    for m in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
-        session.delete(m)
-    session.delete(conv)
-    session.commit()
-    conversations_cache.delete_prefix("list:")
-    return {"ok": True}
-
-
 # ---------------------------------------------------------------------------
 # Test Connection Endpoints
 # ---------------------------------------------------------------------------
-
-class TestConnectionRequest(BaseModel):
-    provider: str
-    model: Optional[str] = None
 
 
 @router.post("/test-connection")
@@ -533,13 +390,6 @@ async def test_connection(req: TestConnectionRequest):
         return {"success": False, "message": f"Connection failed: {str(e)}"}
 
 
-class TestModelRequest(BaseModel):
-    message: str
-    model: str
-    temperature: float = 0.7
-    max_tokens: int = 100  # Keep 100 for test endpoint (low cost)
-
-
 @router.post("/test-model")
 async def test_model(req: TestModelRequest):
     """Test a model with a simple message."""
@@ -588,201 +438,4 @@ async def test_model(req: TestModelRequest):
         return {"success": False, "message": f"Model test failed: {str(e)}"}
 
 
-# ── Export Endpoints ──────────────────────────────────────────────────────────
-
-class ExportConversationRequest(BaseModel):
-    format: str  # "markdown" or "pdf"
-
-
-@router.post("/conversations/{conv_id}/export")
-async def export_conversation(
-    conv_id: int,
-    req: ExportConversationRequest,
-    session: Session = Depends(get_session),
-):
-    """
-    Export a conversation as Markdown or PDF.
-    
-    - format: "markdown" | "pdf"
-    """
-    # Get conversation
-    conv = session.get(Conversation, conv_id)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-    
-    # Get all messages
-    messages = session.exec(
-        select(Message)
-        .where(Message.conversation_id == conv_id)
-        .order_by(Message.created_at)
-    ).all()
-    
-    if not messages:
-        raise HTTPException(400, "Conversation has no messages")
-    
-    format_type = req.format.lower()
-    
-    if format_type == "markdown":
-        return _export_markdown(conv, messages)
-    elif format_type == "pdf":
-        return await _export_pdf(conv, messages)
-    else:
-        raise HTTPException(400, f"Unsupported format: {format_type}. Use 'markdown' or 'pdf'")
-
-
-def _export_markdown(conv: Conversation, messages: List[Message]):
-    """Export conversation as Markdown."""
-    lines = [
-        f"# {conv.title or 'Untitled Conversation'}",
-        "",
-        f"**Created:** {conv.created_at.strftime('%Y-%m-%d %H:%M')}",
-        f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
-        "",
-        "---",
-        "",
-    ]
-    
-    for msg in messages:
-        role_label = "**User**" if msg.role == "user" else "**Assistant**"
-        time_str = msg.created_at.strftime('%H:%M')
-        lines.append(f"{role_label} *({time_str})*")
-        lines.append("")
-        lines.append(msg.content)
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-    
-    markdown_content = "\n".join(lines)
-    
-    # Create filename
-    safe_title = "".join(c for c in (conv.title or "conversation") if c.isalnum() or c in " _-").strip()
-    filename = f"{safe_title}_{conv.created_at.strftime('%Y%m%d')}.md"
-    
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse(
-        content=markdown_content,
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
-
-
-async def _export_pdf(conv: Conversation, messages: List[Message]):
-    """Export conversation as PDF."""
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
-        from reportlab.lib.enums import TA_LEFT
-        from io import BytesIO
-        
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=72,
-            leftMargin=72,
-            topMargin=72,
-            bottomMargin=18,
-        )
-        
-        styles = getSampleStyleSheet()
-        
-        # Custom styles
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=18,
-            spaceAfter=12,
-        )
-        
-        user_style = ParagraphStyle(
-            'UserLabel',
-            parent=styles['Heading3'],
-            fontSize=11,
-            textColor='#2563eb',  # blue-600
-            spaceAfter=6,
-        )
-        
-        assistant_style = ParagraphStyle(
-            'AssistantLabel',
-            parent=styles['Heading3'],
-            fontSize=11,
-            textColor='#7c3aed',  # violet-600
-            spaceAfter=6,
-        )
-        
-        content_style = ParagraphStyle(
-            'Content',
-            parent=styles['BodyText'],
-            fontSize=10,
-            leading=14,
-            spaceAfter=12,
-        )
-        
-        separator_style = ParagraphStyle(
-            'Separator',
-            parent=styles['Normal'],
-            fontSize=8,
-            textColor='#9ca3af',  # gray-400
-            alignment=1,  # center
-            spaceBefore=12,
-            spaceAfter=12,
-        )
-        
-        story = []
-        
-        # Title
-        story.append(Paragraph(conv.title or "Untitled Conversation", title_style))
-        story.append(Spacer(1, 0.1 * inch))
-        
-        # Metadata
-        meta_text = f"Created: {conv.created_at.strftime('%Y-%m-%d %H:%M')} | Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
-        story.append(Paragraph(f"<i>{meta_text}</i>", styles['Normal']))
-        story.append(Spacer(1, 0.2 * inch))
-        story.append(Paragraph("—" * 40, separator_style))
-        story.append(Spacer(1, 0.1 * inch))
-        
-        # Messages
-        for msg in messages:
-            role = msg.role
-            time_str = msg.created_at.strftime('%H:%M')
-            
-            if role == "user":
-                story.append(Paragraph(f"User ({time_str})", user_style))
-            else:
-                story.append(Paragraph(f"Assistant ({time_str})", assistant_style))
-            
-            # Convert markdown-style formatting for PDF
-            content = msg.content
-            # Escape HTML special characters
-            content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            # Convert markdown bold/italic
-            content = content.replace('**', '<b>').replace('__', '<i>')
-            # Convert line breaks
-            content = content.replace('\n', '<br/>')
-            
-            story.append(Paragraph(content, content_style))
-            story.append(Spacer(1, 0.1 * inch))
-        
-        doc.build(story)
-        
-        pdf_content = buffer.getvalue()
-        buffer.close()
-        
-        # Create filename
-        safe_title = "".join(c for c in (conv.title or "conversation") if c.isalnum() or c in " _-").strip()
-        filename = f"{safe_title}_{conv.created_at.strftime('%Y%m%d')}.pdf"
-        
-        from fastapi.responses import Response
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-        
-    except ImportError:
-        raise HTTPException(500, "PDF generation requires reportlab. Install with: pip install reportlab")
-    except Exception as e:
-        raise HTTPException(500, f"PDF generation failed: {str(e)}")
 
