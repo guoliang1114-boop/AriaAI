@@ -453,7 +453,9 @@
     "viewSource": "View source",
     "allRightsReserved": "All rights reserved",
     "latest": "Latest",
-    "thirdPartyLicenses": "Third-party Licenses"
+    "thirdPartyLicenses": "Third-party Licenses",
+    "currentVersion": "Current Version",
+    "packagedAt": "Packaged at"
   },
   "users": {
     "title": "User Management",

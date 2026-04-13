@@ -453,7 +453,9 @@
     "viewSource": "查看源码",
     "allRightsReserved": "保留所有权利",
     "latest": "最新",
-    "thirdPartyLicenses": "第三方许可证"
+    "thirdPartyLicenses": "第三方许可证",
+    "currentVersion": "当前版本",
+    "packagedAt": "打包时间"
   },
   "users": {
     "title": "用户管理",
