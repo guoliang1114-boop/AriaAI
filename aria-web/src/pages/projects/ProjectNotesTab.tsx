@@ -58,9 +58,11 @@ export function ProjectNotesTab({ projectId, mdNotes, onUpdate }: ProjectNotesTa
     if (!aiDraft.trim()) return
     setAiLoading(true)
     try {
-      const data = await api.post<{ result: string }>(`/projects/${projectId}/notes/ai-polish`, {
-        draft: aiDraft.trim(),
-      })
+      const data = await api.post<{ result: string }>(
+        `/projects/${projectId}/notes/ai-polish`,
+        { draft: aiDraft.trim() },
+        { timeout: 120000 }
+      )
       setAiResult(data.result)
     } catch (error) {
       console.error('AI generation failed:', error)
