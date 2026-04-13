@@ -128,22 +128,6 @@ const TABS: TabConfig[] = [
     getPath: (id) => `/projects/${id}`,
   },
   {
-    id: "documents",
-    label: "Documents",
-    labelZh: "文档",
-    icon: Files,
-    path: "documents",
-    getPath: (id) => `/projects/${id}/documents`,
-  },
-  {
-    id: "milestones",
-    label: "Milestones",
-    labelZh: "里程碑",
-    icon: Flag,
-    path: "milestones",
-    getPath: (id) => `/projects/${id}/milestones`,
-  },
-  {
     id: "notes",
     label: "Notes",
     labelZh: "笔记",
@@ -160,6 +144,14 @@ const TABS: TabConfig[] = [
     getPath: (id) => `/projects/${id}/todos`,
   },
   {
+    id: "milestones",
+    label: "Milestones",
+    labelZh: "里程碑",
+    icon: Flag,
+    path: "milestones",
+    getPath: (id) => `/projects/${id}/milestones`,
+  },
+  {
     id: "chat",
     label: "Project Chat",
     labelZh: "项目对话",
@@ -174,6 +166,14 @@ const TABS: TabConfig[] = [
     icon: DollarSign,
     path: "financials",
     getPath: (id) => `/projects/${id}/financials`,
+  },
+  {
+    id: "documents",
+    label: "Documents",
+    labelZh: "文档",
+    icon: Files,
+    path: "documents",
+    getPath: (id) => `/projects/${id}/documents`,
   },
   {
     id: "settings",
@@ -881,6 +881,29 @@ function OverviewTab({
           </div>
         )}
 
+        {/* Notes Preview */}
+        {(md_notes || "").trim().length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-gray-400" />
+                {isZh ? "项目笔记" : "Project Notes"}
+              </h3>
+              <button
+                onClick={() => navigate(`/projects/${projectId}/notes`)}
+                className="text-sm text-primary hover:underline"
+              >
+                {isZh ? "打开笔记" : "Open notes"}
+              </button>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-gray-600 line-clamp-4 whitespace-pre-wrap">
+                {md_notes.replace(/[#*`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180)}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Recent Milestones */}
         <div className="bg-white rounded-xl border border-gray-200">
           <div className="flex items-center justify-between p-5 border-b border-gray-100">
@@ -995,64 +1018,6 @@ function OverviewTab({
           </div>
         </div>
 
-        {/* Recent Todos */}
-        <div className="bg-white rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between p-5 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-              <ListTodo className="w-4 h-4 text-gray-400" />
-              {isZh ? "最近待办" : "Recent Todos"}
-            </h3>
-            <button
-              onClick={() => navigate(`/projects/${projectId}/todos`)}
-              className="text-sm text-primary hover:underline"
-            >
-              {isZh ? "查看全部" : "View all"}
-            </button>
-          </div>
-          <div className="p-5">
-            {recentTodos.length === 0 ? (
-              <div className="text-center py-4 text-gray-400">
-                <p className="text-sm">
-                  {isZh ? "暂无待办事项" : "No pending todos"}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {recentTodos.map((todo) => (
-                  <div key={todo.id} className="flex items-start gap-3">
-                    <Circle className="w-5 h-5 text-gray-300 mt-0.5" />
-                    <p className="text-sm text-gray-900 truncate">
-                      {todo.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Notes Preview */}
-        {(md_notes || "").trim().length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-gray-400" />
-                {isZh ? "项目笔记" : "Project Notes"}
-              </h3>
-              <button
-                onClick={() => navigate(`/projects/${projectId}/notes`)}
-                className="text-sm text-primary hover:underline"
-              >
-                {isZh ? "打开笔记" : "Open notes"}
-              </button>
-            </div>
-            <div className="p-5">
-              <p className="text-sm text-gray-600 line-clamp-4 whitespace-pre-wrap">
-                {md_notes.replace(/[#*`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180)}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
       {/* Right Column - Sidebar */}
       <div className="col-span-12 lg:col-span-4 space-y-6">
@@ -1106,6 +1071,42 @@ function OverviewTab({
           </div>
         </div>
       </div>
+        {/* Recent Todos */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <ListTodo className="w-4 h-4 text-gray-400" />
+              {isZh ? "最近待办" : "Recent Todos"}
+            </h3>
+            <button
+              onClick={() => navigate(`/projects/${projectId}/todos`)}
+              className="text-sm text-primary hover:underline"
+            >
+              {isZh ? "查看全部" : "View all"}
+            </button>
+          </div>
+          <div className="p-5">
+            {recentTodos.length === 0 ? (
+              <div className="text-center py-4 text-gray-400">
+                <p className="text-sm">
+                  {isZh ? "暂无待办事项" : "No pending todos"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentTodos.map((todo) => (
+                  <div key={todo.id} className="flex items-start gap-3">
+                    <Circle className="w-5 h-5 text-gray-300 mt-0.5" />
+                    <p className="text-sm text-gray-900 truncate">
+                      {todo.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
       {/* Quick Actions */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="font-semibold text-gray-900 mb-4">{isZh ? '快捷操作' : 'Quick Actions'}</h3>
