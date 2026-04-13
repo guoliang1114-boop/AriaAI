@@ -278,6 +278,10 @@ async def stream_response(
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
 
+    # Kimi K2.5 only supports temperature = 1
+    if model == "kimi-k2.5":
+        temperature = 1.0
+
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
 
@@ -408,6 +412,10 @@ async def complete(
     api_key = get_kimi_api_key()
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
+
+    # Kimi K2.5 only supports temperature = 1
+    if model == "kimi-k2.5":
+        temperature = 1.0
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
