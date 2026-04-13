@@ -29,6 +29,20 @@ BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 # Persistent HTTP client for Kimi/OpenAI-compat calls
 _http_client: httpx.AsyncClient | None = None
 
+# Semaphore: allow at most 1 concurrent non-streaming (complete) call to Kimi.
+# Streaming calls are long-lived and gated separately; this prevents the
+# title-generation task from racing with a newly started stream.
+_kimi_complete_sem: asyncio.Semaphore | None = None
+
+
+def _get_kimi_complete_sem() -> asyncio.Semaphore:
+    """Return (creating if needed) the per-event-loop complete() semaphore."""
+    global _kimi_complete_sem
+    # Re-create if the loop changed (e.g. after a server restart in tests)
+    if _kimi_complete_sem is None:
+        _kimi_complete_sem = asyncio.Semaphore(1)
+    return _kimi_complete_sem
+
 
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
@@ -448,11 +462,12 @@ async def complete(
 
     client = _get_http_client()
     try:
-        response = await client.post(
-            f"{KIMI_BASE_URL}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
+        async with _get_kimi_complete_sem():
+            response = await client.post(
+                f"{KIMI_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
         if response.status_code != 200:
             raise Exception(f"Kimi HTTP {response.status_code}: {response.text[:300]}")
 

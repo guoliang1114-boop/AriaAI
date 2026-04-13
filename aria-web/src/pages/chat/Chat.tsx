@@ -198,6 +198,10 @@ export function Chat() {
   const processedSkillRef = useRef<number | null>(null)
   // Track streaming state for recovery after navigation
   const streamingConvIdRef = useRef<number | null>(null)
+  // Debounce timer for streaming content updates — kept as ref so navigation can cancel it
+  const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks which conversation the user is currently VIEWING (updated on every URL change)
+  const currentConvIdRef = useRef<string | null>(conversationId)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -300,29 +304,41 @@ export function Chat() {
   useEffect(() => {
     const currentConvId = conversationId
     const prevConvId = prevConversationIdRef.current
-    
+
+    // Always keep currentConvIdRef in sync — used by flushUpdate / done-handler guards
+    currentConvIdRef.current = currentConvId
+
     // If we switched from one conversation to another
     if (prevConvId && prevConvId !== currentConvId) {
       console.log('[Chat] Switched from', prevConvId, 'to', currentConvId)
-      
+
       // Save the previous conversation ID to force refresh when we come back
       sessionStorage.setItem('pendingStreamingConvId', prevConvId)
-      
-      // IMPORTANT: Clear streaming content to prevent showing in new conversation
+
+      // Cancel pending debounce timer — prevents stale chunks from appearing in the new conversation
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current)
+        updateTimerRef.current = null
+      }
+
+      // Clear streaming display for the incoming conversation
       setStreamingContent('')
       streamingContentRef.current = ''
-      
-      // Stop any ongoing streaming
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-        abortControllerRef.current = null
-      }
-      
-      // Reset streaming state
+      setIsThinking(false)
+      setSending(false)
+      // Allow sends in the target conversation even if a background stream is still running
+      isSendingRef.current = false
+
+      // NOTE: We intentionally do NOT abort the ongoing SSE connection.
+      // The backend continues generating and will persist the response to DB.
+      // When the user returns to the original conversation, loadConversation()
+      // fetches the completed message. flushUpdate / setMessages are guarded
+      // by currentConvIdRef so they won't touch the newly loaded conversation.
+
       isStreamingRef.current = false
       streamingConvIdRef.current = null
     }
-    
+
     // Update ref
     prevConversationIdRef.current = currentConvId
   }, [conversationId])
@@ -672,10 +688,12 @@ export function Chat() {
 
       let assistantContent = ''
       let pendingContent = ''
-      let updateTimer: ReturnType<typeof setTimeout> | null = null
+      updateTimerRef.current = null
       let streamDone = false
 
       const flushUpdate = () => {
+        // Guard: only update UI if the user is still viewing THIS conversation
+        if (currentConvIdRef.current !== String(currentConvId)) return
         if (pendingContent !== assistantContent) {
           pendingContent = assistantContent
           setStreamingContent(assistantContent)
@@ -695,8 +713,8 @@ export function Chat() {
             if ((data.type === 'text' || data.type === 'chunk') && data.content) {
               assistantContent += data.content
               streamingContentRef.current = assistantContent
-              if (!updateTimer) {
-                updateTimer = setTimeout(() => { flushUpdate(); updateTimer = null }, 80)
+              if (!updateTimerRef.current) {
+                updateTimerRef.current = setTimeout(() => { flushUpdate(); updateTimerRef.current = null }, 80)
               }
             } else if (data.type === 'tool_executing') {
               setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
@@ -704,8 +722,16 @@ export function Chat() {
               setToolStatus(null)
             } else if (data.type === 'done') {
               streamDone = true
-              if (updateTimer) { clearTimeout(updateTimer); updateTimer = null }
+              if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
               flushUpdate()
+              // Message is now persisted in DB (backend saves before sending 'done').
+              // Release the SSE connection — no need to keep it open any longer.
+              // Safe to abort here even if the user navigated away, because the
+              // message is already saved and loadConversation() will fetch it on return.
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort()
+                abortControllerRef.current = null
+              }
               // Clear pending streaming state as it's complete
               sessionStorage.removeItem('pendingStreamingConvId')
               streamingConvIdRef.current = null
@@ -718,7 +744,12 @@ export function Chat() {
                 metadata_json: JSON.stringify({ references: data.references || [] }),
                 created_at: new Date().toISOString(),
               }
-              setMessages(prev => [...prev, assistantMsg])
+              // Only append to message list if the user is still viewing this conversation.
+              // If they navigated away, the backend has persisted the message;
+              // loadConversation() will fetch it when they return.
+              if (currentConvIdRef.current === String(currentConvId)) {
+                setMessages(prev => [...prev, assistantMsg])
+              }
               setStreamingContent('')
               streamingContentRef.current = ''
               isStreamingRef.current = false
@@ -758,7 +789,7 @@ export function Chat() {
               }
             } else if (data.type === 'error') {
               setToolStatus(null)
-              if (updateTimer) { clearTimeout(updateTimer); updateTimer = null }
+              if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
               setErrorMsg(data.message || data.error || 'An error occurred. Please try again.')
               isStreamingRef.current = false
               setIsThinking(false)
@@ -769,7 +800,7 @@ export function Chat() {
 
       // Stream ended but no 'done' event (e.g. aborted)
       if (!streamDone && assistantContent) {
-        if (updateTimer) clearTimeout(updateTimer)
+        if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
         flushUpdate()
         await new Promise(r => setTimeout(r, 50))
         const partialMsg: Message = {
@@ -785,7 +816,7 @@ export function Chat() {
         streamingContentRef.current = ''
       }
 
-      if (updateTimer) clearTimeout(updateTimer)
+      if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
       isStreamingRef.current = false
       setIsThinking(false)
     } catch (err: any) {

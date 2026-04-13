@@ -79,12 +79,17 @@ def schedule_title_generation(
     from sqlmodel import Session as _Session
     
     async def _task():
+        # Delay before calling the LLM so we don't race with the next user message.
+        # The main stream just completed; the user may immediately start a new one.
+        # Waiting 5 s gives Moonshot's burst window time to reset before we fire
+        # the title-generation complete() call.
+        await asyncio.sleep(5)
         await generate_conversation_title(
             conv_id=conv_id,
             user_content=user_content,
             session_factory=lambda: _Session(bind),
             complete_fn=complete_fn,
         )
-    
+
     # Schedule without awaiting
     asyncio.ensure_future(_task())
