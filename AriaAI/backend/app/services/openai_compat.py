@@ -35,7 +35,7 @@ def _get_http_client() -> httpx.AsyncClient:
     if _http_client is None or _http_client.is_closed:
         _http_client = httpx.AsyncClient(timeout=300.0)
     return _http_client
-DEFAULT_KIMI_MODEL = "moonshot-v1-32k"
+DEFAULT_KIMI_MODEL = "kimi-k2-5"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"

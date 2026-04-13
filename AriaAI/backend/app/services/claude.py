@@ -68,6 +68,10 @@ def _get_custom_base_url() -> str | None:
     if url == _OFFICIAL_BASE_URL.rstrip("/"):
         logger.info("[Claude API] api_base_url is official URL")
         return None
+    # Prevent using local/self URLs which would cause requests to loop back
+    if "127.0.0.1" in url or "localhost" in url:
+        logger.warning(f"[Claude API] Ignoring local URL to prevent self-loop: {url}")
+        return None
     logger.info(f"[Claude API] Using custom base URL: {url}")
     return url if url.startswith("http") else None
 

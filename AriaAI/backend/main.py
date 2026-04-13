@@ -123,7 +123,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if path in _PUBLIC_PATHS or path.startswith("/auth/"):
         return await call_next(request)
-    token = request.headers.get("x-auth-token")
+    token = request.headers.get("x-auth-token") or request.headers.get("X-Auth-Token")
     with Session(engine) as session:
         user: Optional[User] = None
         if token:
