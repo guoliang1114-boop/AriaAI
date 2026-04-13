@@ -198,10 +198,6 @@ export function Chat() {
   const processedSkillRef = useRef<number | null>(null)
   // Track streaming state for recovery after navigation
   const streamingConvIdRef = useRef<number | null>(null)
-  // Track conversation ID for reliable save on unmount
-  const conversationIdRef = useRef<number | null>(null)
-  // Track previous conversation ID to detect switches
-  const prevConversationIdRef = useRef<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -227,26 +223,21 @@ export function Chat() {
 
   // ── Recover streaming state on mount ───────────────────────────────────────
   useEffect(() => {
-    // Check if we have a pending streaming conversation
+    // Check if we have a pending streaming conversation (from previous session)
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Recovery - Found pending:', convId)
+      console.log('[Chat] Recovery - Found pending conversation:', convId)
       
-      // Clear immediately to prevent repeated recovery attempts
+      // Clear the marker
       sessionStorage.removeItem('pendingStreamingConvId')
       
-      // Store the target conversation ID for later use
-      conversationIdRef.current = convId
-      
+      // If we're not on this conversation, navigate to it
       if (!conversationId || parseInt(conversationId) !== convId) {
-        // Navigate to the pending conversation
         console.log('[Chat] Recovery - Navigating to:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
-      } else {
-        // Already on the conversation, will be handled by conversationId useEffect
-        console.log('[Chat] Recovery - Already on conversation:', convId)
       }
+      // If already on the conversation, the conversationId useEffect will load it
     }
   }, [])
 
@@ -267,13 +258,6 @@ export function Chat() {
       const convId = parseInt(conversationId)
       console.log('[Chat] Loading conversation:', convId)
       loadConversation(convId)
-      
-      // Check if this is a recovered conversation
-      const pendingId = sessionStorage.getItem('pendingStreamingConvId')
-      if (pendingId && parseInt(pendingId) === convId) {
-        console.log('[Chat] This is a recovered conversation, clearing marker')
-        sessionStorage.removeItem('pendingStreamingConvId')
-      }
     }
   }, [conversationId])
 
@@ -289,29 +273,14 @@ export function Chat() {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  // Track conversation ID changes for cleanup
-  useEffect(() => {
-    const currentConvId = conversationId
-    const prevConvId = prevConversationIdRef.current
-    
-    // If we switched from a conversation to another, save the old one
-    if (prevConvId && prevConvId !== currentConvId) {
-      console.log('[Chat] Switched conversation, saving previous:', prevConvId)
-      sessionStorage.setItem('pendingStreamingConvId', prevConvId)
-    }
-    
-    // Update ref
-    prevConversationIdRef.current = currentConvId
-    
-    // Update conversationIdRef for other uses
-    if (conversation?.id) {
-      conversationIdRef.current = conversation.id
-    }
-  }, [conversationId, conversation?.id])
-
-  // Cleanup on unmount
+  // Cleanup on unmount - save state only if currently streaming
   useEffect(() => {
     return () => {
+      // Only save if we're in the middle of streaming a response
+      if (isStreamingRef.current && streamingConvIdRef.current) {
+        console.log('[Chat] Unmounting while streaming, saving:', streamingConvIdRef.current)
+        sessionStorage.setItem('pendingStreamingConvId', String(streamingConvIdRef.current))
+      }
       // Abort any ongoing request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
