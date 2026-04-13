@@ -13,6 +13,7 @@ import {
   User,
   Search,
   ChevronDown,
+  AlertCircle,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { useToast } from '../../contexts/ToastContext'
@@ -167,6 +168,8 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const [editContent, setEditContent] = useState('')
   const [editAssignee, setEditAssignee] = useState<number | null>(null)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [todoToDelete, setTodoToDelete] = useState<ProjectTodo | null>(null)
 
   const completedCount = todos.filter((t) => t.is_done).length
   const progress = todos.length > 0 ? (completedCount / todos.length) * 100 : 0
@@ -220,8 +223,20 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
     }
   }
 
-  const handleDelete = async (todoId: number) => {
-    if (!confirm(isZh ? '确定要删除这个待办吗？' : 'Are you sure you want to delete this todo?')) return
+  const openDeleteDialog = (todo: ProjectTodo) => {
+    setTodoToDelete(todo)
+    setShowDeleteDialog(true)
+  }
+
+  const closeDeleteDialog = () => {
+    setShowDeleteDialog(false)
+    setTodoToDelete(null)
+  }
+
+  const confirmDelete = async () => {
+    if (!todoToDelete) return
+    const todoId = todoToDelete.id
+    setShowDeleteDialog(false)
     setDeletingIds((prev) => new Set(prev).add(todoId))
     try {
       await api.delete(`/projects/${projectId}/todos/${todoId}`)
@@ -235,6 +250,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         next.delete(todoId)
         return next
       })
+      setTodoToDelete(null)
     }
   }
 
@@ -432,7 +448,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDelete(todo.id)}
+                      onClick={() => openDeleteDialog(todo)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -443,6 +459,46 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && todoToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-gray-100">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  {isZh ? '确认删除待办' : 'Delete Todo'}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {isZh ? '此操作不可撤销' : 'This action cannot be undone'}
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-700 mb-6">
+              {isZh ? '确定要删除 "' : 'Are you sure you want to delete "'}
+              <span className="font-medium text-gray-900">{todoToDelete.content}</span>
+              {isZh ? '" 吗？' : '"?'}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={closeDeleteDialog}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {isZh ? '确认删除' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
