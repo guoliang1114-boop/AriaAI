@@ -15,7 +15,10 @@ from app.database import get_session
 from app.models.db import Conversation, Message
 from app.services.cache import conversations_cache
 from app.services.context_builder import build_chat_context
-from app.services.provider_selector import get_provider_module, get_provider_name, get_selected_model
+from app.services.provider_selector import (
+    get_provider_module, get_provider_name, get_selected_model,
+    resolve_provider_from_model, _load_provider_module
+)
 from app.services.settings_helper import get_int_setting, get_float_setting
 from app.services.title_generator import schedule_title_generation
 from app.config import (
@@ -195,9 +198,11 @@ async def send_message(req: SendMessageRequest, session: Session = Depends(get_s
     tools = chat_ctx.tools
     max_tokens = chat_ctx.max_tokens
 
-    llm = get_provider_module(session)
-    provider = get_provider_name(session)
-    selected_model = get_selected_model(session, provider)
+    # Use model-based provider resolution instead of llm_provider setting
+    # This ensures correct provider is used even if settings are inconsistent
+    selected_model = get_selected_model(session)
+    provider = resolve_provider_from_model(selected_model)
+    llm = _load_provider_module(provider)
     system = llm.build_system_prompt(skill_prompt, rag_context, project_context)
 
     # Build message history — skip empty assistant messages (from prior failures)
