@@ -59,19 +59,33 @@ def _get_setting(key: str, default: str = "") -> str:
 
 
 def _get_custom_base_url() -> str | None:
-    """Return the saved base URL only if it differs from the official default."""
+    """Return the saved base URL only if it differs from the official default.
+    
+    Priority: Database setting > ANTHROPIC_BASE_URL env var > None (official)
+    """
+    # 1. Try database setting first
     url = _get_setting(SETTING_API_BASE_URL)
+    
+    # 2. Fallback to environment variable
+    if not url:
+        url = os.environ.get("ANTHROPIC_BASE_URL")
+        if url:
+            logger.info(f"[Claude API] Using ANTHROPIC_BASE_URL from env: {url}")
+    
     if not url:
         logger.info("[Claude API] api_base_url not set, using official URL")
         return None
+    
     url = url.strip().rstrip("/")
     if url == _OFFICIAL_BASE_URL.rstrip("/"):
         logger.info("[Claude API] api_base_url is official URL")
         return None
+    
     # Prevent using local/self URLs which would cause requests to loop back
     if "127.0.0.1" in url or "localhost" in url:
         logger.warning(f"[Claude API] Ignoring local URL to prevent self-loop: {url}")
         return None
+    
     logger.info(f"[Claude API] Using custom base URL: {url}")
     return url if url.startswith("http") else None
 
