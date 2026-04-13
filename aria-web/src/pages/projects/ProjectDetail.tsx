@@ -50,6 +50,7 @@ import {
   ChevronDown,
   Copy,
   BookOpen,
+  ListTodo,
   Wrench,
 } from "lucide-react";
 import { api } from "../../api/client";
@@ -66,6 +67,8 @@ import type {
   ProjectFolder,
   ProjectPayment,
 } from "../../types/api";
+import { ProjectNotesTab } from "./ProjectNotesTab";
+import { ProjectTodosTab } from "./ProjectTodosTab";
 
 // ==================== Helper Functions ====================
 // Format number with thousand separators
@@ -99,6 +102,8 @@ type TabId =
   | "overview"
   | "documents"
   | "milestones"
+  | "notes"
+  | "todos"
   | "chat"
   | "financials"
   | "settings";
@@ -137,6 +142,22 @@ const TABS: TabConfig[] = [
     icon: Flag,
     path: "milestones",
     getPath: (id) => `/projects/${id}/milestones`,
+  },
+  {
+    id: "notes",
+    label: "Notes",
+    labelZh: "笔记",
+    icon: BookOpen,
+    path: "notes",
+    getPath: (id) => `/projects/${id}/notes`,
+  },
+  {
+    id: "todos",
+    label: "Todos",
+    labelZh: "待办",
+    icon: ListTodo,
+    path: "todos",
+    getPath: (id) => `/projects/${id}/todos`,
   },
   {
     id: "chat",
@@ -573,7 +594,8 @@ function OverviewTab({
   projectId: string;
   onProjectUpdate: () => void;
 }) {
-  const { project, milestones, files, financials } = projectDetail;
+  const { project, milestones, files, financials, todos, md_notes } = projectDetail;
+  const recentTodos = todos.filter((t) => !t.is_done).slice(0, 3);
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
@@ -972,6 +994,65 @@ function OverviewTab({
             )}
           </div>
         </div>
+
+        {/* Recent Todos */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center justify-between p-5 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <ListTodo className="w-4 h-4 text-gray-400" />
+              {isZh ? "最近待办" : "Recent Todos"}
+            </h3>
+            <button
+              onClick={() => navigate(`/projects/${projectId}/todos`)}
+              className="text-sm text-primary hover:underline"
+            >
+              {isZh ? "查看全部" : "View all"}
+            </button>
+          </div>
+          <div className="p-5">
+            {recentTodos.length === 0 ? (
+              <div className="text-center py-4 text-gray-400">
+                <p className="text-sm">
+                  {isZh ? "暂无待办事项" : "No pending todos"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentTodos.map((todo) => (
+                  <div key={todo.id} className="flex items-start gap-3">
+                    <Circle className="w-5 h-5 text-gray-300 mt-0.5" />
+                    <p className="text-sm text-gray-900 truncate">
+                      {todo.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Notes Preview */}
+        {(md_notes || "").trim().length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-gray-400" />
+                {isZh ? "项目笔记" : "Project Notes"}
+              </h3>
+              <button
+                onClick={() => navigate(`/projects/${projectId}/notes`)}
+                className="text-sm text-primary hover:underline"
+              >
+                {isZh ? "打开笔记" : "Open notes"}
+              </button>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-gray-600 line-clamp-4 whitespace-pre-wrap">
+                {md_notes.replace(/[#*`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
       {/* Right Column - Sidebar */}
       <div className="col-span-12 lg:col-span-4 space-y-6">
@@ -4627,6 +4708,26 @@ export function ProjectDetail() {
                   projectDetail={projectDetail}
                   projectId={id!}
                   onUpdate={async () => await fetchProjectDetail(parseInt(id!))}
+                />
+              }
+            />
+            <Route
+              path="/notes"
+              element={
+                <ProjectNotesTab
+                  projectId={id!}
+                  mdNotes={projectDetail.md_notes}
+                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
+                />
+              }
+            />
+            <Route
+              path="/todos"
+              element={
+                <ProjectTodosTab
+                  projectId={id!}
+                  todos={projectDetail.todos}
+                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
                 />
               }
             />

@@ -30,6 +30,7 @@ export interface Project {
   updated_at: string
   context_summary?: string
   notes?: string
+  md_notes?: string
   contract_amount?: number
   context_freshness?: number
 }
@@ -73,6 +74,15 @@ export interface ProjectPayment {
   created_at: string
 }
 
+export interface ProjectTodo {
+  id: number
+  project_id: number
+  content: string
+  is_done: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface ProjectFinancials {
   contract_amount: number
   total_received: number
@@ -88,6 +98,8 @@ export interface ProjectDetail {
   files: ProjectFile[]
   milestones: Milestone[]
   folders: ProjectFolder[]
+  md_notes: string
+  todos: ProjectTodo[]
   financials: ProjectFinancials
 }
 

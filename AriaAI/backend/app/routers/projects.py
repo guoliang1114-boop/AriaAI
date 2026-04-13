@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 import json
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment
+from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
@@ -181,6 +181,7 @@ class ProjectCreate(BaseModel):
     status: str = "lead"
     contract_amount: float = 0.0
     notes: str = ""
+    md_notes: str = ""
 
 
 class ProjectUpdate(BaseModel):
@@ -192,6 +193,17 @@ class ProjectUpdate(BaseModel):
     contract_amount: Optional[float] = None
     context_summary: Optional[str] = None
     notes: Optional[str] = None
+    md_notes: Optional[str] = None
+
+
+class TodoCreate(BaseModel):
+    content: str
+    is_done: bool = False
+
+
+class TodoUpdate(BaseModel):
+    content: Optional[str] = None
+    is_done: Optional[bool] = None
 
 
 class NoteBody(BaseModel):
@@ -299,11 +311,19 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
     contract = project.contract_amount or 0.0
 
+    todos = session.exec(
+        select(ProjectTodo)
+        .where(ProjectTodo.project_id == project_id)
+        .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
+    ).all()
+
     result = {
         "project": project,
         "files": files,
         "milestones": milestones,
         "folders": folders,
+        "md_notes": project.md_notes or "",
+        "todos": todos,
         "financials": {
             "contract_amount": contract,
             "total_received": received,
@@ -372,7 +392,12 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
         session.delete(p)
     session.flush()
 
-    # 6. Project itself
+    # 6. Todos
+    for t in session.exec(select(ProjectTodo).where(ProjectTodo.project_id == project_id)).all():
+        session.delete(t)
+    session.flush()
+
+    # 7. Project itself
     session.delete(project)
     session.commit()
     _bust_project(project_id)
@@ -788,3 +813,60 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
     session.refresh(project)
     _bust_project(project_id)
     return {"notes": project.notes}
+
+# ── Project Todos ────────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/todos")
+def list_todos(project_id: int, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    todos = session.exec(
+        select(ProjectTodo)
+        .where(ProjectTodo.project_id == project_id)
+        .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
+    ).all()
+    return todos
+
+
+@router.post("/{project_id}/todos", status_code=201)
+def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    todo = ProjectTodo(project_id=project_id, content=body.content, is_done=body.is_done)
+    session.add(todo)
+    session.commit()
+    session.refresh(todo)
+    _bust_project(project_id)
+    return todo
+
+
+@router.patch("/{project_id}/todos/{todo_id}")
+def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Session = Depends(get_session)):
+    todo = session.exec(
+        select(ProjectTodo).where(ProjectTodo.id == todo_id, ProjectTodo.project_id == project_id)
+    ).first()
+    if not todo:
+        raise HTTPException(404, "Todo not found")
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(todo, k, v)
+    todo.updated_at = datetime.utcnow()
+    session.add(todo)
+    session.commit()
+    session.refresh(todo)
+    _bust_project(project_id)
+    return todo
+
+
+@router.delete("/{project_id}/todos/{todo_id}")
+def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_session)):
+    todo = session.exec(
+        select(ProjectTodo).where(ProjectTodo.id == todo_id, ProjectTodo.project_id == project_id)
+    ).first()
+    if not todo:
+        raise HTTPException(404, "Todo not found")
+    session.delete(todo)
+    session.commit()
+    _bust_project(project_id)
+    return {"ok": True}

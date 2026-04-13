@@ -29,6 +29,7 @@ class Project(SQLModel, table=True):
     contract_amount: float = 0.0    # total contract value
     context_summary: str = ""       # AI-generated project context summary
     notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
+    md_notes: str = ""              # Project-level Markdown notes
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -36,6 +37,7 @@ class Project(SQLModel, table=True):
     files: list["ProjectFile"] = Relationship(back_populates="project")
     conversations: list["Conversation"] = Relationship(back_populates="project")
     payments: list["ProjectPayment"] = Relationship(back_populates="project")
+    todos: list["ProjectTodo"] = Relationship(back_populates="project")
 
 
 class Milestone(SQLModel, table=True):
@@ -47,6 +49,17 @@ class Milestone(SQLModel, table=True):
     due_date: Optional[str] = None
 
     project: Optional[Project] = Relationship(back_populates="milestones")
+
+
+class ProjectTodo(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    content: str
+    is_done: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    project: Optional[Project] = Relationship(back_populates="todos")
 
 
 class ProjectFolder(SQLModel, table=True):
