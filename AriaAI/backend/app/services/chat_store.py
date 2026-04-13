@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException
@@ -127,6 +128,31 @@ def persist_user_message(
     session.add(user_msg)
     session.commit()
     return user_msg
+
+
+def persist_assistant_message(
+    bind,
+    conv_id: int,
+    content: str,
+    user_content: str,
+) -> bool:
+    need_title = False
+    with Session(bind) as new_session:
+        asst_msg = Message(
+            conversation_id=conv_id,
+            role="assistant",
+            content=content,
+        )
+        new_session.add(asst_msg)
+        conv = new_session.get(Conversation, conv_id)
+        if conv:
+            conv.updated_at = datetime.utcnow()
+            if conv.title == "New Workstream":
+                conv.title = user_content[:40] + ("…" if len(user_content) > 40 else "")
+                need_title = True
+            new_session.add(conv)
+        new_session.commit()
+    return need_title
 
 
 def delete_conversation_with_messages(session: Session, conv_id: int) -> None:
