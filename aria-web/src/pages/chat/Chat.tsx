@@ -296,7 +296,7 @@ export function Chat() {
   // Track previous conversation ID to detect switches
   const prevConversationIdRef = useRef<string | null>(null)
   
-  // Handle conversation switch - always save previous conversation to force refresh
+  // Handle conversation switch
   useEffect(() => {
     const currentConvId = conversationId
     const prevConvId = prevConversationIdRef.current
@@ -304,8 +304,23 @@ export function Chat() {
     // If we switched from one conversation to another
     if (prevConvId && prevConvId !== currentConvId) {
       console.log('[Chat] Switched from', prevConvId, 'to', currentConvId)
-      // Always save the previous conversation ID to force refresh when we come back
+      
+      // Save the previous conversation ID to force refresh when we come back
       sessionStorage.setItem('pendingStreamingConvId', prevConvId)
+      
+      // IMPORTANT: Clear streaming content to prevent showing in new conversation
+      setStreamingContent('')
+      streamingContentRef.current = ''
+      
+      // Stop any ongoing streaming
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+      }
+      
+      // Reset streaming state
+      isStreamingRef.current = false
+      streamingConvIdRef.current = null
     }
     
     // Update ref
