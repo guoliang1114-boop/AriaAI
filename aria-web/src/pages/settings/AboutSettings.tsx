@@ -41,8 +41,8 @@ interface ChangelogEntry {
 export function AboutSettings() {
   const { t } = useTranslation()
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: '1.0.0',
-    buildDate: '2026-04-09',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
+    buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
     databaseStatus: 'disconnected',
@@ -163,6 +163,25 @@ Environment: ${systemInfo.environment}`
             <Copy className="w-5 h-5 text-on-surface-muted" />
           )}
         </button>
+      </div>
+
+      {/* Build Info Banner */}
+      <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-sm font-medium text-primary">
+              {t('about.currentVersion') || '当前版本'}
+            </p>
+            <p className="text-xs text-on-surface-muted mt-0.5">
+              {typeof __BUILD_TIME__ !== 'undefined'
+                ? `${t('about.packagedAt') || '打包时间'}: ${new Date(__BUILD_TIME__).toLocaleString('zh-CN')}`
+                : '-'}
+            </p>
+          </div>
+          <span className="px-3 py-1 text-lg font-bold bg-primary text-white rounded-lg shadow-sm">
+            v{systemInfo.version}
+          </span>
+        </div>
       </div>
 
       {/* System Status Grid */}
