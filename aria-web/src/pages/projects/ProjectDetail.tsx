@@ -53,6 +53,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { api } from "../../api/client";
+import { exportConversationFile } from "../../api/chatExport";
 import { PageTitle } from "../../components/PageTitle";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
@@ -2380,36 +2381,7 @@ const ExportDropdown = memo<{ conversationId: number; conversationTitle?: string
     const handleExport = async (format: "markdown" | "pdf") => {
       setIsExporting(true);
       try {
-        const token = localStorage.getItem("authToken");
-        const baseUrl = import.meta.env.VITE_API_URL || "/api";
-        const response = await fetch(`${baseUrl}/chat/conversations/${conversationId}/export`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Auth-Token": token || "",
-          },
-          body: JSON.stringify({ format }),
-        });
-        
-        if (!response.ok) throw new Error(`Export failed: ${response.status}`);
-        
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        
-        const contentDisposition = response.headers.get("content-disposition");
-        let filename = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1];
-        if (!filename) {
-          const safeTitle = (conversationTitle || "conversation").replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, "_");
-          filename = `${safeTitle}.${format === "markdown" ? "md" : "pdf"}`;
-        }
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        
+        await exportConversationFile(conversationId, format, conversationTitle || "conversation");
         setIsOpen(false);
       } catch (err) {
         console.error("Export failed:", err);
