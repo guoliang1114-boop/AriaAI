@@ -223,23 +223,19 @@ export function Chat() {
 
   // ── Recover streaming state on mount ───────────────────────────────────────
   useEffect(() => {
-    // Check if we have a pending streaming conversation (from previous session)
+    // Check if we have a pending conversation to recover
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Recovery - Found pending conversation:', convId, 'current:', conversationId)
-      
-      // Clear the marker immediately
-      sessionStorage.removeItem('pendingStreamingConvId')
+      console.log('[Chat] Recovery - Found pending:', convId, 'current:', conversationId)
       
       // If we're not on this conversation, navigate to it
+      // The loading useEffect will handle the refresh
       if (!conversationId || parseInt(conversationId) !== convId) {
         console.log('[Chat] Recovery - Navigating to:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
-      } else {
-        // Already on the conversation but need to refresh to get latest messages
-        console.log('[Chat] Recovery - Already on conversation, will refresh via useEffect')
       }
+      // If already on the conversation, loading useEffect will handle the refresh
     }
   }, [])
 
@@ -262,17 +258,24 @@ export function Chat() {
       }
       const convId = parseInt(conversationId)
       
-      // Check if this is a recovered conversation (need to force refresh)
-      const isRecovered = loadedConvIdRef.current === convId && messages.length > 0
+      // Check if we need to force refresh this conversation
+      const pendingId = sessionStorage.getItem('pendingStreamingConvId')
+      const needRefresh = pendingId && parseInt(pendingId) === convId
       
       // Prevent loading the same conversation twice (React StrictMode)
-      // But allow if we're recovering from a navigation
-      if (isRecovered && !sessionStorage.getItem('pendingStreamingConvId')) {
+      // But always refresh if we're recovering from a navigation
+      if (loadedConvIdRef.current === convId && messages.length > 0 && !needRefresh) {
         console.log('[Chat] Already loaded conversation:', convId)
         return
       }
       
-      console.log('[Chat] Loading conversation:', convId, isRecovered ? '(recovery)' : '')
+      if (needRefresh) {
+        console.log('[Chat] Force refreshing conversation:', convId)
+        sessionStorage.removeItem('pendingStreamingConvId')
+      } else {
+        console.log('[Chat] Loading conversation:', convId)
+      }
+      
       loadedConvIdRef.current = convId
       loadConversation(convId)
     }
@@ -293,18 +296,16 @@ export function Chat() {
   // Track previous conversation ID to detect switches
   const prevConversationIdRef = useRef<string | null>(null)
   
-  // Handle conversation switch - save state if streaming
+  // Handle conversation switch - always save previous conversation to force refresh
   useEffect(() => {
     const currentConvId = conversationId
     const prevConvId = prevConversationIdRef.current
     
     // If we switched from one conversation to another
     if (prevConvId && prevConvId !== currentConvId) {
-      // Check if we were streaming in the previous conversation
-      if (isStreamingRef.current && streamingConvIdRef.current) {
-        console.log('[Chat] Switched while streaming, saving:', streamingConvIdRef.current)
-        sessionStorage.setItem('pendingStreamingConvId', String(streamingConvIdRef.current))
-      }
+      console.log('[Chat] Switched from', prevConvId, 'to', currentConvId)
+      // Always save the previous conversation ID to force refresh when we come back
+      sessionStorage.setItem('pendingStreamingConvId', prevConvId)
     }
     
     // Update ref
