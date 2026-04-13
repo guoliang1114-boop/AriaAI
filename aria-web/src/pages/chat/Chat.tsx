@@ -227,11 +227,13 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
+      console.log('[Chat] Found pending conversation in sessionStorage:', convId)
       // Don't remove from sessionStorage here - let the polling logic handle it
-      // This allows the user to see the recovery state
       if (!conversationId || parseInt(conversationId) !== convId) {
-        // Navigate to the conversation with streaming recovery flag
+        console.log('[Chat] Navigating to pending conversation:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
+      } else {
+        console.log('[Chat] Already on pending conversation:', convId)
       }
     }
   }, [])
@@ -257,40 +259,44 @@ export function Chat() {
       const pendingId = sessionStorage.getItem('pendingStreamingConvId')
       if (pendingId && parseInt(pendingId) === convId) {
         console.log('[Chat] Recovering streaming for conversation:', convId)
+        // Force immediate reload of messages to get latest state
+        loadConversation(convId)
+        
         // Poll for message completion
         const pollInterval = setInterval(async () => {
           try {
-            // Get latest messages (fetch more to ensure we get the complete state)
+            // Get latest messages
             const msgs = await api.get<Message[]>(`/chat/conversations/${convId}/messages?limit=20`)
+            console.log('[Chat] Polling - got', msgs.length, 'messages')
             
             // Always update messages to get latest state
             setMessages(msgs)
             
-            // Check if streaming is done (no pending marker)
-            if (!sessionStorage.getItem('pendingStreamingConvId')) {
-              console.log('[Chat] Streaming recovery complete')
-              clearInterval(pollInterval)
-            }
-            
-            // Also check if we have a complete assistant message as last message
+            // Check if we have a complete assistant message as last message
             const lastMsg = msgs[msgs.length - 1]
             if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
-              // Wait a bit more to ensure it's fully saved, then clear recovery state
-              setTimeout(() => {
-                sessionStorage.removeItem('pendingStreamingConvId')
-              }, 5000)
+              console.log('[Chat] Recovery complete - found assistant message')
+              sessionStorage.removeItem('pendingStreamingConvId')
+              clearInterval(pollInterval)
+              return
+            }
+            
+            // Check if streaming marker is cleared
+            if (!sessionStorage.getItem('pendingStreamingConvId')) {
+              console.log('[Chat] Recovery complete - marker cleared')
+              clearInterval(pollInterval)
             }
           } catch (e) {
             console.error('[Chat] Poll error:', e)
           }
-        }, 1500) // Poll every 1.5 seconds
+        }, 2000) // Poll every 2 seconds
         
-        // Stop polling after 3 minutes (max streaming time)
+        // Stop polling after 2 minutes
         const timeoutId = setTimeout(() => {
-          console.log('[Chat] Polling timeout, clearing recovery state')
+          console.log('[Chat] Polling timeout')
           sessionStorage.removeItem('pendingStreamingConvId')
           clearInterval(pollInterval)
-        }, 180000)
+        }, 120000)
         
         return () => {
           clearInterval(pollInterval)
@@ -323,16 +329,19 @@ export function Chat() {
   // Save streaming state when component unmounts (user navigates away)
   useEffect(() => {
     return () => {
-      // If we're streaming and user navigates away, save the state
-      if (isStreamingRef.current && streamingConvIdRef.current) {
-        console.log('[Chat] User navigated away while streaming, saving state:', streamingConvIdRef.current)
-        // Ensure the pending state is saved (it should already be saved in sendMessage)
-        sessionStorage.setItem('pendingStreamingConvId', String(streamingConvIdRef.current))
-        // Abort the connection to avoid memory leaks
-        abortControllerRef.current?.abort()
+      // Save state if we have an active conversation
+      // This covers both streaming and just-finished states
+      const currentConvId = conversation?.id || streamingConvIdRef.current
+      if (currentConvId) {
+        console.log('[Chat] User navigated away, saving conversation state:', currentConvId)
+        sessionStorage.setItem('pendingStreamingConvId', String(currentConvId))
+      }
+      // Abort any ongoing request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
       }
     }
-  }, [])
+  }, [conversation?.id])
 
   // ── Data fetch ────────────────────────────────────────────────────────────
   const fetchInitialData = async () => {
