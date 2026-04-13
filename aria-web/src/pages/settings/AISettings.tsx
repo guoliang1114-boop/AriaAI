@@ -25,6 +25,7 @@ interface AIModel {
   supportsTools: boolean
   supportsVision: boolean
   icon: string
+  temperatureFixed?: boolean  // If true, temperature is fixed (e.g., Kimi K2.5 only supports 1)
 }
 
 const models: AIModel[] = [
@@ -64,10 +65,11 @@ const models: AIModel[] = [
     id: 'kimi-k2.5',
     name: 'Kimi K2.5 (最新)',
     provider: 'moonshot',
-    description: 'Moonshot 最新主力模型，超长上下文，强大推理能力',
+    description: 'Moonshot 最新主力模型，超长上下文，强大推理能力。注意：temperature 固定为 1',
     maxTokens: 8192,
     supportsTools: true,
     supportsVision: true,
+    temperatureFixed: true,  // Kimi K2.5 only supports temperature = 1
     icon: '🔥',
   },
   {
@@ -367,10 +369,14 @@ export function AISettings() {
     setError('')
     
     try {
+      // Kimi K2.5 only supports temperature = 1
+      const modelData = models.find(m => m.id === selectedModel)
+      const effectiveTemperature = modelData?.temperatureFixed ? 1 : temperature
+      
       const result = await api.post('/chat/test-model', {
         message: testMessage,
         model: selectedModel,
-        temperature,
+        temperature: effectiveTemperature,
         max_tokens: maxTokens,
       })
       
@@ -678,23 +684,34 @@ export function AISettings() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-on-surface-secondary">
                   Temperature
+                  {selectedModelData?.temperatureFixed && (
+                    <span className="ml-2 text-xs text-warning">(Fixed to 1 for this model)</span>
+                  )}
                 </label>
-                <span className="text-sm font-mono text-primary">{temperature}</span>
+                <span className="text-sm font-mono text-primary">
+                  {selectedModelData?.temperatureFixed ? 1 : temperature}
+                </span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="2"
                 step="0.1"
-                value={temperature}
+                value={selectedModelData?.temperatureFixed ? 1 : temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full accent-primary"
+                disabled={selectedModelData?.temperatureFixed}
+                className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <div className="flex justify-between text-xs text-on-surface-muted mt-1">
                 <span>More precise (0)</span>
                 <span>Balanced ({selectedProvider === 'anthropic' ? '0.7' : '1.0'})</span>
                 <span>More creative (2)</span>
               </div>
+              {selectedModelData?.temperatureFixed && (
+                <p className="text-xs text-warning mt-1">
+                  {selectedModelData.name} only supports temperature = 1
+                </p>
+              )}
             </div>
 
             {/* Max Tokens */}
