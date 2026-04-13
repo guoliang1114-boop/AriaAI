@@ -200,6 +200,8 @@ export function Chat() {
   const streamingConvIdRef = useRef<number | null>(null)
   // Track conversation ID for reliable save on unmount
   const conversationIdRef = useRef<number | null>(null)
+  // Track previous conversation ID to detect switches
+  const prevConversationIdRef = useRef<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -229,16 +231,21 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Found pending conversation in sessionStorage:', convId, 'current:', conversationId)
+      console.log('[Chat] Recovery - Found pending:', convId)
+      
+      // Clear immediately to prevent repeated recovery attempts
+      sessionStorage.removeItem('pendingStreamingConvId')
+      
+      // Store the target conversation ID for later use
+      conversationIdRef.current = convId
       
       if (!conversationId || parseInt(conversationId) !== convId) {
         // Navigate to the pending conversation
-        console.log('[Chat] Navigating to pending conversation:', convId)
+        console.log('[Chat] Recovery - Navigating to:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
       } else {
-        // Already on the conversation, force refresh messages
-        console.log('[Chat] Already on pending conversation, refreshing messages:', convId)
-        loadConversation(convId)
+        // Already on the conversation, will be handled by conversationId useEffect
+        console.log('[Chat] Recovery - Already on conversation:', convId)
       }
     }
   }, [])
@@ -258,64 +265,15 @@ export function Chat() {
         return
       }
       const convId = parseInt(conversationId)
+      console.log('[Chat] Loading conversation:', convId)
       loadConversation(convId)
       
-      // If we're recovering from a streaming interruption, poll for updates
+      // Check if this is a recovered conversation
       const pendingId = sessionStorage.getItem('pendingStreamingConvId')
       if (pendingId && parseInt(pendingId) === convId) {
-        console.log('[Chat] Recovering streaming for conversation:', convId)
-        // Force immediate reload of messages to get latest state
-        loadConversation(convId)
-        
-        // Poll for message completion
-        const pollInterval = setInterval(async () => {
-          try {
-            // Get latest messages
-            const msgs = await api.get<Message[]>(`/chat/conversations/${convId}/messages?limit=20`)
-            console.log('[Chat] Polling - got', msgs.length, 'messages')
-            
-            // Always update messages to get latest state
-            setMessages(msgs)
-            
-            // Check if we have a complete assistant message as last message
-            const lastMsg = msgs[msgs.length - 1]
-            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
-              console.log('[Chat] Recovery complete - found assistant message')
-              sessionStorage.removeItem('pendingStreamingConvId')
-              clearInterval(pollInterval)
-              return
-            }
-            
-            // Check if streaming marker is cleared
-            if (!sessionStorage.getItem('pendingStreamingConvId')) {
-              console.log('[Chat] Recovery complete - marker cleared')
-              clearInterval(pollInterval)
-            }
-          } catch (e) {
-            console.error('[Chat] Poll error:', e)
-          }
-        }, 2000) // Poll every 2 seconds
-        
-        // Stop polling after 2 minutes
-        const timeoutId = setTimeout(() => {
-          console.log('[Chat] Polling timeout')
-          sessionStorage.removeItem('pendingStreamingConvId')
-          clearInterval(pollInterval)
-        }, 120000)
-        
-        return () => {
-          clearInterval(pollInterval)
-          clearTimeout(timeoutId)
-        }
+        console.log('[Chat] This is a recovered conversation, clearing marker')
+        sessionStorage.removeItem('pendingStreamingConvId')
       }
-    } else {
-      setLoading(false)
-      setMessages([])
-      setConversation(null)
-      setStreamingContent('')
-      setSending(false)
-      setHasMore(false)
-      setErrorMsg(null)
     }
   }, [conversationId])
 
@@ -331,24 +289,30 @@ export function Chat() {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  // Save conversation ID when it changes
+  // Track conversation ID changes for cleanup
   useEffect(() => {
+    const currentConvId = conversationId
+    const prevConvId = prevConversationIdRef.current
+    
+    // If we switched from a conversation to another, save the old one
+    if (prevConvId && prevConvId !== currentConvId) {
+      console.log('[Chat] Switched conversation, saving previous:', prevConvId)
+      sessionStorage.setItem('pendingStreamingConvId', prevConvId)
+    }
+    
+    // Update ref
+    prevConversationIdRef.current = currentConvId
+    
+    // Update conversationIdRef for other uses
     if (conversation?.id) {
       conversationIdRef.current = conversation.id
     }
-  }, [conversation?.id])
+  }, [conversationId, conversation?.id])
 
-  // Save streaming state when component unmounts (user navigates away)
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Use ref to get the most recent conversation ID
-      // This is more reliable than state during unmount
-      const currentConvId = streamingConvIdRef.current || conversationIdRef.current
-      if (currentConvId) {
-        console.log('[Chat] Component unmounting, saving conversation:', currentConvId)
-        sessionStorage.setItem('pendingStreamingConvId', String(currentConvId))
-      }
-      // Abort any ongoing request to prevent memory leaks
+      // Abort any ongoing request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
       }
