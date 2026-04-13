@@ -54,7 +54,7 @@ DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
 # Default models per provider
 DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-6",
-    "kimi": "kimi-k2-5",
+    "kimi": "moonshot-v1-128k",
     "bigmodel": "glm-5.1",
 }
 

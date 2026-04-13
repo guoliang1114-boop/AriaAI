@@ -61,10 +61,10 @@ const models: AIModel[] = [
   },
   // Moonshot
   {
-    id: 'kimi-k2-5',
-    name: 'Kimi K2.5',
+    id: 'moonshot-v1-128k',
+    name: 'Kimi K2.5 (128K)',
     provider: 'moonshot',
-    description: 'Moonshot 最新旗舰模型，支持 256K 上下文，多模态能力增强',
+    description: 'Moonshot 最新旗舰模型，支持 128K 上下文，多模态能力增强',
     maxTokens: 8192,
     supportsTools: true,
     supportsVision: true,
