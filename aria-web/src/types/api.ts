@@ -79,6 +79,8 @@ export interface ProjectTodo {
   project_id: number
   content: string
   is_done: boolean
+  assigned_to_user_id?: number | null
+  assigned_user?: { id: number; display_name: string } | null
   created_at: string
   updated_at: string
 }

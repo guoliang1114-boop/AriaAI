@@ -37,6 +37,7 @@ def main():
                         project_id INTEGER NOT NULL,
                         content TEXT NOT NULL,
                         is_done BOOLEAN NOT NULL DEFAULT false,
+                        assigned_to_user_id INTEGER,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         CONSTRAINT fk_projecttodo_project FOREIGN KEY (project_id) REFERENCES project(id)
@@ -47,9 +48,23 @@ def main():
             conn.execute(
                 text("CREATE INDEX ix_projecttodo_project_id ON projecttodo (project_id)")
             )
+            conn.execute(
+                text("CREATE INDEX ix_projecttodo_assigned_to_user_id ON projecttodo (assigned_to_user_id)")
+            )
             print("Created projecttodo table")
         else:
             print("projecttodo already exists")
+            todo_cols = {c["name"] for c in inspector.get_columns("projecttodo")}
+            if "assigned_to_user_id" not in todo_cols:
+                conn.execute(
+                    text("ALTER TABLE projecttodo ADD COLUMN assigned_to_user_id INTEGER")
+                )
+                conn.execute(
+                    text("CREATE INDEX ix_projecttodo_assigned_to_user_id ON projecttodo (assigned_to_user_id)")
+                )
+                print("Added assigned_to_user_id to projecttodo")
+            else:
+                print("assigned_to_user_id already exists")
 
         # 3. Ensure alembic_version table is present and stamped
         if "alembic_version" not in inspector.get_table_names():

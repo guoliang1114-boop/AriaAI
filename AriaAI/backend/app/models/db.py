@@ -56,10 +56,12 @@ class ProjectTodo(SQLModel, table=True):
     project_id: int = Field(foreign_key="project.id", index=True)
     content: str
     is_done: bool = False
+    assigned_to_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     project: Optional[Project] = Relationship(back_populates="todos")
+    assigned_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectTodo.assigned_to_user_id]"})
 
 
 class ProjectFolder(SQLModel, table=True):

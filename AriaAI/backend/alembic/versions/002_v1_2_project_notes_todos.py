@@ -24,9 +24,11 @@ def upgrade():
         sa.Column("project_id", sa.Integer(), nullable=False, index=True),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("is_done", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column("assigned_to_user_id", sa.Integer(), nullable=True, index=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.ForeignKeyConstraint(["project_id"], ["project.id"]),
+        sa.ForeignKeyConstraint(["assigned_to_user_id"], ["user.id"]),
     )
 
 

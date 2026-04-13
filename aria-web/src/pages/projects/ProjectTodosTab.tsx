@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
@@ -10,10 +10,18 @@ import {
   X,
   Check,
   ListTodo,
+  User,
+  Search,
+  ChevronDown,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { useToast } from '../../contexts/ToastContext'
 import type { ProjectTodo } from '../../types/api'
+
+interface UserItem {
+  id: number
+  display_name: string
+}
 
 interface ProjectTodosTabProps {
   projectId: string
@@ -21,26 +29,163 @@ interface ProjectTodosTabProps {
   onUpdate: () => void
 }
 
+function UserPicker({
+  users,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  users: UserItem[]
+  value: number | null
+  onChange: (userId: number | null) => void
+  placeholder?: string
+  disabled?: boolean
+}) {
+  const { i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const selectedUser = users.find((u) => u.id === value)
+
+  const filtered = users.filter((u) =>
+    u.display_name.toLowerCase().includes(query.toLowerCase())
+  )
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        className={`flex items-center gap-2 w-full px-3 py-2 bg-white border rounded-lg text-sm transition-colors ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'hover:border-gray-300'
+        } ${open ? 'border-primary ring-1 ring-primary/20' : 'border-gray-200'}`}
+      >
+        <User className="w-4 h-4 text-gray-400" />
+        <span className={`flex-1 text-left truncate ${selectedUser ? 'text-gray-900' : 'text-gray-400'}`}>
+          {selectedUser ? selectedUser.display_name : placeholder || (isZh ? '选择负责人' : 'Assign to')}
+        </span>
+        {selectedUser ? (
+          <span
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange(null)
+            }}
+            className="p-0.5 rounded hover:bg-gray-100 text-gray-400"
+          >
+            <X className="w-3.5 h-3.5" />
+          </span>
+        ) : (
+          <ChevronDown className="w-4 h-4 text-gray-400" />
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+          <div className="px-3 py-2 border-b border-gray-100">
+            <div className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1.5">
+              <Search className="w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={isZh ? '搜索用户...' : 'Search user...'}
+                className="flex-1 bg-transparent text-sm outline-none"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="max-h-48 overflow-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-400 text-center">
+                {isZh ? '未找到用户' : 'No users found'}
+              </div>
+            ) : (
+              filtered.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(u.id)
+                    setOpen(false)
+                    setQuery('')
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${
+                    value === u.id ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700'
+                  }`}
+                >
+                  <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                    {u.display_name.charAt(0)}
+                  </div>
+                  {u.display_name}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabProps) {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const toast = useToast()
 
+  const [users, setUsers] = useState<UserItem[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+
   const [newContent, setNewContent] = useState('')
+  const [newAssignee, setNewAssignee] = useState<number | null>(null)
   const [isAdding, setIsAdding] = useState(false)
+
   const [savingId, setSavingId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
+  const [editAssignee, setEditAssignee] = useState<number | null>(null)
 
   const completedCount = todos.filter((t) => t.is_done).length
   const progress = todos.length > 0 ? (completedCount / todos.length) * 100 : 0
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      setLoadingUsers(true)
+      try {
+        const data = await api.get<UserItem[]>('/auth/users/simple')
+        setUsers(data)
+      } catch (error) {
+        console.error('Failed to fetch users:', error)
+      } finally {
+        setLoadingUsers(false)
+      }
+    }
+    fetchUsers()
+  }, [])
 
   const handleCreate = async () => {
     if (!newContent.trim()) return
     setIsAdding(true)
     try {
-      await api.post(`/projects/${projectId}/todos`, { content: newContent.trim() })
+      await api.post(`/projects/${projectId}/todos`, {
+        content: newContent.trim(),
+        assigned_to_user_id: newAssignee,
+      })
       setNewContent('')
+      setNewAssignee(null)
       onUpdate()
     } catch (error) {
       console.error('Failed to create todo:', error)
@@ -79,11 +224,13 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const startEdit = (todo: ProjectTodo) => {
     setEditingId(todo.id)
     setEditContent(todo.content)
+    setEditAssignee(todo.assigned_to_user_id ?? null)
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEditContent('')
+    setEditAssignee(null)
   }
 
   const handleSaveEdit = async (todoId: number) => {
@@ -92,9 +239,11 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
     try {
       await api.patch(`/projects/${projectId}/todos/${todoId}`, {
         content: editContent.trim(),
+        assigned_to_user_id: editAssignee,
       })
       setEditingId(null)
       setEditContent('')
+      setEditAssignee(null)
       onUpdate()
     } catch (error) {
       console.error('Failed to update todo:', error)
@@ -129,7 +278,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
 
       {/* Add Todo */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
             value={newContent}
@@ -140,10 +289,18 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
             placeholder={isZh ? '添加新的待办事项...' : 'Add a new todo...'}
             className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
+          <div className="sm:w-48">
+            <UserPicker
+              users={users}
+              value={newAssignee}
+              onChange={setNewAssignee}
+              disabled={loadingUsers}
+            />
+          </div>
           <button
             onClick={handleCreate}
             disabled={isAdding || !newContent.trim()}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             {isZh ? '添加' : 'Add'}
@@ -186,7 +343,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
 
                 <div className="flex-1 min-w-0">
                   {editingId === todo.id ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="text"
                         value={editContent}
@@ -198,32 +355,47 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                         autoFocus
                         className="flex-1 px-3 py-1.5 bg-white border border-primary/30 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
-                      <button
-                        onClick={() => handleSaveEdit(todo.id)}
-                        disabled={savingId === todo.id}
-                        className="p-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-                      >
-                        {savingId === todo.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="p-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="sm:w-44">
+                        <UserPicker
+                          users={users}
+                          value={editAssignee}
+                          onChange={setEditAssignee}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleSaveEdit(todo.id)}
+                          disabled={savingId === todo.id}
+                          className="p-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {savingId === todo.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          className="p-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <p
-                      className={`text-sm truncate ${
-                        todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'
-                      }`}
-                    >
-                      {todo.content}
-                    </p>
+                    <div className="flex flex-col gap-1">
+                      <p className={`text-sm ${todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                        {todo.content}
+                      </p>
+                      {todo.assigned_user && (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                          <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
+                            {todo.assigned_user.display_name.charAt(0)}
+                          </div>
+                          <span>{todo.assigned_user.display_name}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 

@@ -211,6 +211,11 @@ def me(current_user: User = Depends(get_current_user)):
     )
 
 
+class UserSimpleOut(BaseModel):
+    id: int
+    display_name: str
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(
     _admin: User = Depends(require_admin),
@@ -227,6 +232,16 @@ def list_users(
         )
         for u in users
     ]
+
+
+@router.get("/users/simple", response_model=list[UserSimpleOut])
+def list_users_simple(
+    _current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return a lightweight user list for assignment pickers."""
+    users = session.exec(select(User).where(User.is_active == True)).all()
+    return [UserSimpleOut(id=u.id, display_name=u.display_name) for u in users]
 
 
 @router.post("/users", response_model=UserOut)

@@ -4589,6 +4589,8 @@ export function ProjectDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const isChatTab = location.pathname.endsWith("/chat");
+  const isNotesTab = location.pathname.endsWith("/notes");
+  const isTodosTab = location.pathname.endsWith("/todos");
   const [loading, setLoading] = useState(true);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(
     null,
@@ -4676,9 +4678,49 @@ export function ProjectDetail() {
           </div>
         )}
 
+        {/* NotesTab — kept mounted to preserve editing state */}
+        {isNotesTab && (
+          <div className="max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)]">
+            <ProjectNotesTab
+              projectId={id!}
+              mdNotes={projectDetail.md_notes}
+              onUpdate={() => fetchProjectDetail(parseInt(id!))}
+            />
+          </div>
+        )}
+        {!isNotesTab && (
+          <div className="hidden">
+            <ProjectNotesTab
+              projectId={id!}
+              mdNotes={projectDetail.md_notes}
+              onUpdate={() => fetchProjectDetail(parseInt(id!))}
+            />
+          </div>
+        )}
+
+        {/* TodosTab — kept mounted to preserve form state */}
+        {isTodosTab && (
+          <div className="max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)]">
+            <ProjectTodosTab
+              projectId={id!}
+              todos={projectDetail.todos}
+              onUpdate={() => fetchProjectDetail(parseInt(id!))}
+            />
+          </div>
+        )}
+        {!isTodosTab && (
+          <div className="hidden">
+            <ProjectTodosTab
+              projectId={id!}
+              todos={projectDetail.todos}
+              onUpdate={() => fetchProjectDetail(parseInt(id!))}
+            />
+          </div>
+        )}
+
         {/* Other tabs — normal scrollable content */}
         <div
-          className={`max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)] ${isChatTab ? "hidden" : ""}`}
+          className={`max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)] ${isChatTab || isNotesTab || isTodosTab ? "hidden" : ""}`}
         >
           <Routes>
             <Route
@@ -4708,26 +4750,6 @@ export function ProjectDetail() {
                   projectDetail={projectDetail}
                   projectId={id!}
                   onUpdate={async () => await fetchProjectDetail(parseInt(id!))}
-                />
-              }
-            />
-            <Route
-              path="/notes"
-              element={
-                <ProjectNotesTab
-                  projectId={id!}
-                  mdNotes={projectDetail.md_notes}
-                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
-                />
-              }
-            />
-            <Route
-              path="/todos"
-              element={
-                <ProjectTodosTab
-                  projectId={id!}
-                  todos={projectDetail.todos}
-                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
                 />
               }
             />

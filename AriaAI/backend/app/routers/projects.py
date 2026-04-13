@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 import json
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo
+from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, User
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
@@ -199,11 +199,13 @@ class ProjectUpdate(BaseModel):
 class TodoCreate(BaseModel):
     content: str
     is_done: bool = False
+    assigned_to_user_id: Optional[int] = None
 
 
 class TodoUpdate(BaseModel):
     content: Optional[str] = None
     is_done: Optional[bool] = None
+    assigned_to_user_id: Optional[int] = None
 
 
 class NoteBody(BaseModel):
@@ -317,13 +319,28 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
         .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
     ).all()
 
+    def _todo_dict(t: ProjectTodo) -> dict:
+        return {
+            "id": t.id,
+            "project_id": t.project_id,
+            "content": t.content,
+            "is_done": t.is_done,
+            "assigned_to_user_id": t.assigned_to_user_id,
+            "assigned_user": (
+                {"id": t.assigned_user.id, "display_name": t.assigned_user.display_name}
+                if t.assigned_user else None
+            ),
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+        }
+
     result = {
         "project": project,
         "files": files,
         "milestones": milestones,
         "folders": folders,
         "md_notes": project.md_notes or "",
-        "todos": todos,
+        "todos": [_todo_dict(t) for t in todos],
         "financials": {
             "contract_amount": contract,
             "total_received": received,
@@ -816,6 +833,22 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
 
 # ── Project Todos ────────────────────────────────────────────────────────────
 
+def _serialize_todo(todo: ProjectTodo) -> dict:
+    return {
+        "id": todo.id,
+        "project_id": todo.project_id,
+        "content": todo.content,
+        "is_done": todo.is_done,
+        "assigned_to_user_id": todo.assigned_to_user_id,
+        "assigned_user": (
+            {"id": todo.assigned_user.id, "display_name": todo.assigned_user.display_name}
+            if todo.assigned_user else None
+        ),
+        "created_at": todo.created_at,
+        "updated_at": todo.updated_at,
+    }
+
+
 @router.get("/{project_id}/todos")
 def list_todos(project_id: int, session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
@@ -826,7 +859,7 @@ def list_todos(project_id: int, session: Session = Depends(get_session)):
         .where(ProjectTodo.project_id == project_id)
         .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
     ).all()
-    return todos
+    return [_serialize_todo(t) for t in todos]
 
 
 @router.post("/{project_id}/todos", status_code=201)
@@ -834,12 +867,17 @@ def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(ge
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    todo = ProjectTodo(project_id=project_id, content=body.content, is_done=body.is_done)
+    todo = ProjectTodo(
+        project_id=project_id,
+        content=body.content,
+        is_done=body.is_done,
+        assigned_to_user_id=body.assigned_to_user_id,
+    )
     session.add(todo)
     session.commit()
     session.refresh(todo)
     _bust_project(project_id)
-    return todo
+    return _serialize_todo(todo)
 
 
 @router.patch("/{project_id}/todos/{todo_id}")
@@ -856,7 +894,7 @@ def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Sessio
     session.commit()
     session.refresh(todo)
     _bust_project(project_id)
-    return todo
+    return _serialize_todo(todo)
 
 
 @router.delete("/{project_id}/todos/{todo_id}")
