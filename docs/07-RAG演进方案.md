@@ -1,27 +1,24 @@
 # AriaAI RAG 演进方案
 
-> 更新日期：2026-04-12
-> 说明：结合最新 `context_builder.py` 与 `rag.py` 状态重写
+> 更新日期：2026-04-14
+> 说明：结合当前 `rag.py`、`context_builder.py` 与知识库链路重写。
 
 ---
 
 ## 1. 当前结论
 
-RAG 仍然是可运行的 baseline，但已经从“纯 prompt 注入工具”迈向“带结构化引用结果的上下文服务”。
+RAG 现在已经不是“把检索结果硬塞进 prompt”的原始形态，而是开始具备结构化引用和统一上下文装配能力；但它仍属于可用的 baseline，而不是成熟的知识检索系统。
 
-本轮关键变化：
+当前已经具备：
 
-- `retrieve_structured()` 已返回结构化结果
-- `RetrievalResult` / `RetrievalContext` 已支持来源信息
-- `context_builder.py` 已把 RAG 纳入统一聊天上下文组装
-
-这意味着 RAG 不再只是检索文本片段，而开始服务前端引用展示和更清晰的上下文注入。
+- 文档上传、解析、切块、embedding
+- `vector_status` 状态流转
+- 结构化引用结果
+- `context_builder.py` 统一注入聊天上下文
 
 ---
 
-## 2. 当前实现
-
-当前链路：
+## 2. 当前实现链路
 
 ```text
 上传文档
@@ -30,9 +27,9 @@ RAG 仍然是可运行的 baseline，但已经从“纯 prompt 注入工具”�
 -> embedding
 -> 存入 DocumentChunk
 -> retrieve_structured(query)
--> 生成 text + results
+-> 返回 text + structured results
 -> context_builder 注入聊天上下文
--> chat.py 将 references 推给前端
+-> 聊天链路把 references 回给前端
 ```
 
 关键文件：
@@ -40,54 +37,56 @@ RAG 仍然是可运行的 baseline，但已经从“纯 prompt 注入工具”�
 - `AriaAI/backend/app/services/rag.py`
 - `AriaAI/backend/app/services/context_builder.py`
 - `AriaAI/backend/app/routers/knowledge.py`
-- `AriaAI/backend/app/routers/chat.py`
+- `AriaAI/backend/app/services/chat_streaming.py`
 
 ---
 
 ## 3. 当前优点
 
 - 已支持结构化引用结果
-- 已与聊天上下文组装统一
-- 已经具备向前端展示 citation 的基础
+- 已与聊天上下文构建链路整合
+- 已具备面向前端展示 citation 的基础
 
 ---
 
 ## 4. 当前限制
 
-- embedding 仍存为 JSON
+- embedding 仍保存在 JSON 字段中
 - 检索仍偏简单 top-k
 - metadata filter 能力有限
 - rerank 尚未引入
+- 缺少更明确的检索评估体系
 
 ---
 
-## 5. 后续演进建议
+## 5. 演进建议
 
-### Phase 1
+### Phase 1：把现有链路做稳
 
-- 继续强化前端引用展示
+- 补知识库状态流转与检索回归测试
 - 明确项目 / 客户 / 全局知识的优先级
+- 强化前端引用展示
 
-### Phase 2
+### Phase 2：提升检索质量
 
-- metadata filter
-- rerank
-- query rewrite
+- 引入 metadata filter
+- 引入 rerank
+- 引入 query rewrite
 
-### Phase 3
+### Phase 3：提升规模与可维护性
 
-- 向量索引 / 专门向量库
-- 多知识空间
-- 检索评估体系
+- 引入更清晰的向量索引方案
+- 评估独立向量库或更专业的检索层
+- 建立检索评估与对比机制
 
 ---
 
 ## 6. 与产品主线的关系
 
-RAG 的核心价值不是“能搜”，而是：
+RAG 的核心价值不是“能搜到”，而是：
 
 - 让项目内对话更懂上下文
-- 让导出与生成物更有依据
-- 让客户和项目知识能复用
+- 让生成与导出更有依据
+- 让客户和项目知识能够复用
 
-所以 RAG 演进仍应优先服务项目工作流闭环，而不是孤立追求更复杂的检索技术。
+因此，RAG 演进应优先服务项目工作流，而不是脱离主产品单独追求复杂检索技术。
