@@ -213,6 +213,10 @@ class NoteBody(BaseModel):
     append: bool = True   # True = append to existing notes; False = overwrite
 
 
+class NotePolishBody(BaseModel):
+    draft: str
+
+
 class PaymentCreate(BaseModel):
     amount: float
     payment_date: str               # YYYY-MM-DD
@@ -908,3 +912,33 @@ def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_se
     session.commit()
     _bust_project(project_id)
     return {"ok": True}
+
+
+# ── AI Polish for Project Notes ──────────────────────────────────────────────
+
+@router.post("/{project_id}/notes/ai-polish")
+async def ai_polish_project_notes(project_id: int, body: NotePolishBody, session: Session = Depends(get_session)):
+    """Use the active LLM to polish a rough draft into structured Markdown project notes."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    system_prompt = (
+        "You are a helpful assistant that turns rough drafts into well-structured Markdown project notes. "
+        "Keep the user's original meaning, organize content with headings, bullet points, and checklists where appropriate, "
+        "and output clean Markdown without wrapping it in code blocks."
+    )
+    user_prompt = f"""Please polish the following rough draft into well-structured Markdown project notes.
+
+Project name: {project.name}
+Client: {project.client}
+
+Draft:
+{body.draft}
+"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    result = await _complete(messages, max_tokens=4000)
+    return {"result": result}
