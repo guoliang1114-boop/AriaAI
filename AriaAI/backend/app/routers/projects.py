@@ -20,6 +20,7 @@ from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
 from app.services.provider_selector import get_selected_model, resolve_provider_from_model, _load_provider_module
+from app.routers.auth import get_current_user
 
 _PROJECTS_TTL = 120.0
 
@@ -924,3 +925,31 @@ Draft:
     ]
     result = await _complete(messages, max_tokens=4000)
     return {"result": result}
+
+
+@router.get("/todos/my")
+def list_my_todos(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return pending todos assigned to the current user across all projects."""
+    rows = session.exec(
+        select(ProjectTodo, Project)
+        .join(Project, ProjectTodo.project_id == Project.id)
+        .where(
+            ProjectTodo.assigned_to_user_id == current_user.id,
+            ProjectTodo.is_done == False,
+        )
+        .order_by(ProjectTodo.updated_at.desc())
+    ).all()
+    return [
+        {
+            "id": t.id,
+            "project_id": t.project_id,
+            "project_name": p.name,
+            "content": t.content,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+        }
+        for t, p in rows
+    ]

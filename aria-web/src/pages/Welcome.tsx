@@ -9,18 +9,18 @@ import {
   RefreshCw,
   FolderKanban,
   MessageSquare,
-  BookOpen,
   Sparkles,
   Clock,
   TrendingUp,
   DollarSign,
   Target,
   ChevronRight,
-  Building2,
+  ListTodo,
+  Circle,
 } from 'lucide-react'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
-import type { Project, Skill, Conversation, User } from '../types/api'
+import type { Project, Skill, Conversation, User, MyProjectTodo } from '../types/api'
 
 // ── Chart primitives ──────────────────────────────────────────────────────
 
@@ -106,8 +106,6 @@ const STAGE_COLOR: Record<string, string> = {
   archived: '#d1d5db',
 }
 
-const CAT_COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#10b981', '#94a3b8']
-
 // ── Component ─────────────────────────────────────────────────────────────
 
 export function Welcome() {
@@ -119,19 +117,21 @@ export function Welcome() {
   const [projects, setProjects]           = useState<Project[]>([])
   const [skills, setSkills]               = useState<Skill[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [myTodos, setMyTodos]             = useState<MyProjectTodo[]>([])
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     try {
       setLoading(true); setError(null)
-      const [u, p, s, c] = await Promise.all([
+      const [u, p, s, c, t] = await Promise.all([
         api.get<User>('/auth/me'),
         api.get<Project[]>('/projects'),
         api.get<Skill[]>('/skills'),
         api.get<Conversation[]>('/chat/conversations'),
+        api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
-      setUser(u); setProjects(p); setSkills(s); setConversations(c)
+      setUser(u); setProjects(p); setSkills(s); setConversations(c); setMyTodos(t)
     } catch (err: any) {
       if (err.response?.status === 401) throw err
       setError(!err.response
@@ -171,18 +171,6 @@ export function Welcome() {
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
       .slice(0, 6),
     [projects])
-
-  const skillsByCategory = useMemo(() => {
-    const map: Record<string, number> = {}
-    skills.forEach(s => { map[s.category] = (map[s.category] || 0) + 1 })
-    return Object.entries(map)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [skills])
-  const maxCatCount = skillsByCategory[0]?.count || 1
-
-  const uniqueClients = useMemo(() =>
-    [...new Set(projects.map(p => p.client).filter(Boolean))], [projects])
 
   const activityData = useMemo(() => {
     const counts = Array(14).fill(0)
@@ -266,7 +254,7 @@ export function Welcome() {
                   { label: '活跃项目', value: nonArchived.length, icon: FolderKanban, sub: `共 ${projects.length} 个` },
                   { label: '合同总价值', value: formatCurrency(totalPipeline), icon: DollarSign, sub: `${topProjects.length} 个已报价` },
                   { label: 'AI 对话', value: conversations.length, icon: MessageSquare, sub: `近14天 ${activityData.reduce((s,v)=>s+v,0)} 次` },
-                  { label: '技能库', value: skills.length, icon: Zap, sub: `${skillsByCategory.length} 个分类` },
+                  { label: '技能库', value: skills.length, icon: Zap, sub: `${new Set(skills.map(s => s.category)).size} 个分类` },
                 ].map(kpi => (
                   <div key={kpi.label} className="bg-white/10 rounded-xl px-4 py-3 backdrop-blur-sm border border-white/10">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -309,8 +297,55 @@ export function Welcome() {
           {/* ── 3-column grid ── */}
           <div className="grid grid-cols-12 gap-6 items-start">
 
-            {/* ── COL 1: Pipeline + Skills ── */}
+            {/* ── COL 1: My Todos + Pipeline ── */}
             <div className="col-span-4 space-y-6">
+
+              {/* My Todos */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <ListTodo className="w-4 h-4 text-primary" />
+                    <h2 className="text-sm font-semibold text-gray-700">我的待办</h2>
+                  </div>
+                  <span className="text-xs font-medium text-primary bg-primary/8 px-2 py-0.5 rounded-full">
+                    {myTodos.length} 待办
+                  </span>
+                </div>
+                {myTodos.length === 0 ? (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-3">
+                      <Circle className="w-5 h-5 text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-500">暂无跨项目待办</p>
+                    <p className="text-xs text-gray-400 mt-1">在项目页指派待办给自己，会在这里提醒</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {myTodos.slice(0, 6).map(todo => (
+                      <button
+                        key={todo.id}
+                        onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
+                        className="w-full flex items-start gap-3 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left group"
+                      >
+                        <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0 group-hover:text-primary transition-colors" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-700 truncate group-hover:text-primary transition-colors">{todo.content}</p>
+                          <p className="text-xs text-gray-500 truncate">{todo.project_name}</p>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5" />
+                      </button>
+                    ))}
+                    {myTodos.length > 6 && (
+                      <button
+                        onClick={() => navigate('/projects')}
+                        className="w-full text-center text-xs text-primary hover:underline pt-1"
+                      >
+                        查看全部 {myTodos.length} 条待办
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Stage pipeline */}
               <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
@@ -372,63 +407,6 @@ export function Welcome() {
                 )}
               </div>
 
-              {/* Skills by category */}
-              {skillsByCategory.length > 0 && (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                  <div className="flex items-center justify-between mb-5">
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      <h2 className="text-sm font-semibold text-gray-700">技能分类</h2>
-                    </div>
-                    <button onClick={() => navigate('/skills')}
-                      className="text-xs text-primary hover:underline flex items-center gap-1">
-                      技能库 <ArrowRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    {skillsByCategory.map((cat, i) => (
-                      <div key={cat.name} className="flex items-center gap-3">
-                        <span className="text-sm text-gray-600 w-20 flex-shrink-0 text-right truncate">{cat.name}</span>
-                        <div className="flex-1 bg-gray-50 rounded-full h-5 overflow-hidden">
-                          <div className="h-full rounded-full flex items-center justify-end pr-2.5 transition-all duration-700"
-                            style={{
-                              width: `${Math.max((cat.count / maxCatCount) * 100, 10)}%`,
-                              backgroundColor: CAT_COLORS[i % CAT_COLORS.length],
-                              opacity: 0.85,
-                            }}>
-                            <span className="text-xs font-semibold text-white">{cat.count}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4 text-right">共 {skills.length} 个技能</p>
-                </div>
-              )}
-
-              {/* Clients overview */}
-              {uniqueClients.length > 0 && (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Building2 className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-700">客户覆盖</h2>
-                    <span className="ml-auto text-xs text-gray-500">{uniqueClients.length} 个</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {uniqueClients.slice(0, 10).map(client => (
-                      <span key={client}
-                        className="px-2.5 py-1 rounded-lg bg-gray-50 text-sm text-gray-600 border border-gray-100">
-                        {client}
-                      </span>
-                    ))}
-                    {uniqueClients.length > 10 && (
-                      <span className="px-2.5 py-1 rounded-lg bg-gray-50 text-sm text-gray-500 border border-gray-100">
-                        +{uniqueClients.length - 10}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* ── COL 2: Contract ranking + Recent projects ── */}
@@ -518,7 +496,7 @@ export function Welcome() {
 
             </div>
 
-            {/* ── COL 3: Activity + Conversations + Quick actions ── */}
+            {/* ── COL 3: Activity + Conversations ── */}
             <div className="col-span-3 space-y-6">
 
               {/* 14-day activity */}
@@ -574,31 +552,6 @@ export function Welcome() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              {/* Quick actions */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-4">
-                  <BookOpen className="w-4 h-4 text-primary" />
-                  快速开始
-                </h2>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: '生成会议纪要', prompt: '请帮我生成一份会议纪要，我将粘贴会议记录内容' },
-                    { label: '风险评估报告', prompt: '请对我当前的项目进行风险评估并输出报告' },
-                    { label: '撰写项目提案', prompt: '请帮我撰写一份咨询项目提案执行摘要' },
-                    { label: '市场规模分析', prompt: '帮我分析一个目标市场的规模和机会' },
-                  ].map(q => (
-                    <button key={q.label}
-                      onClick={() => navigate(`/chat?q=${encodeURIComponent(q.prompt)}`)}
-                      className="p-3 rounded-xl bg-gray-50/80 hover:bg-primary/5 border border-transparent hover:border-primary/15 text-left transition-all group">
-                      <div className="w-5 h-5 rounded-md bg-primary/8 flex items-center justify-center mb-2 group-hover:bg-primary/15 transition-colors">
-                        <Sparkles className="w-3 h-3 text-primary" />
-                      </div>
-                      <p className="text-sm font-medium text-gray-700 group-hover:text-primary leading-snug transition-colors">{q.label}</p>
-                    </button>
-                  ))}
-                </div>
               </div>
 
             </div>

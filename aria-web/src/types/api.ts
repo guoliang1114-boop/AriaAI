@@ -85,6 +85,15 @@ export interface ProjectTodo {
   updated_at: string
 }
 
+export interface MyProjectTodo {
+  id: number
+  project_id: number
+  project_name: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ProjectFinancials {
   contract_amount: number
   total_received: number
