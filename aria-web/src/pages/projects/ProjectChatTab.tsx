@@ -738,7 +738,7 @@ export function ProjectChatTab({
 
           try {
             const payload = JSON.parse(line.replace(/^data:\s*/, ""));
-            if (payload.type === "chunk" && payload.content) {
+            if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
               fullContent += payload.content;
               setStreamingContent(fullContent);
             } else if (payload.type === "error") {
