@@ -657,6 +657,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
             "project_id": t.project_id,
             "content": t.content,
             "is_done": t.is_done,
+            "due_date": t.due_date,
             "assigned_to_user_id": t.assigned_to_user_id,
             "assigned_user": (
                 {"id": t.assigned_user.id, "display_name": t.assigned_user.display_name}
