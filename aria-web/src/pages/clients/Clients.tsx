@@ -9,6 +9,7 @@ import {
   FolderKanban,
   FileText,
   ChevronRight,
+  X,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
@@ -32,6 +33,9 @@ export function Clients() {
   const [loading, setLoading] = useState(true)
   const [clients, setClients] = useState<Client[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState({ name: '', industry: '', contact: '', notes: '' })
 
   useEffect(() => {
     fetchClients()
@@ -105,6 +109,13 @@ export function Clients() {
                     className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all"
                   />
                 </div>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  {isZh ? '新建客户' : 'New Client'}
+                </button>
               </div>
             </div>
           </div>
@@ -202,6 +213,112 @@ export function Clients() {
           </div>
         </div>
       </div>
+
+      {/* Create Client Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">{isZh ? '新建客户' : 'New Client'}</h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {isZh ? '客户名称' : 'Client Name'} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder={isZh ? '请输入客户名称' : 'Enter client name'}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {isZh ? '行业' : 'Industry'}
+                </label>
+                <input
+                  type="text"
+                  value={form.industry}
+                  onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                  placeholder={isZh ? '例如：互联网、制造业' : 'e.g. Internet, Manufacturing'}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {isZh ? '联系人' : 'Contact'}
+                </label>
+                <input
+                  type="text"
+                  value={form.contact}
+                  onChange={(e) => setForm({ ...form, contact: e.target.value })}
+                  placeholder={isZh ? '例如：张三 / 13800138000' : 'e.g. John Doe'}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {isZh ? '备注' : 'Notes'}
+                </label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder={isZh ? '补充信息...' : 'Additional notes...'}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                disabled={creating}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!form.name.trim()) {
+                    alert(isZh ? '客户名称不能为空' : 'Client name is required')
+                    return
+                  }
+                  setCreating(true)
+                  try {
+                    await api.post('/clients', {
+                      name: form.name.trim(),
+                      industry: form.industry.trim(),
+                      contact: form.contact.trim(),
+                      notes: form.notes.trim(),
+                    })
+                    setForm({ name: '', industry: '', contact: '', notes: '' })
+                    setShowCreateModal(false)
+                    fetchClients()
+                  } catch (err) {
+                    console.error('Failed to create client:', err)
+                    alert(isZh ? '创建失败，请重试' : 'Failed to create client')
+                  } finally {
+                    setCreating(false)
+                  }
+                }}
+                disabled={creating}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isZh ? '确认创建' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
