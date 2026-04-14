@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   Loader2,
+  MoreVertical,
   Pencil,
   Save,
   Sparkles,
@@ -72,6 +73,8 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
   const [documentName, setDocumentName] = useState('')
   const [pendingFolderId, setPendingFolderId] = useState<number | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
 
   const [showAIModal, setShowAIModal] = useState(false)
   const [aiDraft, setAiDraft] = useState('')
@@ -92,6 +95,16 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
       return next
     })
   }, [folderList])
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   useEffect(() => {
     if (markdownFiles.length === 0) {
@@ -524,24 +537,6 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
               </button>
 
               <button
-                onClick={openRenameDialog}
-                disabled={!selectedFile || isRenamingDoc}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {isRenamingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
-                {isZh ? '重命名' : 'Rename'}
-              </button>
-
-              <button
-                onClick={() => setShowDeleteDialog(true)}
-                disabled={!selectedFile || isDeletingDoc}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-white text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-              >
-                {isDeletingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                {isZh ? '删除' : 'Delete'}
-              </button>
-
-              <button
                 onClick={() => void handleSave()}
                 disabled={!selectedFile || isSaving || !dirty}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
@@ -549,6 +544,43 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {isZh ? '保存' : 'Save'}
               </button>
+
+              <div className="relative" ref={moreMenuRef}>
+                <button
+                  onClick={() => setShowMoreMenu((v) => !v)}
+                  disabled={!selectedFile}
+                  className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  title={isZh ? '更多操作' : 'More actions'}
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+                {showMoreMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-40 bg-white rounded-xl border border-gray-200 shadow-lg py-1 z-50">
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false)
+                        openRenameDialog()
+                      }}
+                      disabled={isRenamingDoc}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {isRenamingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4 text-gray-400" />}
+                      {isZh ? '重命名' : 'Rename'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false)
+                        setShowDeleteDialog(true)
+                      }}
+                      disabled={isDeletingDoc}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {isDeletingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 text-red-500" />}
+                      {isZh ? '删除' : 'Delete'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
