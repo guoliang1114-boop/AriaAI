@@ -4,7 +4,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 if (-not $env:DATABASE_URL -or [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
-    $env:DATABASE_URL = "sqlite:///./data/ariaai.db"
+    $env:DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:5432/ariaai"
 }
 
 if (-not $env:ARIAAI_BACKEND_VENV -or [string]::IsNullOrWhiteSpace($env:ARIAAI_BACKEND_VENV)) {

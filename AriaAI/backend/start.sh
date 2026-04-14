@@ -12,6 +12,10 @@ if [ -f ".env" ]; then
     set +a
 fi
 
+if [ -z "${DATABASE_URL:-}" ]; then
+    export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/ariaai"
+fi
+
 is_windows_bash() {
     case "${OSTYPE:-}" in
         msys*|cygwin*|win32*) return 0 ;;
