@@ -1,134 +1,108 @@
-﻿# AriaAI
+# AriaAI
 
-> 面向咨询顾问的 AI 原生工作台 —— 不止聊天，搞定一切
+面向咨询团队的 AI 工作台。
 
----
+当前仓库的主工作形态已经是 Web + FastAPI：
+- 前端：`aria-web`，React + TypeScript + Vite
+- 后端：`AriaAI/backend`，FastAPI + SQLModel + Alembic
+- 数据库：PostgreSQL 为默认方案
 
-## 🚀 快速启动
+## 快速启动
+
+### 后端
+
+```powershell
+cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
+.\start.ps1
+```
+
+或在 Linux/macOS：
 
 ```bash
-# Terminal 1 — 启动后端
 cd AriaAI/backend
 ./start.sh
-
-# Terminal 2 — 启动 macOS 应用
-cd AriaAI
-swift run
 ```
 
-Windows 说明：
+默认数据库连接已切到 PostgreSQL：
 
-- 本地开发默认后端数据库是 `SQLite`：`AriaAI/backend/data/ariaai.db`
-- 后端脚本兼容 Git Bash / MSYS 环境
-- 在 Windows PowerShell 中启动后端：
-
-```powershell
-cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
-.\start.ps1
+```env
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/ariaai
 ```
 
-- 如果 PowerShell 被执行策略拦住，直接用：
+首次切换数据库或拉取新迁移后，建议执行：
 
-```powershell
-cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
-.\start.cmd
+```bash
+cd AriaAI/backend
+source .venv/bin/activate
+alembic upgrade head
 ```
 
-- 在 Windows PowerShell 中启动 Web：
+### 前端
 
 ```powershell
 cd C:\Users\Administrator\AP\AriaAI\aria-web
-.\start.ps1
+npm install
+npm run dev
 ```
 
-- 如果 PowerShell 被执行策略拦住，直接用：
+生产校验：
 
 ```powershell
 cd C:\Users\Administrator\AP\AriaAI\aria-web
-.\start.cmd
+npm run build
 ```
 
-- 当前后端依赖要求 Python `3.9` 到 `3.12`
-- Web 端会通过 Vite 代理把 `/api` 转发到 `http://127.0.0.1:8000`
+## 当前核心能力
 
----
+- 统一认证与用户管理
+- 多项目工作台与项目详情页
+- 项目聊天、流式输出、对话导出
+- 项目文档工作区
+  - Markdown 文档树
+  - 咨询售前模板初始化
+  - 新建、重命名、删除、编辑、预览、AI 润色
+- 项目待办
+  - 指派负责人
+  - 截至日期
+  - “我的待办”跨项目聚合
+- 客户管理与客户详情
+- 知识库上传、向量化、RAG 检索
+- 项目级知识范围隔离
+  - 当前项目
+  - 当前客户
+  - 全局知识库
+- 技能、模板、调度任务、生成文件
 
-## 📚 文档导航
+## 仓库结构
 
-所有文档已整理到 `docs/` 目录，按阅读顺序编号：
-
-| 编号 | 文档 | 说明 | 目标读者 |
-|------|------|------|----------|
-| [00-项目总览](docs/00-项目总览.md) | 技术架构、代码结构、API 说明 | 开发者必读 |
-| [01-产品设计文档](docs/01-产品设计文档.md) | 产品定位、功能设计、路线图 | 产品经理、设计师 |
-| [02-Skill开发指南](docs/02-Skill开发指南.md) | 如何开发新 Skill | Skill 开发者 |
-| [03-代码问题清单](docs/03-代码问题清单.md) | 已知问题和待修复项 | 维护开发者 |
-| [04-产品方向建议](docs/04-产品方向建议.md) | 下一阶段产品方向、功能优先级、版本路线 | 产品负责人、创始人 |
-| [05-技术建议](docs/05-技术建议.md) | 技术难点、优先级、架构建议 | 技术负责人、开发者 |
-| [06-当前架构图](docs/06-当前架构图.md) | 当前系统结构图、数据流与模块关系 | 全体协作者 |
-| [07-RAG演进方案](docs/07-RAG演进方案.md) | 当前 RAG 状态与下一阶段演进方向 | AI / 后端开发者 |
-
----
-
-## 🏗️ 项目结构
-
+```text
+AriaAI/
+├─ README.md
+├─ docs/
+│  ├─ 00-项目总览.md
+│  ├─ 01-产品设计文档.md
+│  ├─ 02-Skill开发指南.md
+│  ├─ 03-代码问题清单.md
+│  ├─ 04-产品方向建议.md
+│  ├─ 04-网页版本开发计划.md
+│  ├─ 05-技术建议.md
+│  ├─ 06-当前架构图.md
+│  └─ 07-RAG演进方案.md
+├─ AriaAI/
+│  ├─ backend/
+│  └─ skills/
+└─ aria-web/
 ```
-AP/
-├── docs/                    # 📚 项目文档
-│   ├── 00-项目总览.md
-│   ├── 01-产品设计文档.md
-│   ├── 02-Skill开发指南.md
-│   ├── 03-代码问题清单.md
-│   ├── 04-产品方向建议.md
-│   ├── 05-技术建议.md
-│   ├── 06-当前架构图.md
-│   └── 07-RAG演进方案.md
-├── AriaAI/                 # 💻 主应用代码
-│   ├── AriaAI/             # SwiftUI 前端
-│   ├── backend/             # Python FastAPI 后端
-│   └── skills/              # Skill 定义
-├── AppIcons/                # 🎨 应用图标
-└── README.md                # 本文档
-```
 
----
+## 推荐先读
 
-## 🛠️ 技术栈
+1. [docs/00-项目总览.md](docs/00-项目总览.md)
+2. [docs/06-当前架构图.md](docs/06-当前架构图.md)
+3. [AriaAI/backend/POSTGRESQL.md](AriaAI/backend/POSTGRESQL.md)
 
-| 层级 | 技术 |
-|------|------|
-| **前端** | SwiftUI (macOS 14+) |
-| **后端** | Python 3.9 + FastAPI |
-| **数据库** | PostgreSQL |
-| **LLM** | Anthropic Claude API |
-| **向量化** | sentence-transformers |
+## 当前注意事项
 
----
-
-## 📖 推荐阅读顺序
-
-### 对于新加入的开发者：
-1. 先读 [00-项目总览](docs/00-项目总览.md) 了解系统架构
-2. 再读 [01-产品设计文档](docs/01-产品设计文档.md) 理解产品逻辑
-3. 根据工作方向选择：
-   - 开发 Skill → [02-Skill开发指南](docs/02-Skill开发指南.md)
-   - 维护代码 → [03-代码问题清单](docs/03-代码问题清单.md)
-   - 看产品路线 → [04-产品方向建议](docs/04-产品方向建议.md)
-   - 看技术规划 → [05-技术建议](docs/05-技术建议.md)
-   - 看当前结构 → [06-当前架构图](docs/06-当前架构图.md)
-   - 看 RAG 演进 → [07-RAG演进方案](docs/07-RAG演进方案.md)
-
-### 对于 LLM/AI 助手：
-- 直接阅读 [00-项目总览](docs/00-项目总览.md) 即可获取完整上下文
-
----
-
-## 🤝 协作规范
-
-- **代码提交**: 遵循 Conventional Commits 规范
-- **文档更新**: 修改代码时同步更新相关文档
-- **问题追踪**: 新发现的问题添加到 [03-代码问题清单](docs/03-代码问题清单.md)
-
----
-
-*最后更新: 2026-03-27*
+- 线上部署默认应使用 PostgreSQL，不建议继续依赖 SQLite。
+- 数据库迁移需要显式执行 `alembic upgrade head`。
+- 仓库内仍有少量历史文档与文案编码问题，已逐步清理，但不保证全部完成。
+- `AriaAI/backend/app/routers/projects.py` 和 `aria-web/src/pages/projects/ProjectDetail.tsx` 仍然偏大，是后续持续拆分的重点。
