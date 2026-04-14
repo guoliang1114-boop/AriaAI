@@ -1342,6 +1342,19 @@ function DocumentsTab({ projectDetail, projectId, onUpdate }: { projectDetail: P
     // Initialize progress for all files
     setUploadProgress(filesToUpload.map(f => ({ name: f.name, progress: 0, status: 'uploading' })))
     
+    // Client-side pre-check for extremely large files (> 80MB, nginx allows 100M)
+    const MAX_CLIENT_SIZE = 80 * 1024 * 1024
+    const oversized = filesToUpload.filter(f => f.size > MAX_CLIENT_SIZE)
+    if (oversized.length > 0) {
+      toast.error(isZh 
+        ? `文件过大：${oversized[0].name} 超过 80MB 限制`
+        : `File too large: ${oversized[0].name} exceeds 80MB limit`)
+      setUploadProgress(filesToUpload.map(f => ({ name: f.name, progress: 0, status: oversized.includes(f) ? 'error' : 'uploading' })))
+      setUploading(false)
+      isUploadingRef.current = false
+      return
+    }
+    
     try {
       // Find folder_id if we're in a folder
       let folderId: number | null = null
@@ -1352,8 +1365,9 @@ function DocumentsTab({ projectDetail, projectId, onUpdate }: { projectDetail: P
         }
       }
       
-      // Upload files concurrently with individual progress tracking
-      const uploadPromises = filesToUpload.map(async (file, index) => {
+      // Upload files sequentially to avoid timeout pile-up
+      for (let index = 0; index < filesToUpload.length; index++) {
+        const file = filesToUpload[index]
         const formData = new FormData()
         formData.append('file', file)
         formData.append('file_type', file.name.split('.').pop() || 'unknown')
@@ -1365,6 +1379,7 @@ function DocumentsTab({ projectDetail, projectId, onUpdate }: { projectDetail: P
         try {
           await api.post(`/projects/${projectId}/files`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300000, // 5 minutes for large files
             onUploadProgress: (progressEvent) => {
               if (progressEvent.total) {
                 const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
@@ -1379,15 +1394,32 @@ function DocumentsTab({ projectDetail, projectId, onUpdate }: { projectDetail: P
           setUploadProgress(prev => prev.map((p, i) => 
             i === index ? { ...p, progress: 100, status: 'done' } : p
           ))
-        } catch (error) {
+        } catch (error: any) {
           setUploadProgress(prev => prev.map((p, i) => 
             i === index ? { ...p, status: 'error' } : p
           ))
-          throw error
+          
+          // Provide specific error messages
+          const status = error?.response?.status
+          const msg = error?.message || ''
+          if (status === 413) {
+            toast.error(isZh ? `文件过大：${file.name}` : `File too large: ${file.name}`)
+          } else if (error?.code === 'ECONNABORTED' || msg.includes('timeout')) {
+            toast.error(isZh 
+              ? `上传超时：${file.name}，请检查网络或尝试压缩后重试` 
+              : `Upload timeout: ${file.name}, please check your network or compress the file`)
+          } else if (!error?.response) {
+            toast.error(isZh 
+              ? `网络错误，无法上传 ${file.name}` 
+              : `Network error, unable to upload ${file.name}`)
+          } else {
+            const detail = error?.response?.data?.detail || ''
+            toast.error(isZh 
+              ? `上传失败：${file.name}${detail ? ' (' + detail + ')' : ''}` 
+              : `Upload failed: ${file.name}${detail ? ' (' + detail + ')' : ''}`)
+          }
         }
-      })
-      
-      await Promise.all(uploadPromises)
+      }
       
       // Fetch only files data instead of full project refresh
       try {
@@ -1405,7 +1437,6 @@ function DocumentsTab({ projectDetail, projectId, onUpdate }: { projectDetail: P
       
     } catch (error) {
       console.error('Failed to upload files:', error)
-      toast.error(isZh ? '上传失败' : 'Upload failed')
     } finally {
       setUploading(false)
       isUploadingRef.current = false
