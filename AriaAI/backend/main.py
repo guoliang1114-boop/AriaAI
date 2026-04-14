@@ -22,7 +22,7 @@ from app.services import scheduler
 from app.tools import file_generators  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS
 from app.routers.projects import _init_default_folders
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 from app.models.db import Project, Skill, ProjectFolder, User, UserToken
 from app.config import JWT_SECRET  # Fallback for admin seed
 
@@ -57,11 +57,34 @@ def _patch_templates():
         session.commit()
 
 
+def _fix_pg_sequences():
+    """Reset all id sequences to MAX(id)+1 for PostgreSQL (prevents duplicate key errors after migrations)."""
+    if "postgresql" not in str(engine.url).lower():
+        return
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if "id" not in table.columns:
+                continue
+            try:
+                conn.execute(text(f"""
+                    SELECT setval(
+                        pg_get_serial_sequence('"{table.name}"', 'id'),
+                        COALESCE((SELECT MAX(id) FROM "{table.name}"), 0) + 1,
+                        false
+                    )
+                """))
+            except Exception:
+                # Ignore tables without a serial sequence
+                pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     create_db()
     migrate_db()
+    _fix_pg_sequences()
     _backfill_folders()
     _patch_templates()
     # Seed default admin (only if no users exist)
