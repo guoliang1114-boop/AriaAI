@@ -206,24 +206,20 @@ function ProjectHeader({
     <>
       {/* 顶部固定栏 - 面包屑 + 导航 */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        {/* 面包屑 + 返回 */}
+        {/* 面包屑 */}
         <div className="max-w-full mx-auto px-6">
-          <div className="flex items-center gap-3 py-2">
+          <div className="flex items-center gap-2 py-2">
             <button
               onClick={onBack}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-primary transition-colors"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-500" />
-            </button>
-            <div className="h-5 w-px bg-gray-200" />
-            <div className="flex items-center gap-2 text-sm text-gray-500">
               <FolderKanban className="w-4 h-4" />
               <span>{isZh ? "项目空间" : "Projects"}</span>
-              <ChevronRight className="w-4 h-4" />
-              <span className="text-gray-900 font-medium truncate max-w-[200px]">
-                {project.name}
-              </span>
-            </div>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium truncate max-w-[200px] text-sm">
+              {project.name}
+            </span>
           </div>
         </div>
 
