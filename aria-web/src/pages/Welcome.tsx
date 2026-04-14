@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Sparkles,
   Clock,
+  Calendar,
   TrendingUp,
   DollarSign,
   Target,
@@ -330,7 +331,15 @@ export function Welcome() {
                         <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0 group-hover:text-primary transition-colors" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-gray-700 truncate group-hover:text-primary transition-colors">{todo.content}</p>
-                          <p className="text-xs text-gray-500 truncate">{todo.project_name}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <p className="truncate">{todo.project_name}</p>
+                            {todo.due_date && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 flex-shrink-0">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(todo.due_date).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <ChevronRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5" />
                       </button>
