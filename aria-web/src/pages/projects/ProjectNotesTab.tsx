@@ -39,6 +39,8 @@ interface ProjectDocumentDetail {
   uploaded_at: string
 }
 
+type DocumentDialogMode = 'create' | 'rename'
+
 export function ProjectNotesTab({ projectId, projectName, files, folders, onUpdate }: ProjectNotesTabProps) {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -64,6 +66,11 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
   const [isDeletingDoc, setIsDeletingDoc] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({})
+  const [showDocumentDialog, setShowDocumentDialog] = useState(false)
+  const [documentDialogMode, setDocumentDialogMode] = useState<DocumentDialogMode>('create')
+  const [documentName, setDocumentName] = useState('')
+  const [pendingFolderId, setPendingFolderId] = useState<number | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   const [showAIModal, setShowAIModal] = useState(false)
   const [aiDraft, setAiDraft] = useState('')
@@ -175,52 +182,72 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
     }
   }
 
-  const handleCreateDocument = async (folderId?: number | null) => {
-    const rawName = window.prompt(isZh ? '请输入新文档名称' : 'Enter a document name')
-    const name = rawName?.trim()
-    if (!name) return
+  const openCreateDialog = (folderId?: number | null) => {
+    setDocumentDialogMode('create')
+    setPendingFolderId(folderId ?? null)
+    setDocumentName('')
+    setShowDocumentDialog(true)
+  }
+
+  const openRenameDialog = () => {
+    if (!selectedFile) return
+    setDocumentDialogMode('rename')
+    setPendingFolderId(selectedFile.folder_id ?? null)
+    setDocumentName(selectedFile.name)
+    setShowDocumentDialog(true)
+  }
+
+  const closeDocumentDialog = () => {
+    if (isCreatingDoc || isRenamingDoc) return
+    setShowDocumentDialog(false)
+    setDocumentName('')
+    setPendingFolderId(null)
+  }
+
+  const handleCreateDocument = async () => {
+    const normalizedName = documentName.trim()
+    if (!normalizedName) return
     setIsCreatingDoc(true)
     try {
       const created = await api.post<ProjectFile>(`/projects/${projectId}/documents`, {
-        folder_id: folderId,
-        name,
-        content: `# ${name.replace(/\.md$/i, '')}\n`,
+        folder_id: pendingFolderId,
+        name: normalizedName,
+        content: `# ${normalizedName.replace(/\.md$/i, '')}\n`,
       })
       onUpdate()
       setSelectedFileId(created.id)
-      toast.success(isZh ? '已创建文档' : 'Document created')
+      closeDocumentDialog()
+      toast.success(isZh ? '文档已创建' : 'Document created')
     } catch (error) {
       console.error('Failed to create document:', error)
       toast.error(isZh ? '创建文档失败' : 'Failed to create document')
     } finally {
       setIsCreatingDoc(false)
     }
+    return
   }
 
   const handleRenameDocument = async () => {
     if (!selectedFile) return
-    const rawName = window.prompt(isZh ? '请输入新的文档名称' : 'Enter a new document name', selectedFile.name)
-    const name = rawName?.trim()
-    if (!name || name === selectedFile.name) return
+    const normalizedName = documentName.trim()
+    if (!normalizedName || normalizedName === selectedFile.name) return
     setIsRenamingDoc(true)
     try {
-      await api.patch(`/projects/${projectId}/documents/${selectedFile.id}`, { name })
+      await api.patch(`/projects/${projectId}/documents/${selectedFile.id}`, { name: normalizedName })
       onUpdate()
+      closeDocumentDialog()
       toast.success(isZh ? '文档已重命名' : 'Document renamed')
     } catch (error) {
       console.error('Failed to rename document:', error)
-      toast.error(isZh ? '重命名失败' : 'Failed to rename document')
+      toast.error(isZh ? '重命名文档失败' : 'Failed to rename document')
     } finally {
       setIsRenamingDoc(false)
     }
+    return
   }
 
   const handleDeleteDocument = async () => {
     if (!selectedFile) return
-    const confirmed = window.confirm(
-      isZh ? `确定删除文档“${selectedFile.name}”吗？` : `Delete document "${selectedFile.name}"?`
-    )
-    if (!confirmed) return
     setIsDeletingDoc(true)
     try {
       await api.delete(`/projects/${projectId}/files/${selectedFile.id}`)
@@ -229,14 +256,16 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
       setContent('')
       setDirty(false)
       lastLoadedContentRef.current = ''
+      setShowDeleteDialog(false)
       onUpdate()
       toast.success(isZh ? '文档已删除' : 'Document deleted')
     } catch (error) {
       console.error('Failed to delete document:', error)
-      toast.error(isZh ? '删除失败' : 'Failed to delete document')
+      toast.error(isZh ? '删除文档失败' : 'Failed to delete document')
     } finally {
       setIsDeletingDoc(false)
     }
+    return
   }
 
   const handleAIGenerate = async () => {
@@ -302,7 +331,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
                 {isZh ? '咨询售前模板' : 'Consulting Pre-sales'}
               </button>
               <button
-                onClick={() => void handleCreateDocument(folderList[0]?.id ?? null)}
+                onClick={() => openCreateDialog(folderList[0]?.id ?? null)}
                 disabled={isCreatingDoc}
                 className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 title={isZh ? '新建文档' : 'New document'}
@@ -331,7 +360,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
                     <button
                       onClick={(event) => {
                         event.stopPropagation()
-                        void handleCreateDocument(folder.id)
+                        openCreateDialog(folder.id)
                       }}
                       className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
                       title={isZh ? '在此分组新建文档' : 'Create document in this folder'}
@@ -403,7 +432,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
                 <p className="mt-3 text-sm font-medium text-gray-800">{isZh ? '还没有项目文档' : 'No project documents yet'}</p>
                 <p className="mt-1 text-xs leading-6 text-gray-500">
                   {isZh
-                    ? '先生成咨询售前模板，就能得到一套适合咨询项目推进的标准笔记目录。'
+                    ? '先生成咨询售前模板，就能得到一套适合咨询项目推进的标准文档目录。'
                     : 'Create the consulting pre-sales template to start with a structured notes tree.'}
                 </p>
                 <button
@@ -462,7 +491,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
               </button>
 
               <button
-                onClick={() => void handleRenameDocument()}
+                onClick={openRenameDialog}
                 disabled={!selectedFile || isRenamingDoc}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
@@ -471,7 +500,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
               </button>
 
               <button
-                onClick={() => void handleDeleteDocument()}
+                onClick={() => setShowDeleteDialog(true)}
                 disabled={!selectedFile || isDeletingDoc}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-white text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
@@ -545,6 +574,114 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
           </div>
         </section>
       </div>
+
+      {showDocumentDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {documentDialogMode === 'create'
+                    ? (isZh ? '新建文档' : 'Create Document')
+                    : (isZh ? '重命名文档' : 'Rename Document')}
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {documentDialogMode === 'create'
+                    ? (isZh ? '使用统一组件创建新的项目文档。' : 'Create a new project document with the shared dialog.')
+                    : (isZh ? '修改当前文档名称。' : 'Update the name of the current document.')}
+                </p>
+              </div>
+              <button
+                onClick={closeDocumentDialog}
+                disabled={isCreatingDoc || isRenamingDoc}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-gray-700">
+                {isZh ? '文档名称' : 'Document name'}
+              </label>
+              <input
+                type="text"
+                value={documentName}
+                onChange={(event) => setDocumentName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void (documentDialogMode === 'create' ? handleCreateDocument() : handleRenameDocument())
+                  }
+                }}
+                placeholder={isZh ? '例如：项目总览' : 'For example: Project Overview'}
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                autoFocus
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={closeDocumentDialog}
+                disabled={isCreatingDoc || isRenamingDoc}
+                className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => void (documentDialogMode === 'create' ? handleCreateDocument() : handleRenameDocument())}
+                disabled={!documentName.trim() || isCreatingDoc || isRenamingDoc}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+              >
+                {(isCreatingDoc || isRenamingDoc) && <Loader2 className="h-4 w-4 animate-spin" />}
+                {documentDialogMode === 'create'
+                  ? (isZh ? '创建' : 'Create')
+                  : (isZh ? '保存' : 'Save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteDialog && selectedFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-red-100 bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
+                <Trash2 className="h-5 w-5 text-red-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {isZh ? '删除文档' : 'Delete Document'}
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-gray-500">
+                  {isZh
+                    ? `确定要删除“${selectedFile.name}”吗？删除后将无法恢复。`
+                    : `Delete "${selectedFile.name}"? This action cannot be undone.`}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowDeleteDialog(false)}
+                disabled={isDeletingDoc}
+                className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => void handleDeleteDocument()}
+                disabled={isDeletingDoc}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeletingDoc && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isZh ? '删除' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAIModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
