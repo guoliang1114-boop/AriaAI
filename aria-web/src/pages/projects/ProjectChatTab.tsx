@@ -21,13 +21,15 @@ import {
   Trash2,
   Flag,
   Wrench,
+  X,
+  Save,
 } from "lucide-react";
 import { api } from "../../api/client";
 import { exportConversationFile } from "../../api/chatExport";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import { getApiBaseUrl } from "../../config/api";
-import type { Conversation, Message, Project } from "../../types/api";
+import type { Conversation, Message, Project, ProjectFile } from "../../types/api";
 
 type ChatMessage = Message;
 
@@ -151,7 +153,19 @@ const MessageCopyButton = memo(({ text }: { text: string }) => {
   );
 });
 
-const ChatMessageBubble = memo<{ msg: ChatMessage }>(({ msg }) => {
+const MessageSaveButton = memo(({ onClick }: { onClick: () => void }) => {
+  return (
+    <button
+      onClick={onClick}
+      className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+      title="保存到笔记"
+    >
+      <Save className="w-3.5 h-3.5" />
+    </button>
+  );
+});
+
+const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>(({ msg, onSaveToNotes }) => {
   const { t } = useTranslation();
   const isUser = msg.role === "user";
 
@@ -218,11 +232,12 @@ const ChatMessageBubble = memo<{ msg: ChatMessage }>(({ msg }) => {
             {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
           {!isUser && <MessageCopyButton text={msg.content} />}
+          {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} />}
         </div>
       </div>
     </div>
   );
-}, (prev, next) => prev.msg.id === next.msg.id && prev.msg.content === next.msg.content);
+}, (prev, next) => prev.msg.id === next.msg.id && prev.msg.content === next.msg.content && prev.onSaveToNotes === next.onSaveToNotes);
 
 const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
@@ -251,11 +266,177 @@ function buildDefaultTitle(content: string, isZh: boolean) {
   return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
 }
 
+function SaveToNotesModal({
+  isOpen,
+  onClose,
+  projectId,
+  messageId,
+  files,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  projectId: number;
+  messageId: number | null;
+  files: ProjectFile[];
+  onSuccess: () => void;
+}) {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
+  const toast = useToast();
+  const [action, setAction] = useState<"merge" | "new">("merge");
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const mdFiles = useMemo(() => files.filter((f) => f.file_type?.toLowerCase() === "md"), [files]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setAction("merge");
+      setSelectedFileId(mdFiles[0]?.id ?? null);
+      setFileName(isZh ? "对话沉淀.md" : "chat-note.md");
+      setLoading(false);
+    }
+  }, [isOpen, mdFiles, isZh]);
+
+  if (!isOpen || !messageId) return null;
+
+  const handleSubmit = async () => {
+    if (action === "merge" && !selectedFileId) {
+      toast.error(isZh ? "请选择一个笔记文件" : "Please select a note file");
+      return;
+    }
+    if (action === "new" && !fileName.trim()) {
+      toast.error(isZh ? "请输入文件名" : "Please enter a file name");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post(`/projects/${projectId}/messages/${messageId}/save-to-document`, {
+        action,
+        file_id: selectedFileId,
+        file_name: fileName.trim(),
+        prepend_header: true,
+      });
+      toast.success(action === "merge" ? (isZh ? "已合并到笔记" : "Merged into note") : (isZh ? "已保存为新笔记" : "Saved as new note"));
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || (isZh ? "保存失败" : "Failed to save");
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">{isZh ? "保存到笔记" : "Save to Notes"}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Action tabs */}
+          <div className="flex rounded-lg bg-gray-100 p-1">
+            <button
+              onClick={() => setAction("merge")}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                action === "merge" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {isZh ? "合并到现有笔记" : "Merge into existing"}
+            </button>
+            <button
+              onClick={() => setAction("new")}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                action === "new" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {isZh ? "另存为新笔记" : "Save as new"}
+            </button>
+          </div>
+
+          {action === "merge" ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                {isZh ? "选择笔记文件" : "Select note file"}
+              </label>
+              {mdFiles.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">{isZh ? "暂无可用的笔记文件，请先新建一个" : "No note files available. Please create one first."}</p>
+              ) : (
+                <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {mdFiles.map((file) => (
+                    <label
+                      key={file.id}
+                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
+                        selectedFileId === file.id ? "bg-primary/5" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="file"
+                        checked={selectedFileId === file.id}
+                        onChange={() => setSelectedFileId(file.id)}
+                        className="accent-primary"
+                      />
+                      <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm text-gray-800 truncate">{file.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                {isZh ? "新笔记文件名" : "New note file name"}
+              </label>
+              <input
+                type="text"
+                value={fileName}
+                onChange={(e) => setFileName(e.target.value)}
+                placeholder={isZh ? "例如：需求分析.md" : "e.g. requirements.md"}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+              <p className="text-xs text-gray-400">{isZh ? "将自动补充 .md 后缀" : ".md extension will be added automatically"}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isZh ? "取消" : "Cancel"}
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading || (action === "merge" && mdFiles.length === 0)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isZh ? "确认保存" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ProjectChatTab({
   project,
+  files,
   onProjectUpdate,
 }: {
   project: Project;
+  files?: ProjectFile[];
   onProjectUpdate: () => Promise<void> | void;
 }) {
   const { i18n } = useTranslation();
@@ -273,6 +454,8 @@ export function ProjectChatTab({
   const [editingConvId, setEditingConvId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const skipNextFetchRef = useRef(false);
@@ -403,6 +586,11 @@ export function ProjectChatTab({
       toast.error(isZh ? "沉淀失败" : "Failed to save to project");
       throw error;
     }
+  };
+
+  const openSaveModal = (messageId: number) => {
+    setSaveMessageId(messageId);
+    setSaveModalOpen(true);
   };
 
   const sendMessage = async (content: string) => {
@@ -681,7 +869,11 @@ export function ProjectChatTab({
           {!isLoadingMessages && (messages.length > 0 || streamingContent || isLoading) && (
             <>
               {messages.map((msg) => (
-                <ChatMessageBubble key={msg.id} msg={msg} />
+                <ChatMessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  onSaveToNotes={msg.role === "assistant" ? () => openSaveModal(msg.id) : undefined}
+                />
               ))}
               {streamingContent && <ChatStreamingMessage content={streamingContent} />}
               {isLoading && !streamingContent && (

@@ -526,6 +526,14 @@ class SaveConversationMarkdownRequest(BaseModel):
     file_name: Optional[str] = None
 
 
+class SaveMessageToDocumentRequest(BaseModel):
+    action: str  # merge | new
+    file_id: Optional[int] = None
+    file_name: Optional[str] = None
+    folder_id: Optional[int] = None
+    prepend_header: bool = True
+
+
 class ProjectDocumentCreate(BaseModel):
     folder_id: Optional[int] = None
     name: str
@@ -1106,6 +1114,79 @@ def save_conversation_markdown(
         content=markdown_content,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
+
+
+@router.post("/{project_id}/messages/{message_id}/save-to-document", status_code=201)
+def save_message_to_document(
+    project_id: int,
+    message_id: int,
+    data: SaveMessageToDocumentRequest,
+    session: Session = Depends(get_session),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    message = session.get(Message, message_id)
+    if not message:
+        raise HTTPException(404, "Message not found")
+
+    conv = session.get(Conversation, message.conversation_id)
+    if not conv or conv.project_id != project_id:
+        raise HTTPException(404, "Message does not belong to this project")
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    header = f"\n\n---\n\n> From project conversation | {timestamp}\n\n"
+    content_block = header + message.content if data.prepend_header else message.content
+
+    if data.action == "merge":
+        if not data.file_id:
+            raise HTTPException(400, "file_id is required for merge action")
+        project_file = _get_project_file_or_404(session, project_id, data.file_id)
+        if project_file.file_type.lower() != "md":
+            raise HTTPException(400, "Only markdown documents can be merged")
+
+        full_path = UPLOADS_DIR / project_file.path
+        if not full_path.exists():
+            raise HTTPException(404, "File not found on disk")
+
+        existing = full_path.read_text(encoding="utf-8", errors="replace")
+        new_content = existing + content_block
+        full_path.write_text(new_content, encoding="utf-8")
+        project_file.size_bytes = full_path.stat().st_size
+        session.add(project_file)
+        session.commit()
+        session.refresh(project_file)
+        _bust_project(project_id)
+        return {
+            "ok": True,
+            "action": "merge",
+            "id": project_file.id,
+            "name": project_file.name,
+            "size_bytes": project_file.size_bytes,
+        }
+
+    # action == "new"
+    target_folder = _resolve_project_folder(session, project_id, data.folder_id)
+    base_name = _sanitize_markdown_filename(data.file_name or f"message_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
+    if not base_name.lower().endswith(".md"):
+        base_name = f"{base_name}.md"
+
+    new_file = _create_markdown_project_file(
+        session=session,
+        project_id=project_id,
+        folder_id=target_folder.id if target_folder else None,
+        name=base_name,
+        content=message.content,
+        summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
+    )
+    return {
+        "ok": True,
+        "action": "new",
+        "id": new_file.id,
+        "name": new_file.name,
+        "size_bytes": new_file.size_bytes,
+    }
 
 
 @router.post("/{project_id}/files", status_code=201)

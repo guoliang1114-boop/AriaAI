@@ -4913,13 +4913,13 @@ export function ProjectDetail() {
         {/* ChatTab — flex-1 fills remaining height, kept mounted to preserve state */}
         {isChatTab && (
           <div className="flex-1 overflow-hidden px-6 py-4">
-            <ProjectChatTab project={project} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
+            <ProjectChatTab project={project} files={projectDetail.files} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
           </div>
         )}
         {/* Always-mounted hidden ChatTab to preserve state when on other tabs */}
         {!isChatTab && (
           <div className="hidden">
-            <ProjectChatTab project={project} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
+            <ProjectChatTab project={project} files={projectDetail.files} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
           </div>
         )}
 
