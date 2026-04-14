@@ -522,7 +522,9 @@ class FolderCreate(BaseModel):
 
 
 class SaveConversationMarkdownRequest(BaseModel):
+    action: str = "new"  # merge | new
     folder_id: Optional[int] = None
+    file_id: Optional[int] = None
     file_name: Optional[str] = None
 
 
@@ -1100,12 +1102,44 @@ def save_conversation_markdown(
     if not messages:
         raise HTTPException(400, "Conversation has no messages")
 
+    markdown_content = build_markdown_export_content(conv, messages)
+
+    if data.action == "merge":
+        if not data.file_id:
+            raise HTTPException(400, "file_id is required for merge action")
+        project_file = _get_project_file_or_404(session, project_id, data.file_id)
+        if project_file.file_type.lower() != "md":
+            raise HTTPException(400, "Only markdown documents can be merged")
+
+        full_path = UPLOADS_DIR / project_file.path
+        if not full_path.exists():
+            raise HTTPException(404, "File not found on disk")
+
+        existing = full_path.read_text(encoding="utf-8", errors="replace")
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        header = f"\n\n---\n\n> From project conversation | {timestamp}\n\n"
+        new_content = existing + header + markdown_content
+        full_path.write_text(new_content, encoding="utf-8")
+        project_file.size_bytes = full_path.stat().st_size
+        session.add(project_file)
+        session.commit()
+        session.refresh(project_file)
+        _bust_project(project_id)
+        return {
+            "ok": True,
+            "action": "merge",
+            "id": project_file.id,
+            "name": project_file.name,
+            "folder_id": project_file.folder_id,
+            "size_bytes": project_file.size_bytes,
+        }
+
+    # action == "new"
     target_folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
     base_name = _sanitize_markdown_filename(data.file_name or conv.title or "conversation")
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"{base_name}_{timestamp}.md"
 
-    markdown_content = build_markdown_export_content(conv, messages)
     new_file = _create_markdown_project_file(
         session=session,
         project_id=project_id,
@@ -1116,6 +1150,7 @@ def save_conversation_markdown(
     )
     return {
         "ok": True,
+        "action": "new",
         "id": new_file.id,
         "name": new_file.name,
         "folder_id": new_file.folder_id,

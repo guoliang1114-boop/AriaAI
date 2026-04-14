@@ -43,12 +43,11 @@ const QUICK_PROMPTS = [
 const ExportDropdown = memo<{
   conversationId: number;
   conversationTitle?: string;
-  onSaveToProject?: () => Promise<void>;
-}>(({ conversationId, conversationTitle, onSaveToProject }) => {
+  onOpenSaveModal?: () => void;
+}>(({ conversationId, conversationTitle, onOpenSaveModal }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [isSavingToProject, setIsSavingToProject] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -74,28 +73,20 @@ const ExportDropdown = memo<{
     }
   };
 
-  const handleSaveToProject = async () => {
-    if (!onSaveToProject) return;
-    setIsSavingToProject(true);
-    try {
-      await onSaveToProject();
-      setIsOpen(false);
-    } catch (err) {
-      setIsOpen(false);
-      throw err;
-    } finally {
-      setIsSavingToProject(false);
-    }
+  const handleSaveToProject = () => {
+    if (!onOpenSaveModal) return;
+    onOpenSaveModal();
+    setIsOpen(false);
   };
 
   return (
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        disabled={isExporting || isSavingToProject}
+        disabled={isExporting}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
       >
-        {isExporting || isSavingToProject ? (
+        {isExporting ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (
           <Download className="w-4 h-4" />
@@ -120,7 +111,7 @@ const ExportDropdown = memo<{
             <FileText className="w-4 h-4 text-red-400" />
             {t("chat.exportPDF")}
           </button>
-          {onSaveToProject && (
+          {onOpenSaveModal && (
             <button
               onClick={handleSaveToProject}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -274,13 +265,15 @@ function SaveToNotesModal({
   onClose,
   projectId,
   messageId,
+  conversationId,
   files,
   onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
   projectId: number;
-  messageId: number | null;
+  messageId?: number | null;
+  conversationId?: number | null;
   files: ProjectFile[];
   onSuccess: () => void;
 }) {
@@ -293,6 +286,7 @@ function SaveToNotesModal({
   const [loading, setLoading] = useState(false);
 
   const mdFiles = useMemo(() => files.filter((f) => f.file_type?.toLowerCase() === "md"), [files]);
+  const isConversationMode = !!conversationId;
 
   useEffect(() => {
     if (isOpen) {
@@ -303,7 +297,8 @@ function SaveToNotesModal({
     }
   }, [isOpen, mdFiles, isZh]);
 
-  if (!isOpen || !messageId) return null;
+  if (!isOpen) return null;
+  if (!messageId && !conversationId) return null;
 
   const handleSubmit = async () => {
     if (action === "merge" && !selectedFileId) {
@@ -316,12 +311,20 @@ function SaveToNotesModal({
     }
     setLoading(true);
     try {
-      await api.post(`/projects/${projectId}/messages/${messageId}/save-to-document`, {
-        action,
-        file_id: selectedFileId,
-        file_name: fileName.trim(),
-        prepend_header: true,
-      });
+      if (conversationId) {
+        await api.post(`/projects/${projectId}/conversations/${conversationId}/save-markdown`, {
+          action,
+          file_id: selectedFileId,
+          file_name: fileName.trim(),
+        });
+      } else {
+        await api.post(`/projects/${projectId}/messages/${messageId}/save-to-document`, {
+          action,
+          file_id: selectedFileId,
+          file_name: fileName.trim(),
+          prepend_header: true,
+        });
+      }
       toast.success(action === "merge" ? (isZh ? "已合并到笔记" : "Merged into note") : (isZh ? "已保存为新笔记" : "Saved as new note"));
       onSuccess();
       onClose();
@@ -459,6 +462,7 @@ export function ProjectChatTab({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
+  const [conversationSaveModalOpen, setConversationSaveModalOpen] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const skipNextFetchRef = useRef(false);
@@ -595,6 +599,10 @@ export function ProjectChatTab({
   const openSaveModal = (messageId: number) => {
     setSaveMessageId(messageId);
     setSaveModalOpen(true);
+  };
+
+  const openConversationSaveModal = () => {
+    setConversationSaveModalOpen(true);
   };
 
   const sendMessage = async (content: string) => {
@@ -819,7 +827,7 @@ export function ProjectChatTab({
             <ExportDropdown
               conversationId={activeConversation.id}
               conversationTitle={activeConversation.title}
-              onSaveToProject={saveConversationToProject}
+              onOpenSaveModal={openConversationSaveModal}
             />
           )}
         </div>
@@ -930,6 +938,24 @@ export function ProjectChatTab({
           </div>
         </div>
       </div>
+
+      <SaveToNotesModal
+        isOpen={saveModalOpen}
+        onClose={() => setSaveModalOpen(false)}
+        projectId={project.id}
+        messageId={saveMessageId}
+        files={files || []}
+        onSuccess={() => onProjectUpdate()}
+      />
+
+      <SaveToNotesModal
+        isOpen={conversationSaveModalOpen}
+        onClose={() => setConversationSaveModalOpen(false)}
+        projectId={project.id}
+        conversationId={activeConvId}
+        files={files || []}
+        onSuccess={() => onProjectUpdate()}
+      />
     </div>
   );
 }
