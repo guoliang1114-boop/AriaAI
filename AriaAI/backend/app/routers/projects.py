@@ -1100,13 +1100,13 @@ def save_conversation_markdown(
     if not messages:
         raise HTTPException(400, "Conversation has no messages")
 
-    target_folder = _resolve_project_folder(session, project_id, data.folder_id)
+    target_folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
     base_name = _sanitize_markdown_filename(data.file_name or conv.title or "conversation")
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"{base_name}_{timestamp}.md"
 
     markdown_content = build_markdown_export_content(conv, messages)
-    return _create_markdown_project_file(
+    new_file = _create_markdown_project_file(
         session=session,
         project_id=project_id,
         folder_id=target_folder.id if target_folder else None,
@@ -1114,6 +1114,13 @@ def save_conversation_markdown(
         content=markdown_content,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
+    return {
+        "ok": True,
+        "id": new_file.id,
+        "name": new_file.name,
+        "folder_id": new_file.folder_id,
+        "size_bytes": new_file.size_bytes,
+    }
 
 
 @router.post("/{project_id}/messages/{message_id}/save-to-document", status_code=201)
@@ -1167,7 +1174,7 @@ def save_message_to_document(
         }
 
     # action == "new"
-    target_folder = _resolve_project_folder(session, project_id, data.folder_id)
+    target_folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
     base_name = _sanitize_markdown_filename(data.file_name or f"message_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
     if not base_name.lower().endswith(".md"):
         base_name = f"{base_name}.md"
@@ -1185,6 +1192,7 @@ def save_message_to_document(
         "action": "new",
         "id": new_file.id,
         "name": new_file.name,
+        "folder_id": new_file.folder_id,
         "size_bytes": new_file.size_bytes,
     }
 

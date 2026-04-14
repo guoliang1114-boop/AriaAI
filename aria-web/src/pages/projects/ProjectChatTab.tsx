@@ -80,6 +80,9 @@ const ExportDropdown = memo<{
     try {
       await onSaveToProject();
       setIsOpen(false);
+    } catch (err) {
+      setIsOpen(false);
+      throw err;
     } finally {
       setIsSavingToProject(false);
     }
@@ -580,10 +583,11 @@ export function ProjectChatTab({
     try {
       await api.post(`/projects/${project.id}/conversations/${activeConvId}/save-markdown`, {});
       await onProjectUpdate();
-      toast.success(isZh ? "已沉淀到项目文档" : "Saved to project documents");
-    } catch (error) {
+      toast.success(isZh ? "已沉淀到项目文档根目录" : "Saved to project documents (root)");
+    } catch (error: any) {
       console.error("Failed to save conversation to project:", error);
-      toast.error(isZh ? "沉淀失败" : "Failed to save to project");
+      const detail = error?.response?.data?.detail;
+      toast.error(detail || (isZh ? "沉淀失败" : "Failed to save to project"));
       throw error;
     }
   };
