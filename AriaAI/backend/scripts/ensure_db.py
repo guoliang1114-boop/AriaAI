@@ -88,7 +88,21 @@ def main():
         else:
             print("projectmember already exists")
 
-        # 4. Ensure alembic_version table is present and stamped
+        # 4. Ensure knowledgedocument.project_id column
+        if "knowledgedocument" in inspector.get_table_names():
+            kd_cols = {c["name"] for c in inspector.get_columns("knowledgedocument")}
+            if "project_id" not in kd_cols:
+                conn.execute(
+                    text("ALTER TABLE knowledgedocument ADD COLUMN project_id INTEGER")
+                )
+                conn.execute(
+                    text("CREATE INDEX ix_knowledgedocument_project_id ON knowledgedocument (project_id)")
+                )
+                print("Added project_id to knowledgedocument")
+            else:
+                print("project_id already exists in knowledgedocument")
+
+        # 5. Ensure alembic_version table is present and stamped
         if "alembic_version" not in inspector.get_table_names():
             conn.execute(
                 text(
@@ -96,10 +110,10 @@ def main():
                 )
             )
             conn.execute(
-                text("INSERT INTO alembic_version (version_num) VALUES ('003_v1_3')")
+                text("INSERT INTO alembic_version (version_num) VALUES ('004_v1_4')")
             )
             print("Created alembic_version table")
-            print("Stamped alembic_version to 003_v1_3")
+            print("Stamped alembic_version to 004_v1_4")
         else:
             versions = [
                 r[0] for r in conn.execute(text("SELECT version_num FROM alembic_version")).fetchall()
