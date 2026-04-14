@@ -59,6 +59,280 @@ DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档",
 
 # ── Shared file text extraction ────────────────────────────────────────────────
 
+PRESALES_TEMPLATE_FOLDERS = [
+    "00_项目总览",
+    "01_客户与关系",
+    "02_需求与方案",
+    "03_会议与推进",
+]
+
+PRESALES_TEMPLATE_FILES = [
+    {
+        "folder": "00_项目总览",
+        "name": "00_项目概览.md",
+        "summary": "咨询售前项目概览",
+        "content": """# 项目概览
+
+## 项目名称
+
+## 客户名称
+
+## 当前阶段
+- 线索
+- 初步沟通
+- 需求澄清
+- 方案准备
+- 商务谈判
+- 赢单 / 失单
+
+## 客户想解决的核心问题
+
+## 为什么这个机会值得跟进
+
+## 当前最大不确定性
+
+## 下一步关键动作
+
+## 最新更新时间
+""",
+    },
+    {
+        "folder": "01_客户与关系",
+        "name": "01_客户与关系.md",
+        "summary": "客户背景和关键关系图谱",
+        "content": """# 客户与关系
+
+## 客户公司背景
+
+## 项目发起背景
+
+## Stakeholder Map
+| 姓名 | 职位 | 角色 | 态度 | 影响力 |
+|---|---|---|---|---|
+
+## 决策链路
+- 谁提出需求
+- 谁影响预算
+- 谁参与选型
+- 谁最终拍板
+
+## 当前关系判断
+- 支持者
+- 中立者
+- 阻力方
+
+## 关系推进策略
+""",
+    },
+    {
+        "folder": "02_需求与方案",
+        "name": "02_需求与问题定义.md",
+        "summary": "客户需求和问题定义",
+        "content": """# 需求与问题定义
+
+## 客户表面需求
+
+## 客户真实需求
+
+## 当前痛点
+
+## 业务目标
+
+## 成功标准
+- 客户如何判断项目成功
+- 可量化指标
+- 不能触碰的约束
+
+## 已确认事实
+
+## 待确认问题
+
+## 我们的判断与假设
+""",
+    },
+    {
+        "folder": "02_需求与方案",
+        "name": "03_方案思路.md",
+        "summary": "咨询方案初步思路",
+        "content": """# 方案思路
+
+## 方案目标
+
+## 核心价值主张
+
+## 工作范围
+
+## 项目路径与方法
+
+## 关键交付物
+
+## 差异化亮点
+
+## 客户可能追问的问题
+
+## 下一轮需要补齐的材料
+""",
+    },
+    {
+        "folder": "02_需求与方案",
+        "name": "04_竞争与替代方案.md",
+        "summary": "竞争格局与替代方案判断",
+        "content": """# 竞争与替代方案
+
+## 客户当前可能的替代方案
+- 内部自己做
+- 继续沿用现状
+- 交给其他咨询公司
+- 暂缓不做
+
+## 潜在竞争对手
+
+## 我们的优势
+
+## 我们的短板
+
+## 当前竞争风险
+
+## 应对策略
+""",
+    },
+    {
+        "folder": "02_需求与方案",
+        "name": "05_商务推进.md",
+        "summary": "预算、采购和商务推进记录",
+        "content": """# 商务推进
+
+## 预算情况
+- 已明确
+- 模糊
+- 暂未确认
+
+## 采购方式
+- 直接签约
+- 比价
+- 招标
+- 框架协议
+- 其他
+
+## 商务约束
+- 价格
+- 周期
+- 合同条款
+- 付款方式
+- 验收方式
+
+## 当前报价思路
+
+## 客户反馈
+
+## 商务下一步
+""",
+    },
+    {
+        "folder": "03_会议与推进",
+        "name": "06_立项沟通纪要.md",
+        "summary": "立项或首次沟通纪要",
+        "content": """# 立项沟通纪要
+
+## 基本信息
+- 时间：
+- 参会人：
+- 会议目的：
+
+## 客户表达的重点
+
+## 我们确认到的信息
+
+## 待补充材料
+
+## 会后动作
+- 客户侧：
+- 我方：
+""",
+    },
+    {
+        "folder": "03_会议与推进",
+        "name": "07_需求澄清会议纪要.md",
+        "summary": "需求澄清会议纪要",
+        "content": """# 需求澄清会议纪要
+
+## 基本信息
+- 时间：
+- 参会人：
+- 会议目的：
+
+## 客户重点关注
+
+## 关键问题与回答
+
+## 未决事项
+
+## 会后动作
+- 客户侧：
+- 我方：
+""",
+    },
+    {
+        "folder": "03_会议与推进",
+        "name": "08_行动清单.md",
+        "summary": "咨询售前行动清单",
+        "content": """# 行动清单
+
+## 本周重点动作
+- [ ] 
+- [ ] 
+- [ ] 
+
+## 客户待反馈
+- [ ] 
+- [ ] 
+
+## 我方待准备
+- [ ] 方案
+- [ ] 报价
+- [ ] 案例
+- [ ] 演示
+- [ ] 合同条款
+
+## 时间节点
+| 事项 | 截止时间 | 负责人 | 状态 |
+|---|---|---|---|
+""",
+    },
+    {
+        "folder": "03_会议与推进",
+        "name": "09_下一步与赢单判断.md",
+        "summary": "赢单信号与下一步推进判断",
+        "content": """# 下一步与赢单判断
+
+## 下一步最关键的一步
+
+## 未来 7 天推进计划
+
+## 赢单信号
+- 决策人开始参与
+- 客户愿意给更多内部资料
+- 客户明确时间表
+- 客户主动讨论报价或合同
+- 客户要求定制化方案
+
+## 风险信号
+- 一直在沟通但没有推进
+- 需求频繁变化
+- 预算始终不明确
+- 决策人迟迟不出现
+- 客户只是做信息收集
+
+## 当前赢单判断
+- 高
+- 中
+- 低
+
+## 判断依据
+""",
+    },
+]
+
 try:
     import pdfplumber as _pdfplumber
     _HAS_PDF = True
@@ -131,9 +405,6 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         return text if text else ""
     except Exception:
         return ""
-
-DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
-
 
 def _init_default_folders(project_id: int, session: Session) -> list[ProjectFolder]:
     """Create the 4 default folders for a project. Safe to call if they already exist."""
@@ -246,6 +517,22 @@ class FolderCreate(BaseModel):
 class SaveConversationMarkdownRequest(BaseModel):
     folder_id: Optional[int] = None
     file_name: Optional[str] = None
+
+
+class ProjectDocumentCreate(BaseModel):
+    folder_id: Optional[int] = None
+    name: str
+    content: str = ""
+
+
+class ProjectDocumentUpdate(BaseModel):
+    content: Optional[str] = None
+    name: Optional[str] = None
+    folder_id: Optional[int] = None
+
+
+class InitPresalesTemplateRequest(BaseModel):
+    overwrite: bool = False
 
 
 # ── Projects ──────────────────────────────────────────────────────────────────
@@ -542,6 +829,208 @@ def _resolve_project_folder(
     return folders[0] if folders else None
 
 
+def _project_documents_dir(project_id: int) -> Path:
+    dest_dir = UPLOADS_DIR / "projects" / str(project_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return dest_dir
+
+
+def _create_markdown_project_file(
+    session: Session,
+    project_id: int,
+    name: str,
+    content: str,
+    folder_id: Optional[int] = None,
+    summary: str = "",
+) -> ProjectFile:
+    safe_name = name if name.lower().endswith(".md") else f"{name}.md"
+    dest_dir = _project_documents_dir(project_id)
+    dest_file = dest_dir / f"{uuid.uuid4().hex}_{safe_name}"
+    dest_file.write_text(content, encoding="utf-8")
+
+    project_file = ProjectFile(
+        project_id=project_id,
+        folder_id=folder_id,
+        name=safe_name,
+        file_type="md",
+        path=str(dest_file.relative_to(UPLOADS_DIR)),
+        size_bytes=dest_file.stat().st_size,
+        summary=summary,
+    )
+    session.add(project_file)
+    session.commit()
+    session.refresh(project_file)
+    _bust_project(project_id)
+    return project_file
+
+
+def _get_project_file_or_404(session: Session, project_id: int, file_id: int) -> ProjectFile:
+    project_file = session.get(ProjectFile, file_id)
+    if not project_file or project_file.project_id != project_id:
+        raise HTTPException(404, "File not found")
+    return project_file
+
+
+def _read_project_file_content(project_file: ProjectFile) -> str:
+    full_path = UPLOADS_DIR / project_file.path
+    if not full_path.exists():
+        raise HTTPException(404, "File not found on disk")
+    return full_path.read_text(encoding="utf-8", errors="replace")
+
+
+@router.post("/{project_id}/notes/templates/presales", status_code=201)
+def init_presales_notes_template(
+    project_id: int,
+    body: InitPresalesTemplateRequest,
+    session: Session = Depends(get_session),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    existing_folders = session.exec(
+        select(ProjectFolder)
+        .where(ProjectFolder.project_id == project_id)
+        .order_by(ProjectFolder.sort_order, ProjectFolder.id)
+    ).all()
+    folders_by_name = {folder.name: folder for folder in existing_folders}
+
+    for index, folder_name in enumerate(PRESALES_TEMPLATE_FOLDERS):
+        folder = folders_by_name.get(folder_name)
+        if folder:
+            continue
+        folder = ProjectFolder(project_id=project_id, name=folder_name, sort_order=index)
+        session.add(folder)
+        session.commit()
+        session.refresh(folder)
+        folders_by_name[folder_name] = folder
+
+    existing_docs = session.exec(
+        select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.file_type == "md")
+    ).all()
+    existing_by_key = {(doc.folder_id, doc.name): doc for doc in existing_docs}
+
+    created_files: list[ProjectFile] = []
+    updated_files: list[ProjectFile] = []
+    for template in PRESALES_TEMPLATE_FILES:
+        folder = folders_by_name[template["folder"]]
+        existing = existing_by_key.get((folder.id, template["name"]))
+        if existing and not body.overwrite:
+            continue
+        if existing:
+            full_path = UPLOADS_DIR / existing.path
+            full_path.write_text(template["content"], encoding="utf-8")
+            existing.summary = template["summary"]
+            existing.size_bytes = full_path.stat().st_size
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            updated_files.append(existing)
+            continue
+
+        created_files.append(
+            _create_markdown_project_file(
+                session=session,
+                project_id=project_id,
+                folder_id=folder.id,
+                name=template["name"],
+                content=template["content"],
+                summary=template["summary"],
+            )
+        )
+
+    return {
+        "ok": True,
+        "created_count": len(created_files),
+        "updated_count": len(updated_files),
+        "folders": list(folders_by_name.values()),
+        "files": created_files + updated_files,
+    }
+
+
+@router.post("/{project_id}/documents", status_code=201)
+def create_project_document(
+    project_id: int,
+    data: ProjectDocumentCreate,
+    session: Session = Depends(get_session),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
+    filename = _sanitize_markdown_filename(data.name)
+    if not filename.lower().endswith(".md"):
+        filename = f"{filename}.md"
+
+    return _create_markdown_project_file(
+        session=session,
+        project_id=project_id,
+        folder_id=folder.id if folder else None,
+        name=filename,
+        content=data.content,
+        summary="Project note document",
+    )
+
+
+@router.get("/{project_id}/documents/{file_id}")
+def get_project_document(project_id: int, file_id: int, session: Session = Depends(get_session)):
+    project_file = _get_project_file_or_404(session, project_id, file_id)
+    if project_file.file_type.lower() != "md":
+        raise HTTPException(400, "Only markdown documents are supported")
+    return {
+        "id": project_file.id,
+        "project_id": project_file.project_id,
+        "folder_id": project_file.folder_id,
+        "name": project_file.name,
+        "content": _read_project_file_content(project_file),
+        "summary": project_file.summary,
+        "uploaded_at": project_file.uploaded_at,
+    }
+
+
+@router.patch("/{project_id}/documents/{file_id}")
+def update_project_document(
+    project_id: int,
+    file_id: int,
+    data: ProjectDocumentUpdate,
+    session: Session = Depends(get_session),
+):
+    project_file = _get_project_file_or_404(session, project_id, file_id)
+    if project_file.file_type.lower() != "md":
+        raise HTTPException(400, "Only markdown documents are supported")
+
+    full_path = UPLOADS_DIR / project_file.path
+    if not full_path.exists():
+        raise HTTPException(404, "File not found on disk")
+
+    if data.content is not None:
+        full_path.write_text(data.content, encoding="utf-8")
+        project_file.size_bytes = full_path.stat().st_size
+
+    if data.name is not None:
+        next_name = _sanitize_markdown_filename(data.name)
+        if not next_name.lower().endswith(".md"):
+            next_name = f"{next_name}.md"
+        project_file.name = next_name
+
+    if data.folder_id is not None:
+        folder = _resolve_project_folder(session, project_id, data.folder_id)
+        project_file.folder_id = folder.id if folder else None
+
+    session.add(project_file)
+    session.commit()
+    session.refresh(project_file)
+    _bust_project(project_id)
+    return {
+        "ok": True,
+        "id": project_file.id,
+        "name": project_file.name,
+        "folder_id": project_file.folder_id,
+        "size_bytes": project_file.size_bytes,
+    }
+
+
 @router.post("/{project_id}/conversations/{conv_id}/save-markdown", status_code=201)
 def save_conversation_markdown(
     project_id: int,
@@ -570,27 +1059,15 @@ def save_conversation_markdown(
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"{base_name}_{timestamp}.md"
 
-    dest_dir = UPLOADS_DIR / "projects" / str(project_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_file = dest_dir / filename
-
     markdown_content = build_markdown_export_content(conv, messages)
-    dest_file.write_text(markdown_content, encoding="utf-8")
-
-    project_file = ProjectFile(
+    return _create_markdown_project_file(
+        session=session,
         project_id=project_id,
         folder_id=target_folder.id if target_folder else None,
         name=filename,
-        file_type="md",
-        path=str(dest_file.relative_to(UPLOADS_DIR)),
-        size_bytes=dest_file.stat().st_size,
+        content=markdown_content,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
-    session.add(project_file)
-    session.commit()
-    session.refresh(project_file)
-    _bust_project(project_id)
-    return project_file
 
 
 @router.post("/{project_id}/files", status_code=201)

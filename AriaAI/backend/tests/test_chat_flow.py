@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Conversation, Message, Project, ProjectFolder
+from app.models.db import Conversation, Message, Project, ProjectFile, ProjectFolder
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
@@ -197,6 +197,83 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn("# Weekly Sync", content)
         self.assertIn("Please summarize this week", content)
         self.assertIn("Here is the weekly summary", content)
+
+    def test_init_presales_template_creates_markdown_documents(self):
+        with Session(self.engine) as session:
+            project = Project(name="Beta", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        resp = self.client.post(f"/projects/{project_id}/notes/templates/presales", json={})
+        self.assertEqual(resp.status_code, 201)
+        body = resp.json()
+        self.assertTrue(body["ok"])
+        self.assertGreaterEqual(body["created_count"], 9)
+
+        with Session(self.engine) as session:
+            md_files = session.exec(
+                select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.file_type == "md")
+            ).all()
+            self.assertGreaterEqual(len(md_files), 9)
+            first_doc = next((f for f in md_files if f.name == "00_项目概览.md"), None)
+            self.assertIsNotNone(first_doc)
+            first_doc_path = self.uploads_dir / first_doc.path
+            self.assertTrue(first_doc_path.exists())
+            self.assertIn("## 客户想解决的核心问题", first_doc_path.read_text(encoding="utf-8"))
+
+    def test_update_project_document_persists_content(self):
+        with Session(self.engine) as session:
+            project = Project(name="Gamma", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+            folder = ProjectFolder(project_id=project_id, name="Notes", sort_order=0)
+            session.add(folder)
+            session.commit()
+            session.refresh(folder)
+
+            path = Path("projects") / str(project_id) / "manual_doc.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Initial", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project_id,
+                folder_id=folder.id,
+                name="Manual Doc.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+            file_id = project_file.id
+
+        get_resp = self.client.get(f"/projects/{project_id}/documents/{file_id}")
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertEqual(get_resp.json()["content"], "# Initial")
+
+        patch_resp = self.client.patch(
+            f"/projects/{project_id}/documents/{file_id}",
+            json={"content": "# Updated\n\nNew content"},
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+
+        saved_text = (self.uploads_dir / "projects" / str(project_id) / "manual_doc.md").read_text(encoding="utf-8")
+        self.assertIn("# Updated", saved_text)
+        self.assertIn("New content", saved_text)
+
+        rename_resp = self.client.patch(
+            f"/projects/{project_id}/documents/{file_id}",
+            json={"name": "Renamed Consulting Note"},
+        )
+        self.assertEqual(rename_resp.status_code, 200)
+        self.assertEqual(rename_resp.json()["name"], "Renamed_Consulting_Note.md")
 
 
 class ChatStreamingServiceTestCase(unittest.TestCase):

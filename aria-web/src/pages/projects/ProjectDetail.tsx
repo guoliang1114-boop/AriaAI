@@ -4886,7 +4886,9 @@ export function ProjectDetail() {
           <div className="max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)]">
             <ProjectNotesTab
               projectId={id!}
-              mdNotes={projectDetail.md_notes}
+              projectName={project.name}
+              files={projectDetail.files}
+              folders={projectDetail.folders}
               onUpdate={() => fetchProjectDetail(parseInt(id!))}
             />
           </div>
@@ -4895,7 +4897,9 @@ export function ProjectDetail() {
           <div className="hidden">
             <ProjectNotesTab
               projectId={id!}
-              mdNotes={projectDetail.md_notes}
+              projectName={project.name}
+              files={projectDetail.files}
+              folders={projectDetail.folders}
               onUpdate={() => fetchProjectDetail(parseInt(id!))}
             />
           </div>
