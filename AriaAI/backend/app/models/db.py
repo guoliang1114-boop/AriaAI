@@ -38,6 +38,7 @@ class Project(SQLModel, table=True):
     conversations: list["Conversation"] = Relationship(back_populates="project")
     payments: list["ProjectPayment"] = Relationship(back_populates="project")
     todos: list["ProjectTodo"] = Relationship(back_populates="project")
+    members: list["ProjectMember"] = Relationship(back_populates="project")
 
 
 class Milestone(SQLModel, table=True):
@@ -62,6 +63,16 @@ class ProjectTodo(SQLModel, table=True):
 
     project: Optional[Project] = Relationship(back_populates="todos")
     assigned_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectTodo.assigned_to_user_id]"})
+
+
+class ProjectMember(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    project: Optional[Project] = Relationship(back_populates="members")
+    user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectMember.user_id]"})
 
 
 class ProjectFolder(SQLModel, table=True):

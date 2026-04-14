@@ -66,9 +66,10 @@ import type {
   ProjectFile,
   ProjectFolder,
   ProjectPayment,
+  ProjectMember,
 } from "../../types/api";
 import { ProjectNotesTab } from "./ProjectNotesTab";
-import { ProjectTodosTab } from "./ProjectTodosTab";
+import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 
 // ==================== Helper Functions ====================
 // Format number with thousand separators
@@ -4017,7 +4018,69 @@ function SettingsTab({
     end_date: (project as any).end_date || "",
   });
 
+  // Members management state
+  const [members, setMembers] = useState<ProjectMember[]>(projectDetail.members || []);
+  const [users, setUsers] = useState<Array<{ id: number; display_name: string }>>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [removingUserId, setRemovingUserId] = useState<number | null>(null);
+
   const stageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMembers(projectDetail.members || []);
+  }, [projectDetail.members]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingUsers(true);
+    api.get<Array<{ id: number; display_name: string }>>("/auth/users/simple")
+      .then((data) => {
+        if (!cancelled) setUsers(data);
+      })
+      .catch((err) => {
+        console.error("Failed to load users:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingUsers(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAddMember = async () => {
+    if (!selectedUserId) return;
+    setIsAddingMember(true);
+    try {
+      await api.post(`/projects/${project.id}/members`, { user_id: selectedUserId });
+      toast.success(isZh ? "成员已添加" : "Member added");
+      setSelectedUserId(null);
+      onUpdate();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || (isZh ? "添加失败" : "Failed to add member");
+      toast.error(msg);
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: number) => {
+    setRemovingUserId(userId);
+    try {
+      await api.delete(`/projects/${project.id}/members/${userId}`);
+      toast.success(isZh ? "成员已移除" : "Member removed");
+      onUpdate();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || (isZh ? "移除失败" : "Failed to remove member");
+      toast.error(msg);
+    } finally {
+      setRemovingUserId(null);
+    }
+  };
+
+  const availableUsers = users.filter((u) => !members.some((m) => m.user_id === u.id));
 
   // Fetch clients list when entering edit mode - extract from all projects
   useEffect(() => {
@@ -4519,8 +4582,76 @@ function SettingsTab({
           </div>
         </div>
 
-        {/* Danger Zone - Right Column (1/3) */}
-        <div className="lg:col-span-1">
+        {/* Members & Danger Zone - Right Column (1/3) */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">
+              {isZh ? "项目成员" : "Project Members"}
+            </h3>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <UserPicker
+                    users={availableUsers}
+                    value={selectedUserId}
+                    onChange={setSelectedUserId}
+                    placeholder={isZh ? "选择用户添加…" : "Select user to add…"}
+                    disabled={isLoadingUsers || isAddingMember}
+                  />
+                </div>
+                <button
+                  onClick={handleAddMember}
+                  disabled={!selectedUserId || isAddingMember}
+                  className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isAddingMember ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    isZh ? "添加" : "Add"
+                  )}
+                </button>
+              </div>
+
+              <div className="pt-2">
+                {members.length === 0 ? (
+                  <p className="text-sm text-gray-400">
+                    {isZh ? "暂无成员" : "No members yet"}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {members.map((m) => (
+                      <li
+                        key={m.user_id}
+                        className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                            {(m.user?.display_name || "?").charAt(0)}
+                          </div>
+                          <span className="text-sm text-gray-800 truncate">
+                            {m.user?.display_name || "Unknown"}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveMember(m.user_id)}
+                          disabled={removingUserId === m.user_id}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-40"
+                          title={isZh ? "移除" : "Remove"}
+                        >
+                          {removingUserId === m.user_id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <X className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border border-red-200 p-6">
             <h3 className="font-semibold text-red-600 mb-4">
               {isZh ? "危险区域" : "Danger Zone"}

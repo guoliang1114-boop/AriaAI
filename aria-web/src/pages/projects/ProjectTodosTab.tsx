@@ -30,7 +30,7 @@ interface ProjectTodosTabProps {
   onUpdate: () => void
 }
 
-function UserPicker({
+export function UserPicker({
   users,
   value,
   onChange,

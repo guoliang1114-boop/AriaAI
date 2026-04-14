@@ -66,7 +66,29 @@ def main():
             else:
                 print("assigned_to_user_id already exists")
 
-        # 3. Ensure alembic_version table is present and stamped
+        # 3. Ensure projectmember table
+        if "projectmember" not in inspector.get_table_names():
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE projectmember (
+                        id SERIAL PRIMARY KEY,
+                        project_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT fk_projectmember_project FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_projectmember_user FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_projectmember_project_id ON projectmember (project_id)"))
+            conn.execute(text("CREATE INDEX ix_projectmember_user_id ON projectmember (user_id)"))
+            print("Created projectmember table")
+        else:
+            print("projectmember already exists")
+
+        # 4. Ensure alembic_version table is present and stamped
         if "alembic_version" not in inspector.get_table_names():
             conn.execute(
                 text(
@@ -74,10 +96,10 @@ def main():
                 )
             )
             conn.execute(
-                text("INSERT INTO alembic_version (version_num) VALUES ('002_v1_2')")
+                text("INSERT INTO alembic_version (version_num) VALUES ('003_v1_3')")
             )
             print("Created alembic_version table")
-            print("Stamped alembic_version to 002_v1_2")
+            print("Stamped alembic_version to 003_v1_3")
         else:
             versions = [
                 r[0] for r in conn.execute(text("SELECT version_num FROM alembic_version")).fetchall()

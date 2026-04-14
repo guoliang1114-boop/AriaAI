@@ -94,6 +94,14 @@ export interface MyProjectTodo {
   updated_at: string
 }
 
+export interface ProjectMember {
+  id: number
+  project_id: number
+  user_id: number
+  user: { id: number; display_name: string }
+  created_at: string
+}
+
 export interface ProjectFinancials {
   contract_amount: number
   total_received: number
@@ -111,6 +119,7 @@ export interface ProjectDetail {
   folders: ProjectFolder[]
   md_notes: string
   todos: ProjectTodo[]
+  members: ProjectMember[]
   financials: ProjectFinancials
 }
 

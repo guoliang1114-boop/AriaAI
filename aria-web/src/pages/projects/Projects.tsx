@@ -23,6 +23,7 @@ import {
   type ProjectStageConfig,
 } from '../../types/enums'
 import type { Project } from '../../types/api'
+import { User } from 'lucide-react'
 
 // Format number with thousand separators
 const formatAmountInTenThousand = (amount: number | undefined | null): string => {
@@ -342,15 +343,35 @@ export function Projects() {
   const [projects, setProjects] = useState<Project[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedPhase, setExpandedPhase] = useState<ProjectPhase | null>('business')
+  const [users, setUsers] = useState<Array<{ id: number; display_name: string }>>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchProjects()
+  }, [selectedMemberId])
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoadingUsers(true)
+    api.get<Array<{ id: number; display_name: string }>>("/auth/users/simple")
+      .then((data) => {
+        if (!cancelled) setUsers(data)
+      })
+      .catch((err) => console.error("Failed to load users:", err))
+      .finally(() => {
+        if (!cancelled) setIsLoadingUsers(false)
+      })
+    return () => { cancelled = true }
   }, [])
 
   const fetchProjects = async () => {
     try {
       setLoading(true)
-      const data = await api.get<Project[]>('/projects')
+      const url = selectedMemberId != null
+        ? `/projects?member_user_id=${selectedMemberId}`
+        : '/projects'
+      const data = await api.get<Project[]>(url)
       setProjects(data)
     } catch (error) {
       console.error('Failed to fetch projects:', error)
@@ -429,8 +450,27 @@ export function Projects() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={isZh ? '搜索项目...' : 'Search projects...'}
-                    className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all"
+                    className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm w-56 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all"
                   />
+                </div>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <select
+                    value={selectedMemberId ?? ''}
+                    onChange={(e) => setSelectedMemberId(e.target.value ? Number(e.target.value) : null)}
+                    disabled={isLoadingUsers}
+                    className="pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm w-40 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="">{isZh ? '全部成员' : 'All members'}</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.display_name}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
                 </div>
                 <button
                   onClick={() => navigate('/projects/new')}

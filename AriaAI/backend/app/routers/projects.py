@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 import json
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, User
+from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, User
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
@@ -200,6 +200,23 @@ class NotePolishBody(BaseModel):
     draft: str
 
 
+class MemberCreate(BaseModel):
+    user_id: int
+
+
+class MemberUserOut(BaseModel):
+    id: int
+    display_name: str
+
+
+class MemberOut(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    user: MemberUserOut
+    created_at: datetime
+
+
 class PaymentCreate(BaseModel):
     amount: float
     payment_date: str               # YYYY-MM-DD
@@ -228,14 +245,26 @@ class FolderCreate(BaseModel):
 # ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_projects(status: Optional[str] = None, session: Session = Depends(get_session)):
-    cache_key = f"list:{status or ''}"
+def list_projects(
+    status: Optional[str] = None,
+    member_user_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    cache_key = f"list:{status or ''}:member:{member_user_id or ''}"
     cached = projects_cache.get(cache_key)
     if cached is not None:
         return cached
     stmt = select(Project).order_by(Project.updated_at.desc())
     if status:
         stmt = stmt.where(Project.status == status)
+    if member_user_id is not None:
+        from sqlalchemy.orm import joinedload
+        # join with members and filter; distinct to avoid duplicate projects
+        stmt = (
+            stmt.join(ProjectMember, ProjectMember.project_id == Project.id)
+            .where(ProjectMember.user_id == member_user_id)
+            .distinct()
+        )
     result = session.exec(stmt).all()
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
@@ -306,6 +335,10 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
         .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
     ).all()
 
+    members = session.exec(
+        select(ProjectMember).where(ProjectMember.project_id == project_id)
+    ).all()
+
     def _todo_dict(t: ProjectTodo) -> dict:
         return {
             "id": t.id,
@@ -328,6 +361,16 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
         "folders": folders,
         "md_notes": project.md_notes or "",
         "todos": [_todo_dict(t) for t in todos],
+        "members": [
+            {
+                "id": m.id,
+                "project_id": m.project_id,
+                "user_id": m.user_id,
+                "user": {"id": m.user.id, "display_name": m.user.display_name} if m.user else None,
+                "created_at": m.created_at,
+            }
+            for m in members
+        ],
         "financials": {
             "contract_amount": contract,
             "total_received": received,
@@ -401,7 +444,12 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
         session.delete(t)
     session.flush()
 
-    # 7. Project itself
+    # 7. Members
+    for m in session.exec(select(ProjectMember).where(ProjectMember.project_id == project_id)).all():
+        session.delete(m)
+    session.flush()
+
+    # 8. Project itself
     session.delete(project)
     session.commit()
     _bust_project(project_id)
@@ -892,6 +940,74 @@ def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_se
     if not todo:
         raise HTTPException(404, "Todo not found")
     session.delete(todo)
+    session.commit()
+    _bust_project(project_id)
+    return {"ok": True}
+
+
+# ── Project Members ───────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/members", response_model=list[MemberOut])
+def list_members(project_id: int, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    members = session.exec(
+        select(ProjectMember).where(ProjectMember.project_id == project_id)
+    ).all()
+    return [
+        MemberOut(
+            id=m.id,
+            project_id=m.project_id,
+            user_id=m.user_id,
+            user=MemberUserOut(id=m.user.id, display_name=m.user.display_name),
+            created_at=m.created_at,
+        )
+        for m in members if m.user
+    ]
+
+
+@router.post("/{project_id}/members", status_code=201, response_model=MemberOut)
+def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    user = session.get(User, body.user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    existing = session.exec(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == body.user_id,
+        )
+    ).first()
+    if existing:
+        raise HTTPException(409, "User is already a member of this project")
+    member = ProjectMember(project_id=project_id, user_id=body.user_id)
+    session.add(member)
+    session.commit()
+    session.refresh(member)
+    _bust_project(project_id)
+    return MemberOut(
+        id=member.id,
+        project_id=member.project_id,
+        user_id=member.user_id,
+        user=MemberUserOut(id=user.id, display_name=user.display_name),
+        created_at=member.created_at,
+    )
+
+
+@router.delete("/{project_id}/members/{user_id}")
+def remove_member(project_id: int, user_id: int, session: Session = Depends(get_session)):
+    member = session.exec(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+        )
+    ).first()
+    if not member:
+        raise HTTPException(404, "Member not found")
+    session.delete(member)
     session.commit()
     _bust_project(project_id)
     return {"ok": True}
