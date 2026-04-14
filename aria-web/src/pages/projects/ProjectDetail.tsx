@@ -606,6 +606,48 @@ function OverviewTab({
   const [summaryText, setSummaryText] = useState(project.context_summary || "");
   const [summaryError, setSummaryError] = useState("");
   const [descExpanded, setDescExpanded] = useState(false);
+  const [overviewNotesText, setOverviewNotesText] = useState((md_notes || "").trim());
+
+  const firstMarkdownFile = useMemo(
+    () =>
+      [...files]
+        .filter((file) => file.file_type?.toLowerCase() === "md")
+        .sort(
+          (a, b) =>
+            new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime(),
+        )[0] || null,
+    [files],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOverviewNotes = async () => {
+      if (!firstMarkdownFile) {
+        setOverviewNotesText((md_notes || "").trim());
+        return;
+      }
+
+      try {
+        const data = await api.get<{ content: string }>(
+          `/projects/${projectId}/documents/${firstMarkdownFile.id}`,
+        );
+        if (!cancelled) {
+          setOverviewNotesText((data.content || "").trim() || (md_notes || "").trim());
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load overview notes:", error);
+          setOverviewNotesText((md_notes || "").trim());
+        }
+      }
+    };
+
+    void loadOverviewNotes();
+    return () => {
+      cancelled = true;
+    };
+  }, [firstMarkdownFile, md_notes, projectId]);
 
   // Download file handler
   const handleDownload = async (file: ProjectFile) => {
@@ -884,7 +926,7 @@ function OverviewTab({
         )}
 
         {/* Notes Preview */}
-        {(md_notes || "").trim().length > 0 && (
+        {overviewNotesText.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
@@ -900,7 +942,7 @@ function OverviewTab({
             </div>
             <div className="p-5">
               <p className="text-sm text-gray-600 line-clamp-4 whitespace-pre-wrap">
-                {md_notes.replace(/[#*`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180)}
+                {overviewNotesText.replace(/[#*`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180)}
               </p>
             </div>
           </div>

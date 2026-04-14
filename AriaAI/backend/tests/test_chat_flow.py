@@ -206,11 +206,33 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
+            legacy_folder = ProjectFolder(project_id=project_id, name="项目需求", sort_order=0)
+            session.add(legacy_folder)
+            session.commit()
+            session.refresh(legacy_folder)
+
+            legacy_path = Path("projects") / str(project_id) / "legacy_note.md"
+            legacy_full_path = self.uploads_dir / legacy_path
+            legacy_full_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_full_path.write_text("# Legacy", encoding="utf-8")
+            session.add(
+                ProjectFile(
+                    project_id=project_id,
+                    folder_id=legacy_folder.id,
+                    name="Legacy Note.md",
+                    file_type="md",
+                    path=str(legacy_path),
+                    size_bytes=legacy_full_path.stat().st_size,
+                )
+            )
+            session.commit()
+
         resp = self.client.post(f"/projects/{project_id}/notes/templates/presales", json={})
         self.assertEqual(resp.status_code, 201)
         body = resp.json()
         self.assertTrue(body["ok"])
         self.assertGreaterEqual(body["created_count"], 9)
+        self.assertGreaterEqual(body["cleaned_folder_count"], 1)
 
         with Session(self.engine) as session:
             md_files = session.exec(
@@ -222,6 +244,12 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             first_doc_path = self.uploads_dir / first_doc.path
             self.assertTrue(first_doc_path.exists())
             self.assertIn("## 客户想解决的核心问题", first_doc_path.read_text(encoding="utf-8"))
+            self.assertFalse(any(f.name == "项目需求" for f in session.exec(select(ProjectFolder).where(ProjectFolder.project_id == project_id)).all()))
+            migrated_file = next((f for f in md_files if f.name == "Legacy Note.md"), None)
+            self.assertIsNotNone(migrated_file)
+            new_folder = session.get(ProjectFolder, migrated_file.folder_id)
+            self.assertIsNotNone(new_folder)
+            self.assertEqual(new_folder.name, "02_需求与方案")
 
     def test_update_project_document_persists_content(self):
         with Session(self.engine) as session:

@@ -59,6 +59,13 @@ DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档",
 
 # ── Shared file text extraction ────────────────────────────────────────────────
 
+LEGACY_PRESALES_FOLDER_TARGETS = {
+    "项目需求": "02_需求与方案",
+    "方案和报价": "02_需求与方案",
+    "项目交付文档": "03_会议与推进",
+    "项目归档信息": "03_会议与推进",
+}
+
 PRESALES_TEMPLATE_FOLDERS = [
     "00_项目总览",
     "01_客户与关系",
@@ -878,6 +885,34 @@ def _read_project_file_content(project_file: ProjectFile) -> str:
     return full_path.read_text(encoding="utf-8", errors="replace")
 
 
+def _cleanup_legacy_presales_folders(
+    session: Session,
+    project_id: int,
+    folders_by_name: dict[str, ProjectFolder],
+) -> int:
+    cleaned_count = 0
+    for legacy_name, target_name in LEGACY_PRESALES_FOLDER_TARGETS.items():
+        legacy_folder = folders_by_name.get(legacy_name)
+        target_folder = folders_by_name.get(target_name)
+        if not legacy_folder or not target_folder or legacy_folder.id == target_folder.id:
+            continue
+
+        files = session.exec(select(ProjectFile).where(ProjectFile.folder_id == legacy_folder.id)).all()
+        for project_file in files:
+            project_file.folder_id = target_folder.id
+            session.add(project_file)
+
+        session.flush()
+        session.delete(legacy_folder)
+        session.commit()
+        cleaned_count += 1
+        folders_by_name.pop(legacy_name, None)
+
+    if cleaned_count:
+        _bust_project(project_id)
+    return cleaned_count
+
+
 @router.post("/{project_id}/notes/templates/presales", status_code=201)
 def init_presales_notes_template(
     project_id: int,
@@ -904,6 +939,8 @@ def init_presales_notes_template(
         session.commit()
         session.refresh(folder)
         folders_by_name[folder_name] = folder
+
+    cleaned_folders = _cleanup_legacy_presales_folders(session, project_id, folders_by_name)
 
     existing_docs = session.exec(
         select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.file_type == "md")
@@ -943,6 +980,7 @@ def init_presales_notes_template(
         "ok": True,
         "created_count": len(created_files),
         "updated_count": len(updated_files),
+        "cleaned_folder_count": cleaned_folders,
         "folders": list(folders_by_name.values()),
         "files": created_files + updated_files,
     }

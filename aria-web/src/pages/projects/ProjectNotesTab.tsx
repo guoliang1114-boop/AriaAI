@@ -55,7 +55,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
 
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null)
   const [content, setContent] = useState('')
-  const [mode, setMode] = useState<'edit' | 'preview' | 'split'>('split')
+  const [mode, setMode] = useState<'edit' | 'preview' | 'split'>('preview')
   const [isLoadingDoc, setIsLoadingDoc] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
@@ -160,9 +160,13 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
   const handleInitTemplate = async () => {
     setIsBootstrapping(true)
     try {
-      await api.post(`/projects/${projectId}/notes/templates/presales`, {})
+      const result = await api.post<{ cleaned_folder_count?: number }>(`/projects/${projectId}/notes/templates/presales`, {})
       onUpdate()
-      toast.success(isZh ? '已生成咨询售前模板' : 'Consulting pre-sales template created')
+      toast.success(
+        result.cleaned_folder_count
+          ? (isZh ? '已生成模板并清理重复目录' : 'Template created and duplicate folders cleaned')
+          : (isZh ? '已生成咨询售前模板' : 'Consulting pre-sales template created')
+      )
     } catch (error) {
       console.error('Failed to initialize template:', error)
       toast.error(isZh ? '模板生成失败' : 'Failed to create template')
