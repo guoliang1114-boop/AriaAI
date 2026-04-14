@@ -29,7 +29,7 @@ import { exportConversationFile } from "../../api/chatExport";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import { getApiBaseUrl } from "../../config/api";
-import type { Conversation, Message, Project, ProjectFile } from "../../types/api";
+import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
 
 type ChatMessage = Message;
 
@@ -267,6 +267,7 @@ function SaveToNotesModal({
   messageId,
   conversationId,
   files,
+  folders,
   onSuccess,
 }: {
   isOpen: boolean;
@@ -275,12 +276,14 @@ function SaveToNotesModal({
   messageId?: number | null;
   conversationId?: number | null;
   files: ProjectFile[];
+  folders: ProjectFolder[];
   onSuccess: () => void;
 }) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
   const [action, setAction] = useState<"merge" | "new">("merge");
+  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -288,14 +291,26 @@ function SaveToNotesModal({
   const mdFiles = useMemo(() => files.filter((f) => f.file_type?.toLowerCase() === "md"), [files]);
   const isConversationMode = !!conversationId;
 
+  const filesInSelectedFolder = useMemo(() => {
+    return mdFiles.filter((f) => (selectedFolderId == null ? f.folder_id == null : f.folder_id === selectedFolderId));
+  }, [mdFiles, selectedFolderId]);
+
   useEffect(() => {
     if (isOpen) {
       setAction("merge");
-      setSelectedFileId(mdFiles[0]?.id ?? null);
+      setSelectedFolderId(null);
+      setSelectedFileId(null);
       setFileName(isZh ? "对话沉淀.md" : "chat-note.md");
       setLoading(false);
     }
-  }, [isOpen, mdFiles, isZh]);
+  }, [isOpen, isZh]);
+
+  // Auto-select first file when folder changes in merge mode
+  useEffect(() => {
+    if (action === "merge") {
+      setSelectedFileId(filesInSelectedFolder[0]?.id ?? null);
+    }
+  }, [filesInSelectedFolder, action]);
 
   if (!isOpen) return null;
   if (!messageId && !conversationId) return null;
@@ -316,12 +331,14 @@ function SaveToNotesModal({
           action,
           file_id: selectedFileId,
           file_name: fileName.trim(),
+          folder_id: selectedFolderId,
         });
       } else {
         await api.post(`/projects/${projectId}/messages/${messageId}/save-to-document`, {
           action,
           file_id: selectedFileId,
           file_name: fileName.trim(),
+          folder_id: selectedFolderId,
           prepend_header: true,
         });
       }
@@ -367,16 +384,60 @@ function SaveToNotesModal({
             </button>
           </div>
 
+          {/* Folder selection (shared) */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              {isZh ? "选择文件夹" : "Select folder"}
+            </label>
+            <div className="max-h-32 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+              <label
+                className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
+                  selectedFolderId === null ? "bg-primary/5" : ""
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="folder"
+                  checked={selectedFolderId === null}
+                  onChange={() => setSelectedFolderId(null)}
+                  className="accent-primary"
+                />
+                <FolderKanban className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-sm text-gray-800">{isZh ? "根目录" : "Root"}</span>
+              </label>
+              {folders.map((folder) => (
+                <label
+                  key={folder.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    selectedFolderId === folder.id ? "bg-primary/5" : ""
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="folder"
+                    checked={selectedFolderId === folder.id}
+                    onChange={() => setSelectedFolderId(folder.id)}
+                    className="accent-primary"
+                  />
+                  <FolderKanban className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                  <span className="text-sm text-gray-800 truncate">{folder.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           {action === "merge" ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                {isZh ? "选择笔记文件" : "Select note file"}
+                {isZh ? "选择要合并的笔记文件" : "Select note file to merge into"}
               </label>
-              {mdFiles.length === 0 ? (
-                <p className="text-sm text-gray-400 py-2">{isZh ? "暂无可用的笔记文件，请先新建一个" : "No note files available. Please create one first."}</p>
+              {filesInSelectedFolder.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">
+                  {isZh ? "该文件夹下暂无可用的笔记文件" : "No note files in this folder"}
+                </p>
               ) : (
-                <div className="max-h-48 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-                  {mdFiles.map((file) => (
+                <div className="max-h-40 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {filesInSelectedFolder.map((file) => (
                     <label
                       key={file.id}
                       className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
@@ -424,7 +485,7 @@ function SaveToNotesModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={loading || (action === "merge" && mdFiles.length === 0)}
+            disabled={loading || (action === "merge" && filesInSelectedFolder.length === 0)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -439,10 +500,12 @@ function SaveToNotesModal({
 export function ProjectChatTab({
   project,
   files,
+  folders,
   onProjectUpdate,
 }: {
   project: Project;
   files?: ProjectFile[];
+  folders?: ProjectFolder[];
   onProjectUpdate: () => Promise<void> | void;
 }) {
   const { i18n } = useTranslation();
@@ -945,6 +1008,7 @@ export function ProjectChatTab({
         projectId={project.id}
         messageId={saveMessageId}
         files={files || []}
+        folders={folders || []}
         onSuccess={() => onProjectUpdate()}
       />
 
@@ -954,6 +1018,7 @@ export function ProjectChatTab({
         projectId={project.id}
         conversationId={activeConvId}
         files={files || []}
+        folders={folders || []}
         onSuccess={() => onProjectUpdate()}
       />
     </div>
