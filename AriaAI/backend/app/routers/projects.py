@@ -1778,6 +1778,45 @@ Draft:
     return {"result": result}
 
 
+@router.post("/{project_id}/notes/ai-polish-stream")
+async def ai_polish_project_notes_stream(project_id: int, body: NotePolishBody, session: Session = Depends(get_session)):
+    """Stream the active LLM polishing a rough draft into structured Markdown project notes."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    system_prompt = (
+        "You are a helpful assistant that turns rough drafts into well-structured Markdown project notes. "
+        "Keep the user's original meaning, organize content with headings, bullet points, and checklists where appropriate, "
+        "and output clean Markdown without wrapping it in code blocks."
+    )
+    user_prompt = f"""Please polish the following rough draft into well-structured Markdown project notes.
+
+Project name: {project.name}
+Client: {project.client}
+
+Draft:
+{body.draft}
+"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    async def event_stream():
+        try:
+            async for chunk in _stream(messages, max_tokens=4000):
+                if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
+                    continue
+                yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            return
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @router.get("/todos/my")
 def list_my_todos(
     current_user: User = Depends(get_current_user),

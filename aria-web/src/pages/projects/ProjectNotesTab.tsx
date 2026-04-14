@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { useToast } from '../../contexts/ToastContext'
 import type { ProjectFile, ProjectFolder } from '../../types/api'
@@ -76,6 +77,8 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
   const [aiDraft, setAiDraft] = useState('')
   const [aiResult, setAiResult] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
+  const contentRef = useRef(content)
+  useEffect(() => { contentRef.current = content }, [content])
 
   const lastLoadedContentRef = useRef('')
 
@@ -272,26 +275,57 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
     const draft = aiDraft.trim() || content.trim()
     if (!draft) return
     setAiLoading(true)
+    setAiResult('')
     try {
-      const data = await api.post<{ result: string }>(
-        `/projects/${projectId}/notes/ai-polish`,
-        { draft },
-        { timeout: 120000 }
-      )
-      setAiResult(data.result)
-    } catch (error) {
+      const response = await fetch(`${getApiBaseUrl()}/projects/${projectId}/notes/ai-polish-stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Token': localStorage.getItem('authToken') || '',
+        },
+        body: JSON.stringify({ draft }),
+      })
+      if (!response.ok) throw new Error('Network response was not ok')
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No reader')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
+        for (const event of events) {
+          const line = event.split('\n').map((item) => item.trim()).find((item) => item.startsWith('data: '))
+          if (!line) continue
+          try {
+            const payload = JSON.parse(line.replace(/^data:\s*/, ''))
+            if (payload.type === 'text' && payload.content) {
+              setAiResult((prev) => prev + payload.content)
+            } else if (payload.type === 'error') {
+              throw new Error(payload.message || 'AI generation failed')
+            }
+          } catch (e) {
+            console.error('Failed to parse stream event:', e)
+          }
+        }
+      }
+    } catch (error: any) {
       console.error('AI generation failed:', error)
-      toast.error(isZh ? 'AI 生成失败，请重试' : 'AI generation failed, please try again')
+      toast.error(error?.message || (isZh ? 'AI 生成失败，请重试' : 'AI generation failed, please try again'))
     } finally {
       setAiLoading(false)
     }
   }
 
   const applyAIResult = (applyMode: 'replace' | 'append') => {
-    if (!aiResult.trim()) return
+    const currentResult = aiResult.trim()
+    if (!currentResult) return
+    const prevContent = contentRef.current
     const nextContent = applyMode === 'replace'
-      ? aiResult
-      : `${content.trim() ? `${content}\n\n---\n\n` : ''}${aiResult}`
+      ? currentResult
+      : `${prevContent.trim() ? `${prevContent}\n\n---\n\n` : ''}${currentResult}`
     setContent(nextContent)
     setDirty(nextContent !== lastLoadedContentRef.current)
     setShowAIModal(false)
