@@ -40,7 +40,7 @@ def _safe_export_filename(title: str, created_at: datetime, extension: str) -> s
     return f"{safe_title}_{created_at.strftime('%Y%m%d')}.{extension}"
 
 
-def _export_markdown(conv, messages: List[Message]):
+def build_markdown_export_content(conv, messages: List[Message]) -> str:
     lines = [
         f"# {conv.title or 'Untitled Conversation'}",
         "",
@@ -61,8 +61,12 @@ def _export_markdown(conv, messages: List[Message]):
         lines.append("---")
         lines.append("")
 
+    return "\n".join(lines)
+
+
+def _export_markdown(conv, messages: List[Message]):
     return PlainTextResponse(
-        content="\n".join(lines),
+        content=build_markdown_export_content(conv, messages),
         media_type="text/markdown",
         headers={
             "Content-Disposition": f'attachment; filename="{_safe_export_filename(conv.title, conv.created_at, "md")}"'

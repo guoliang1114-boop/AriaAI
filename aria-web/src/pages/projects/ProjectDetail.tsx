@@ -68,6 +68,7 @@ import type {
   ProjectPayment,
   ProjectMember,
 } from "../../types/api";
+import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 
@@ -2475,11 +2476,16 @@ const QUICK_PROMPTS = [
 // Defined outside ChatTab to keep stable identity across renders — prevents unmount/remount flicker.
 
 // Export dropdown for conversation
-const ExportDropdown = memo<{ conversationId: number; conversationTitle?: string }>(
-  ({ conversationId, conversationTitle }) => {
+const ExportDropdown = memo<{
+  conversationId: number;
+  conversationTitle?: string;
+  onSaveToProject?: () => Promise<void>;
+}>(
+  ({ conversationId, conversationTitle, onSaveToProject }) => {
     const { t } = useTranslation();
     const [isOpen, setIsOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [isSavingToProject, setIsSavingToProject] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     
     useEffect(() => {
@@ -2504,15 +2510,26 @@ const ExportDropdown = memo<{ conversationId: number; conversationTitle?: string
         setIsExporting(false);
       }
     };
+
+    const handleSaveToProject = async () => {
+      if (!onSaveToProject) return;
+      setIsSavingToProject(true);
+      try {
+        await onSaveToProject();
+        setIsOpen(false);
+      } finally {
+        setIsSavingToProject(false);
+      }
+    };
     
     return (
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          disabled={isExporting}
+          disabled={isExporting || isSavingToProject}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
         >
-          {isExporting ? (
+          {isExporting || isSavingToProject ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Download className="w-4 h-4" />
@@ -2537,6 +2554,15 @@ const ExportDropdown = memo<{ conversationId: number; conversationTitle?: string
               <FileText className="w-4 h-4 text-red-400" />
               {t('chat.exportPDF')}
             </button>
+            {onSaveToProject && (
+              <button
+                onClick={handleSaveToProject}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <BookOpen className="w-4 h-4 text-emerald-500" />
+                {t('projects.saveConversationToProject', '沉淀到项目文档')}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -2676,10 +2702,11 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
 });
 ChatStreamingMessage.displayName = "ChatStreamingMessage";
 
-function ChatTab({ project }: { project: Project }) {
+function ChatTab({ project, onProjectUpdate }: { project: Project; onProjectUpdate: () => Promise<void> | void }) {
   // DEBUG_VERSION: 2024-04-11-v2
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const toast = useToast();
 
   // Conversations state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -2875,6 +2902,19 @@ function ChatTab({ project }: { project: Project }) {
       }
     } else {
       console.log("[AutoRename] Skipping, title is not default:", conv.title);
+    }
+  };
+
+  const saveConversationToProject = async () => {
+    if (!activeConvId) return;
+    try {
+      await api.post(`/projects/${project.id}/conversations/${activeConvId}/save-markdown`, {});
+      await onProjectUpdate();
+      toast.success(isZh ? "已沉淀到项目文档" : "Saved to project documents");
+    } catch (error) {
+      console.error("Failed to save conversation to project:", error);
+      toast.error(isZh ? "沉淀失败" : "Failed to save to project");
+      throw error;
     }
   };
 
@@ -3202,6 +3242,7 @@ function ChatTab({ project }: { project: Project }) {
             <ExportDropdown 
               conversationId={activeConversation.id}
               conversationTitle={activeConversation.title}
+              onSaveToProject={saveConversationToProject}
             />
           )}
         </div>
@@ -4830,13 +4871,13 @@ export function ProjectDetail() {
         {/* ChatTab — flex-1 fills remaining height, kept mounted to preserve state */}
         {isChatTab && (
           <div className="flex-1 overflow-hidden px-6 py-4">
-            <ChatTab project={project} />
+            <ProjectChatTab project={project} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
           </div>
         )}
         {/* Always-mounted hidden ChatTab to preserve state when on other tabs */}
         {!isChatTab && (
           <div className="hidden">
-            <ChatTab project={project} />
+            <ProjectChatTab project={project} onProjectUpdate={() => fetchProjectDetail(parseInt(id!))} />
           </div>
         )}
 

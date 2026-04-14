@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from datetime import datetime, timedelta
@@ -13,8 +14,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Conversation, Message
+from app.models.db import Conversation, Message, Project, ProjectFolder
 from app.routers import chat as chat_router_module
+from app.routers import projects as projects_router_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
 
 
@@ -123,6 +125,78 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn('"conversation_id"', resp.text)
         self.assertIn('"done"', resp.text)
+
+
+class ProjectConversationArchiveTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.db_path = db_path
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app = FastAPI()
+        app.include_router(projects_router_module.router)
+        app.dependency_overrides[projects_router_module.get_session] = override_session
+        self.client = TestClient(app)
+
+        self.uploads_dir = Path(os.getcwd()) / "test_tmp_uploads"
+        self.uploads_dir.mkdir(parents=True, exist_ok=True)
+        self.uploads_patch = patch.object(projects_router_module, "UPLOADS_DIR", self.uploads_dir)
+        self.uploads_patch.start()
+
+    def tearDown(self):
+        self.client.close()
+        self.uploads_patch.stop()
+        shutil.rmtree(self.uploads_dir, ignore_errors=True)
+        self.engine.dispose()
+        Path(self.db_path).unlink(missing_ok=True)
+
+    def test_save_project_conversation_as_markdown_file(self):
+        with Session(self.engine) as session:
+            project = Project(name="Alpha", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            folder = ProjectFolder(project_id=project.id, name="Deliverables", sort_order=2)
+            session.add(folder)
+            session.commit()
+            session.refresh(folder)
+
+            conv = Conversation(project_id=project.id, title="Weekly Sync")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            session.add(Message(conversation_id=conv.id, role="user", content="Please summarize this week"))
+            session.add(Message(conversation_id=conv.id, role="assistant", content="Here is the weekly summary"))
+            session.commit()
+
+            project_id = project.id
+            folder_id = folder.id
+            conv_id = conv.id
+
+        resp = self.client.post(f"/projects/{project_id}/conversations/{conv_id}/save-markdown", json={})
+        self.assertEqual(resp.status_code, 201)
+        body = resp.json()
+        self.assertEqual(body["project_id"], project_id)
+        self.assertEqual(body["folder_id"], folder_id)
+        self.assertEqual(body["file_type"], "md")
+        self.assertTrue(body["name"].endswith(".md"))
+
+        saved_path = self.uploads_dir / body["path"]
+        self.assertTrue(saved_path.exists())
+        content = saved_path.read_text(encoding="utf-8")
+        self.assertIn("# Weekly Sync", content)
+        self.assertIn("Please summarize this week", content)
+        self.assertIn("Here is the weekly summary", content)
 
 
 class ChatStreamingServiceTestCase(unittest.TestCase):

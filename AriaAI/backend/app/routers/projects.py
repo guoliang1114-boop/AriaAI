@@ -15,12 +15,13 @@ from sqlmodel import Session, select
 import json
 from app.config import UPLOADS_DIR
 from app.database import get_session
-from app.models.db import Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, User
+from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, User
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
 from app.services.provider_selector import get_selected_model, resolve_provider_from_model, _load_provider_module
 from app.routers.auth import get_current_user
+from app.routers.chat_export import build_markdown_export_content
 
 _PROJECTS_TTL = 120.0
 
@@ -240,6 +241,11 @@ class MilestoneUpdate(BaseModel):
 class FolderCreate(BaseModel):
     name: str
     sort_order: int = 0
+
+
+class SaveConversationMarkdownRequest(BaseModel):
+    folder_id: Optional[int] = None
+    file_name: Optional[str] = None
 
 
 # ── Projects ──────────────────────────────────────────────────────────────────
@@ -503,6 +509,88 @@ def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get
 @router.get("/{project_id}/files")
 def list_files(project_id: int, session: Session = Depends(get_session)):
     return session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+
+
+def _sanitize_markdown_filename(name: str) -> str:
+    sanitized = "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in (name or "").strip())
+    sanitized = "_".join(part for part in sanitized.split())
+    return sanitized[:80] or "conversation"
+
+
+def _resolve_project_folder(
+    session: Session,
+    project_id: int,
+    preferred_folder_id: Optional[int] = None,
+) -> Optional[ProjectFolder]:
+    if preferred_folder_id is not None:
+        folder = session.get(ProjectFolder, preferred_folder_id)
+        if not folder or folder.project_id != project_id:
+            raise HTTPException(404, "Folder not found")
+        return folder
+
+    folders = session.exec(
+        select(ProjectFolder)
+        .where(ProjectFolder.project_id == project_id)
+        .order_by(ProjectFolder.sort_order, ProjectFolder.id)
+    ).all()
+    if not folders:
+        folders = _init_default_folders(project_id, session)
+
+    for folder in folders:
+        if folder.sort_order == 2:
+            return folder
+    return folders[0] if folders else None
+
+
+@router.post("/{project_id}/conversations/{conv_id}/save-markdown", status_code=201)
+def save_conversation_markdown(
+    project_id: int,
+    conv_id: int,
+    data: SaveConversationMarkdownRequest,
+    session: Session = Depends(get_session),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    conv = session.get(Conversation, conv_id)
+    if not conv or conv.project_id != project_id:
+        raise HTTPException(404, "Conversation not found")
+
+    messages = session.exec(
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at)
+    ).all()
+    if not messages:
+        raise HTTPException(400, "Conversation has no messages")
+
+    target_folder = _resolve_project_folder(session, project_id, data.folder_id)
+    base_name = _sanitize_markdown_filename(data.file_name or conv.title or "conversation")
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"{base_name}_{timestamp}.md"
+
+    dest_dir = UPLOADS_DIR / "projects" / str(project_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_file = dest_dir / filename
+
+    markdown_content = build_markdown_export_content(conv, messages)
+    dest_file.write_text(markdown_content, encoding="utf-8")
+
+    project_file = ProjectFile(
+        project_id=project_id,
+        folder_id=target_folder.id if target_folder else None,
+        name=filename,
+        file_type="md",
+        path=str(dest_file.relative_to(UPLOADS_DIR)),
+        size_bytes=dest_file.stat().st_size,
+        summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
+    )
+    session.add(project_file)
+    session.commit()
+    session.refresh(project_file)
+    _bust_project(project_id)
+    return project_file
 
 
 @router.post("/{project_id}/files", status_code=201)
