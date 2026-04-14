@@ -122,7 +122,6 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load project document:', error)
-          toast.error(isZh ? '加载文档失败' : 'Failed to load document')
         }
       } finally {
         if (!cancelled) setIsLoadingDoc(false)
@@ -133,7 +132,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
     return () => {
       cancelled = true
     }
-  }, [selectedFileId, projectId, toast, isZh])
+  }, [selectedFileId, projectId])
 
   const selectedFile = markdownFiles.find((file) => file.id === selectedFileId) || null
 
