@@ -12,7 +12,7 @@ from sqlmodel import Session, select, func
 
 from app.config import UPLOADS_DIR
 from app.database import get_session, engine
-from app.models.db import KnowledgeDocument, DocumentChunk
+from app.models.db import KnowledgeDocument, DocumentChunk, Project
 from app.services import parser, rag
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -22,8 +22,17 @@ KB_UPLOADS.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("/documents")
-def list_documents(session: Session = Depends(get_session)):
-    return session.exec(select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc())).all()
+def list_documents(
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc())
+    if project_id is not None:
+        stmt = stmt.where(KnowledgeDocument.project_id == project_id)
+    elif client_id is not None:
+        stmt = stmt.where(KnowledgeDocument.client_id == client_id)
+    return session.exec(stmt).all()
 
 
 @router.post("/documents", status_code=201)
@@ -31,8 +40,15 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     category: str = "",
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
     session: Session = Depends(get_session),
 ):
+    if project_id is not None:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(404, "Project not found")
+
     suffix = Path(file.filename or "file").suffix.lower()
     dest_name = f"{uuid.uuid4().hex}{suffix}"
     dest_file = KB_UPLOADS / dest_name
@@ -46,6 +62,8 @@ async def upload_document(
         path=str(dest_file.relative_to(UPLOADS_DIR)),
         category=category,
         vector_status="pending",
+        project_id=project_id,
+        client_id=client_id,
     )
     session.add(doc)
     session.commit()
@@ -95,7 +113,9 @@ def get_stats(session: Session = Depends(get_session)):
 def query_knowledge(
     query: str,
     doc_ids: Optional[List[int]] = None,
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
     session: Session = Depends(get_session),
 ):
-    result = rag.retrieve(query, session, doc_ids)
+    result = rag.retrieve(query, session, doc_ids, project_id=project_id, client_id=client_id)
     return {"context": result}

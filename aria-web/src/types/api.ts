@@ -162,6 +162,7 @@ export interface SendMessageRequest {
   content: string
   project_id?: number
   skill_id?: number
+  knowledge_scope?: 'project' | 'client' | 'global'
   rag_doc_ids?: number[]
   file_ids?: number[]
 }
@@ -187,6 +188,8 @@ export interface KnowledgeDocument {
   file_type: string
   path: string
   category: string
+  project_id?: number | null
+  client_id?: number | null
   size?: number
   vector_status: 'pending' | 'processing' | 'synced' | 'failed'
   uploaded_at: string

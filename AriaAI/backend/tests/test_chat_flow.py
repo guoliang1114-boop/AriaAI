@@ -14,9 +14,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Conversation, Message, Project, ProjectFile, ProjectFolder
+from app.models.db import ClientRecord, Conversation, Message, Project, ProjectFile, ProjectFolder
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
+from app.services import context_builder as context_builder_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
 
 
@@ -326,6 +327,100 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(conv)
             return conv.id
+
+    def test_project_chat_context_disables_global_rag_auto_trigger(self):
+        with Session(self.engine) as session:
+            project = Project(name="Scoped Project", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=context_builder_module.RetrievalContext([], "#doc summarize this"),
+            ) as mocked_retrieve:
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="project",
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        called_project_id = mocked_retrieve.call_args.kwargs.get("project_id")
+        called_client_id = mocked_retrieve.call_args.kwargs.get("client_id")
+        self.assertEqual(called_project_id, project.id)
+        self.assertIsNone(called_client_id)
+        self.assertEqual(ctx.rag_context, "")
+        self.assertEqual(ctx.rag_sources, [])
+
+    def test_project_chat_context_uses_client_scope_when_requested(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", industry="Consulting")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+
+            project = Project(name="Scoped Project", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=context_builder_module.RetrievalContext([], "#doc summarize this"),
+            ) as mocked_retrieve:
+                context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="client",
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        called_project_id = mocked_retrieve.call_args.kwargs.get("project_id")
+        called_client_id = mocked_retrieve.call_args.kwargs.get("client_id")
+        self.assertIsNone(called_project_id)
+        self.assertEqual(called_client_id, client.id)
+
+    def test_project_chat_context_allows_explicit_rag_docs(self):
+        with Session(self.engine) as session:
+            project = Project(name="Scoped Project", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            fake_result = context_builder_module.RetrievalContext(
+                [
+                    context_builder_module.RetrievalResult(
+                        content="Relevant knowledge",
+                        document_name="Selected Doc",
+                        document_id=1,
+                        chunk_index=0,
+                        score=0.99,
+                    )
+                ],
+                "#doc summarize this",
+            )
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=fake_result,
+            ) as mocked_retrieve:
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="project",
+                    rag_doc_ids=[1],
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        self.assertIn("Relevant knowledge", ctx.rag_context)
+        self.assertEqual(len(ctx.rag_sources), 1)
 
     def test_stream_chat_events_persists_successful_response(self):
         conv_id = self._create_conversation()

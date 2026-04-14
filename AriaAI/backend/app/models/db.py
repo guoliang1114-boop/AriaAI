@@ -158,6 +158,7 @@ class KnowledgeDocument(SQLModel, table=True):
     chunk_count: int = 0
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     client_id: Optional[int] = Field(default=None, foreign_key="clientrecord.id", index=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
 
     client: Optional[ClientRecord] = Relationship(back_populates="documents")
     chunks: list["DocumentChunk"] = Relationship(back_populates="document")

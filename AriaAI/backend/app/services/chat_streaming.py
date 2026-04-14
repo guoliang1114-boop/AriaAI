@@ -61,6 +61,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         session=session,
         skill_id=req.skill_id,
         project_id=req.project_id,
+        knowledge_scope=req.knowledge_scope,
         rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
         file_ids=req.file_ids if req.file_ids else None,
         content=req.content,

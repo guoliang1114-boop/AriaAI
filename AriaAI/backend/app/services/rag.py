@@ -88,8 +88,13 @@ class RetrievalContext:
         }
 
 
-def retrieve_structured(query: str, session: Session, 
-                        doc_ids: Optional[List[int]] = None) -> RetrievalContext:
+def retrieve_structured(
+    query: str,
+    session: Session,
+    doc_ids: Optional[List[int]] = None,
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+) -> RetrievalContext:
     """
     Retrieve relevant chunks with full source attribution.
     
@@ -98,9 +103,13 @@ def retrieve_structured(query: str, session: Session,
     """
     query_embedding = embed_texts([query])[0]
 
-    stmt = select(DocumentChunk)
+    stmt = select(DocumentChunk).join(KnowledgeDocument, KnowledgeDocument.id == DocumentChunk.document_id)
     if doc_ids:
         stmt = stmt.where(DocumentChunk.document_id.in_(doc_ids))
+    elif project_id is not None:
+        stmt = stmt.where(KnowledgeDocument.project_id == project_id)
+    elif client_id is not None:
+        stmt = stmt.where(KnowledgeDocument.client_id == client_id)
 
     chunks = session.exec(stmt).all()
     if not chunks:
@@ -138,13 +147,19 @@ def retrieve_structured(query: str, session: Session,
     return RetrievalContext(results, query)
 
 
-def retrieve(query: str, session: Session, doc_ids: Optional[List[int]] = None) -> str:
+def retrieve(
+    query: str,
+    session: Session,
+    doc_ids: Optional[List[int]] = None,
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+) -> str:
     """
     Legacy retrieve function — returns text for LLM prompt.
     
     Use retrieve_structured() for new code that needs source attribution.
     """
-    return retrieve_structured(query, session, doc_ids).to_text()
+    return retrieve_structured(query, session, doc_ids, project_id=project_id, client_id=client_id).to_text()
 
 
 async def index_document(document: KnowledgeDocument, text: str, session: Session) -> None:

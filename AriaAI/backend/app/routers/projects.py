@@ -1527,6 +1527,9 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
 
     prompt = (
         "You are an AI consultant assistant. Based on the project data below, "
+        "treat the current project as the only source of truth. "
+        "Do not blend in facts, progress, or risks from other projects under the same client unless explicitly stated in the project data below. "
+        "If some information appears ambiguous, stay conservative and note the uncertainty rather than borrowing context from elsewhere. "
         "generate a concise context summary of 3-5 bullet points that capture: "
         "the project's core objective, current stage, key risks or open questions, "
         "critical milestones, and important context a consultant should always remember. "

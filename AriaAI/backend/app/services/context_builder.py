@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
 from app.models.db import (
+    ClientRecord,
     Milestone,
     Project,
     ProjectFile,
@@ -214,6 +215,11 @@ def build_project_context(
         return ""
     
     lines = [
+        "## Scope Guard",
+        "Use only the current project's context as the primary source of truth.",
+        "Do not assume facts from other projects under the same client unless the user explicitly asks for cross-project comparison.",
+        "If outside context is mentioned, label it as a hypothesis or reference rather than current-project fact.",
+        "",
         f"**Project Name:** {project.name}",
         f"**Client:** {project.client}",
         f"**Status:** {project.status}",
@@ -305,6 +311,8 @@ def build_rag_context(
     session: Session,
     query: str,
     rag_doc_ids: Optional[list[int]] = None,
+    project_id: Optional[int] = None,
+    knowledge_scope: str = "global",
     auto_trigger: bool = True,
 ) -> dict:
     """
@@ -319,7 +327,25 @@ def build_rag_context(
         return {"text": "", "sources": []}
     
     # Perform structured retrieval
-    ctx = retrieve_structured(query, session, rag_doc_ids)
+    client_id = None
+    effective_project_id = None
+    if not rag_doc_ids and knowledge_scope == "project" and project_id is not None:
+        effective_project_id = project_id
+    elif not rag_doc_ids and knowledge_scope == "client" and project_id is not None:
+        project = session.get(Project, project_id)
+        if project and project.client.strip():
+            client = session.exec(
+                select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
+            ).first()
+            client_id = client.id if client else None
+
+    ctx = retrieve_structured(
+        query,
+        session,
+        rag_doc_ids,
+        project_id=effective_project_id,
+        client_id=client_id,
+    )
     
     return {
         "text": ctx.to_text(),
@@ -351,6 +377,7 @@ def build_chat_context(
     session: Session,
     skill_id: Optional[int] = None,
     project_id: Optional[int] = None,
+    knowledge_scope: str = "global",
     rag_doc_ids: Optional[list[int]] = None,
     file_ids: Optional[list[int]] = None,
     content: str = "",
@@ -367,7 +394,14 @@ def build_chat_context(
         project_context = build_global_workspace_context(session)
     
     # Build RAG context
-    rag_data = build_rag_context(session, content, rag_doc_ids)
+    rag_data = build_rag_context(
+        session,
+        content,
+        rag_doc_ids,
+        project_id=project_id,
+        knowledge_scope=knowledge_scope,
+        auto_trigger=True,
+    )
     
     return ChatContext(
         skill_prompt=skill_ctx.skill_prompt,

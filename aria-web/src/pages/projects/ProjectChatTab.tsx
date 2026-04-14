@@ -511,6 +511,7 @@ export function ProjectChatTab({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
@@ -708,6 +709,7 @@ export function ProjectChatTab({
           conversation_id: convId,
           content: trimmed,
           project_id: project.id,
+          knowledge_scope: knowledgeScope,
         }),
       });
 
@@ -876,23 +878,36 @@ export function ProjectChatTab({
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
               <Bot className="w-5 h-5 text-primary" />
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 text-base">
-                {activeConversation?.title || (isZh ? "项目 AI 助手" : "Project AI Assistant")}
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {isZh ? "基于项目上下文提供智能建议" : "Smart suggestions based on project context"}
-              </p>
-            </div>
+          <div>
+            <h3 className="font-semibold text-gray-900 text-base">
+              {activeConversation?.title || (isZh ? "项目 AI 助手" : "Project AI Assistant")}
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {isZh ? "基于项目上下文提供智能建议" : "Smart suggestions based on project context"}
+            </p>
           </div>
-
-          {activeConversation?.id && (
-            <ExportDropdown
-              conversationId={activeConversation.id}
-              conversationTitle={activeConversation.title}
-              onOpenSaveModal={openConversationSaveModal}
-            />
-          )}
+        </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2">
+              <span className="text-xs text-gray-400">{isZh ? "知识范围" : "Knowledge Scope"}</span>
+              <select
+                value={knowledgeScope}
+                onChange={(event) => setKnowledgeScope(event.target.value as "project" | "client" | "global")}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="project">{isZh ? "仅当前项目" : "Current Project"}</option>
+                <option value="client">{isZh ? "当前客户" : "Current Client"}</option>
+                <option value="global">{isZh ? "全局知识库" : "Global Knowledge"}</option>
+              </select>
+            </div>
+            {activeConversation?.id && (
+              <ExportDropdown
+                conversationId={activeConversation.id}
+                conversationTitle={activeConversation.title}
+                onOpenSaveModal={openConversationSaveModal}
+              />
+            )}
+          </div>
         </div>
 
         <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
