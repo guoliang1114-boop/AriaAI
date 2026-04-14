@@ -59,13 +59,16 @@ class ClientOut(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _normalized_name(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
 def _build_client_out(
     client: ClientRecord,
     docs_by_client: dict[int, list],
     projects_by_client_name: dict[str, list[str]],
 ) -> ClientOut:
     docs = docs_by_client.get(client.id, [])
-    matching = projects_by_client_name.get(client.name.strip().lower(), [])
+    matching = projects_by_client_name.get(_normalized_name(client.name), [])
     return ClientOut(
         id=client.id,
         name=client.name,
@@ -84,7 +87,8 @@ def _client_out(client: ClientRecord, session: Session) -> ClientOut:
         select(KnowledgeDocument).where(KnowledgeDocument.client_id == client.id)
     ).all()
     all_projects = session.exec(select(Project)).all()
-    matching = [p.name for p in all_projects if p.client.strip().lower() == client.name.strip().lower()]
+    client_key = _normalized_name(client.name)
+    matching = [p.name for p in all_projects if _normalized_name(p.client) == client_key]
     return ClientOut(
         id=client.id,
         name=client.name,
@@ -114,7 +118,9 @@ def list_clients(session: Session = Depends(get_session)):
             docs_by_client.setdefault(d.client_id, []).append(d)
     projects_by_name: dict[str, list[str]] = {}
     for p in all_projects:
-        key = p.client.strip().lower()
+        key = _normalized_name(p.client)
+        if not key:
+            continue
         projects_by_name.setdefault(key, []).append(p.name)
     result = [_build_client_out(c, docs_by_client, projects_by_name) for c in clients]
     clients_cache.set(_CLIENTS_KEY, result, _CLIENTS_TTL)
@@ -189,7 +195,8 @@ def list_client_projects(client_id: int, session: Session = Depends(get_session)
         raise HTTPException(status_code=404, detail="Client not found")
     all_projects = session.exec(select(Project)).all()
     # Match projects where client name matches (case-insensitive)
-    matching = [p for p in all_projects if p.client.strip().lower() == client.name.strip().lower()]
+    client_key = _normalized_name(client.name)
+    matching = [p for p in all_projects if _normalized_name(p.client) == client_key]
     return [
         {
             "id": p.id,
