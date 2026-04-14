@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
   Circle,
+  Calendar,
   Plus,
   Trash2,
   Edit3,
@@ -160,12 +161,14 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   })()
 
   const [newContent, setNewContent] = useState('')
+  const [newDueDate, setNewDueDate] = useState('')
   const [newAssignee, setNewAssignee] = useState<number | null>(currentUser?.id ?? null)
   const [isAdding, setIsAdding] = useState(false)
 
   const [savingId, setSavingId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
+  const [editDueDate, setEditDueDate] = useState('')
   const [editAssignee, setEditAssignee] = useState<number | null>(null)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -195,9 +198,11 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
     try {
       await api.post(`/projects/${projectId}/todos`, {
         content: newContent.trim(),
+        due_date: newDueDate || null,
         assigned_to_user_id: newAssignee,
       })
       setNewContent('')
+      setNewDueDate('')
       setNewAssignee(currentUser?.id ?? null)
       onUpdate()
     } catch (error) {
@@ -257,12 +262,14 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const startEdit = (todo: ProjectTodo) => {
     setEditingId(todo.id)
     setEditContent(todo.content)
+    setEditDueDate(todo.due_date ?? '')
     setEditAssignee(todo.assigned_to_user_id ?? null)
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEditContent('')
+    setEditDueDate('')
     setEditAssignee(null)
   }
 
@@ -272,10 +279,12 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
     try {
       await api.patch(`/projects/${projectId}/todos/${todoId}`, {
         content: editContent.trim(),
+        due_date: editDueDate || null,
         assigned_to_user_id: editAssignee,
       })
       setEditingId(null)
       setEditContent('')
+      setEditDueDate('')
       setEditAssignee(null)
       onUpdate()
     } catch (error) {
@@ -322,6 +331,17 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
             placeholder={isZh ? '添加新的待办事项...' : 'Add a new todo...'}
             className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
+          <div className="sm:w-44">
+            <div className="relative">
+              <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="date"
+                value={newDueDate}
+                onChange={(e) => setNewDueDate(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+          </div>
           <div className="sm:w-48">
             <UserPicker
               users={users}
@@ -396,6 +416,17 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                           autoFocus
                           className="flex-1 px-3 py-1.5 bg-white border border-primary/30 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
+                        <div className="sm:w-40">
+                          <div className="relative">
+                            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="date"
+                              value={editDueDate}
+                              onChange={(e) => setEditDueDate(e.target.value)}
+                              className="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-9 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                          </div>
+                        </div>
                         <div className="sm:w-44">
                           <UserPicker
                             users={users}
@@ -428,14 +459,22 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                         <p className={`text-sm ${todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                           {todo.content}
                         </p>
-                        {todo.assigned_user && (
-                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                            <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
-                              {todo.assigned_user.display_name.charAt(0)}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                          {todo.due_date && (
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5" />
+                              <span>{todo.due_date}</span>
                             </div>
-                            <span>{todo.assigned_user.display_name}</span>
-                          </div>
-                        )}
+                          )}
+                          {todo.assigned_user && (
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
+                                {todo.assigned_user.display_name.charAt(0)}
+                              </div>
+                              <span>{todo.assigned_user.display_name}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

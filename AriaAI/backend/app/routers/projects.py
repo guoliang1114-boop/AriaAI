@@ -461,12 +461,14 @@ class ProjectUpdate(BaseModel):
 class TodoCreate(BaseModel):
     content: str
     is_done: bool = False
+    due_date: Optional[str] = None
     assigned_to_user_id: Optional[int] = None
 
 
 class TodoUpdate(BaseModel):
     content: Optional[str] = None
     is_done: Optional[bool] = None
+    due_date: Optional[str] = None
     assigned_to_user_id: Optional[int] = None
 
 
@@ -1604,6 +1606,7 @@ def _serialize_todo(todo: ProjectTodo) -> dict:
         "project_id": todo.project_id,
         "content": todo.content,
         "is_done": todo.is_done,
+        "due_date": todo.due_date,
         "assigned_to_user_id": todo.assigned_to_user_id,
         "assigned_user": (
             {"id": todo.assigned_user.id, "display_name": todo.assigned_user.display_name}
@@ -1636,6 +1639,7 @@ def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(ge
         project_id=project_id,
         content=body.content,
         is_done=body.is_done,
+        due_date=body.due_date,
         assigned_to_user_id=body.assigned_to_user_id,
     )
     session.add(todo)
@@ -1794,6 +1798,7 @@ def list_my_todos(
             "project_id": t.project_id,
             "project_name": p.name,
             "content": t.content,
+            "due_date": t.due_date,
             "created_at": t.created_at,
             "updated_at": t.updated_at,
         }

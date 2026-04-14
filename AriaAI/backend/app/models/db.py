@@ -57,6 +57,7 @@ class ProjectTodo(SQLModel, table=True):
     project_id: int = Field(foreign_key="project.id", index=True)
     content: str
     is_done: bool = False
+    due_date: Optional[str] = None
     assigned_to_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
