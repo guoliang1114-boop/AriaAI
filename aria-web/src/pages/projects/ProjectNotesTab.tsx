@@ -17,7 +17,7 @@ export function ProjectNotesTab({ projectId, mdNotes, onUpdate }: ProjectNotesTa
   const toast = useToast()
 
   const [content, setContent] = useState(mdNotes || '')
-  const [mode, setMode] = useState<'edit' | 'preview' | 'split'>('split')
+  const [mode, setMode] = useState<'edit' | 'preview' | 'split'>('preview')
   const [saving, setSaving] = useState(false)
 
   // AI assistant modal state
