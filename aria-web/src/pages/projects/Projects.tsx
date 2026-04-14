@@ -189,7 +189,7 @@ function StageColumn({
   const totalValue = projects.reduce((sum, p) => sum + (p.contract_amount || 0), 0)
 
   return (
-    <div className="flex flex-col h-full min-w-0 w-full max-w-[420px]">
+    <div className="flex flex-col h-full min-w-0 w-full">
       {/* Stage Header */}
       <div className={`p-3 rounded-xl border ${stage.borderColor} ${stage.bgColor} mb-3`}>
         <div className="flex items-center justify-between mb-2">
@@ -313,10 +313,10 @@ function PhaseSection({
       {isExpanded && (
         <div className="mt-6 animate-in slide-in-from-top-2 duration-300">
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-            <div className="overflow-x-auto pb-4 -mx-2 px-2">
-              <div className="flex gap-5 min-w-max">
+            <div className="pb-4">
+              <div className="grid gap-5 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
                 {phaseStages.map((stage) => (
-                  <div key={stage.id} className="flex-1 min-w-[260px] max-w-[420px]">
+                  <div key={stage.id} className="min-w-0">
                     <StageColumn
                       stage={stage}
                       projects={projects.filter(p => getProjectStage(p) === stage.id)}
