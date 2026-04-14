@@ -10,6 +10,7 @@ import {
   FileText,
   ChevronRight,
   X,
+  Sparkles,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
@@ -37,6 +38,11 @@ export function Clients() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ name: '', industry: '', contact: '', notes: '' })
 
+  const [aiQuery, setAiQuery] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSuggestions, setAiSuggestions] = useState<Array<{ name: string; industry: string; contact: string; notes: string }>>([])
+  const [aiError, setAiError] = useState<string | null>(null)
+
   useEffect(() => {
     fetchClients()
   }, [])
@@ -50,6 +56,26 @@ export function Clients() {
       console.error('Failed to fetch clients:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAiSuggest = async () => {
+    const query = aiQuery.trim()
+    if (!query) return
+    setAiLoading(true)
+    setAiError(null)
+    setAiSuggestions([])
+    try {
+      const results = await api.post<Array<{ name: string; industry: string; contact: string; notes: string }>>('/clients/ai-suggest', { query })
+      setAiSuggestions(results)
+      if (results.length === 0) {
+        setAiError(isZh ? 'AI 未返回结果' : 'AI returned no results')
+      }
+    } catch (err: any) {
+      console.error('AI suggest failed:', err)
+      setAiError(err?.response?.data?.detail || (isZh ? 'AI 建议生成失败' : 'AI suggestion failed'))
+    } finally {
+      setAiLoading(false)
     }
   }
 
@@ -228,6 +254,57 @@ export function Clients() {
               </button>
             </div>
             <div className="p-5 space-y-4">
+              {/* AI Assist */}
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                <label className="block text-xs font-medium text-gray-500">
+                  {isZh ? 'AI 智能填充' : 'AI Auto-fill'}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAiSuggest())}
+                    placeholder={isZh ? '输入公司名或描述...' : 'Enter company name or description...'}
+                    className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAiSuggest}
+                    disabled={aiLoading || !aiQuery.trim()}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white text-sm rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
+                  >
+                    {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {isZh ? '生成' : 'Generate'}
+                  </button>
+                </div>
+                {aiError && <p className="text-xs text-red-500">{aiError}</p>}
+                {aiSuggestions.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <p className="text-xs text-gray-400">{isZh ? '点击建议自动填充' : 'Click a suggestion to auto-fill'}</p>
+                    {aiSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setForm({
+                            name: s.name,
+                            industry: s.industry,
+                            contact: s.contact,
+                            notes: s.notes,
+                          })
+                          setAiSuggestions([])
+                        }}
+                        className="w-full text-left px-3 py-2 bg-white border border-gray-200 rounded-lg hover:border-primary/40 hover:shadow-sm transition-all"
+                      >
+                        <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{s.industry}{s.notes ? ` · ${s.notes}` : ''}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {isZh ? '客户名称' : 'Client Name'} <span className="text-red-500">*</span>
