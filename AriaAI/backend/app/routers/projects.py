@@ -25,6 +25,11 @@ from app.services.project_documents import (
     ensure_markdown_filename,
     write_project_markdown_file,
 )
+from app.services.project_members import (
+    add_project_member,
+    list_project_members,
+    remove_project_member,
+)
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -1631,9 +1636,7 @@ def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_se
 @router.get("/{project_id}/members", response_model=list[MemberOut])
 def list_members(project_id: int, session: Session = Depends(get_session)):
     ensure_project_exists(session, project_id)
-    members = session.exec(
-        select(ProjectMember).where(ProjectMember.project_id == project_id)
-    ).all()
+    members = list_project_members(session, project_id)
     return [
         MemberOut(
             id=m.id,
@@ -1649,21 +1652,7 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
 @router.post("/{project_id}/members", status_code=201, response_model=MemberOut)
 def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
     ensure_project_exists(session, project_id)
-    user = session.get(User, body.user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
-    existing = session.exec(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == body.user_id,
-        )
-    ).first()
-    if existing:
-        raise HTTPException(409, "User is already a member of this project")
-    member = ProjectMember(project_id=project_id, user_id=body.user_id)
-    session.add(member)
-    session.commit()
-    session.refresh(member)
+    member, user = add_project_member(session, project_id, body.user_id)
     _bust_project(project_id)
     return MemberOut(
         id=member.id,
@@ -1676,16 +1665,7 @@ def add_member(project_id: int, body: MemberCreate, session: Session = Depends(g
 
 @router.delete("/{project_id}/members/{user_id}")
 def remove_member(project_id: int, user_id: int, session: Session = Depends(get_session)):
-    member = session.exec(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id,
-        )
-    ).first()
-    if not member:
-        raise HTTPException(404, "Member not found")
-    session.delete(member)
-    session.commit()
+    remove_project_member(session, project_id, user_id)
     _bust_project(project_id)
     return {"ok": True}
 
