@@ -25,7 +25,13 @@ from app.services.project_documents import (
     ensure_markdown_filename,
     write_project_markdown_file,
 )
-from app.services.project_financials import list_project_payments, serialize_financials
+from app.services.project_financials import (
+    add_project_payment,
+    delete_project_payment,
+    get_project_financials,
+    list_project_payments,
+    serialize_financials,
+)
 from app.services.project_members import (
     add_project_member,
     list_project_members,
@@ -1334,6 +1340,7 @@ def delete_folder(project_id: int, folder_id: int, session: Session = Depends(ge
 
 @router.get("/{project_id}/financials")
 def get_financials(project_id: int, session: Session = Depends(get_session)):
+    return get_project_financials(session, project_id)
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -1358,6 +1365,16 @@ def get_financials(project_id: int, session: Session = Depends(get_session)):
 
 @router.post("/{project_id}/financials", status_code=201)
 def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends(get_session)):
+    payment = add_project_payment(
+        session,
+        project_id,
+        amount=data.amount,
+        payment_date=data.payment_date,
+        note=data.note,
+        payment_type=data.payment_type,
+    )
+    _bust_project(project_id)
+    return payment
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -1374,6 +1391,9 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
 
 @router.delete("/{project_id}/financials/{payment_id}")
 def delete_payment(project_id: int, payment_id: int, session: Session = Depends(get_session)):
+    delete_project_payment(session, project_id, payment_id)
+    _bust_project(project_id)
+    return {"ok": True}
     payment = session.get(ProjectPayment, payment_id)
     if not payment or payment.project_id != project_id:
         raise HTTPException(404, "Payment not found")

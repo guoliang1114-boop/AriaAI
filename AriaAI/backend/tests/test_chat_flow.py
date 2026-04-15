@@ -502,6 +502,11 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(financials_resp.json()["total_expense"], 0)
         self.assertEqual(len(financials_resp.json()["payments"]), 2)
 
+        detail_after_delete = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_after_delete.status_code, 200)
+        self.assertEqual(detail_after_delete.json()["financials"]["total_expense"], 0)
+        self.assertEqual(len(detail_after_delete.json()["financials"]["payments"]), 2)
+
     def test_list_my_todos_returns_only_current_user_pending_items_with_due_dates(self):
         with Session(self.engine) as session:
             other_user = User(
