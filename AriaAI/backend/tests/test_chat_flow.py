@@ -14,7 +14,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import ClientRecord, Conversation, Message, Project, ProjectFile, ProjectFolder
+from app.models.db import (
+    ClientRecord,
+    Conversation,
+    Message,
+    Project,
+    ProjectFile,
+    ProjectFolder,
+    ProjectMember,
+    User,
+)
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services import context_builder as context_builder_module
@@ -261,6 +270,84 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             new_folder = session.get(ProjectFolder, migrated_file.folder_id)
             self.assertIsNotNone(new_folder)
             self.assertEqual(new_folder.name, "02_需求与方案")
+
+    def test_project_members_crud_and_detail_payload(self):
+        with Session(self.engine) as session:
+            project = Project(name="Gamma", client="Client")
+            user = User(
+                email="member@example.com",
+                display_name="Alice",
+                password_hash="hashed",
+            )
+            session.add(project)
+            session.add(user)
+            session.commit()
+            session.refresh(project)
+            session.refresh(user)
+            project_id = project.id
+            user_id = user.id
+
+        add_resp = self.client.post(
+            f"/projects/{project_id}/members",
+            json={"user_id": user_id},
+        )
+        self.assertEqual(add_resp.status_code, 201)
+        self.assertEqual(add_resp.json()["user"]["display_name"], "Alice")
+
+        list_resp = self.client.get(f"/projects/{project_id}/members")
+        self.assertEqual(list_resp.status_code, 200)
+        members = list_resp.json()
+        self.assertEqual(len(members), 1)
+        self.assertEqual(members[0]["user_id"], user_id)
+        self.assertEqual(members[0]["user"]["display_name"], "Alice")
+
+        detail_resp = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_resp.status_code, 200)
+        detail_members = detail_resp.json()["members"]
+        self.assertEqual(len(detail_members), 1)
+        self.assertEqual(detail_members[0]["user_id"], user_id)
+        self.assertEqual(detail_members[0]["user"]["display_name"], "Alice")
+
+        remove_resp = self.client.delete(f"/projects/{project_id}/members/{user_id}")
+        self.assertEqual(remove_resp.status_code, 200)
+        self.assertEqual(remove_resp.json(), {"ok": True})
+
+        detail_after_remove = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_after_remove.status_code, 200)
+        self.assertEqual(detail_after_remove.json()["members"], [])
+
+        with Session(self.engine) as session:
+            self.assertEqual(
+                session.exec(
+                    select(ProjectMember).where(ProjectMember.project_id == project_id)
+                ).all(),
+                [],
+            )
+
+    def test_project_members_prevent_duplicate_member(self):
+        with Session(self.engine) as session:
+            project = Project(name="Delta", client="Client")
+            user = User(
+                email="duplicate@example.com",
+                display_name="Bob",
+                password_hash="hashed",
+            )
+            session.add(project)
+            session.add(user)
+            session.commit()
+            session.refresh(project)
+            session.refresh(user)
+            session.add(ProjectMember(project_id=project.id, user_id=user.id))
+            session.commit()
+            project_id = project.id
+            user_id = user.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/members",
+            json={"user_id": user_id},
+        )
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("already a member", resp.json()["detail"])
 
     def test_update_project_document_persists_content(self):
         with Session(self.engine) as session:
