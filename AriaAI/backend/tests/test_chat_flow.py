@@ -602,6 +602,67 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("file_id is required", resp.json()["detail"])
 
+    def test_update_project_document_rejects_cross_project_file(self):
+        with Session(self.engine) as session:
+            project_a = Project(name="Project A", client="Client")
+            project_b = Project(name="Project B", client="Client")
+            session.add(project_a)
+            session.add(project_b)
+            session.commit()
+            session.refresh(project_a)
+            session.refresh(project_b)
+
+            path = Path("projects") / str(project_b.id) / "foreign_doc.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Foreign", encoding="utf-8")
+
+            foreign_file = ProjectFile(
+                project_id=project_b.id,
+                name="Foreign Doc.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(foreign_file)
+            session.commit()
+            session.refresh(foreign_file)
+            project_a_id = project_a.id
+            foreign_file_id = foreign_file.id
+
+        resp = self.client.patch(
+            f"/projects/{project_a_id}/documents/{foreign_file_id}",
+            json={"content": "# Should fail"},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("File not found", resp.json()["detail"])
+
+    def test_save_message_to_document_merge_requires_file_id(self):
+        with Session(self.engine) as session:
+            project = Project(name="Message Merge Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            conv = Conversation(project_id=project.id, title="Discovery")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            message = Message(conversation_id=conv.id, role="assistant", content="Important follow-up")
+            session.add(message)
+            session.commit()
+            session.refresh(message)
+            project_id = project.id
+            message_id = message.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/messages/{message_id}/save-to-document",
+            json={"action": "merge"},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("file_id is required", resp.json()["detail"])
+
     def test_project_todo_due_date_round_trip(self):
         with Session(self.engine) as session:
             project = Project(name="Todo Project", client="Client")
