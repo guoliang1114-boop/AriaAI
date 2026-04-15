@@ -22,10 +22,13 @@ from app.models.db import (
     ProjectFile,
     ProjectFolder,
     ProjectMember,
+    ProjectPayment,
+    ProjectTodo,
     User,
 )
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
+from app.services.cache import projects_cache
 from app.services import context_builder as context_builder_module
 from app.services import rag as rag_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
@@ -69,6 +72,7 @@ def collect_async_generator(async_gen):
 
 class ChatRouterTestCase(unittest.TestCase):
     def setUp(self):
+        projects_cache.clear()
         fd, db_path = tempfile.mkstemp(suffix=".db")
         os.close(fd)
         self.db_path = db_path
@@ -162,9 +166,27 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             with Session(self.engine) as session:
                 yield session
 
+        with Session(self.engine) as session:
+            current_user = User(
+                email="current@example.com",
+                display_name="Current User",
+                password_hash="hashed",
+            )
+            session.add(current_user)
+            session.commit()
+            session.refresh(current_user)
+            self.current_user_id = current_user.id
+
+        def override_current_user():
+            with Session(self.engine) as session:
+                user = session.get(User, self.current_user_id)
+                assert user is not None
+                return user
+
         app = FastAPI()
         app.include_router(projects_router_module.router)
         app.dependency_overrides[projects_router_module.get_session] = override_session
+        app.dependency_overrides[projects_router_module.get_current_user] = override_current_user
         self.client = TestClient(app)
 
         self.uploads_dir = Path(os.getcwd()) / "test_tmp_uploads"
@@ -175,6 +197,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.uploads_patch.stop()
+        projects_cache.clear()
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()
         Path(self.db_path).unlink(missing_ok=True)
@@ -348,6 +371,121 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 409)
         self.assertIn("already a member", resp.json()["detail"])
+
+    def test_project_detail_smoke_includes_aggregate_sections(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Aggregate Project",
+                client="Client",
+                md_notes="# Overview",
+                contract_amount=880000,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            folder = ProjectFolder(project_id=project.id, name="Archive", sort_order=3)
+            member_user = User(
+                email="aggregate-member@example.com",
+                display_name="Eve",
+                password_hash="hashed",
+            )
+            session.add(folder)
+            session.add(member_user)
+            session.commit()
+            session.refresh(folder)
+            session.refresh(member_user)
+
+            session.add(ProjectMember(project_id=project.id, user_id=member_user.id))
+            session.add(
+                ProjectPayment(
+                    project_id=project.id,
+                    amount=120000,
+                    payment_date="2026-04-10",
+                    note="Kickoff invoice",
+                    payment_type="invoiced",
+                )
+            )
+            session.add(
+                ProjectTodo(
+                    project_id=project.id,
+                    content="Prepare workshop",
+                    due_date="2026-04-20",
+                    assigned_to_user_id=member_user.id,
+                )
+            )
+            session.commit()
+            project_id = project.id
+
+        resp = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["project"]["name"], "Aggregate Project")
+        self.assertEqual(body["md_notes"], "# Overview")
+        self.assertEqual(len(body["folders"]), 1)
+        self.assertEqual(body["folders"][0]["name"], "Archive")
+        self.assertEqual(len(body["members"]), 1)
+        self.assertEqual(body["members"][0]["user"]["display_name"], "Eve")
+        self.assertEqual(len(body["todos"]), 1)
+        self.assertEqual(body["todos"][0]["due_date"], "2026-04-20")
+        self.assertEqual(body["financials"]["contract_amount"], 880000)
+        self.assertEqual(body["financials"]["total_invoiced"], 120000)
+        self.assertEqual(len(body["financials"]["payments"]), 1)
+
+    def test_list_my_todos_returns_only_current_user_pending_items_with_due_dates(self):
+        with Session(self.engine) as session:
+            other_user = User(
+                email="other@example.com",
+                display_name="Other User",
+                password_hash="hashed",
+            )
+            project_a = Project(name="Alpha", client="Client")
+            project_b = Project(name="Beta", client="Client")
+            session.add(other_user)
+            session.add(project_a)
+            session.add(project_b)
+            session.commit()
+            session.refresh(other_user)
+            session.refresh(project_a)
+            session.refresh(project_b)
+
+            session.add(
+                ProjectTodo(
+                    project_id=project_a.id,
+                    content="Current user pending",
+                    due_date="2026-05-01",
+                    assigned_to_user_id=self.current_user_id,
+                    updated_at=datetime.utcnow() + timedelta(minutes=2),
+                )
+            )
+            session.add(
+                ProjectTodo(
+                    project_id=project_b.id,
+                    content="Current user done",
+                    due_date="2026-05-03",
+                    assigned_to_user_id=self.current_user_id,
+                    is_done=True,
+                    updated_at=datetime.utcnow() + timedelta(minutes=1),
+                )
+            )
+            session.add(
+                ProjectTodo(
+                    project_id=project_b.id,
+                    content="Other user pending",
+                    due_date="2026-05-02",
+                    assigned_to_user_id=other_user.id,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            session.commit()
+
+        resp = self.client.get("/projects/todos/my")
+        self.assertEqual(resp.status_code, 200)
+        todos = resp.json()
+        self.assertEqual(len(todos), 1)
+        self.assertEqual(todos[0]["content"], "Current user pending")
+        self.assertEqual(todos[0]["project_name"], "Alpha")
+        self.assertEqual(todos[0]["due_date"], "2026-05-01")
 
     def test_update_project_document_persists_content(self):
         with Session(self.engine) as session:
