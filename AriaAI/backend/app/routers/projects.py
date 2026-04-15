@@ -33,6 +33,11 @@ from app.services.project_financials import (
     list_project_payments,
     serialize_financials,
 )
+from app.services.project_folders import (
+    create_project_folder,
+    delete_project_folder,
+    list_project_folders,
+)
 from app.services.project_members import (
     add_project_member,
     list_project_members,
@@ -1258,38 +1263,24 @@ def download_file(project_id: int, file_id: int, session: Session = Depends(get_
 
 @router.get("/{project_id}/folders")
 def list_folders(project_id: int, session: Session = Depends(get_session)):
-    folders = session.exec(
-        select(ProjectFolder)
-        .where(ProjectFolder.project_id == project_id)
-        .order_by(ProjectFolder.sort_order)
-    ).all()
-    if not folders:
-        folders = _init_default_folders(project_id, session)
-    return folders
+    return list_project_folders(session, project_id, init_default_folders=_init_default_folders)
 
 
 @router.post("/{project_id}/folders", status_code=201)
 def create_folder(project_id: int, data: FolderCreate, session: Session = Depends(get_session)):
-    folder = ProjectFolder(project_id=project_id, **data.model_dump())
-    session.add(folder)
-    session.commit()
-    session.refresh(folder)
+    folder = create_project_folder(
+        session,
+        project_id,
+        name=data.name,
+        sort_order=data.sort_order,
+    )
     _bust_project(project_id)
     return folder
 
 
 @router.delete("/{project_id}/folders/{folder_id}")
 def delete_folder(project_id: int, folder_id: int, session: Session = Depends(get_session)):
-    folder = session.get(ProjectFolder, folder_id)
-    if not folder or folder.project_id != project_id:
-        raise HTTPException(404, "Folder not found")
-    # Unlink files from this folder before deleting
-    files = session.exec(select(ProjectFile).where(ProjectFile.folder_id == folder_id)).all()
-    for f in files:
-        f.folder_id = None
-        session.add(f)
-    session.delete(folder)
-    session.commit()
+    delete_project_folder(session, project_id, folder_id)
     _bust_project(project_id)
     return {"ok": True}
 

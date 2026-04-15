@@ -663,6 +663,52 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertTrue(saved_path.exists())
         self.assertIn("Agenda", saved_path.read_text(encoding="utf-8"))
 
+    def test_delete_folder_unlinks_files_instead_of_deleting_them(self):
+        with Session(self.engine) as session:
+            project = Project(name="Folder Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            folder = ProjectFolder(project_id=project.id, name="Archive", sort_order=2)
+            session.add(folder)
+            session.commit()
+            session.refresh(folder)
+
+            path = Path("projects") / str(project.id) / "folder_file.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Folder file", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                folder_id=folder.id,
+                name="Folder File.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+            project_id = project.id
+            folder_id = folder.id
+            file_id = project_file.id
+
+        delete_resp = self.client.delete(f"/projects/{project_id}/folders/{folder_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        with Session(self.engine) as session:
+            saved_file = session.get(ProjectFile, file_id)
+            self.assertIsNotNone(saved_file)
+            self.assertIsNone(saved_file.folder_id)
+            self.assertIsNone(session.get(ProjectFolder, folder_id))
+
+        detail_resp = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(len(detail_resp.json()["files"]), 1)
+
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
             project = Project(name="Merge Project", client="Client")
