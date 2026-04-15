@@ -70,6 +70,7 @@ import type {
 } from "../../types/api";
 import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
+import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
@@ -4923,7 +4924,7 @@ export function ProjectDetail() {
           <Route
             path="/financials"
             element={
-              <FinancialsTab
+              <ProjectFinancialsTab
                 projectDetail={projectDetail}
                 projectId={id!}
                 onUpdate={refreshProjectDetail}
@@ -5056,7 +5057,7 @@ export function ProjectDetail() {
             <Route
               path="/financials"
               element={
-                <FinancialsTab
+                <ProjectFinancialsTab
                   projectDetail={projectDetail}
                   projectId={id!}
                   onUpdate={refreshProjectDetail}
