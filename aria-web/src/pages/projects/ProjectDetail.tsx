@@ -72,6 +72,7 @@ import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
+import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { useProjectDetailData } from "./useProjectDetailData";
 
 // ==================== Helper Functions ====================
@@ -4890,7 +4891,7 @@ export function ProjectDetail() {
           <Route
             path="/"
             element={
-              <OverviewTab
+              <ProjectOverviewTab
                 projectDetail={projectDetail}
                 projectId={id!}
                 onProjectUpdate={refreshProjectDetail}
@@ -5023,7 +5024,7 @@ export function ProjectDetail() {
             <Route
               path="/"
               element={
-                <OverviewTab
+                <ProjectOverviewTab
                   projectDetail={projectDetail}
                   projectId={id!}
                   onProjectUpdate={refreshProjectDetail}
