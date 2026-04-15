@@ -1253,30 +1253,11 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
     )
     _bust_project(project_id)
     return payment
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    amount = -abs(data.amount) if data.payment_type == "expense" else abs(data.amount)
-    payment = ProjectPayment(project_id=project_id, amount=amount,
-                             payment_date=data.payment_date, note=data.note,
-                             payment_type=data.payment_type)
-    session.add(payment)
-    session.commit()
-    session.refresh(payment)
-    _bust_project(project_id)
-    return payment
 
 
 @router.delete("/{project_id}/financials/{payment_id}")
 def delete_payment(project_id: int, payment_id: int, session: Session = Depends(get_session)):
     delete_project_payment(session, project_id, payment_id)
-    _bust_project(project_id)
-    return {"ok": True}
-    payment = session.get(ProjectPayment, payment_id)
-    if not payment or payment.project_id != project_id:
-        raise HTTPException(404, "Payment not found")
-    session.delete(payment)
-    session.commit()
     _bust_project(project_id)
     return {"ok": True}
 
