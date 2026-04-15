@@ -5,10 +5,17 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.models.db import ProjectFile
 from app.services.project_todos import ensure_project_exists
+
+
+def list_project_files(session: Session, project_id: int) -> list[ProjectFile]:
+    ensure_project_exists(session, project_id)
+    return session.exec(
+        select(ProjectFile).where(ProjectFile.project_id == project_id)
+    ).all()
 
 
 def create_project_upload(

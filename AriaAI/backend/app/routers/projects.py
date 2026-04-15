@@ -38,6 +38,7 @@ from app.services.project_files import (
     create_project_upload,
     delete_project_file,
     get_project_file_or_404 as get_uploaded_project_file_or_404,
+    list_project_files,
     resolve_project_file_path,
 )
 from app.services.project_folders import (
@@ -726,7 +727,7 @@ def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get
 
 @router.get("/{project_id}/files")
 def list_files(project_id: int, session: Session = Depends(get_session)):
-    return session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+    return list_project_files(session, project_id)
 
 
 def _sanitize_markdown_filename(name: str) -> str:

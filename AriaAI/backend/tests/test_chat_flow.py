@@ -748,6 +748,34 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         self.assertFalse(saved_path.exists())
 
+    def test_list_files_reflects_upload_and_delete(self):
+        with Session(self.engine) as session:
+            project = Project(name="List Files Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        upload_resp = self.client.post(
+            f"/projects/{project_id}/files",
+            files={"file": ("scope.txt", b"scope draft", "text/plain")},
+        )
+        self.assertEqual(upload_resp.status_code, 201)
+        file_id = upload_resp.json()["id"]
+
+        list_resp = self.client.get(f"/projects/{project_id}/files")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(len(list_resp.json()), 1)
+        self.assertEqual(list_resp.json()[0]["id"], file_id)
+        self.assertEqual(list_resp.json()[0]["name"], "scope.txt")
+
+        delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+
+        list_after_delete_resp = self.client.get(f"/projects/{project_id}/files")
+        self.assertEqual(list_after_delete_resp.status_code, 200)
+        self.assertEqual(list_after_delete_resp.json(), [])
+
     def test_delete_project_cascades_related_records(self):
         with Session(self.engine) as session:
             project = Project(name="Cascade Project", client="Client")
