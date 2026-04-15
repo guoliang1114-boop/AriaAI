@@ -438,6 +438,70 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["financials"]["total_invoiced"], 120000)
         self.assertEqual(len(body["financials"]["payments"]), 1)
 
+    def test_financials_endpoint_normalizes_expense_and_aggregates_totals(self):
+        with Session(self.engine) as session:
+            project = Project(name="Financial Project", client="Client", contract_amount=500000)
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        invoice_resp = self.client.post(
+            f"/projects/{project_id}/financials",
+            json={
+                "amount": 120000,
+                "payment_date": "2026-04-01",
+                "note": "Invoice issued",
+                "payment_type": "invoiced",
+            },
+        )
+        self.assertEqual(invoice_resp.status_code, 201)
+        self.assertEqual(invoice_resp.json()["amount"], 120000)
+
+        expense_resp = self.client.post(
+            f"/projects/{project_id}/financials",
+            json={
+                "amount": 3000,
+                "payment_date": "2026-04-02",
+                "note": "Travel cost",
+                "payment_type": "expense",
+            },
+        )
+        self.assertEqual(expense_resp.status_code, 201)
+        self.assertEqual(expense_resp.json()["amount"], -3000)
+
+        received_resp = self.client.post(
+            f"/projects/{project_id}/financials",
+            json={
+                "amount": 50000,
+                "payment_date": "2026-04-03",
+                "note": "Advance payment",
+                "payment_type": "received",
+            },
+        )
+        self.assertEqual(received_resp.status_code, 201)
+
+        detail_resp = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_resp.status_code, 200)
+        financials = detail_resp.json()["financials"]
+        self.assertEqual(financials["contract_amount"], 500000)
+        self.assertEqual(financials["total_invoiced"], 120000)
+        self.assertEqual(financials["total_expense"], 3000)
+        self.assertEqual(financials["total_received"], 50000)
+        self.assertEqual(financials["uncollected"], 70000)
+        self.assertEqual(financials["remaining"], 450000)
+        self.assertEqual(len(financials["payments"]), 3)
+
+        payment_id = expense_resp.json()["id"]
+        delete_resp = self.client.delete(f"/projects/{project_id}/financials/{payment_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        financials_resp = self.client.get(f"/projects/{project_id}/financials")
+        self.assertEqual(financials_resp.status_code, 200)
+        self.assertEqual(financials_resp.json()["total_expense"], 0)
+        self.assertEqual(len(financials_resp.json()["payments"]), 2)
+
     def test_list_my_todos_returns_only_current_user_pending_items_with_due_dates(self):
         with Session(self.engine) as session:
             other_user = User(

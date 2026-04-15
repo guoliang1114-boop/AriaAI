@@ -25,11 +25,13 @@ from app.services.project_documents import (
     ensure_markdown_filename,
     write_project_markdown_file,
 )
+from app.services.project_financials import list_project_payments, serialize_financials
 from app.services.project_members import (
     add_project_member,
     list_project_members,
     remove_project_member,
 )
+from app.services.project_notes import save_project_notes
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -651,15 +653,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     if not folders:
         folders = _init_default_folders(project_id, session)
 
-    payments = session.exec(
-        select(ProjectPayment)
-        .where(ProjectPayment.project_id == project_id)
-        .order_by(ProjectPayment.payment_date)
-    ).all()
-    received = sum(p.amount for p in payments if p.payment_type in ("received", "milestone_payment"))
-    expenses = sum(abs(p.amount) for p in payments if p.payment_type == "expense")
-    invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
-    contract = project.contract_amount or 0.0
+    payments = list_project_payments(session, project_id)
 
     todos = list_project_todos(session, project_id)
 
@@ -684,15 +678,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
             }
             for m in members
         ],
-        "financials": {
-            "contract_amount": contract,
-            "total_received": received,
-            "total_expense": expenses,
-            "total_invoiced": invoiced,
-            "uncollected": invoiced - received,
-            "remaining": contract - received,
-            "payments": payments,
-        },
+        "financials": serialize_financials(project, payments),
     }
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
@@ -1577,20 +1563,7 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
 @router.post("/{project_id}/notes")
 def save_project_note(project_id: int, body: NoteBody, session: Session = Depends(get_session)):
     """Append or overwrite project notes."""
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    if body.append and project.notes:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-        project.notes = f"{project.notes}\n\n---\n[{timestamp}]\n{body.content}"
-    else:
-        project.notes = body.content
-
-    project.updated_at = datetime.utcnow()
-    session.add(project)
-    session.commit()
-    session.refresh(project)
+    project = save_project_notes(session, project_id, body.content, append=body.append)
     _bust_project(project_id)
     return {"notes": project.notes}
 
