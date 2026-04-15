@@ -18,6 +18,7 @@ from app.models.db import (
     ClientRecord,
     Conversation,
     Message,
+    Milestone,
     Project,
     ProjectFile,
     ProjectFolder,
@@ -746,6 +747,83 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNone(session.get(ProjectFile, file_id))
 
         self.assertFalse(saved_path.exists())
+
+    def test_delete_project_cascades_related_records(self):
+        with Session(self.engine) as session:
+            project = Project(name="Cascade Project", client="Client")
+            member_user = User(
+                email="cascade-member@example.com",
+                display_name="Cascade Member",
+                password_hash="hashed",
+            )
+            session.add(project)
+            session.add(member_user)
+            session.commit()
+            session.refresh(project)
+            session.refresh(member_user)
+
+            folder = ProjectFolder(project_id=project.id, name="Archive", sort_order=1)
+            milestone = Milestone(project_id=project.id, title="Kickoff", due_date="2026-04-30")
+            payment = ProjectPayment(project_id=project.id, amount=5000, payment_date="2026-04-20", payment_type="received")
+            todo = ProjectTodo(project_id=project.id, content="Prepare deck")
+            member = ProjectMember(project_id=project.id, user_id=member_user.id)
+            conv = Conversation(project_id=project.id, title="Project Chat")
+            session.add(folder)
+            session.add(milestone)
+            session.add(payment)
+            session.add(todo)
+            session.add(member)
+            session.add(conv)
+            session.commit()
+            session.refresh(folder)
+            session.refresh(conv)
+
+            path = Path("projects") / str(project.id) / "cascade_file.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Cascade", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                folder_id=folder.id,
+                name="Cascade File.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+
+            message = Message(conversation_id=conv.id, role="assistant", content="hello")
+            session.add(message)
+            session.commit()
+            session.refresh(message)
+
+            project_id = project.id
+            folder_id = folder.id
+            milestone_id = milestone.id
+            payment_id = payment.id
+            todo_id = todo.id
+            member_id = member.id
+            conv_id = conv.id
+            message_id = message.id
+            file_id = project_file.id
+
+        delete_resp = self.client.delete(f"/projects/{project_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(Project, project_id))
+            self.assertIsNone(session.get(ProjectFolder, folder_id))
+            self.assertIsNone(session.get(Milestone, milestone_id))
+            self.assertIsNone(session.get(ProjectPayment, payment_id))
+            self.assertIsNone(session.get(ProjectTodo, todo_id))
+            self.assertIsNone(session.get(ProjectMember, member_id))
+            self.assertIsNone(session.get(Conversation, conv_id))
+            self.assertIsNone(session.get(Message, message_id))
+            self.assertIsNone(session.get(ProjectFile, file_id))
 
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:

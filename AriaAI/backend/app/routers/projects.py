@@ -19,6 +19,7 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.project_deletion import delete_project_cascade
 from app.services.project_details import build_project_detail
 from app.services.project_documents import (
     build_markdown_export_header,
@@ -676,56 +677,7 @@ def update_project(project_id: int, data: ProjectUpdate, session: Session = Depe
 
 @router.delete("/{project_id}")
 def delete_project(project_id: int, session: Session = Depends(get_session)):
-    from app.models.db import Conversation, Message
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    # Delete in dependency order to avoid FK violations
-    # 1. Messages in project conversations
-    convs = session.exec(select(Conversation).where(Conversation.project_id == project_id)).all()
-    for conv in convs:
-        session.exec(select(Message).where(Message.conversation_id == conv.id)).all()
-        for msg in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
-            session.delete(msg)
-    session.flush()
-    for conv in convs:
-        session.delete(conv)
-    session.flush()
-
-    # 2. Files (must come before folders)
-    for f in session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all():
-        session.delete(f)
-    session.flush()
-
-    # 3. Folders
-    for folder in session.exec(select(ProjectFolder).where(ProjectFolder.project_id == project_id)).all():
-        session.delete(folder)
-    session.flush()
-
-    # 4. Milestones
-    for ms in session.exec(select(Milestone).where(Milestone.project_id == project_id)).all():
-        session.delete(ms)
-    session.flush()
-
-    # 5. Payments
-    for p in session.exec(select(ProjectPayment).where(ProjectPayment.project_id == project_id)).all():
-        session.delete(p)
-    session.flush()
-
-    # 6. Todos
-    for t in session.exec(select(ProjectTodo).where(ProjectTodo.project_id == project_id)).all():
-        session.delete(t)
-    session.flush()
-
-    # 7. Members
-    for m in session.exec(select(ProjectMember).where(ProjectMember.project_id == project_id)).all():
-        session.delete(m)
-    session.flush()
-
-    # 8. Project itself
-    session.delete(project)
-    session.commit()
+    delete_project_cascade(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
