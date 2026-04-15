@@ -25,6 +25,15 @@ from app.services.project_documents import (
     ensure_markdown_filename,
     write_project_markdown_file,
 )
+from app.services.project_todos import (
+    create_project_todo,
+    delete_project_todo,
+    ensure_project_exists,
+    list_project_todos,
+    list_user_pending_todos,
+    serialize_todo,
+    update_project_todo,
+)
 from app.services.provider_selector import get_selected_model, resolve_provider_from_model, _load_provider_module
 from app.routers.auth import get_current_user
 from app.routers.chat_export import build_markdown_export_content
@@ -647,31 +656,11 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
     contract = project.contract_amount or 0.0
 
-    todos = session.exec(
-        select(ProjectTodo)
-        .where(ProjectTodo.project_id == project_id)
-        .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
-    ).all()
+    todos = list_project_todos(session, project_id)
 
     members = session.exec(
         select(ProjectMember).where(ProjectMember.project_id == project_id)
     ).all()
-
-    def _todo_dict(t: ProjectTodo) -> dict:
-        return {
-            "id": t.id,
-            "project_id": t.project_id,
-            "content": t.content,
-            "is_done": t.is_done,
-            "due_date": t.due_date,
-            "assigned_to_user_id": t.assigned_to_user_id,
-            "assigned_user": (
-                {"id": t.assigned_user.id, "display_name": t.assigned_user.display_name}
-                if t.assigned_user else None
-            ),
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-        }
 
     result = {
         "project": project,
@@ -679,7 +668,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
         "milestones": milestones,
         "folders": folders,
         "md_notes": project.md_notes or "",
-        "todos": [_todo_dict(t) for t in todos],
+        "todos": [serialize_todo(t) for t in todos],
         "members": [
             {
                 "id": m.id,
@@ -1602,84 +1591,37 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
 
 # ── Project Todos ────────────────────────────────────────────────────────────
 
-def _serialize_todo(todo: ProjectTodo, project_name: str | None = None) -> dict:
-    data = {
-        "id": todo.id,
-        "project_id": todo.project_id,
-        "content": todo.content,
-        "is_done": todo.is_done,
-        "due_date": todo.due_date,
-        "assigned_to_user_id": todo.assigned_to_user_id,
-        "assigned_user": (
-            {"id": todo.assigned_user.id, "display_name": todo.assigned_user.display_name}
-            if todo.assigned_user else None
-        ),
-        "created_at": todo.created_at,
-        "updated_at": todo.updated_at,
-    }
-    if project_name is not None:
-        data["project_name"] = project_name
-    return data
-
 
 @router.get("/{project_id}/todos")
 def list_todos(project_id: int, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    todos = session.exec(
-        select(ProjectTodo)
-        .where(ProjectTodo.project_id == project_id)
-        .order_by(ProjectTodo.is_done, ProjectTodo.updated_at.desc())
-    ).all()
-    return [_serialize_todo(t) for t in todos]
+    todos = list_project_todos(session, project_id)
+    return [serialize_todo(todo) for todo in todos]
 
 
 @router.post("/{project_id}/todos", status_code=201)
 def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    todo = ProjectTodo(
-        project_id=project_id,
+    todo = create_project_todo(
+        session,
+        project_id,
         content=body.content,
         is_done=body.is_done,
         due_date=body.due_date,
         assigned_to_user_id=body.assigned_to_user_id,
     )
-    session.add(todo)
-    session.commit()
-    session.refresh(todo)
     _bust_project(project_id)
-    return _serialize_todo(todo)
+    return serialize_todo(todo)
 
 
 @router.patch("/{project_id}/todos/{todo_id}")
 def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Session = Depends(get_session)):
-    todo = session.exec(
-        select(ProjectTodo).where(ProjectTodo.id == todo_id, ProjectTodo.project_id == project_id)
-    ).first()
-    if not todo:
-        raise HTTPException(404, "Todo not found")
-    for k, v in body.model_dump(exclude_none=True).items():
-        setattr(todo, k, v)
-    todo.updated_at = datetime.utcnow()
-    session.add(todo)
-    session.commit()
-    session.refresh(todo)
+    todo = update_project_todo(session, project_id, todo_id, body.model_dump(exclude_none=True))
     _bust_project(project_id)
-    return _serialize_todo(todo)
+    return serialize_todo(todo)
 
 
 @router.delete("/{project_id}/todos/{todo_id}")
 def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_session)):
-    todo = session.exec(
-        select(ProjectTodo).where(ProjectTodo.id == todo_id, ProjectTodo.project_id == project_id)
-    ).first()
-    if not todo:
-        raise HTTPException(404, "Todo not found")
-    session.delete(todo)
-    session.commit()
+    delete_project_todo(session, project_id, todo_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -1688,9 +1630,7 @@ def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_se
 
 @router.get("/{project_id}/members", response_model=list[MemberOut])
 def list_members(project_id: int, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
+    ensure_project_exists(session, project_id)
     members = session.exec(
         select(ProjectMember).where(ProjectMember.project_id == project_id)
     ).all()
@@ -1708,9 +1648,7 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
 
 @router.post("/{project_id}/members", status_code=201, response_model=MemberOut)
 def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
+    ensure_project_exists(session, project_id)
     user = session.get(User, body.user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -1827,13 +1765,4 @@ def list_my_todos(
     session: Session = Depends(get_session),
 ):
     """Return pending todos assigned to the current user across all projects."""
-    rows = session.exec(
-        select(ProjectTodo, Project)
-        .join(Project, ProjectTodo.project_id == Project.id)
-        .where(
-            ProjectTodo.assigned_to_user_id == current_user.id,
-            ProjectTodo.is_done == False,
-        )
-        .order_by(ProjectTodo.updated_at.desc())
-    ).all()
-    return [_serialize_todo(t, project_name=p.name) for t, p in rows]
+    return list_user_pending_todos(session, current_user.id)
