@@ -19,6 +19,7 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.project_contexts import build_project_context_data, save_project_context_summary
 from app.services.project_deletion import delete_project_cascade
 from app.services.project_details import build_project_detail
 from app.services.project_documents import (
@@ -1405,6 +1406,7 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
             lines.append(f"  - {f.name}" + (f": {f.summary[:120]}" if f.summary else ""))
 
     project_data = "\n".join(lines)
+    project, project_data = build_project_context_data(session, project_id)
 
     prompt = (
         "You are an AI consultant assistant. Based on the project data below, "
@@ -1442,13 +1444,8 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
         from app.database import engine as _engine
         from sqlmodel import Session as _S
         with _S(_engine) as write_session:
-            p = write_session.get(Project, project_id)
-            if p:
-                p.context_summary = summary
-                p.updated_at = datetime.utcnow()
-                write_session.add(p)
-                write_session.commit()
-                _bust_project(project_id)
+            save_project_context_summary(write_session, project_id, summary)
+            _bust_project(project_id)
 
         yield f"data: {json.dumps({'type': 'done', 'context_summary': summary}, ensure_ascii=False)}\n\n"
 
