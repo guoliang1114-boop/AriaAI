@@ -19,7 +19,7 @@ import {
   toBackendStatus,
 } from "../../types/enums";
 import type { ProjectDetail as ProjectDetailType, ProjectMember } from "../../types/api";
-import { UserPicker } from "./ProjectTodosTab";
+import { UserPicker } from "./ProjectUserPicker";
 
 interface UserItem {
   id: number;
