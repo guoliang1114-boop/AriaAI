@@ -21,6 +21,15 @@ from app.services import context_builder as context_builder_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
 
 
+class FakeRetrievalContext:
+    def __init__(self, text: str = "", results: list | None = None):
+        self._text = text
+        self.results = results or []
+
+    def to_text(self) -> str:
+        return self._text
+
+
 class FakeStreamingLLM:
     def __init__(self, responses):
         self._responses = responses
@@ -560,6 +569,79 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         mocked_retrieve.assert_called_once()
         self.assertIn("Relevant knowledge", ctx.rag_context)
         self.assertEqual(len(ctx.rag_sources), 1)
+
+    def test_build_project_context_excludes_sibling_project_content(self):
+        with Session(self.engine) as session:
+            primary_project = Project(
+                name="Primary Project",
+                client="Acme",
+                description="Current project description",
+                notes="Current project note",
+                context_summary="Current summary",
+            )
+            sibling_project = Project(
+                name="Sibling Project",
+                client="Acme",
+                description="Sibling secret description",
+                notes="Sibling secret note",
+                context_summary="Sibling secret summary",
+            )
+            session.add(primary_project)
+            session.add(sibling_project)
+            session.commit()
+            session.refresh(primary_project)
+
+            project_context = context_builder_module.build_project_context(
+                session=session,
+                project_id=primary_project.id,
+            )
+
+        self.assertIn("Primary Project", project_context)
+        self.assertIn("Current project description", project_context)
+        self.assertIn("Current project note", project_context)
+        self.assertIn("Current summary", project_context)
+        self.assertNotIn("Sibling Project", project_context)
+        self.assertNotIn("Sibling secret description", project_context)
+        self.assertNotIn("Sibling secret note", project_context)
+        self.assertNotIn("Sibling secret summary", project_context)
+
+    def test_build_chat_context_project_scope_keeps_current_project_only(self):
+        with Session(self.engine) as session:
+            primary_project = Project(
+                name="Current Delivery",
+                client="Acme",
+                description="Current delivery workstream",
+                notes="Only current project notes",
+            )
+            sibling_project = Project(
+                name="Other Delivery",
+                client="Acme",
+                description="Other project should stay isolated",
+                notes="Other project confidential notes",
+            )
+            session.add(primary_project)
+            session.add(sibling_project)
+            session.commit()
+            session.refresh(primary_project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=FakeRetrievalContext(""),
+            ):
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=primary_project.id,
+                    knowledge_scope="project",
+                    content="Summarize status",
+                )
+
+        self.assertIn("Current Delivery", ctx.project_context)
+        self.assertIn("Current delivery workstream", ctx.project_context)
+        self.assertIn("Only current project notes", ctx.project_context)
+        self.assertNotIn("Other Delivery", ctx.project_context)
+        self.assertNotIn("Other project should stay isolated", ctx.project_context)
+        self.assertNotIn("Other project confidential notes", ctx.project_context)
 
     def test_stream_chat_events_persists_successful_response(self):
         conv_id = self._create_conversation()
