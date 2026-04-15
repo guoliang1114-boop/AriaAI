@@ -825,6 +825,45 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNone(session.get(Message, message_id))
             self.assertIsNone(session.get(ProjectFile, file_id))
 
+    def test_project_milestone_crud_flow(self):
+        with Session(self.engine) as session:
+            project = Project(name="Milestone Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        create_resp = self.client.post(
+            f"/projects/{project_id}/milestones",
+            json={"title": "Kickoff", "due_date": "2026-05-01"},
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        milestone_id = create_resp.json()["id"]
+        self.assertEqual(create_resp.json()["title"], "Kickoff")
+        self.assertEqual(create_resp.json()["due_date"], "2026-05-01")
+        self.assertFalse(create_resp.json()["is_done"])
+
+        list_resp = self.client.get(f"/projects/{project_id}/milestones")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(len(list_resp.json()), 1)
+        self.assertEqual(list_resp.json()[0]["id"], milestone_id)
+
+        update_resp = self.client.patch(
+            f"/projects/{project_id}/milestones/{milestone_id}",
+            json={"title": "Kickoff Complete", "is_done": True},
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        self.assertEqual(update_resp.json()["title"], "Kickoff Complete")
+        self.assertTrue(update_resp.json()["is_done"])
+
+        delete_resp = self.client.delete(f"/projects/{project_id}/milestones/{milestone_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        final_list_resp = self.client.get(f"/projects/{project_id}/milestones")
+        self.assertEqual(final_list_resp.status_code, 200)
+        self.assertEqual(final_list_resp.json(), [])
+
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
             project = Project(name="Merge Project", client="Client")

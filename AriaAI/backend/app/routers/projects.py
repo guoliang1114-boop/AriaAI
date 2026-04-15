@@ -51,6 +51,12 @@ from app.services.project_members import (
     remove_project_member,
     serialize_member,
 )
+from app.services.project_milestones import (
+    create_project_milestone,
+    delete_project_milestone,
+    list_project_milestones,
+    update_project_milestone,
+)
 from app.services.project_notes import save_project_notes
 from app.services.project_todos import (
     create_project_todo,
@@ -686,40 +692,32 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
 
 @router.get("/{project_id}/milestones")
 def list_milestones(project_id: int, session: Session = Depends(get_session)):
-    return session.exec(select(Milestone).where(Milestone.project_id == project_id)).all()
+    return list_project_milestones(session, project_id)
 
 
 @router.post("/{project_id}/milestones", status_code=201)
 def create_milestone(project_id: int, data: MilestoneCreate, session: Session = Depends(get_session)):
-    ms = Milestone(project_id=project_id, **data.model_dump())
-    session.add(ms)
-    session.commit()
-    session.refresh(ms)
+    ms = create_project_milestone(
+        session,
+        project_id,
+        title=data.title,
+        priority=data.priority,
+        due_date=data.due_date,
+    )
     _bust_project(project_id)
     return ms
 
 
 @router.patch("/{project_id}/milestones/{ms_id}")
 def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session: Session = Depends(get_session)):
-    ms = session.get(Milestone, ms_id)
-    if not ms or ms.project_id != project_id:
-        raise HTTPException(404, "Milestone not found")
-    for k, v in data.model_dump(exclude_none=True).items():
-        setattr(ms, k, v)
-    session.add(ms)
-    session.commit()
-    session.refresh(ms)
+    ms = update_project_milestone(session, project_id, ms_id, data.model_dump(exclude_none=True))
     _bust_project(project_id)
     return ms
 
 
 @router.delete("/{project_id}/milestones/{ms_id}")
 def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get_session)):
-    ms = session.get(Milestone, ms_id)
-    if not ms or ms.project_id != project_id:
-        raise HTTPException(404, "Milestone not found")
-    session.delete(ms)
-    session.commit()
+    delete_project_milestone(session, project_id, ms_id)
     _bust_project(project_id)
     return {"ok": True}
 
