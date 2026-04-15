@@ -2,9 +2,16 @@ import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 
 interface MarkdownRendererProps {
   content: string
+}
+
+type CodeRendererProps = ComponentPropsWithoutRef<'code'> & {
+  inline?: boolean
+  node?: unknown
+  children?: ReactNode
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -41,16 +48,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        code({ inline, className, children, ...props }: any) {
+        code({ className, children, ...props }: CodeRendererProps) {
           const match = /language-(\w+)/.exec(className || '')
-          if (!inline && match) {
+          if (match) {
             return (
               <CodeBlock language={match[1]}>
                 {String(children).replace(/\n$/, '')}
               </CodeBlock>
             )
           }
-          if (!inline && !match && String(children).includes('\n')) {
+          if (String(children).includes('\n')) {
             return (
               <CodeBlock language="">
                 {String(children).replace(/\n$/, '')}

@@ -2,25 +2,25 @@
 
 更新日期：2026-04-15
 
-当前项目的主部署方式已经是：
+当前项目的主部署方式是：
 
 `push 到 GitHub -> GitHub Actions 自动部署到服务器`
 
-这份文档以仓库里的真实工作流为准：
+本文档以仓库中的真实工作流为准：
 - `.github/workflows/deploy.yml`
 
 不再把手动部署作为主路径说明。
 
-## 1. 当前部署架构
+## 1. 当前部署结构
 
-当前自动部署链路包含这些部分：
+当前自动部署链路包括以下步骤：
 
 1. GitHub Actions 检出代码
 2. Actions 本地构建前端
 3. Actions 准备后端依赖
-4. 通过 SCP 把 `aria-web/dist` 和 `AriaAI/backend` 上传到服务器
+4. 通过 SCP 上传 `aria-web/dist` 和 `AriaAI/backend`
 5. 通过 SSH 在服务器执行部署脚本
-6. 服务器侧完成：
+6. 服务器完成以下动作
    - 激活后端虚拟环境
    - `pip install -r requirements.txt`
    - `python3 scripts/ensure_db.py`
@@ -40,71 +40,72 @@ on:
   workflow_dispatch:
 ```
 
-也就是说：
-- 推送到 `main`
-- 推送到 `master`
-- 在 GitHub Actions 页面手动触发
+也就是说，以下动作都会触发部署：
 
-都会触发部署。
+1. 推送到 `main`
+2. 推送到 `master`
+3. 在 GitHub Actions 页面手动触发
 
-## 3. 当前工作流文件
+## 3. 关键工作流文件
 
 主部署文件：
 - `.github/workflows/deploy.yml`
 
-测试 secrets 的辅助文件：
+辅助文件：
 - `.github/workflows/test-secrets.yml`
 
-如果部署逻辑有变化，应优先更新 `deploy.yml`，然后再同步更新本文档。
+如果部署逻辑发生变化，应优先更新 `deploy.yml`，然后再同步更新本文档。
 
 ## 4. GitHub Secrets
 
-当前工作流依赖这些 Secrets：
+当前部署依赖这些 Secrets：
 
-- `SERVER_HOST`
-- `SERVER_USER`
-- `SERVER_PASSWORD`
-- `SERVER_PORT`，可选，默认 `22`
+1. `SERVER_HOST`
+2. `SERVER_USER`
+3. `SERVER_PASSWORD`
+4. `SERVER_PORT`
 
-这些 Secrets 用于：
-- SCP 上传文件
-- SSH 登录服务器执行部署
+用途：
 
-## 5. 服务器前提
+1. SCP 上传文件
+2. SSH 登录服务器执行部署脚本
 
-自动部署成功的前提是服务器已经完成一次基础初始化。
+## 5. 服务器前置条件
 
-至少需要：
-- 项目代码目录存在：`/www/wwwroot/AriaAI`
-- 前端站点目录存在：`/www/wwwroot/aria.d2cgo.co`
-- 后端虚拟环境已创建：`/www/wwwroot/AriaAI/AriaAI/backend/.venv`
-- PM2 已有 `ariaai-backend` 进程
-- Nginx 已配置好站点
-- PostgreSQL 已可用
-- 后端 `.env` 已配置真实 `DATABASE_URL`
+自动部署成功的前提是服务器已经完成一次基础初始化。至少需要满足：
+
+1. 项目代码目录存在：`/www/wwwroot/AriaAI`
+2. 前端站点目录存在：`/www/wwwroot/aria.d2cgo.co`
+3. 后端虚拟环境已创建：`/www/wwwroot/AriaAI/AriaAI/backend/.venv`
+4. PM2 中已有 `ariaai-backend` 进程
+5. Nginx 已完成站点配置
+6. PostgreSQL 可用
+7. 后端 `.env` 已配置真实 `DATABASE_URL`
 
 ## 6. 当前数据库策略
 
-当前线上默认数据库应为 PostgreSQL。
+当前线上数据库默认应为 PostgreSQL。
 
 必须满足：
-- `DATABASE_URL` 指向 PostgreSQL
-- 每次部署都执行迁移
 
-当前工作流已经包含：
+1. `DATABASE_URL` 指向 PostgreSQL
+2. 每次部署都执行数据库迁移
+
+当前工作流中包含：
 
 ```bash
 python3 scripts/ensure_db.py
 alembic upgrade head
 ```
 
-这里的目标很明确：
-- 先修复数据库版本状态
-- 再尽量把迁移推进到最新
+这两步的目标是：
 
-但从工程口径上看，仍然建议把迁移失败视为需要关注的发布风险。
+1. 先修复历史迁移状态问题
+2. 再把数据库结构升级到最新版本
 
-## 7. 一次完整发布实际上做了什么
+注意：迁移失败应视为部署失败，而不是可以忽略的警告。
+
+## 7. 一次发布实际上做了什么
 
 当你执行：
 
@@ -117,8 +118,8 @@ git push origin main
 ### 7.1 GitHub Actions 侧
 
 1. 拉取最新代码
-2. 用 Node 20 构建前端
-3. 用 Python 3.11 安装后端依赖
+2. 使用 Node 20 构建前端
+3. 使用 Python 3.11 安装后端依赖
 
 ### 7.2 服务器侧
 
@@ -153,14 +154,15 @@ git push origin main
 
 ### 9.2 自动部署后接口 500
 
-优先检查数据库迁移：
+优先检查数据库迁移。例如：
 
-- `column knowledgedocument.project_id does not exist`
-- `column projecttodo.due_date does not exist`
+1. `column knowledgedocument.project_id does not exist`
+2. `column projecttodo.due_date does not exist`
 
 这类报错通常表示：
-- 代码已更新
-- 数据库结构未同步到最新
+
+1. 代码已经更新
+2. 数据库结构没有同步到最新
 
 建议登录服务器检查：
 
@@ -174,10 +176,11 @@ alembic upgrade head
 ### 9.3 自动部署后迁移报“表已存在”或“列已存在”
 
 这通常表示：
-- 数据库真实结构已经更新
-- 但 `alembic_version` 落后
 
-处理思路：
+1. 数据库真实结构已经更新
+2. 但 `alembic_version` 落后
+
+处理顺序：
 
 1. 先确认真实表结构
 2. 再执行对应版本的 `alembic stamp ...`
@@ -190,17 +193,18 @@ alembic stamp 004_v1_4
 alembic upgrade head
 ```
 
-### 9.4 GitHub Actions 根本没有触发
+### 9.4 GitHub Actions 没有触发
 
 优先检查：
 
-1. 是否推送到了 `main` 或 `master`
+1. 是否真的推送到了远端 `main` 或 `master`
 2. 仓库 Actions 是否启用
-3. `deploy.yml` 是否存在语法错误
+3. `deploy.yml` 是否有语法错误
+4. GitHub App / 仓库权限是否限制了 workflow 执行
 
-## 10. 如果自动部署失败，怎么手动补救
+## 10. 自动部署失败时的手动补救
 
-自动部署失败时，手动补救的目标不是“重新走一整套手动部署”，而是把失败的那一步补上。
+自动部署失败时，目标不是重走整套手动部署，而是补齐失败的那一步。
 
 最常见的补救动作：
 
@@ -219,13 +223,11 @@ nginx -t && nginx -s reload
 
 ## 11. 建议保留的运维习惯
 
-1. 每次推送后看一次 GitHub Actions 日志。
-2. 每次数据库相关改动后关注迁移输出。
-3. 每次部署后做最小接口健康检查。
-4. 如果 `deploy.yml` 改动了，同步更新本文档。
+1. 每次推送后看一次 GitHub Actions 日志
+2. 每次数据库相关改动后关注迁移输出
+3. 每次部署后做最小接口健康检查
+4. 如果 `deploy.yml` 改动了，同步更新本文档
 
 ## 12. 一句话原则
 
-当前最重要的部署原则是：
-
-`发布动作以 GitHub Actions 为准，数据库迁移成功与否是部署是否真正成功的关键判断点`
+`发布动作以 GitHub Actions 为准，数据库迁移成功与否是部署是否真正成功的关键判断点。`

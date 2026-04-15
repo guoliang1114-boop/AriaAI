@@ -1,6 +1,11 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosError } from 'axios'
 import { getApiBaseUrlForAxios } from '../config/api'
 
+interface ErrorResponsePayload {
+  detail?: string
+  message?: string
+}
+
 class ApiClient {
   private client: AxiosInstance
   private isRedirecting = false
@@ -59,7 +64,7 @@ class ApiClient {
     }
 
     const status = error.response.status
-    const data = error.response.data as any
+    const data = error.response.data as ErrorResponsePayload | string | null
 
     console.error('[API] HTTP Error:', status, data)
 

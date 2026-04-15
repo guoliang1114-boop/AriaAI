@@ -22,10 +22,15 @@ import {
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
 import type { Project, Skill, Conversation, User, MyProjectTodo } from '../types/api'
+import type { AxiosError } from 'axios'
 
 // ── Chart primitives ──────────────────────────────────────────────────────
 
 interface DonutSegment { value: number; color: string; label: string }
+
+interface ErrorResponsePayload {
+  detail?: string
+}
 
 function DonutChart({ segments, size = 80, sw = 10 }: {
   segments: DonutSegment[]; size?: number; sw?: number
@@ -35,20 +40,26 @@ function DonutChart({ segments, size = 80, sw = 10 }: {
   const r = (size - sw) / 2
   const cx = size / 2, cy = size / 2
   const circ = 2 * Math.PI * r
-  let acc = 0
+  const segmentGeometry = segments.reduce<Array<DonutSegment & {
+    dash: number
+    offset: number
+  }>>((acc, seg) => {
+    const previousTotal = acc.reduce((sum, item) => sum + item.value, 0)
+    const dash = (seg.value / total) * circ
+    const offset = -(previousTotal / total) * circ
+    acc.push({ ...seg, dash, offset })
+    return acc
+  }, [])
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
       style={{ transform: 'rotate(-90deg)' }}>
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={sw} />
-      {segments.map((seg, i) => {
-        const dash = (seg.value / total) * circ
-        const offset = -(acc / total) * circ
-        acc += seg.value
+      {segmentGeometry.map((seg, i) => {
         return (
           <circle key={i} cx={cx} cy={cy} r={r} fill="none"
             stroke={seg.color} strokeWidth={sw}
-            strokeDasharray={`${dash} ${circ - dash}`}
-            strokeDashoffset={offset} strokeLinecap="round" />
+            strokeDasharray={`${seg.dash} ${circ - seg.dash}`}
+            strokeDashoffset={seg.offset} strokeLinecap="round" />
         )
       })}
     </svg>
@@ -133,11 +144,12 @@ export function Welcome() {
         api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
       setUser(u); setProjects(p); setSkills(s); setConversations(c); setMyTodos(t)
-    } catch (err: any) {
-      if (err.response?.status === 401) throw err
-      setError(!err.response
+    } catch (err) {
+      const error = err as AxiosError<ErrorResponsePayload>
+      if (error.response?.status === 401) throw error
+      setError(!error.response
         ? '无法连接到服务器，请确认后端服务正在运行。'
-        : `加载失败：${err.response?.data?.detail || err.message}`)
+        : `加载失败：${error.response?.data?.detail || error.message}`)
     } finally {
       setLoading(false)
     }
