@@ -728,7 +728,7 @@ export function ProjectSettingsTab({
                             {(member.user?.display_name || "?").charAt(0)}
                           </div>
                           <span className="truncate text-sm text-gray-800">
-                            {member.user?.display_name || "Unknown"}
+                            {member.user?.display_name || (isZh ? "未知成员" : "Unknown")}
                           </span>
                         </div>
                         <button

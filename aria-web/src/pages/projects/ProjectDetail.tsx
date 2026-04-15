@@ -4716,7 +4716,7 @@ function SettingsTab({
                             {(m.user?.display_name || "?").charAt(0)}
                           </div>
                           <span className="text-sm text-gray-800 truncate">
-                            {m.user?.display_name || "Unknown"}
+                            {m.user?.display_name || (isZh ? "未知成员" : "Unknown")}
                           </span>
                         </div>
                         <button
