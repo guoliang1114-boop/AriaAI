@@ -73,6 +73,7 @@ import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
+import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
@@ -4934,7 +4935,7 @@ export function ProjectDetail() {
           <Route
             path="/settings"
             element={
-              <SettingsTab
+              <ProjectSettingsTab
                 projectDetail={projectDetail}
                 onUpdate={refreshProjectDetail}
               />
