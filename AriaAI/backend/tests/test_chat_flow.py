@@ -618,6 +618,54 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("file_id is required", resp.json()["detail"])
 
+    def test_save_conversation_markdown_merge_appends_existing_document(self):
+        with Session(self.engine) as session:
+            project = Project(name="Conversation Merge Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            conv = Conversation(project_id=project.id, title="Weekly Sync")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            session.add(Message(conversation_id=conv.id, role="user", content="Please summarize this week"))
+            session.add(Message(conversation_id=conv.id, role="assistant", content="Here is the weekly summary"))
+            session.commit()
+
+            path = Path("projects") / str(project.id) / "merge_target.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Existing", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                name="Merge Target.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+            project_id = project.id
+            conv_id = conv.id
+            file_id = project_file.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/conversations/{conv_id}/save-markdown",
+            json={"action": "merge", "file_id": file_id},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["action"], "merge")
+
+        merged_text = (self.uploads_dir / "projects" / str(project_id) / "merge_target.md").read_text(encoding="utf-8")
+        self.assertIn("# Existing", merged_text)
+        self.assertIn("From project conversation", merged_text)
+        self.assertIn("# Weekly Sync", merged_text)
+        self.assertIn("Here is the weekly summary", merged_text)
+
     def test_update_project_document_rejects_cross_project_file(self):
         with Session(self.engine) as session:
             project_a = Project(name="Project A", client="Client")
@@ -678,6 +726,54 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertIn("file_id is required", resp.json()["detail"])
+
+    def test_save_message_to_document_merge_appends_with_header_when_requested(self):
+        with Session(self.engine) as session:
+            project = Project(name="Message Merge Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            conv = Conversation(project_id=project.id, title="Discovery")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            message = Message(conversation_id=conv.id, role="assistant", content="Important follow-up")
+            session.add(message)
+            session.commit()
+            session.refresh(message)
+
+            path = Path("projects") / str(project.id) / "message_target.md"
+            full_path = self.uploads_dir / path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Existing message doc", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                name="Message Target.md",
+                file_type="md",
+                path=str(path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+            project_id = project.id
+            message_id = message.id
+            file_id = project_file.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/messages/{message_id}/save-to-document",
+            json={"action": "merge", "file_id": file_id, "prepend_header": True},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["action"], "merge")
+
+        merged_text = (self.uploads_dir / "projects" / str(project_id) / "message_target.md").read_text(encoding="utf-8")
+        self.assertIn("# Existing message doc", merged_text)
+        self.assertIn("From project conversation", merged_text)
+        self.assertIn("Important follow-up", merged_text)
 
     def test_project_todo_due_date_round_trip(self):
         with Session(self.engine) as session:
