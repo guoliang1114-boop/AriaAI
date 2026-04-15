@@ -95,7 +95,7 @@ on:
 
 ```bash
 python3 scripts/ensure_db.py
-alembic upgrade head || true
+alembic upgrade head
 ```
 
 这里的目标很明确：

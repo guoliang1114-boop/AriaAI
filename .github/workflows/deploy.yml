@@ -3,40 +3,48 @@ name: Deploy to Production
 on:
   push:
     branches: [main, master]
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch: # Support manual runs
+
+concurrency:
+  group: production-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: npm
           cache-dependency-path: aria-web/package-lock.json
-          
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          
+          python-version: "3.11"
+
       - name: Build Frontend
         run: |
           cd aria-web
           npm ci
           npm run build
-          
+
       - name: Prepare Backend
         run: |
           cd AriaAI/backend
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+
       - name: Deploy to Server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -48,7 +56,7 @@ jobs:
           target: "/www/wwwroot/AriaAI/"
           strip_components: 0
           overwrite: true
-          
+
       - name: Execute Remote Deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -57,36 +65,35 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
           script: |
+            set -e
             cd /www/wwwroot/AriaAI/AriaAI/backend
-            
-            # 激活虚拟环境
-            source .venv/bin/activate
-            
-            # 安装依赖（如果有新增）
-            pip install -r requirements.txt
-            
-            # 修复数据库迁移状态并升级
-            python3 scripts/ensure_db.py
 
-            # 运行 Alembic 迁移（如果还有未执行的）
-            alembic upgrade head || true
-            
-            # 重启 PM2 服务
+            # Activate the backend virtual environment.
+            source .venv/bin/activate
+
+            # Install backend dependencies in case requirements changed.
+            pip install -r requirements.txt
+
+            # Normalize historical migration state before applying the latest schema.
+            python3 scripts/ensure_db.py
+            alembic upgrade head
+
+            # Reload backend after code and schema changes.
             pm2 reload ariaai-backend --update-env
-            
-            # 复制前端构建文件到 Nginx 目录
+
+            # Replace frontend build artifacts served by Nginx.
             rm -rf /www/wwwroot/aria.d2cgo.co/*
             cp -r /www/wwwroot/AriaAI/aria-web/dist/* /www/wwwroot/aria.d2cgo.co/
-            
-            # 重启 Nginx
+
+            # Reload Nginx only after the config validates.
             nginx -t && nginx -s reload
-            
-            echo "部署完成!"
-            
+
+            echo "Deployment completed successfully."
+
       - name: Notify Success
         if: success()
-        run: echo "✅ 部署成功!"
-        
+        run: echo "Deployment succeeded."
+
       - name: Notify Failure
         if: failure()
-        run: echo "❌ 部署失败!"
+        run: echo "Deployment failed."
