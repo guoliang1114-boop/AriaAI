@@ -69,6 +69,7 @@ import type {
   ProjectMember,
 } from "../../types/api";
 import { ProjectChatTab } from "./ProjectChatTab";
+import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
@@ -4901,7 +4902,7 @@ export function ProjectDetail() {
           <Route
             path="/documents"
             element={
-              <DocumentsTab
+              <ProjectDocumentsTab
                 projectDetail={projectDetail}
                 projectId={id!}
                 onUpdate={refreshProjectDetail}
@@ -5034,7 +5035,7 @@ export function ProjectDetail() {
             <Route
               path="/documents"
               element={
-                <DocumentsTab
+                <ProjectDocumentsTab
                   projectDetail={projectDetail}
                   projectId={id!}
                   onUpdate={refreshProjectDetail}

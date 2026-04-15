@@ -58,6 +58,7 @@ export function ProjectOverviewTab({
   projectId,
   onProjectUpdate: _onProjectUpdate,
 }: ProjectOverviewTabProps) {
+  void _onProjectUpdate;
   const { project, milestones, files, financials, todos, md_notes } = projectDetail;
   const recentTodos = todos.filter((t) => !t.is_done).slice(0, 3);
   const { i18n } = useTranslation();
@@ -400,7 +401,7 @@ export function ProjectOverviewTab({
             <div className="p-5">
               <p className="text-sm text-gray-600 line-clamp-4 whitespace-pre-wrap">
                 {overviewNotesText
-                  .replace(/[#*`\[\]()>-]/g, " ")
+                  .replace(/[#+*`[\]()>-]/g, " ")
                   .replace(/\s+/g, " ")
                   .trim()
                   .slice(0, 180)}
