@@ -107,7 +107,7 @@ async def _stream(messages: list[dict], max_tokens: int = 4000):
 
 DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
 
-# ── Shared file text extraction ────────────────────────────────────────────────
+# Shared file text extraction
 
 LEGACY_PRESALES_FOLDER_TARGETS = {
     "项目需求": "02_需求与方案",
@@ -140,7 +140,7 @@ PRESALES_TEMPLATE_FILES = [
 - 需求澄清
 - 方案准备
 - 商务谈判
-- 赢单 / 失单
+- 赢单 / 丢单
 
 ## 客户想解决的核心问题
 
@@ -336,13 +336,13 @@ PRESALES_TEMPLATE_FILES = [
         "content": """# 行动清单
 
 ## 本周重点动作
-- [ ] 
-- [ ] 
-- [ ] 
+- [ ]
+- [ ]
+- [ ]
 
 ## 客户待反馈
-- [ ] 
-- [ ] 
+- [ ]
+- [ ]
 
 ## 我方待准备
 - [ ] 方案
@@ -389,7 +389,6 @@ PRESALES_TEMPLATE_FILES = [
 """,
     },
 ]
-
 try:
     import pdfplumber as _pdfplumber
     _HAS_PDF = True
