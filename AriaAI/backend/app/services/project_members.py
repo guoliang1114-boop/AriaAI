@@ -6,6 +6,19 @@ from sqlmodel import Session, select
 from app.models.db import ProjectMember, User
 
 
+def serialize_member(member: ProjectMember) -> dict:
+    return {
+        "id": member.id,
+        "project_id": member.project_id,
+        "user_id": member.user_id,
+        "user": (
+            {"id": member.user.id, "display_name": member.user.display_name}
+            if member.user else None
+        ),
+        "created_at": member.created_at,
+    }
+
+
 def list_project_members(session: Session, project_id: int) -> list[ProjectMember]:
     return session.exec(
         select(ProjectMember).where(ProjectMember.project_id == project_id)

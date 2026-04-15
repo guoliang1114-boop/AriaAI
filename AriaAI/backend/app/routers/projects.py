@@ -19,6 +19,7 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.project_details import build_project_detail
 from app.services.project_documents import (
     build_markdown_export_header,
     build_timestamped_markdown_filename,
@@ -36,6 +37,7 @@ from app.services.project_members import (
     add_project_member,
     list_project_members,
     remove_project_member,
+    serialize_member,
 )
 from app.services.project_notes import save_project_notes
 from app.services.project_todos import (
@@ -641,51 +643,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     if cached is not None:
         return cached
 
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    files = session.exec(
-        select(ProjectFile).where(ProjectFile.project_id == project_id)
-    ).all()
-    milestones = session.exec(
-        select(Milestone).where(Milestone.project_id == project_id)
-    ).all()
-    folders = session.exec(
-        select(ProjectFolder)
-        .where(ProjectFolder.project_id == project_id)
-        .order_by(ProjectFolder.sort_order)
-    ).all()
-    if not folders:
-        folders = _init_default_folders(project_id, session)
-
-    payments = list_project_payments(session, project_id)
-
-    todos = list_project_todos(session, project_id)
-
-    members = session.exec(
-        select(ProjectMember).where(ProjectMember.project_id == project_id)
-    ).all()
-
-    result = {
-        "project": project,
-        "files": files,
-        "milestones": milestones,
-        "folders": folders,
-        "md_notes": project.md_notes or "",
-        "todos": [serialize_todo(t) for t in todos],
-        "members": [
-            {
-                "id": m.id,
-                "project_id": m.project_id,
-                "user_id": m.user_id,
-                "user": {"id": m.user.id, "display_name": m.user.display_name} if m.user else None,
-                "created_at": m.created_at,
-            }
-            for m in members
-        ],
-        "financials": serialize_financials(project, payments),
-    }
+    result = build_project_detail(session, project_id, init_default_folders=_init_default_folders)
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
 
@@ -1631,14 +1589,9 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
     ensure_project_exists(session, project_id)
     members = list_project_members(session, project_id)
     return [
-        MemberOut(
-            id=m.id,
-            project_id=m.project_id,
-            user_id=m.user_id,
-            user=MemberUserOut(id=m.user.id, display_name=m.user.display_name),
-            created_at=m.created_at,
-        )
-        for m in members if m.user
+        MemberOut(**serialize_member(member))
+        for member in members
+        if member.user
     ]
 
 
