@@ -1,8 +1,6 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Check, Copy } from 'lucide-react'
 
 interface MarkdownRendererProps {
@@ -28,19 +26,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
-      <SyntaxHighlighter
-        style={oneLight}
-        language={language || 'text'}
-        PreTag="div"
-        customStyle={{
-          margin: 0,
-          borderRadius: '0 0 0.5rem 0.5rem',
-          fontSize: '0.8125rem',
-          lineHeight: '1.6',
-        }}
+      <pre
+        className="overflow-x-auto rounded-b-lg bg-slate-50 px-4 py-3 text-[0.8125rem] leading-6 text-slate-800"
+        style={{ margin: 0 }}
       >
-        {children}
-      </SyntaxHighlighter>
+        <code>{children}</code>
+      </pre>
     </div>
   )
 }
@@ -50,7 +41,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        code({ node, inline, className, children, ...props }: any) {
+        code({ inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '')
           if (!inline && match) {
             return (

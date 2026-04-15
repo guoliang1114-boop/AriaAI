@@ -44,7 +44,7 @@ const TABS: TabConfig[] = [
   {
     id: "overview",
     label: "Overview",
-    labelZh: "姒傝",
+    labelZh: "概览",
     icon: LayoutDashboard,
     path: "",
     getPath: (id) => `/projects/${id}`,
@@ -52,7 +52,7 @@ const TABS: TabConfig[] = [
   {
     id: "notes",
     label: "Notes",
-    labelZh: "绗旇",
+    labelZh: "笔记",
     icon: BookOpen,
     path: "notes",
     getPath: (id) => `/projects/${id}/notes`,
@@ -60,7 +60,7 @@ const TABS: TabConfig[] = [
   {
     id: "todos",
     label: "Todos",
-    labelZh: "寰呭姙",
+    labelZh: "待办",
     icon: ListTodo,
     path: "todos",
     getPath: (id) => `/projects/${id}/todos`,
@@ -68,7 +68,7 @@ const TABS: TabConfig[] = [
   {
     id: "milestones",
     label: "Milestones",
-    labelZh: "閲岀▼纰?",
+    labelZh: "里程碑",
     icon: Flag,
     path: "milestones",
     getPath: (id) => `/projects/${id}/milestones`,
@@ -76,7 +76,7 @@ const TABS: TabConfig[] = [
   {
     id: "chat",
     label: "Project Chat",
-    labelZh: "椤圭洰瀵硅瘽",
+    labelZh: "项目对话",
     icon: MessageSquare,
     path: "chat",
     getPath: (id) => `/projects/${id}/chat`,
@@ -84,7 +84,7 @@ const TABS: TabConfig[] = [
   {
     id: "financials",
     label: "Financials",
-    labelZh: "璐㈠姟",
+    labelZh: "财务",
     icon: DollarSign,
     path: "financials",
     getPath: (id) => `/projects/${id}/financials`,
@@ -92,7 +92,7 @@ const TABS: TabConfig[] = [
   {
     id: "documents",
     label: "Documents",
-    labelZh: "鏂囨。",
+    labelZh: "文档",
     icon: Files,
     path: "documents",
     getPath: (id) => `/projects/${id}/documents`,
@@ -100,7 +100,7 @@ const TABS: TabConfig[] = [
   {
     id: "settings",
     label: "Settings",
-    labelZh: "璁剧疆",
+    labelZh: "设置",
     icon: Settings,
     path: "settings",
     getPath: (id) => `/projects/${id}/settings`,
@@ -128,7 +128,7 @@ function ProjectHeader({
             className="flex items-center gap-2 text-sm text-gray-500 hover:text-primary transition-colors"
           >
             <FolderKanban className="w-4 h-4" />
-            <span>{isZh ? "椤圭洰绌洪棿" : "Projects"}</span>
+            <span>{isZh ? "项目空间" : "Projects"}</span>
           </button>
           <ChevronRight className="w-4 h-4 text-gray-400" />
           <span className="text-gray-900 font-medium truncate max-w-[200px] text-sm">
