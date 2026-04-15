@@ -18,6 +18,7 @@ from app.models.db import ClientRecord, Conversation, Message, Project, ProjectF
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services import context_builder as context_builder_module
+from app.services import rag as rag_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
 
 
@@ -486,7 +487,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             with patch.object(
                 context_builder_module,
                 "retrieve_structured",
-                return_value=context_builder_module.RetrievalContext([], "#doc summarize this"),
+                return_value=rag_module.RetrievalContext([], "#doc summarize this"),
             ) as mocked_retrieve:
                 ctx = context_builder_module.build_chat_context(
                     session=session,
@@ -518,7 +519,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             with patch.object(
                 context_builder_module,
                 "retrieve_structured",
-                return_value=context_builder_module.RetrievalContext([], "#doc summarize this"),
+                return_value=rag_module.RetrievalContext([], "#doc summarize this"),
             ) as mocked_retrieve:
                 context_builder_module.build_chat_context(
                     session=session,
@@ -540,9 +541,9 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            fake_result = context_builder_module.RetrievalContext(
+            fake_result = rag_module.RetrievalContext(
                 [
-                    context_builder_module.RetrievalResult(
+                    rag_module.RetrievalResult(
                         content="Relevant knowledge",
                         document_name="Selected Doc",
                         document_id=1,
@@ -569,6 +570,63 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         mocked_retrieve.assert_called_once()
         self.assertIn("Relevant knowledge", ctx.rag_context)
         self.assertEqual(len(ctx.rag_sources), 1)
+
+    def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
+        with Session(self.engine) as session:
+            project = Project(name="Scoped Project", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=rag_module.RetrievalContext([], "#doc summarize this"),
+            ) as mocked_retrieve:
+                context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="global",
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        called_project_id = mocked_retrieve.call_args.kwargs.get("project_id")
+        called_client_id = mocked_retrieve.call_args.kwargs.get("client_id")
+        self.assertIsNone(called_project_id)
+        self.assertIsNone(called_client_id)
+
+    def test_explicit_rag_doc_ids_bypass_scope_filters(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", industry="Consulting")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+
+            project = Project(name="Scoped Project", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=rag_module.RetrievalContext([], "#doc summarize this"),
+            ) as mocked_retrieve:
+                context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="client",
+                    rag_doc_ids=[99],
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        self.assertEqual(mocked_retrieve.call_args.args[2], [99])
+        called_project_id = mocked_retrieve.call_args.kwargs.get("project_id")
+        called_client_id = mocked_retrieve.call_args.kwargs.get("client_id")
+        self.assertIsNone(called_project_id)
+        self.assertIsNone(called_client_id)
 
     def test_build_project_context_excludes_sibling_project_content(self):
         with Session(self.engine) as session:
@@ -642,6 +700,73 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertNotIn("Other Delivery", ctx.project_context)
         self.assertNotIn("Other project should stay isolated", ctx.project_context)
         self.assertNotIn("Other project confidential notes", ctx.project_context)
+
+    def test_build_chat_context_client_scope_without_matching_client_record_falls_back_to_project_scope(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Unmatched Client Project",
+                client="Acme Corp",
+                description="Current project description",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=rag_module.RetrievalContext([], "#doc summarize this"),
+            ) as mocked_retrieve:
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="client",
+                    content="#doc summarize this",
+                )
+
+        mocked_retrieve.assert_called_once()
+        self.assertEqual(mocked_retrieve.call_args.kwargs.get("project_id"), project.id)
+        self.assertIsNone(mocked_retrieve.call_args.kwargs.get("client_id"))
+        self.assertEqual(ctx.rag_context, "")
+        self.assertEqual(ctx.rag_sources, [])
+
+    def test_build_chat_context_file_ids_do_not_attach_sibling_project_files(self):
+        with Session(self.engine) as session:
+            primary_project = Project(name="Primary Project", client="Acme")
+            sibling_project = Project(name="Sibling Project", client="Acme")
+            session.add(primary_project)
+            session.add(sibling_project)
+            session.commit()
+            session.refresh(primary_project)
+            session.refresh(sibling_project)
+
+            sibling_file = ProjectFile(
+                project_id=sibling_project.id,
+                name="sibling-note.md",
+                file_type="md",
+                path="projects/sibling-note.md",
+                size_bytes=10,
+            )
+            session.add(sibling_file)
+            session.commit()
+            session.refresh(sibling_file)
+
+            with patch.object(
+                context_builder_module,
+                "extract_file_text",
+                return_value="Sibling confidential file",
+            ):
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=primary_project.id,
+                    knowledge_scope="project",
+                    file_ids=[sibling_file.id],
+                    content="summarize",
+                )
+
+        self.assertIn("Primary Project", ctx.project_context)
+        self.assertNotIn("Sibling confidential file", ctx.project_context)
+        self.assertNotIn("sibling-note.md", ctx.project_context)
 
     def test_stream_chat_events_persists_successful_response(self):
         conv_id = self._create_conversation()

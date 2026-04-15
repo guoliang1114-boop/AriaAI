@@ -51,7 +51,6 @@ export function UserPicker({
   const containerRef = useRef<HTMLDivElement>(null)
 
   const selectedUser = users.find((u) => u.id === value)
-
   const filtered = users.filter((u) =>
     u.display_name.toLowerCase().includes(query.toLowerCase())
   )
@@ -62,6 +61,7 @@ export function UserPicker({
         setOpen(false)
       }
     }
+
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
@@ -72,13 +72,19 @@ export function UserPicker({
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className={`flex items-center gap-2 w-full px-3 py-2 bg-white border rounded-lg text-sm transition-colors ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'hover:border-gray-300'
+        className={`flex w-full items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm transition-colors ${
+          disabled ? 'cursor-not-allowed bg-gray-100 opacity-50' : 'hover:border-gray-300'
         } ${open ? 'border-primary ring-1 ring-primary/20' : 'border-gray-200'}`}
       >
-        <User className="w-4 h-4 text-gray-400" />
-        <span className={`flex-1 text-left truncate ${selectedUser ? 'text-gray-900' : 'text-gray-400'}`}>
-          {selectedUser ? selectedUser.display_name : placeholder || (isZh ? '选择负责人' : 'Assign to')}
+        <User className="h-4 w-4 text-gray-400" />
+        <span
+          className={`flex-1 truncate text-left ${
+            selectedUser ? 'text-gray-900' : 'text-gray-400'
+          }`}
+        >
+          {selectedUser
+            ? selectedUser.display_name
+            : placeholder || (isZh ? '选择负责人' : 'Assign to')}
         </span>
         {selectedUser ? (
           <span
@@ -86,20 +92,20 @@ export function UserPicker({
               e.stopPropagation()
               onChange(null)
             }}
-            className="p-0.5 rounded hover:bg-gray-100 text-gray-400"
+            className="rounded p-0.5 text-gray-400 hover:bg-gray-100"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="h-3.5 w-3.5" />
           </span>
         ) : (
-          <ChevronDown className="w-4 h-4 text-gray-400" />
+          <ChevronDown className="h-4 w-4 text-gray-400" />
         )}
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-100">
-            <div className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1.5">
-              <Search className="w-3.5 h-3.5 text-gray-400" />
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="border-b border-gray-100 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-md bg-gray-50 px-2 py-1.5">
+              <Search className="h-3.5 w-3.5 text-gray-400" />
               <input
                 type="text"
                 value={query}
@@ -112,7 +118,7 @@ export function UserPicker({
           </div>
           <div className="max-h-48 overflow-auto">
             {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-400 text-center">
+              <div className="px-3 py-2 text-center text-sm text-gray-400">
                 {isZh ? '未找到用户' : 'No users found'}
               </div>
             ) : (
@@ -125,11 +131,11 @@ export function UserPicker({
                     setOpen(false)
                     setQuery('')
                   }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${
-                    value === u.id ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700'
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                    value === u.id ? 'bg-primary/5 font-medium text-primary' : 'text-gray-700'
                   }`}
                 >
-                  <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-500">
                     {u.display_name.charAt(0)}
                   </div>
                   {u.display_name}
@@ -189,6 +195,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         setLoadingUsers(false)
       }
     }
+
     fetchUsers()
   }, [])
 
@@ -297,11 +304,10 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-xl border border-gray-200 bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ListTodo className="w-5 h-5 text-gray-400" />
+            <ListTodo className="h-5 w-5 text-gray-400" />
             <h3 className="font-semibold text-gray-900">
               {isZh ? '项目待办' : 'Project Todos'}
             </h3>
@@ -310,7 +316,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
             {completedCount} / {todos.length} {isZh ? '已完成' : 'done'}
           </span>
         </div>
-        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
           <div
             className="h-full bg-primary transition-all duration-500"
             style={{ width: `${progress}%` }}
@@ -318,9 +324,8 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         </div>
       </div>
 
-      {/* Add Todo */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
             value={newContent}
@@ -329,7 +334,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
               if (e.key === 'Enter') handleCreate()
             }}
             placeholder={isZh ? '添加新的待办事项...' : 'Add a new todo...'}
-            className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <div className="sm:w-44">
             <div className="relative">
@@ -338,7 +343,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                 type="date"
                 value={newDueDate}
                 onChange={(e) => setNewDueDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </div>
           </div>
@@ -353,21 +358,20 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
           <button
             onClick={handleCreate}
             disabled={isAdding || !newContent.trim()}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
-            {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {isZh ? '添加' : 'Add'}
           </button>
         </div>
       </div>
 
-      {/* Todo List */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         {todos.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <ListTodo className="w-12 h-12 mx-auto mb-3 opacity-20" />
+          <div className="py-12 text-center text-gray-400">
+            <ListTodo className="mx-auto mb-3 h-12 w-12 opacity-20" />
             <p className="text-sm">{isZh ? '暂无待办事项' : 'No todos yet'}</p>
-            <p className="text-xs mt-1 opacity-70">
+            <p className="mt-1 text-xs opacity-70">
               {isZh ? '在上方输入并添加第一个待办' : 'Type above to add your first todo'}
             </p>
           </div>
@@ -378,33 +382,33 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
               .map((todo) => (
                 <div
                   key={todo.id}
-                  className={`flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors group ${
+                  className={`group flex items-center gap-3 p-4 transition-colors hover:bg-gray-50 ${
                     todo.is_done ? 'bg-gray-50/50' : ''
                   }`}
                 >
-                  <div className="flex-shrink-0 text-gray-400">
+                  <div className="shrink-0 text-gray-400">
                     {savingId === todo.id ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <Loader2 className="h-5 w-5 animate-spin" />
                     ) : todo.is_done ? (
                       <button
                         onClick={() => handleToggle(todo)}
-                        className="text-gray-400 hover:text-primary transition-colors"
+                        className="text-gray-400 transition-colors hover:text-primary"
                       >
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                       </button>
                     ) : (
                       <button
                         onClick={() => handleToggle(todo)}
-                        className="text-gray-400 hover:text-primary transition-colors"
+                        className="text-gray-400 transition-colors hover:text-primary"
                       >
-                        <Circle className="w-5 h-5" />
+                        <Circle className="h-5 w-5" />
                       </button>
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     {editingId === todo.id ? (
-                      <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row">
                         <input
                           type="text"
                           value={editContent}
@@ -414,7 +418,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                             if (e.key === 'Escape') cancelEdit()
                           }}
                           autoFocus
-                          className="flex-1 px-3 py-1.5 bg-white border border-primary/30 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          className="flex-1 rounded-md border border-primary/30 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
                         <div className="sm:w-40">
                           <div className="relative">
@@ -438,19 +442,19 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                           <button
                             onClick={() => handleSaveEdit(todo.id)}
                             disabled={savingId === todo.id}
-                            className="p-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+                            className="rounded-md bg-primary p-1.5 text-white hover:bg-primary/90 disabled:opacity-50"
                           >
                             {savingId === todo.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <Check className="w-3.5 h-3.5" />
+                              <Check className="h-3.5 w-3.5" />
                             )}
                           </button>
                           <button
                             onClick={cancelEdit}
-                            className="p-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            className="rounded-md bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200"
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <X className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
@@ -468,7 +472,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                           )}
                           {todo.assigned_user && (
                             <div className="flex items-center gap-1.5">
-                              <div className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
+                              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-100 text-[10px] text-gray-500">
                                 {todo.assigned_user.display_name.charAt(0)}
                               </div>
                               <span>{todo.assigned_user.display_name}</span>
@@ -479,18 +483,18 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       onClick={() => startEdit(todo)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                      className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                     >
-                      <Edit3 className="w-4 h-4" />
+                      <Edit3 className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => openDeleteDialog(todo)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -499,13 +503,12 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         )}
       </div>
 
-      {/* Delete Confirmation Dialog */}
       {showDeleteDialog && todoToDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-gray-100">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="w-5 h-5 text-red-600" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50">
+                <AlertCircle className="h-5 w-5 text-red-600" />
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">
@@ -516,21 +519,21 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
                 </p>
               </div>
             </div>
-            <p className="text-sm text-gray-700 mb-6">
-              {isZh ? '确定要删除 "' : 'Are you sure you want to delete "'}
+            <p className="mb-6 text-sm text-gray-700">
+              {isZh ? '确定要删除“' : 'Are you sure you want to delete "'}
               <span className="font-medium text-gray-900">{todoToDelete.content}</span>
-              {isZh ? '" 吗？' : '"?'}
+              {isZh ? '”吗？' : '"?'}
             </p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={closeDeleteDialog}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                className="rounded-lg px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50"
               >
                 {isZh ? '取消' : 'Cancel'}
               </button>
               <button
                 onClick={confirmDelete}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
               >
                 {isZh ? '确认删除' : 'Delete'}
               </button>

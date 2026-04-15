@@ -296,7 +296,7 @@ def build_project_context(
         file_sections = []
         for fid in file_ids:
             pf = session.get(ProjectFile, fid)
-            if pf:
+            if pf and pf.project_id == project.id:
                 full_path = UPLOADS_DIR / pf.path
                 text = extract_file_text(full_path, pf.file_type)
                 file_sections.append(f"### {pf.name}\n{text}")
@@ -337,7 +337,11 @@ def build_rag_context(
             client = session.exec(
                 select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
             ).first()
-            client_id = client.id if client else None
+            if client:
+                client_id = client.id
+            else:
+                # Fall back to the current project instead of widening to global retrieval.
+                effective_project_id = project_id
 
     ctx = retrieve_structured(
         query,

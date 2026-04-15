@@ -120,24 +120,24 @@ function ProjectHeader({
   const isZh = i18n.language.startsWith("zh");
 
   return (
-    <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
-      <div className="max-w-full mx-auto px-6">
+    <div className="sticky top-0 z-30 border-b border-gray-200 bg-white">
+      <div className="mx-auto max-w-full px-6">
         <div className="flex items-center gap-2 py-2">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-primary transition-colors"
+            className="flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-primary"
           >
-            <FolderKanban className="w-4 h-4" />
+            <FolderKanban className="h-4 w-4" />
             <span>{isZh ? "项目空间" : "Projects"}</span>
           </button>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-900 font-medium truncate max-w-[200px] text-sm">
+          <ChevronRight className="h-4 w-4 text-gray-400" />
+          <span className="max-w-[200px] truncate text-sm font-medium text-gray-900">
             {project.name}
           </span>
         </div>
       </div>
 
-      <div className="max-w-full mx-auto px-6 border-t border-gray-100">
+      <div className="mx-auto max-w-full border-t border-gray-100 px-6">
         <div className="flex items-center gap-1">
           {TABS.map((tab) => (
             <NavLink
@@ -145,14 +145,14 @@ function ProjectHeader({
               to={tab.getPath(projectId)}
               end={tab.path === ""}
               className={({ isActive }) =>
-                `flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                `flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                   isActive
                     ? "border-primary text-primary"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
                 }`
               }
             >
-              <tab.icon className="w-4 h-4" />
+              <tab.icon className="h-4 w-4" />
               {isZh ? tab.labelZh : tab.label}
             </NavLink>
           ))}
@@ -203,7 +203,7 @@ function PersistentProjectTabs({
       )}
 
       {isNotesTab && (
-        <div className="max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)]">
+        <div className="min-h-[calc(100vh-180px)] max-w-full px-6 py-6">
           <ProjectNotesTab
             projectId={projectId}
             projectName={project.name}
@@ -226,7 +226,7 @@ function PersistentProjectTabs({
       )}
 
       {isTodosTab && (
-        <div className="max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)]">
+        <div className="min-h-[calc(100vh-180px)] max-w-full px-6 py-6">
           <ProjectTodosTab
             projectId={projectId}
             todos={projectDetail.todos}
@@ -272,7 +272,7 @@ export function ProjectDetailLayout({
     <div
       className={
         isChatTab
-          ? "bg-gray-50 h-screen overflow-hidden flex flex-col"
+          ? "flex h-screen flex-col overflow-hidden bg-gray-50"
           : "min-h-full bg-gray-50"
       }
     >
@@ -289,7 +289,7 @@ export function ProjectDetailLayout({
       />
 
       <div
-        className={`max-w-full mx-auto px-6 py-6 min-h-[calc(100vh-180px)] ${isChatTab || isNotesTab || isTodosTab ? "hidden" : ""}`}
+        className={`mx-auto min-h-[calc(100vh-180px)] max-w-full px-6 py-6 ${isChatTab || isNotesTab || isTodosTab ? "hidden" : ""}`}
       >
         {children}
       </div>
