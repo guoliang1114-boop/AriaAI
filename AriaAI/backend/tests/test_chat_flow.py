@@ -229,12 +229,18 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         resp = self.client.post(f"/projects/{project_id}/conversations/{conv_id}/save-markdown", json={})
         self.assertEqual(resp.status_code, 201)
         body = resp.json()
-        self.assertEqual(body["project_id"], project_id)
-        self.assertEqual(body["folder_id"], folder_id)
-        self.assertEqual(body["file_type"], "md")
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "new")
+        self.assertIsNone(body["folder_id"])
         self.assertTrue(body["name"].endswith(".md"))
 
-        saved_path = self.uploads_dir / body["path"]
+        with Session(self.engine) as session:
+            saved_file = session.get(ProjectFile, body["id"])
+            self.assertIsNotNone(saved_file)
+            self.assertEqual(saved_file.project_id, project_id)
+            self.assertEqual(saved_file.folder_id, None)
+            saved_path = self.uploads_dir / saved_file.path
+
         self.assertTrue(saved_path.exists())
         content = saved_path.read_text(encoding="utf-8")
         self.assertIn("# Weekly Sync", content)
@@ -538,6 +544,63 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         )
         self.assertEqual(rename_resp.status_code, 200)
         self.assertEqual(rename_resp.json()["name"], "Renamed_Consulting_Note.md")
+
+    def test_create_project_document_sanitizes_name_and_keeps_folder(self):
+        with Session(self.engine) as session:
+            project = Project(name="Doc Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            folder = ProjectFolder(project_id=project.id, name="Knowledge", sort_order=1)
+            session.add(folder)
+            session.commit()
+            session.refresh(folder)
+            project_id = project.id
+            folder_id = folder.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/documents",
+            json={
+                "name": "Client Kickoff Notes",
+                "content": "# Kickoff\n\nAgenda",
+                "folder_id": folder_id,
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        body = resp.json()
+        self.assertEqual(body["project_id"], project_id)
+        self.assertEqual(body["folder_id"], folder_id)
+        self.assertEqual(body["name"], "Client_Kickoff_Notes.md")
+        self.assertEqual(body["file_type"], "md")
+
+        saved_path = self.uploads_dir / body["path"]
+        self.assertTrue(saved_path.exists())
+        self.assertIn("Agenda", saved_path.read_text(encoding="utf-8"))
+
+    def test_save_conversation_markdown_merge_requires_file_id(self):
+        with Session(self.engine) as session:
+            project = Project(name="Merge Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            conv = Conversation(project_id=project.id, title="Weekly Sync")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+
+            session.add(Message(conversation_id=conv.id, role="user", content="hello"))
+            session.commit()
+            project_id = project.id
+            conv_id = conv.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/conversations/{conv_id}/save-markdown",
+            json={"action": "merge"},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("file_id is required", resp.json()["detail"])
 
     def test_project_todo_due_date_round_trip(self):
         with Session(self.engine) as session:
