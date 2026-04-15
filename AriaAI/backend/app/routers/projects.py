@@ -33,6 +33,12 @@ from app.services.project_financials import (
     list_project_payments,
     serialize_financials,
 )
+from app.services.project_files import (
+    create_project_upload,
+    delete_project_file,
+    get_project_file_or_404 as get_uploaded_project_file_or_404,
+    resolve_project_file_path,
+)
 from app.services.project_folders import (
     create_project_folder,
     delete_project_folder,
@@ -1193,33 +1199,16 @@ async def upload_file(
     folder_id: Optional[int] = Form(None),
     session: Session = Depends(get_session),
 ):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    suffix = Path(file.filename or "file").suffix.lower()
-    dest_name = f"{uuid.uuid4().hex}{suffix}"
-    dest_path = UPLOADS_DIR / "projects" / str(project_id)
-    dest_path.mkdir(parents=True, exist_ok=True)
-    dest_file = dest_path / dest_name
-
-    with dest_file.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    pf = ProjectFile(
-        project_id=project_id,
+    pf, dest_file, file_type = create_project_upload(
+        session,
+        project_id,
+        upload=file,
+        uploads_dir=UPLOADS_DIR,
         folder_id=folder_id,
-        name=file.filename or dest_name,
-        file_type=suffix.lstrip("."),
-        path=str(dest_file.relative_to(UPLOADS_DIR)),
-        size_bytes=dest_file.stat().st_size,
     )
-    session.add(pf)
-    session.commit()
-    session.refresh(pf)
 
     # Auto-generate file summary in the background
-    background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), suffix.lstrip("."))
+    background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), file_type)
 
     _bust_project(project_id)
     return pf
@@ -1227,14 +1216,7 @@ async def upload_file(
 
 @router.delete("/{project_id}/files/{file_id}")
 def delete_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
-    pf = session.get(ProjectFile, file_id)
-    if not pf or pf.project_id != project_id:
-        raise HTTPException(404, "File not found")
-    full_path = UPLOADS_DIR / pf.path
-    if full_path.exists():
-        full_path.unlink()
-    session.delete(pf)
-    session.commit()
+    delete_project_file(session, project_id, file_id, uploads_dir=UPLOADS_DIR)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -1243,15 +1225,10 @@ def delete_file(project_id: int, file_id: int, session: Session = Depends(get_se
 def download_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     """Download a project file."""
     from fastapi.responses import FileResponse
-    
-    pf = session.get(ProjectFile, file_id)
-    if not pf or pf.project_id != project_id:
-        raise HTTPException(404, "File not found")
-    
-    full_path = UPLOADS_DIR / pf.path
-    if not full_path.exists():
-        raise HTTPException(404, "File not found on disk")
-    
+
+    pf = get_uploaded_project_file_or_404(session, project_id, file_id)
+    full_path = resolve_project_file_path(pf, UPLOADS_DIR)
+
     return FileResponse(
         path=str(full_path),
         filename=pf.name,

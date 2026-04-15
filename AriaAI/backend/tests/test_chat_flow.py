@@ -709,6 +709,44 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(len(detail_resp.json()["files"]), 1)
 
+    def test_project_file_upload_download_and_delete_flow(self):
+        with Session(self.engine) as session:
+            project = Project(name="Upload Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        upload_resp = self.client.post(
+            f"/projects/{project_id}/files",
+            files={"file": ("brief.txt", b"hello project file", "text/plain")},
+        )
+        self.assertEqual(upload_resp.status_code, 201)
+        body = upload_resp.json()
+        file_id = body["id"]
+        self.assertEqual(body["name"], "brief.txt")
+        self.assertEqual(body["file_type"], "txt")
+
+        with Session(self.engine) as session:
+            saved_file = session.get(ProjectFile, file_id)
+            self.assertIsNotNone(saved_file)
+            saved_path = self.uploads_dir / saved_file.path
+            self.assertTrue(saved_path.exists())
+            self.assertEqual(saved_path.read_text(encoding="utf-8"), "hello project file")
+
+        download_resp = self.client.get(f"/projects/{project_id}/files/{file_id}/download")
+        self.assertEqual(download_resp.status_code, 200)
+        self.assertEqual(download_resp.content, b"hello project file")
+
+        delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(ProjectFile, file_id))
+
+        self.assertFalse(saved_path.exists())
+
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
             project = Project(name="Merge Project", client="Client")
