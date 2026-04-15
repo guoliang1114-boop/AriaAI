@@ -70,6 +70,7 @@ import type {
 } from "../../types/api";
 import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
+import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
@@ -4912,7 +4913,7 @@ export function ProjectDetail() {
           <Route
             path="/milestones"
             element={
-              <MilestonesTab
+              <ProjectMilestonesTab
                 projectDetail={projectDetail}
                 projectId={id!}
                 onUpdate={refreshProjectDetail}
@@ -5045,7 +5046,7 @@ export function ProjectDetail() {
             <Route
               path="/milestones"
               element={
-                <MilestonesTab
+                <ProjectMilestonesTab
                   projectDetail={projectDetail}
                   projectId={id!}
                   onUpdate={refreshProjectDetail}
