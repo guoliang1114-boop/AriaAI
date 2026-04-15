@@ -1219,26 +1219,6 @@ def delete_folder(project_id: int, folder_id: int, session: Session = Depends(ge
 @router.get("/{project_id}/financials")
 def get_financials(project_id: int, session: Session = Depends(get_session)):
     return get_project_financials(session, project_id)
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    payments = session.exec(
-        select(ProjectPayment)
-        .where(ProjectPayment.project_id == project_id)
-        .order_by(ProjectPayment.payment_date)
-    ).all()
-    received = sum(p.amount for p in payments if p.payment_type in ("received", "milestone_payment"))
-    expenses = sum(abs(p.amount) for p in payments if p.payment_type == "expense")
-    invoiced = sum(p.amount for p in payments if p.payment_type == "invoiced")
-    return {
-        "contract_amount": project.contract_amount,
-        "total_received": received,
-        "total_expense": expenses,
-        "total_invoiced": invoiced,
-        "uncollected": invoiced - received,   # 已开票未收款
-        "remaining": project.contract_amount - received,
-        "payments": payments,
-    }
 
 
 @router.post("/{project_id}/financials", status_code=201)
