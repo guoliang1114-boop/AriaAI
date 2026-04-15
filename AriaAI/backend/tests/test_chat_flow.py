@@ -304,6 +304,70 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(rename_resp.status_code, 200)
         self.assertEqual(rename_resp.json()["name"], "Renamed_Consulting_Note.md")
 
+    def test_project_todo_due_date_round_trip(self):
+        with Session(self.engine) as session:
+            project = Project(name="Todo Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        create_resp = self.client.post(
+            f"/projects/{project_id}/todos",
+            json={
+                "content": "Prepare proposal deck",
+                "due_date": "2026-04-30",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        todo_id = create_resp.json()["id"]
+        self.assertEqual(create_resp.json()["due_date"], "2026-04-30")
+
+        list_resp = self.client.get(f"/projects/{project_id}/todos")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(len(list_resp.json()), 1)
+        self.assertEqual(list_resp.json()[0]["due_date"], "2026-04-30")
+
+        patch_resp = self.client.patch(
+            f"/projects/{project_id}/todos/{todo_id}",
+            json={
+                "due_date": "2026-05-15",
+                "is_done": True,
+            },
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual(patch_resp.json()["due_date"], "2026-05-15")
+        self.assertTrue(patch_resp.json()["is_done"])
+
+        list_resp_after_patch = self.client.get(f"/projects/{project_id}/todos")
+        self.assertEqual(list_resp_after_patch.status_code, 200)
+        self.assertEqual(list_resp_after_patch.json()[0]["due_date"], "2026-05-15")
+        self.assertTrue(list_resp_after_patch.json()[0]["is_done"])
+
+    def test_project_detail_returns_todo_due_date(self):
+        with Session(self.engine) as session:
+            project = Project(name="Detail Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        create_resp = self.client.post(
+            f"/projects/{project_id}/todos",
+            json={
+                "content": "Confirm workshop agenda",
+                "due_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 201)
+
+        detail_resp = self.client.get(f"/projects/{project_id}/detail")
+        self.assertEqual(detail_resp.status_code, 200)
+        todos = detail_resp.json()["todos"]
+        self.assertEqual(len(todos), 1)
+        self.assertEqual(todos[0]["content"], "Confirm workshop agenda")
+        self.assertEqual(todos[0]["due_date"], "2026-06-01")
+
 
 class ChatStreamingServiceTestCase(unittest.TestCase):
     def setUp(self):
