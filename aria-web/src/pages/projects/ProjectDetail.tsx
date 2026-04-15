@@ -71,6 +71,8 @@ import type {
 import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab, UserPicker } from "./ProjectTodosTab";
+import { ProjectDetailLayout } from "./ProjectDetailLayout";
+import { useProjectDetailData } from "./useProjectDetailData";
 
 // ==================== Helper Functions ====================
 // Format number with thousand separators
@@ -4833,28 +4835,10 @@ export function ProjectDetail() {
   const isChatTab = location.pathname.endsWith("/chat");
   const isNotesTab = location.pathname.endsWith("/notes");
   const isTodosTab = location.pathname.endsWith("/todos");
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(
-    null,
-  );
-
-  useEffect(() => {
-    if (id) {
-      fetchProjectDetail(parseInt(id));
-    }
-  }, [id]);
-
-  const fetchProjectDetail = async (projectId: number) => {
-    try {
-      const data = await api.get<ProjectDetailType>(
-        `/projects/${projectId}/detail`,
-      );
-      setProjectDetail(data);
-    } catch (error) {
-      console.error("Failed to fetch project detail:", error);
-    } finally {
-      setInitialLoading(false);
-    }
+  const { initialLoading, projectDetail, refreshProjectDetail } =
+    useProjectDetailData(id);
+  const fetchProjectDetail = async (_projectId: number) => {
+    await refreshProjectDetail();
   };
 
   if (initialLoading) {
@@ -4888,6 +4872,74 @@ export function ProjectDetail() {
   }
 
   const { project } = projectDetail;
+
+  return (
+    <>
+      <PageTitle title={project.name} />
+      <ProjectDetailLayout
+        projectId={id!}
+        project={project}
+        projectDetail={projectDetail}
+        isChatTab={isChatTab}
+        isNotesTab={isNotesTab}
+        isTodosTab={isTodosTab}
+        onBack={() => navigate("/projects")}
+        onRefresh={refreshProjectDetail}
+      >
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <OverviewTab
+                projectDetail={projectDetail}
+                projectId={id!}
+                onProjectUpdate={refreshProjectDetail}
+              />
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <DocumentsTab
+                projectDetail={projectDetail}
+                projectId={id!}
+                onUpdate={refreshProjectDetail}
+              />
+            }
+          />
+          <Route
+            path="/milestones"
+            element={
+              <MilestonesTab
+                projectDetail={projectDetail}
+                projectId={id!}
+                onUpdate={refreshProjectDetail}
+              />
+            }
+          />
+          <Route
+            path="/financials"
+            element={
+              <FinancialsTab
+                projectDetail={projectDetail}
+                projectId={id!}
+                onUpdate={refreshProjectDetail}
+              />
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <SettingsTab
+                projectDetail={projectDetail}
+                onUpdate={refreshProjectDetail}
+              />
+            }
+          />
+        </Routes>
+      </ProjectDetailLayout>
+    </>
+  );
 
   return (
     <>
@@ -4974,7 +5026,7 @@ export function ProjectDetail() {
                 <OverviewTab
                   projectDetail={projectDetail}
                   projectId={id!}
-                  onProjectUpdate={() => fetchProjectDetail(parseInt(id!))}
+                  onProjectUpdate={refreshProjectDetail}
                 />
               }
             />
@@ -4984,7 +5036,7 @@ export function ProjectDetail() {
                 <DocumentsTab
                   projectDetail={projectDetail}
                   projectId={id!}
-                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
+                  onUpdate={refreshProjectDetail}
                 />
               }
             />
@@ -4994,7 +5046,7 @@ export function ProjectDetail() {
                 <MilestonesTab
                   projectDetail={projectDetail}
                   projectId={id!}
-                  onUpdate={async () => await fetchProjectDetail(parseInt(id!))}
+                  onUpdate={refreshProjectDetail}
                 />
               }
             />
@@ -5004,7 +5056,7 @@ export function ProjectDetail() {
                 <FinancialsTab
                   projectDetail={projectDetail}
                   projectId={id!}
-                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
+                  onUpdate={refreshProjectDetail}
                 />
               }
             />
@@ -5013,7 +5065,7 @@ export function ProjectDetail() {
               element={
                 <SettingsTab
                   projectDetail={projectDetail}
-                  onUpdate={() => fetchProjectDetail(parseInt(id!))}
+                  onUpdate={refreshProjectDetail}
                 />
               }
             />
