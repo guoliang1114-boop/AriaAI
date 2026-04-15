@@ -467,6 +467,15 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.add(
                 ProjectTodo(
                     project_id=project_b.id,
+                    content="Current user latest",
+                    due_date="2026-05-04",
+                    assigned_to_user_id=self.current_user_id,
+                    updated_at=datetime.utcnow() + timedelta(minutes=3),
+                )
+            )
+            session.add(
+                ProjectTodo(
+                    project_id=project_b.id,
                     content="Current user done",
                     due_date="2026-05-03",
                     assigned_to_user_id=self.current_user_id,
@@ -488,10 +497,17 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         resp = self.client.get("/projects/todos/my")
         self.assertEqual(resp.status_code, 200)
         todos = resp.json()
-        self.assertEqual(len(todos), 1)
-        self.assertEqual(todos[0]["content"], "Current user pending")
-        self.assertEqual(todos[0]["project_name"], "Alpha")
-        self.assertEqual(todos[0]["due_date"], "2026-05-01")
+        self.assertEqual(len(todos), 2)
+        self.assertEqual(todos[0]["content"], "Current user latest")
+        self.assertEqual(todos[0]["project_name"], "Beta")
+        self.assertEqual(todos[0]["due_date"], "2026-05-04")
+        self.assertEqual(todos[0]["assigned_to_user_id"], self.current_user_id)
+        self.assertIsNotNone(todos[0]["created_at"])
+        self.assertIsNotNone(todos[0]["updated_at"])
+        self.assertFalse(todos[0]["is_done"])
+        self.assertEqual(todos[1]["content"], "Current user pending")
+        self.assertEqual(todos[1]["project_name"], "Alpha")
+        self.assertEqual(todos[1]["due_date"], "2026-05-01")
 
     def test_update_project_document_persists_content(self):
         with Session(self.engine) as session:

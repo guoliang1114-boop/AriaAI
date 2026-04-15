@@ -19,6 +19,12 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.project_documents import (
+    build_markdown_export_header,
+    build_timestamped_markdown_filename,
+    ensure_markdown_filename,
+    write_project_markdown_file,
+)
 from app.services.provider_selector import get_selected_model, resolve_provider_from_model, _load_provider_module
 from app.routers.auth import get_current_user
 from app.routers.chat_export import build_markdown_export_content
@@ -819,9 +825,7 @@ def list_files(project_id: int, session: Session = Depends(get_session)):
 
 
 def _sanitize_markdown_filename(name: str) -> str:
-    sanitized = "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in (name or "").strip())
-    sanitized = "_".join(part for part in sanitized.split())
-    return sanitized[:80] or "conversation"
+    return ensure_markdown_filename(name).removesuffix(".md")[:80] or "conversation"
 
 
 def _resolve_project_folder(
@@ -1056,8 +1060,7 @@ def update_project_document(
         raise HTTPException(404, "File not found on disk")
 
     if data.content is not None:
-        full_path.write_text(data.content, encoding="utf-8")
-        project_file.size_bytes = full_path.stat().st_size
+        project_file.size_bytes = write_project_markdown_file(project_file, data.content, uploads_dir=UPLOADS_DIR)
 
     if data.name is not None:
         next_name = _sanitize_markdown_filename(data.name)
@@ -1118,12 +1121,12 @@ def save_conversation_markdown(
         if not full_path.exists():
             raise HTTPException(404, "File not found on disk")
 
-        existing = full_path.read_text(encoding="utf-8", errors="replace")
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-        header = f"\n\n---\n\n> From project conversation | {timestamp}\n\n"
-        new_content = existing + header + markdown_content
-        full_path.write_text(new_content, encoding="utf-8")
-        project_file.size_bytes = full_path.stat().st_size
+        project_file.size_bytes = write_project_markdown_file(
+            project_file,
+            build_markdown_export_header() + markdown_content,
+            uploads_dir=UPLOADS_DIR,
+            append=True,
+        )
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
@@ -1139,9 +1142,7 @@ def save_conversation_markdown(
 
     # action == "new"
     target_folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
-    base_name = _sanitize_markdown_filename(data.file_name or conv.title or "conversation")
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"{base_name}_{timestamp}.md"
+    filename = build_timestamped_markdown_filename(data.file_name or conv.title or "conversation")
 
     new_file = _create_markdown_project_file(
         session=session,
@@ -1180,9 +1181,7 @@ def save_message_to_document(
     if not conv or conv.project_id != project_id:
         raise HTTPException(404, "Message does not belong to this project")
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-    header = f"\n\n---\n\n> From project conversation | {timestamp}\n\n"
-    content_block = header + message.content if data.prepend_header else message.content
+    content_block = build_markdown_export_header() + message.content if data.prepend_header else message.content
 
     if data.action == "merge":
         if not data.file_id:
@@ -1195,10 +1194,12 @@ def save_message_to_document(
         if not full_path.exists():
             raise HTTPException(404, "File not found on disk")
 
-        existing = full_path.read_text(encoding="utf-8", errors="replace")
-        new_content = existing + content_block
-        full_path.write_text(new_content, encoding="utf-8")
-        project_file.size_bytes = full_path.stat().st_size
+        project_file.size_bytes = write_project_markdown_file(
+            project_file,
+            content_block,
+            uploads_dir=UPLOADS_DIR,
+            append=True,
+        )
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
@@ -1213,9 +1214,9 @@ def save_message_to_document(
 
     # action == "new"
     target_folder = _resolve_project_folder(session, project_id, data.folder_id) if data.folder_id is not None else None
-    base_name = _sanitize_markdown_filename(data.file_name or f"message_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
-    if not base_name.lower().endswith(".md"):
-        base_name = f"{base_name}.md"
+    base_name = ensure_markdown_filename(
+        data.file_name or f"message_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    )
 
     new_file = _create_markdown_project_file(
         session=session,
@@ -1601,8 +1602,8 @@ def save_project_note(project_id: int, body: NoteBody, session: Session = Depend
 
 # ── Project Todos ────────────────────────────────────────────────────────────
 
-def _serialize_todo(todo: ProjectTodo) -> dict:
-    return {
+def _serialize_todo(todo: ProjectTodo, project_name: str | None = None) -> dict:
+    data = {
         "id": todo.id,
         "project_id": todo.project_id,
         "content": todo.content,
@@ -1616,6 +1617,9 @@ def _serialize_todo(todo: ProjectTodo) -> dict:
         "created_at": todo.created_at,
         "updated_at": todo.updated_at,
     }
+    if project_name is not None:
+        data["project_name"] = project_name
+    return data
 
 
 @router.get("/{project_id}/todos")
@@ -1832,15 +1836,4 @@ def list_my_todos(
         )
         .order_by(ProjectTodo.updated_at.desc())
     ).all()
-    return [
-        {
-            "id": t.id,
-            "project_id": t.project_id,
-            "project_name": p.name,
-            "content": t.content,
-            "due_date": t.due_date,
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-        }
-        for t, p in rows
-    ]
+    return [_serialize_todo(t, project_name=p.name) for t, p in rows]
