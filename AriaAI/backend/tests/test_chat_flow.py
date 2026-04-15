@@ -368,6 +368,81 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(todos[0]["content"], "Confirm workshop agenda")
         self.assertEqual(todos[0]["due_date"], "2026-06-01")
 
+    def test_save_project_note_appends_existing_notes_by_default(self):
+        with Session(self.engine) as session:
+            project = Project(name="Notes Project", client="Client", notes="Legacy notes")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/notes",
+            json={
+                "content": "Fresh summary",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        notes = resp.json()["notes"]
+        self.assertIn("Legacy notes", notes)
+        self.assertIn("Fresh summary", notes)
+        self.assertIn("---", notes)
+
+        with Session(self.engine) as session:
+            project = session.get(Project, project_id)
+            self.assertIsNotNone(project)
+            self.assertEqual(project.notes, notes)
+
+    def test_save_project_note_overwrites_when_append_is_false(self):
+        with Session(self.engine) as session:
+            project = Project(name="Overwrite Notes Project", client="Client", notes="Legacy notes")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/notes",
+            json={
+                "content": "Fresh summary",
+                "append": False,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["notes"], "Fresh summary")
+
+        with Session(self.engine) as session:
+            project = session.get(Project, project_id)
+            self.assertIsNotNone(project)
+            self.assertEqual(project.notes, "Fresh summary")
+
+    def test_save_project_note_appends_with_timestamp_separator(self):
+        with Session(self.engine) as session:
+            project = Project(name="Append Notes Project", client="Client", notes="Initial memo")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/notes",
+            json={
+                "content": "Follow-up decision",
+                "append": True,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        notes = resp.json()["notes"]
+        self.assertIn("Initial memo", notes)
+        self.assertIn("---", notes)
+        self.assertIn("Follow-up decision", notes)
+        self.assertRegex(notes, r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]")
+
+        with Session(self.engine) as session:
+            project = session.get(Project, project_id)
+            self.assertIsNotNone(project)
+            self.assertEqual(project.notes, notes)
+
 
 class ChatStreamingServiceTestCase(unittest.TestCase):
     def setUp(self):
