@@ -1383,8 +1383,8 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
     if not project:
         raise HTTPException(404, "Project not found")
 
-    milestones = session.exec(select(Milestone).where(Milestone.project_id == project_id)).all()
-    files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+    milestones = list_project_milestones(session, project_id)
+    files = list_project_files(session, project_id)
 
     # Build project data block
     lines = [

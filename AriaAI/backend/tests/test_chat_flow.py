@@ -892,6 +892,71 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(final_list_resp.status_code, 200)
         self.assertEqual(final_list_resp.json(), [])
 
+    def test_generate_project_context_uses_current_project_files_and_milestones_only(self):
+        captured = {}
+
+        async def fake_stream(messages, max_tokens=4000):
+            captured["prompt"] = messages[0]["content"]
+            yield "- **Current summary**"
+
+        with Session(self.engine) as session:
+            project = Project(name="Context Project", client="Client", status="active")
+            sibling = Project(name="Sibling Project", client="Client", status="lead")
+            session.add(project)
+            session.add(sibling)
+            session.commit()
+            session.refresh(project)
+            session.refresh(sibling)
+
+            session.add(Milestone(project_id=project.id, title="Current Milestone", priority="high"))
+            session.add(Milestone(project_id=sibling.id, title="Sibling Milestone", priority="medium"))
+
+            current_path = Path("projects") / str(project.id) / "current_note.md"
+            sibling_path = Path("projects") / str(sibling.id) / "sibling_note.md"
+            current_full_path = self.uploads_dir / current_path
+            sibling_full_path = self.uploads_dir / sibling_path
+            current_full_path.parent.mkdir(parents=True, exist_ok=True)
+            sibling_full_path.parent.mkdir(parents=True, exist_ok=True)
+            current_full_path.write_text("# Current", encoding="utf-8")
+            sibling_full_path.write_text("# Sibling", encoding="utf-8")
+
+            session.add(
+                ProjectFile(
+                    project_id=project.id,
+                    name="Current Note.md",
+                    file_type="md",
+                    path=str(current_path),
+                    size_bytes=current_full_path.stat().st_size,
+                    summary="Current project file summary",
+                )
+            )
+            session.add(
+                ProjectFile(
+                    project_id=sibling.id,
+                    name="Sibling Note.md",
+                    file_type="md",
+                    path=str(sibling_path),
+                    size_bytes=sibling_full_path.stat().st_size,
+                    summary="Sibling project file summary",
+                )
+            )
+            session.commit()
+            project_id = project.id
+
+        with patch.object(projects_router_module, "_stream", side_effect=fake_stream), patch("app.database.engine", self.engine):
+            resp = self.client.post(f"/projects/{project_id}/generate-context")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("Current Milestone", captured["prompt"])
+        self.assertIn("Current Note.md", captured["prompt"])
+        self.assertNotIn("Sibling Milestone", captured["prompt"])
+        self.assertNotIn("Sibling Note.md", captured["prompt"])
+        self.assertNotIn("Sibling project file summary", captured["prompt"])
+
+        with Session(self.engine) as session:
+            saved_project = session.get(Project, project_id)
+            self.assertEqual(saved_project.context_summary, "- **Current summary**")
+
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
             project = Project(name="Merge Project", client="Client")
