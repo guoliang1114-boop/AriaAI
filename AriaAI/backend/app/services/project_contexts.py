@@ -10,10 +10,11 @@ from app.models.db import Project
 from app.services.project_files import list_project_files
 from app.services.project_milestones import list_project_milestones
 
-MAX_SUMMARY_MILESTONES = 8
-MAX_SUMMARY_FILES = 10
-MAX_FILE_SUMMARY_CHARS = 80
-MAX_DESCRIPTION_CHARS = 400
+MAX_SUMMARY_MILESTONES = 6
+MAX_SUMMARY_FILES = 8
+MAX_FILE_SUMMARY_CHARS = 60
+MAX_DESCRIPTION_CHARS = 240
+OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
 
 def build_project_context_data(session: Session, project_id: int) -> tuple[Project, str]:
@@ -112,6 +113,10 @@ def _split_text_for_sse(text: str, max_chars: int = 12) -> list[str]:
 async def stream_llm_text_chunks(chunks: AsyncIterator[str]) -> AsyncIterator[str]:
     async for chunk in chunks:
         if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
+            continue
+        if OUTPUT_TRUNCATED_MARKER in chunk:
+            chunk = chunk.replace(OUTPUT_TRUNCATED_MARKER, "")
+        if not chunk.strip():
             continue
         for piece in _split_text_for_sse(chunk):
             yield piece
