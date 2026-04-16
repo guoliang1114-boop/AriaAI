@@ -33,12 +33,103 @@ import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from 
 
 type ChatMessage = Message;
 
+const DEFAULT_NEW_CHAT_TITLE_ZH = "新对话";
+const DEFAULT_NEW_CHAT_TITLE_EN = "New Chat";
+const DEFAULT_PROJECT_NOTE_FILENAME_ZH = "对话沉淀.md";
+const DEFAULT_PROJECT_NOTE_FILENAME_EN = "chat-note.md";
+const PROJECT_CHAT_COPY = {
+  zh: {
+    saveToProject: "沉淀到项目文档",
+    copyContent: "复制内容",
+    saveToNotes: "保存到笔记",
+    selectNoteFile: "请选择一个笔记文件",
+    enterFileName: "请输入文件名",
+    mergedIntoNote: "已合并到笔记",
+    savedAsNewNote: "已保存为新笔记",
+    saveFailed: "保存失败",
+    mergeIntoExisting: "合并到现有笔记",
+    saveAsNew: "另存为新笔记",
+    selectFolder: "选择文件夹",
+    rootFolder: "根目录",
+    selectMergeTarget: "选择要合并的笔记文件",
+    noNoteFiles: "该文件夹下暂无可用的笔记文件",
+    newNoteFileName: "新笔记文件名",
+    newNoteFilePlaceholder: "例如：需求分析.md",
+    autoAppendMd: "将自动补充 .md 后缀",
+    cancel: "取消",
+    confirmSave: "确认保存",
+    createConversationFailed: "创建对话失败",
+    deleteConversationConfirm: "确定要删除这个对话吗？",
+    deleteConversationFailed: "删除失败",
+    renameConversationFailed: "重命名失败",
+    savedToProjectRoot: "已沉淀到项目文档根目录",
+    saveToProjectFailed: "沉淀失败",
+    sendFailed: "发送失败，请重试",
+    newChatButton: "新建对话",
+    noConversations: "暂无对话",
+    projectAssistantTitle: "项目 AI 助手",
+    projectAssistantSubtitle: "基于项目上下文提供智能建议",
+    knowledgeScope: "知识范围",
+    currentProject: "仅当前项目",
+    currentClient: "当前客户",
+    globalKnowledge: "全局知识库",
+    startConversation: "开始对话",
+    choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
+    thinking: "思考中...",
+    inputPlaceholder: "输入消息... (Shift+Enter 换行)",
+  },
+  en: {
+    saveToProject: "Save to project docs",
+    copyContent: "Copy content",
+    saveToNotes: "Save to Notes",
+    selectNoteFile: "Please select a note file",
+    enterFileName: "Please enter a file name",
+    mergedIntoNote: "Merged into note",
+    savedAsNewNote: "Saved as new note",
+    saveFailed: "Failed to save",
+    mergeIntoExisting: "Merge into existing",
+    saveAsNew: "Save as new",
+    selectFolder: "Select folder",
+    rootFolder: "Root",
+    selectMergeTarget: "Select note file to merge into",
+    noNoteFiles: "No note files in this folder",
+    newNoteFileName: "New note file name",
+    newNoteFilePlaceholder: "e.g. requirements.md",
+    autoAppendMd: ".md extension will be added automatically",
+    cancel: "Cancel",
+    confirmSave: "Save",
+    createConversationFailed: "Failed to create conversation",
+    deleteConversationConfirm: "Are you sure you want to delete this conversation?",
+    deleteConversationFailed: "Failed to delete",
+    renameConversationFailed: "Failed to rename",
+    savedToProjectRoot: "Saved to project documents (root)",
+    saveToProjectFailed: "Failed to save to project",
+    sendFailed: "Failed to send message",
+    newChatButton: "New Chat",
+    noConversations: "No conversations yet",
+    projectAssistantTitle: "Project AI Assistant",
+    projectAssistantSubtitle: "Smart suggestions based on project context",
+    knowledgeScope: "Knowledge Scope",
+    currentProject: "Current Project",
+    currentClient: "Current Client",
+    globalKnowledge: "Global Knowledge",
+    startConversation: "Start a conversation",
+    choosePromptOrAsk: "Choose a quick prompt below or type your question",
+    thinking: "Thinking...",
+    inputPlaceholder: "Type a message... (Shift+Enter for new line)",
+  },
+} as const;
+
 const QUICK_PROMPTS = [
   { key: "summary", icon: FileText, labelZh: "总结项目", labelEn: "Summarize Project" },
   { key: "milestones", icon: Flag, labelZh: "分析里程碑", labelEn: "Analyze Milestones" },
   { key: "risks", icon: AlertCircle, labelZh: "识别风险", labelEn: "Identify Risks" },
   { key: "documents", icon: FolderKanban, labelZh: "文档问答", labelEn: "Document Q&A" },
 ];
+
+function getProjectChatCopy(isZh: boolean) {
+  return isZh ? PROJECT_CHAT_COPY.zh : PROJECT_CHAT_COPY.en;
+}
 const ExportDropdown = memo<{
   conversationId: number;
   conversationTitle?: string;
@@ -125,7 +216,7 @@ const ExportDropdown = memo<{
   );
 });
 
-const MessageCopyButton = memo(({ text }: { text: string }) => {
+const MessageCopyButton = memo(({ text, title }: { text: string; title: string }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -139,19 +230,19 @@ const MessageCopyButton = memo(({ text }: { text: string }) => {
     <button
       onClick={handleCopy}
       className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-      title="复制内容"
+      title={title}
     >
       {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
 });
 
-const MessageSaveButton = memo(({ onClick }: { onClick: () => void }) => {
+const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title: string }) => {
   return (
     <button
       onClick={onClick}
       className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-      title="保存到笔记"
+      title={title}
     >
       <Save className="w-3.5 h-3.5" />
     </button>
@@ -159,8 +250,9 @@ const MessageSaveButton = memo(({ onClick }: { onClick: () => void }) => {
 });
 
 const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>(({ msg, onSaveToNotes }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isUser = msg.role === "user";
+  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
 
   let references: Array<{ type: string; id: number; title: string }> = [];
   try {
@@ -224,8 +316,8 @@ const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>
           <span className="text-[11px] text-gray-300 px-0.5">
             {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
-          {!isUser && <MessageCopyButton text={msg.content} />}
-          {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} />}
+          {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}
+          {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} title={copy.saveToNotes} />}
         </div>
       </div>
     </div>
@@ -255,7 +347,7 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
 
 function buildDefaultTitle(content: string, isZh: boolean) {
   const clean = content.replace(/[#*`\[\]]/g, "").trim();
-  if (!clean) return isZh ? "新对话" : "New Chat";
+  if (!clean) return isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN;
   return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
 }
 
@@ -280,6 +372,7 @@ function SaveToNotesModal({
 }) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const copy = getProjectChatCopy(isZh);
   const toast = useToast();
   const [action, setAction] = useState<"merge" | "new">("merge");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -299,7 +392,9 @@ function SaveToNotesModal({
       setAction("merge");
       setSelectedFolderId(null);
       setSelectedFileId(null);
-      setFileName(isZh ? "对话沉淀.md" : "chat-note.md");
+      setFileName(
+        isZh ? DEFAULT_PROJECT_NOTE_FILENAME_ZH : DEFAULT_PROJECT_NOTE_FILENAME_EN,
+      );
       setLoading(false);
     }
   }, [isOpen, isZh]);
@@ -316,11 +411,11 @@ function SaveToNotesModal({
 
   const handleSubmit = async () => {
     if (action === "merge" && !selectedFileId) {
-      toast.error(isZh ? "请选择一个笔记文件" : "Please select a note file");
+      toast.error(copy.selectNoteFile);
       return;
     }
     if (action === "new" && !fileName.trim()) {
-      toast.error(isZh ? "请输入文件名" : "Please enter a file name");
+      toast.error(copy.enterFileName);
       return;
     }
     setLoading(true);
@@ -341,11 +436,11 @@ function SaveToNotesModal({
           prepend_header: true,
         });
       }
-      toast.success(action === "merge" ? (isZh ? "已合并到笔记" : "Merged into note") : (isZh ? "已保存为新笔记" : "Saved as new note"));
+      toast.success(action === "merge" ? copy.mergedIntoNote : copy.savedAsNewNote);
       onSuccess();
       onClose();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || (isZh ? "保存失败" : "Failed to save");
+      const msg = err?.response?.data?.detail || copy.saveFailed;
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -356,7 +451,7 @@ function SaveToNotesModal({
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">{isZh ? "保存到笔记" : "Save to Notes"}</h3>
+          <h3 className="font-semibold text-gray-900">{copy.saveToNotes}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
             <X className="w-4 h-4" />
           </button>
@@ -371,7 +466,7 @@ function SaveToNotesModal({
                 action === "merge" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {isZh ? "合并到现有笔记" : "Merge into existing"}
+              {copy.mergeIntoExisting}
             </button>
             <button
               onClick={() => setAction("new")}
@@ -379,14 +474,14 @@ function SaveToNotesModal({
                 action === "new" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {isZh ? "另存为新笔记" : "Save as new"}
+              {copy.saveAsNew}
             </button>
           </div>
 
           {/* Folder selection (shared) */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              {isZh ? "选择文件夹" : "Select folder"}
+              {copy.selectFolder}
             </label>
             <div className="max-h-32 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
               <label
@@ -402,7 +497,7 @@ function SaveToNotesModal({
                   className="accent-primary"
                 />
                 <FolderKanban className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-sm text-gray-800">{isZh ? "根目录" : "Root"}</span>
+                <span className="text-sm text-gray-800">{copy.rootFolder}</span>
               </label>
               {folders.map((folder) => (
                 <label
@@ -428,11 +523,11 @@ function SaveToNotesModal({
           {action === "merge" ? (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                {isZh ? "选择要合并的笔记文件" : "Select note file to merge into"}
+                {copy.selectMergeTarget}
               </label>
               {filesInSelectedFolder.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">
-                  {isZh ? "该文件夹下暂无可用的笔记文件" : "No note files in this folder"}
+                  {copy.noNoteFiles}
                 </p>
               ) : (
                 <div className="max-h-40 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
@@ -460,16 +555,16 @@ function SaveToNotesModal({
           ) : (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">
-                {isZh ? "新笔记文件名" : "New note file name"}
+                {copy.newNoteFileName}
               </label>
               <input
                 type="text"
                 value={fileName}
                 onChange={(e) => setFileName(e.target.value)}
-                placeholder={isZh ? "例如：需求分析.md" : "e.g. requirements.md"}
+                placeholder={copy.newNoteFilePlaceholder}
                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
-              <p className="text-xs text-gray-400">{isZh ? "将自动补充 .md 后缀" : ".md extension will be added automatically"}</p>
+              <p className="text-xs text-gray-400">{copy.autoAppendMd}</p>
             </div>
           )}
         </div>
@@ -480,7 +575,7 @@ function SaveToNotesModal({
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
           >
-            {isZh ? "取消" : "Cancel"}
+            {copy.cancel}
           </button>
           <button
             onClick={handleSubmit}
@@ -488,7 +583,7 @@ function SaveToNotesModal({
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isZh ? "确认保存" : "Save"}
+            {copy.confirmSave}
           </button>
         </div>
       </div>
@@ -509,6 +604,7 @@ export function ProjectChatTab({
 }) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const copy = getProjectChatCopy(isZh);
   const toast = useToast();
   const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
 
@@ -608,13 +704,13 @@ export function ProjectChatTab({
       return newConv.id;
     } catch (error) {
       console.error("Failed to create conversation:", error);
-      toast.error(isZh ? "创建对话失败" : "Failed to create conversation");
+      toast.error(copy.createConversationFailed);
       return null;
     }
   };
 
   const deleteConversation = async (convId: number) => {
-    if (!confirm(isZh ? "确定要删除这个对话吗？" : "Are you sure you want to delete this conversation?")) return;
+    if (!confirm(copy.deleteConversationConfirm)) return;
     try {
       await api.delete(`/chat/conversations/${convId}`);
       setConversations((prev) => prev.filter((c) => c.id !== convId));
@@ -625,7 +721,7 @@ export function ProjectChatTab({
       }
     } catch (error) {
       console.error("Failed to delete conversation:", error);
-      toast.error(isZh ? "删除失败" : "Failed to delete");
+      toast.error(copy.deleteConversationFailed);
     }
   };
 
@@ -641,7 +737,7 @@ export function ProjectChatTab({
       setEditingConvId(null);
     } catch (error) {
       console.error("Failed to rename conversation:", error);
-      toast.error(isZh ? "重命名失败" : "Failed to rename");
+      toast.error(copy.renameConversationFailed);
     }
   };
 
@@ -650,11 +746,11 @@ export function ProjectChatTab({
     try {
       await api.post(`/projects/${project.id}/conversations/${activeConvId}/save-markdown`, {});
       await onProjectUpdate();
-      toast.success(isZh ? "已沉淀到项目文档根目录" : "Saved to project documents (root)");
+      toast.success(copy.savedToProjectRoot);
     } catch (error: any) {
       console.error("Failed to save conversation to project:", error);
       const detail = error?.response?.data?.detail;
-      toast.error(detail || (isZh ? "沉淀失败" : "Failed to save to project"));
+      toast.error(detail || copy.saveToProjectFailed);
       throw error;
     }
   };
@@ -755,7 +851,7 @@ export function ProjectChatTab({
     } catch (error) {
       console.error("Failed to send message:", error);
       setStreamingContent("");
-      toast.error(isZh ? "发送失败，请重试" : "Failed to send message");
+      toast.error(copy.sendFailed);
       await fetchMessages(convId);
     } finally {
       setIsLoading(false);
@@ -779,7 +875,7 @@ export function ProjectChatTab({
             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
-            {isZh ? "新建对话" : "New Chat"}
+            {copy.newChatButton}
           </button>
         </div>
 
@@ -789,7 +885,9 @@ export function ProjectChatTab({
               <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <MessageSquare className="w-3.5 h-3.5 text-primary flex-shrink-0" />
               </div>
-              <p className="text-sm font-medium text-gray-900 truncate">{isZh ? "新对话" : "New Chat"}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN}
+              </p>
             </div>
           )}
 
@@ -803,7 +901,7 @@ export function ProjectChatTab({
               ))}
             </div>
           ) : conversations.length === 0 && activeConvId !== null ? (
-            <div className="p-4 text-center text-gray-400 text-sm">{isZh ? "暂无对话" : "No conversations yet"}</div>
+            <div className="p-4 text-center text-gray-400 text-sm">{copy.noConversations}</div>
           ) : (
             conversations.map((conv) => (
               <div
@@ -879,24 +977,24 @@ export function ProjectChatTab({
             </div>
           <div>
             <h3 className="font-semibold text-gray-900 text-base">
-              {activeConversation?.title || (isZh ? "项目 AI 助手" : "Project AI Assistant")}
+              {activeConversation?.title || copy.projectAssistantTitle}
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              {isZh ? "基于项目上下文提供智能建议" : "Smart suggestions based on project context"}
+              {copy.projectAssistantSubtitle}
             </p>
           </div>
         </div>
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-2">
-              <span className="text-xs text-gray-400">{isZh ? "知识范围" : "Knowledge Scope"}</span>
+              <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
               <select
                 value={knowledgeScope}
                 onChange={(event) => setKnowledgeScope(event.target.value as "project" | "client" | "global")}
                 className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                <option value="project">{isZh ? "仅当前项目" : "Current Project"}</option>
-                <option value="client">{isZh ? "当前客户" : "Current Client"}</option>
-                <option value="global">{isZh ? "全局知识库" : "Global Knowledge"}</option>
+                <option value="project">{copy.currentProject}</option>
+                <option value="client">{copy.currentClient}</option>
+                <option value="global">{copy.globalKnowledge}</option>
               </select>
             </div>
             {activeConversation?.id && (
@@ -934,9 +1032,9 @@ export function ProjectChatTab({
               <div className="w-16 h-16 rounded-2xl bg-primary/5 flex items-center justify-center mb-4 border border-primary/10">
                 <Bot className="w-8 h-8 text-primary/40" />
               </div>
-              <p className="text-base font-semibold text-gray-900 mb-2">{isZh ? "开始对话" : "Start a conversation"}</p>
+              <p className="text-base font-semibold text-gray-900 mb-2">{copy.startConversation}</p>
               <p className="text-sm text-gray-500 mb-6 max-w-xs text-center">
-                {isZh ? "选择下方快捷场景或直接输入问题" : "Choose a quick prompt below or type your question"}
+                {copy.choosePromptOrAsk}
               </p>
               <div className="grid grid-cols-2 gap-3 max-w-md">
                 {QUICK_PROMPTS.map((prompt) => (
@@ -973,7 +1071,7 @@ export function ProjectChatTab({
                   <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      <span className="text-sm text-gray-500">{isZh ? "思考中..." : "Thinking..."}</span>
+                      <span className="text-sm text-gray-500">{copy.thinking}</span>
                     </div>
                   </div>
                 </div>
@@ -994,7 +1092,7 @@ export function ProjectChatTab({
                     void sendMessage(inputValue);
                   }
                 }}
-                placeholder={isZh ? "输入消息... (Shift+Enter 换行)" : "Type a message... (Shift+Enter for new line)"}
+                placeholder={copy.inputPlaceholder}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 resize-none min-h-[48px] max-h-[120px] transition-all"
                 rows={1}
                 style={{ height: "auto" }}
