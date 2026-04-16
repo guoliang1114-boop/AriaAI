@@ -21,7 +21,7 @@ from app.services import scheduler
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS
-from app.routers.projects import _init_default_folders
+from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel
 from app.models.db import Project, Skill, ProjectFolder, User, UserToken
 from app.config import JWT_SECRET  # Fallback for admin seed
@@ -43,7 +43,7 @@ def _backfill_folders():
                 select(ProjectFolder).where(ProjectFolder.project_id == project.id)
             ).first()
             if not has_folders:
-                _init_default_folders(project.id, session)
+                init_default_project_folders(session, project.id)
 
 
 def _patch_templates():
