@@ -39,7 +39,6 @@ const QUICK_PROMPTS = [
   { key: "risks", icon: AlertCircle, labelZh: "识别风险", labelEn: "Identify Risks" },
   { key: "documents", icon: FolderKanban, labelZh: "文档问答", labelEn: "Document Q&A" },
 ];
-
 const ExportDropdown = memo<{
   conversationId: number;
   conversationTitle?: string;
