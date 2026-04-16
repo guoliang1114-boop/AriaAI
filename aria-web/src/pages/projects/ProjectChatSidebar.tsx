@@ -1,6 +1,8 @@
 import { Edit3, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { Conversation } from "../../types/api";
+import { getProjectChatCopy } from "./projectChatCopy";
 
 type ProjectChatSidebarProps = {
   isOpen: boolean;
@@ -9,9 +11,6 @@ type ProjectChatSidebarProps = {
   isLoadingConversations: boolean;
   editingConvId: number | null;
   editTitle: string;
-  newChatLabel: string;
-  emptyLabel: string;
-  draftTitleLabel: string;
   onStartNewChat: () => void;
   onSelectConversation: (conversationId: number) => void;
   onBeginRename: (conversation: Conversation) => void;
@@ -28,9 +27,6 @@ export function ProjectChatSidebar({
   isLoadingConversations,
   editingConvId,
   editTitle,
-  newChatLabel,
-  emptyLabel,
-  draftTitleLabel,
   onStartNewChat,
   onSelectConversation,
   onBeginRename,
@@ -39,6 +35,9 @@ export function ProjectChatSidebar({
   onCancelRename,
   onDeleteConversation,
 }: ProjectChatSidebarProps) {
+  const { i18n } = useTranslation();
+  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
+
   return (
     <div
       className={`${isOpen ? "w-64" : "w-0"} border-r border-gray-200 bg-gray-50/50 flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
@@ -49,7 +48,7 @@ export function ProjectChatSidebar({
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" />
-          {newChatLabel}
+          {copy.newChatButton}
         </button>
       </div>
 
@@ -59,7 +58,7 @@ export function ProjectChatSidebar({
             <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
               <MessageSquare className="w-3.5 h-3.5 text-primary flex-shrink-0" />
             </div>
-            <p className="text-sm font-medium text-gray-900 truncate">{draftTitleLabel}</p>
+            <p className="text-sm font-medium text-gray-900 truncate">{copy.defaultNewChatTitle}</p>
           </div>
         )}
 
@@ -73,7 +72,7 @@ export function ProjectChatSidebar({
             ))}
           </div>
         ) : conversations.length === 0 && activeConvId !== null ? (
-          <div className="p-4 text-center text-gray-400 text-sm">{emptyLabel}</div>
+          <div className="p-4 text-center text-gray-400 text-sm">{copy.noConversations}</div>
         ) : (
           conversations.map((conversation) => (
             <div

@@ -153,7 +153,6 @@ type ProjectChatMessagesProps = {
   streamingContent: string;
   isLoading: boolean;
   isLoadingMessages: boolean;
-  isZh: boolean;
   startConversationLabel: string;
   choosePromptLabel: string;
   thinkingLabel: string;
@@ -167,7 +166,6 @@ export function ProjectChatMessages({
   streamingContent,
   isLoading,
   isLoadingMessages,
-  isZh,
   startConversationLabel,
   choosePromptLabel,
   thinkingLabel,

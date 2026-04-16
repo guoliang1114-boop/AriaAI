@@ -1,17 +1,9 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  BookOpen,
-  ChevronDown,
-  Download,
-  FileText,
-  Loader2,
-} from "lucide-react";
-import { api } from "../../api/client";
-import { exportConversationFile } from "../../api/chatExport";
 import { useToast } from "../../contexts/ToastContext";
 import type { Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
+import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMessages } from "./ProjectChatMessages";
@@ -23,93 +15,6 @@ import {
 } from "./projectChatCopy";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
-
-const ExportDropdown = memo<{
-  conversationId: number;
-  conversationTitle?: string;
-  onOpenSaveModal?: () => void;
-}>(({ conversationId, conversationTitle, onOpenSaveModal }) => {
-  const { i18n, t } = useTranslation();
-  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
-  const [isOpen, setIsOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen]);
-
-  const handleExport = async (format: "markdown" | "pdf") => {
-    setIsExporting(true);
-    try {
-      await exportConversationFile(conversationId, format, conversationTitle || "conversation");
-      setIsOpen(false);
-    } catch (err) {
-      console.error("Export failed:", err);
-      alert(t("chat.exportFailed", copy.exportFailed));
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleSaveToProject = () => {
-    if (!onOpenSaveModal) return;
-    onOpenSaveModal();
-    setIsOpen(false);
-  };
-
-  return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        disabled={isExporting}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-      >
-        {isExporting ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Download className="w-4 h-4" />
-        )}
-        <span className="hidden sm:inline">{t("chat.export", copy.export)}</span>
-        <ChevronDown className="w-3 h-3" />
-      </button>
-
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-          <button
-            onClick={() => handleExport("markdown")}
-            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <FileText className="w-4 h-4 text-gray-400" />
-            {t("chat.exportMarkdown", copy.exportMarkdown)}
-          </button>
-          <button
-            onClick={() => handleExport("pdf")}
-            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <FileText className="w-4 h-4 text-red-400" />
-            {t("chat.exportPDF", copy.exportPDF)}
-          </button>
-          {onOpenSaveModal && (
-            <button
-              onClick={handleSaveToProject}
-              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <BookOpen className="w-4 h-4 text-emerald-500" />
-              {t("projects.saveConversationToProject", copy.saveConversationToProject)}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-});
 
 export function ProjectChatTab({
   project,
@@ -222,9 +127,6 @@ export function ProjectChatTab({
         isLoadingConversations={isLoadingConversations}
         editingConvId={editingConvId}
         editTitle={editTitle}
-        newChatLabel={copy.newChatButton}
-        emptyLabel={copy.noConversations}
-        draftTitleLabel={copy.defaultNewChatTitle}
         onStartNewChat={startNewChat}
         onSelectConversation={setActiveConvId}
         onBeginRename={beginRenameConversation}
@@ -248,7 +150,7 @@ export function ProjectChatTab({
           onKnowledgeScopeChange={setKnowledgeScope}
           exportControl={
             activeConversation?.id ? (
-              <ExportDropdown
+              <ProjectChatExportDropdown
                 conversationId={activeConversation.id}
                 conversationTitle={activeConversation.title}
                 onOpenSaveModal={openConversationSaveModal}
@@ -263,7 +165,6 @@ export function ProjectChatTab({
             streamingContent={streamingContent}
             isLoading={isLoading}
             isLoadingMessages={isLoadingMessages}
-            isZh={isZh}
             startConversationLabel={copy.startConversation}
             choosePromptLabel={copy.choosePromptOrAsk}
             thinkingLabel={copy.thinking}
