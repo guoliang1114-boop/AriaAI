@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BookOpen, Loader2, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { BookOpen, Loader2, Sparkles, Wand2, X } from "lucide-react";
 import { api } from "../../api/client";
 import { getApiBaseUrl } from "../../config/api";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
+import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
+import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
 import { ProjectNotesToolbar } from "./ProjectNotesToolbar";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
@@ -19,6 +21,74 @@ interface ProjectNotesTabProps {
 }
 
 type DocumentDialogMode = "create" | "rename";
+
+const COPY = {
+  saved: { zh: "文档已保存", en: "Document saved" },
+  saveFailed: { zh: "保存失败", en: "Failed to save" },
+  templateCreated: {
+    zh: "咨询售前模板已创建",
+    en: "Consulting pre-sales template created",
+  },
+  templateCreatedAndCleaned: {
+    zh: "模板已创建，并清理了重复目录",
+    en: "Template created and duplicate folders cleaned",
+  },
+  templateCreateFailed: { zh: "模板创建失败", en: "Failed to create template" },
+  documentCreated: { zh: "文档已创建", en: "Document created" },
+  documentCreateFailed: { zh: "创建文档失败", en: "Failed to create document" },
+  documentRenamed: { zh: "文档已重命名", en: "Document renamed" },
+  documentRenameFailed: {
+    zh: "重命名文档失败",
+    en: "Failed to rename document",
+  },
+  documentDeleted: { zh: "文档已删除", en: "Document deleted" },
+  documentDeleteFailed: {
+    zh: "删除文档失败",
+    en: "Failed to delete document",
+  },
+  aiGenerationFailed: {
+    zh: "AI 润色失败，请稍后重试",
+    en: "AI generation failed, please try again",
+  },
+  aiApplied: {
+    zh: "已应用到当前文档",
+    en: "Applied to current document",
+  },
+  emptyTitle: { zh: "请先从左侧选择文档", en: "Choose a document from the left" },
+  emptyDescription: {
+    zh: "可以先生成咨询售前模板，或者新建一篇 Markdown 文档开始整理。",
+    en: "Create the consulting pre-sales template or start a new Markdown document.",
+  },
+  editPlaceholder: {
+    zh: "在这里编辑 Markdown 文档……",
+    en: "Edit your Markdown document here...",
+  },
+  previewEmpty: { zh: "预览区域", en: "Preview area" },
+  aiTitle: { zh: "AI 写作助手", en: "AI Writing Assistant" },
+  aiDraftLabel: { zh: "草稿或补充说明", en: "Draft or instruction" },
+  aiDraftPlaceholder: {
+    zh: "输入补充要求，或留空以直接润色当前文档。",
+    en: "Add guidance here, or leave empty to polish the current document.",
+  },
+  aiGenerate: { zh: "生成", en: "Generate" },
+  aiResultLabel: { zh: "生成结果", en: "Generated result" },
+  aiResultEmpty: {
+    zh: "生成结果会显示在这里",
+    en: "The generated result will appear here",
+  },
+  aiReplace: { zh: "替换当前内容", en: "Replace" },
+  aiAppend: { zh: "追加到文档", en: "Append" },
+} as const;
+
+function pick(
+  isZh: boolean,
+  value: {
+    zh: string;
+    en: string;
+  },
+) {
+  return isZh ? value.zh : value.en;
+}
 
 export function ProjectNotesTab({
   projectId,
@@ -76,7 +146,10 @@ export function ProjectNotesTab({
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+      if (
+        moreMenuRef.current &&
+        !moreMenuRef.current.contains(event.target as Node)
+      ) {
         setShowMoreMenu(false);
       }
     };
@@ -88,13 +161,15 @@ export function ProjectNotesTab({
     if (!selectedFileId) return;
     setIsSaving(true);
     try {
-      await api.patch(`/projects/${projectId}/documents/${selectedFileId}`, { content });
+      await api.patch(`/projects/${projectId}/documents/${selectedFileId}`, {
+        content,
+      });
       markContentSynced(content);
       onUpdate();
-      toast.success(isZh ? "鏂囨。宸蹭繚瀛?" : "Document saved");
+      toast.success(pick(isZh, COPY.saved));
     } catch (error) {
       console.error("Failed to save document:", error);
-      toast.error(isZh ? "淇濆瓨澶辫触" : "Failed to save");
+      toast.error(pick(isZh, COPY.saveFailed));
     } finally {
       setIsSaving(false);
     }
@@ -110,16 +185,12 @@ export function ProjectNotesTab({
       onUpdate();
       toast.success(
         result.cleaned_folder_count
-          ? isZh
-            ? "宸茬敓鎴愭ā鏉垮苟娓呯悊閲嶅鐩綍"
-            : "Template created and duplicate folders cleaned"
-          : isZh
-            ? "宸茬敓鎴愬挩璇㈠敭鍓嶆ā鏉?"
-            : "Consulting pre-sales template created",
+          ? pick(isZh, COPY.templateCreatedAndCleaned)
+          : pick(isZh, COPY.templateCreated),
       );
     } catch (error) {
       console.error("Failed to initialize template:", error);
-      toast.error(isZh ? "妯℃澘鐢熸垚澶辫触" : "Failed to create template");
+      toast.error(pick(isZh, COPY.templateCreateFailed));
     } finally {
       setIsBootstrapping(false);
     }
@@ -152,18 +223,21 @@ export function ProjectNotesTab({
     if (!normalizedName) return;
     setIsCreatingDoc(true);
     try {
-      const created = await api.post<ProjectFile>(`/projects/${projectId}/documents`, {
-        folder_id: pendingFolderId,
-        name: normalizedName,
-        content: `# ${normalizedName.replace(/\.md$/i, "")}\n`,
-      });
+      const created = await api.post<ProjectFile>(
+        `/projects/${projectId}/documents`,
+        {
+          folder_id: pendingFolderId,
+          name: normalizedName,
+          content: `# ${normalizedName.replace(/\.md$/i, "")}\n`,
+        },
+      );
       onUpdate();
       setSelectedFileId(created.id);
       closeDocumentDialog();
-      toast.success(isZh ? "鏂囨。宸插垱寤?" : "Document created");
+      toast.success(pick(isZh, COPY.documentCreated));
     } catch (error) {
       console.error("Failed to create document:", error);
-      toast.error(isZh ? "鍒涘缓鏂囨。澶辫触" : "Failed to create document");
+      toast.error(pick(isZh, COPY.documentCreateFailed));
     } finally {
       setIsCreatingDoc(false);
     }
@@ -180,10 +254,10 @@ export function ProjectNotesTab({
       });
       onUpdate();
       closeDocumentDialog();
-      toast.success(isZh ? "鏂囨。宸查噸鍛藉悕" : "Document renamed");
+      toast.success(pick(isZh, COPY.documentRenamed));
     } catch (error) {
       console.error("Failed to rename document:", error);
-      toast.error(isZh ? "閲嶅懡鍚嶆枃妗ｅけ璐?" : "Failed to rename document");
+      toast.error(pick(isZh, COPY.documentRenameFailed));
     } finally {
       setIsRenamingDoc(false);
     }
@@ -194,15 +268,16 @@ export function ProjectNotesTab({
     setIsDeletingDoc(true);
     try {
       await api.delete(`/projects/${projectId}/files/${selectedFile.id}`);
-      const nextFile = markdownFiles.find((file) => file.id !== selectedFile.id) || null;
+      const nextFile =
+        markdownFiles.find((file) => file.id !== selectedFile.id) || null;
       setSelectedFileId(nextFile?.id ?? null);
       resetDocumentState();
       setShowDeleteDialog(false);
       onUpdate();
-      toast.success(isZh ? "鏂囨。宸插垹闄?" : "Document deleted");
+      toast.success(pick(isZh, COPY.documentDeleted));
     } catch (error) {
       console.error("Failed to delete document:", error);
-      toast.error(isZh ? "鍒犻櫎鏂囨。澶辫触" : "Failed to delete document");
+      toast.error(pick(isZh, COPY.documentDeleteFailed));
     } finally {
       setIsDeletingDoc(false);
     }
@@ -256,10 +331,7 @@ export function ProjectNotesTab({
       }
     } catch (error: any) {
       console.error("AI generation failed:", error);
-      toast.error(
-        error?.message ||
-          (isZh ? "AI 鐢熸垚澶辫触锛岃閲嶈瘯" : "AI generation failed, please try again"),
-      );
+      toast.error(error?.message || pick(isZh, COPY.aiGenerationFailed));
     } finally {
       setAiLoading(false);
     }
@@ -277,14 +349,14 @@ export function ProjectNotesTab({
     setShowAIModal(false);
     setAiDraft("");
     setAiResult("");
-    toast.success(isZh ? "宸插簲鐢ㄥ埌褰撳墠鏂囨。" : "Applied to current document");
+    toast.success(pick(isZh, COPY.aiApplied));
   };
 
   const showEdit = mode === "edit" || mode === "split";
   const showPreview = mode === "preview" || mode === "split";
 
   return (
-    <div className="h-full min-h-[calc(100vh-220px)] rounded-2xl border border-gray-200 bg-white overflow-hidden">
+    <div className="h-full min-h-[calc(100vh-220px)] overflow-hidden rounded-2xl border border-gray-200 bg-white">
       <div className="flex h-full min-h-[calc(100vh-220px)]">
         <ProjectNotesSidebar
           folderList={folderList}
@@ -302,7 +374,7 @@ export function ProjectNotesTab({
           onToggleFolder={toggleFolder}
         />
 
-        <section className="flex-1 flex flex-col min-w-0">
+        <section className="flex min-w-0 flex-1 flex-col">
           <div className="relative" ref={moreMenuRef}>
             <ProjectNotesToolbar
               dirty={dirty}
@@ -328,36 +400,32 @@ export function ProjectNotesTab({
             />
           </div>
 
-          <div className="flex-1 min-h-0 bg-white">
+          <div className="min-h-0 flex-1 bg-white">
             {!selectedFile ? (
-              <div className="h-full flex items-center justify-center text-center px-8">
+              <div className="flex h-full items-center justify-center px-8 text-center">
                 <div>
-                  <BookOpen className="w-12 h-12 mx-auto text-gray-300" />
+                  <BookOpen className="mx-auto h-12 w-12 text-gray-300" />
                   <p className="mt-4 text-base font-medium text-gray-900">
-                    {isZh ? "浠庡乏渚ч€夋嫨涓€涓枃妗?" : "Choose a document from the left"}
+                    {pick(isZh, COPY.emptyTitle)}
                   </p>
                   <p className="mt-2 text-sm text-gray-500">
-                    {isZh
-                      ? "浣犲彲浠ュ厛鐢熸垚鍜ㄨ鍞墠妯℃澘锛屾垨鑰呮柊寤轰竴涓?Markdown 鏂囨。銆?"
-                      : "Create the consulting pre-sales template or start a new Markdown document."}
+                    {pick(isZh, COPY.emptyDescription)}
                   </p>
                 </div>
               </div>
             ) : isLoadingDoc ? (
-              <div className="h-full flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="h-full flex gap-4 p-4">
+              <div className="flex h-full gap-4 p-4">
                 {showEdit && (
                   <div className={`${mode === "split" ? "w-1/2" : "w-full"} min-w-0`}>
                     <textarea
                       value={content}
-                      onChange={(event) => {
-                        updateContent(event.target.value);
-                      }}
-                      placeholder={isZh ? "鍦ㄨ繖閲岀紪杈?Markdown 鏂囨。..." : "Edit your Markdown document here..."}
-                      className="w-full h-full min-h-[calc(100vh-340px)] rounded-xl border border-gray-200 bg-white px-4 py-4 text-sm font-mono leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      onChange={(event) => updateContent(event.target.value)}
+                      placeholder={pick(isZh, COPY.editPlaceholder)}
+                      className="h-full min-h-[calc(100vh-340px)] w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-4 font-mono text-sm leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
                       spellCheck={false}
                     />
                   </div>
@@ -365,14 +433,14 @@ export function ProjectNotesTab({
 
                 {showPreview && (
                   <div className={`${mode === "split" ? "w-1/2" : "w-full"} min-w-0`}>
-                    <div className="h-full min-h-[calc(100vh-340px)] rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 overflow-auto">
+                    <div className="h-full min-h-[calc(100vh-340px)] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-5 py-4">
                       {content.trim() ? (
                         <div className="md-root">
                           <MarkdownRenderer content={content} />
                         </div>
                       ) : (
-                        <div className="h-full flex items-center justify-center text-sm text-gray-400">
-                          {isZh ? "棰勮鍖?" : "Preview area"}
+                        <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                          {pick(isZh, COPY.previewEmpty)}
                         </div>
                       )}
                     </div>
@@ -384,142 +452,38 @@ export function ProjectNotesTab({
         </section>
       </div>
 
-      {showDocumentDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {documentDialogMode === "create"
-                    ? isZh
-                      ? "鏂板缓鏂囨。"
-                      : "Create Document"
-                    : isZh
-                      ? "閲嶅懡鍚嶆枃妗?"
-                      : "Rename Document"}
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {documentDialogMode === "create"
-                    ? isZh
-                      ? "浣跨敤缁熶竴缁勪欢鍒涘缓鏂扮殑椤圭洰鏂囨。銆?"
-                      : "Create a new project document with the shared dialog."
-                    : isZh
-                      ? "淇敼褰撳墠鏂囨。鍚嶇О銆?"
-                      : "Update the name of the current document."}
-                </p>
-              </div>
-              <button
-                onClick={closeDocumentDialog}
-                disabled={isCreatingDoc || isRenamingDoc}
-                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ProjectNotesDocumentDialog
+        isOpen={showDocumentDialog}
+        isPending={isCreatingDoc || isRenamingDoc}
+        isZh={isZh}
+        mode={documentDialogMode}
+        value={documentName}
+        onChange={setDocumentName}
+        onClose={closeDocumentDialog}
+        onSubmit={() =>
+          void (documentDialogMode === "create"
+            ? handleCreateDocument()
+            : handleRenameDocument())
+        }
+      />
 
-            <div className="mt-5">
-              <label className="block text-sm font-medium text-gray-700">
-                {isZh ? "鏂囨。鍚嶇О" : "Document name"}
-              </label>
-              <input
-                type="text"
-                value={documentName}
-                onChange={(event) => setDocumentName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void (documentDialogMode === "create"
-                      ? handleCreateDocument()
-                      : handleRenameDocument());
-                  }
-                }}
-                placeholder={isZh ? "渚嬪锛氶」鐩€昏" : "For example: Project Overview"}
-                className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                autoFocus
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                onClick={closeDocumentDialog}
-                disabled={isCreatingDoc || isRenamingDoc}
-                className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-              >
-                {isZh ? "鍙栨秷" : "Cancel"}
-              </button>
-              <button
-                onClick={() =>
-                  void (documentDialogMode === "create"
-                    ? handleCreateDocument()
-                    : handleRenameDocument())
-                }
-                disabled={!documentName.trim() || isCreatingDoc || isRenamingDoc}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-              >
-                {(isCreatingDoc || isRenamingDoc) && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                {documentDialogMode === "create"
-                  ? isZh
-                    ? "鍒涘缓"
-                    : "Create"
-                  : isZh
-                    ? "淇濆瓨"
-                    : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteDialog && selectedFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-red-100 bg-white p-6 shadow-2xl">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
-                <Trash2 className="h-5 w-5 text-red-500" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {isZh ? "鍒犻櫎鏂囨。" : "Delete Document"}
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-gray-500">
-                  {isZh
-                    ? `纭畾瑕佸垹闄も€?{selectedFile.name}鈥濆悧锛熷垹闄ゅ悗灏嗘棤娉曟仮澶嶃€俙`
-                    : `Delete "${selectedFile.name}"? This action cannot be undone.`}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteDialog(false)}
-                disabled={isDeletingDoc}
-                className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-              >
-                {isZh ? "鍙栨秷" : "Cancel"}
-              </button>
-              <button
-                onClick={() => void handleDeleteDocument()}
-                disabled={isDeletingDoc}
-                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {isDeletingDoc && <Loader2 className="h-4 w-4 animate-spin" />}
-                {isZh ? "鍒犻櫎" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProjectNotesDeleteDialog
+        file={selectedFile}
+        isDeleting={isDeletingDoc}
+        isOpen={showDeleteDialog}
+        isZh={isZh}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={() => void handleDeleteDocument()}
+      />
 
       {showAIModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
               <div className="flex items-center gap-2">
-                <Wand2 className="w-5 h-5 text-indigo-600" />
+                <Wand2 className="h-5 w-5 text-indigo-600" />
                 <h3 className="font-semibold text-gray-900">
-                  {isZh ? "AI 杈呭姪鍐欎綔" : "AI Writing Assistant"}
+                  {pick(isZh, COPY.aiTitle)}
                 </h3>
               </div>
               <button
@@ -528,46 +492,50 @@ export function ProjectNotesTab({
                   setAiDraft("");
                   setAiResult("");
                 }}
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="flex-1 overflow-auto p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="flex flex-col gap-3">
                   <label className="text-sm font-medium text-gray-700">
-                    {isZh ? "鑽夌鎴栬ˉ鍏呰鏄?" : "Draft or instruction"}
+                    {pick(isZh, COPY.aiDraftLabel)}
                   </label>
                   <textarea
                     value={aiDraft}
                     onChange={(event) => setAiDraft(event.target.value)}
-                    placeholder={isZh ? "杈撳叆琛ュ厖璇存槑锛岀暀绌哄垯鐩存帴鍩轰簬褰撳墠鏂囨。娑﹁壊銆?" : "Add guidance here, or leave empty to polish the current document."}
-                    className="min-h-[220px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                    placeholder={pick(isZh, COPY.aiDraftPlaceholder)}
+                    className="min-h-[220px] resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                   <button
                     onClick={() => void handleAIGenerate()}
                     disabled={aiLoading}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
-                    {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {isZh ? "鐢熸垚鍐呭" : "Generate"}
+                    {aiLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {pick(isZh, COPY.aiGenerate)}
                   </button>
                 </div>
 
                 <div className="flex flex-col gap-3">
                   <label className="text-sm font-medium text-gray-700">
-                    {isZh ? "鐢熸垚缁撴灉" : "Generated result"}
+                    {pick(isZh, COPY.aiResultLabel)}
                   </label>
-                  <div className="min-h-[220px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl overflow-auto">
+                  <div className="min-h-[220px] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                     {aiResult.trim() ? (
                       <div className="md-root text-sm">
                         <MarkdownRenderer content={aiResult} />
                       </div>
                     ) : (
-                      <div className="h-full flex items-center justify-center text-sm text-gray-400">
-                        {isZh ? "鐢熸垚缁撴灉浼氬嚭鐜板湪杩欓噷" : "The generated result will appear here"}
+                      <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                        {pick(isZh, COPY.aiResultEmpty)}
                       </div>
                     )}
                   </div>
@@ -575,16 +543,16 @@ export function ProjectNotesTab({
                     <button
                       onClick={() => applyAIResult("replace")}
                       disabled={!aiResult.trim()}
-                      className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                      className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
                     >
-                      {isZh ? "鏇挎崲褰撳墠鏂囨。" : "Replace"}
+                      {pick(isZh, COPY.aiReplace)}
                     </button>
                     <button
                       onClick={() => applyAIResult("append")}
                       disabled={!aiResult.trim()}
-                      className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      {isZh ? "杩藉姞鍒版枃妗?" : "Append"}
+                      {pick(isZh, COPY.aiAppend)}
                     </button>
                   </div>
                 </div>
