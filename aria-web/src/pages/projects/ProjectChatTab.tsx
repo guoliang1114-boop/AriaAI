@@ -1,7 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  AlertCircle,
   BookOpen,
   Bot,
   CheckCircle2,
@@ -12,16 +11,13 @@ import {
   Download,
   Edit3,
   FileText,
-  FolderKanban,
   Loader2,
   MessageSquare,
   Plus,
   Send,
   Sparkles,
   Trash2,
-  Flag,
   Wrench,
-  X,
   Save,
 } from "lucide-react";
 import { api } from "../../api/client";
@@ -30,106 +26,17 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import { getApiBaseUrl } from "../../config/api";
 import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
+import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
+import {
+  DEFAULT_NEW_CHAT_TITLE_EN,
+  DEFAULT_NEW_CHAT_TITLE_ZH,
+  QUICK_PROMPTS,
+  buildDefaultChatTitle,
+  getProjectChatCopy,
+} from "./projectChatCopy";
 
 type ChatMessage = Message;
 
-const DEFAULT_NEW_CHAT_TITLE_ZH = "新对话";
-const DEFAULT_NEW_CHAT_TITLE_EN = "New Chat";
-const DEFAULT_PROJECT_NOTE_FILENAME_ZH = "对话沉淀.md";
-const DEFAULT_PROJECT_NOTE_FILENAME_EN = "chat-note.md";
-const PROJECT_CHAT_COPY = {
-  zh: {
-    saveToProject: "沉淀到项目文档",
-    copyContent: "复制内容",
-    saveToNotes: "保存到笔记",
-    selectNoteFile: "请选择一个笔记文件",
-    enterFileName: "请输入文件名",
-    mergedIntoNote: "已合并到笔记",
-    savedAsNewNote: "已保存为新笔记",
-    saveFailed: "保存失败",
-    mergeIntoExisting: "合并到现有笔记",
-    saveAsNew: "另存为新笔记",
-    selectFolder: "选择文件夹",
-    rootFolder: "根目录",
-    selectMergeTarget: "选择要合并的笔记文件",
-    noNoteFiles: "该文件夹下暂无可用的笔记文件",
-    newNoteFileName: "新笔记文件名",
-    newNoteFilePlaceholder: "例如：需求分析.md",
-    autoAppendMd: "将自动补充 .md 后缀",
-    cancel: "取消",
-    confirmSave: "确认保存",
-    createConversationFailed: "创建对话失败",
-    deleteConversationConfirm: "确定要删除这个对话吗？",
-    deleteConversationFailed: "删除失败",
-    renameConversationFailed: "重命名失败",
-    savedToProjectRoot: "已沉淀到项目文档根目录",
-    saveToProjectFailed: "沉淀失败",
-    sendFailed: "发送失败，请重试",
-    newChatButton: "新建对话",
-    noConversations: "暂无对话",
-    projectAssistantTitle: "项目 AI 助手",
-    projectAssistantSubtitle: "基于项目上下文提供智能建议",
-    knowledgeScope: "知识范围",
-    currentProject: "仅当前项目",
-    currentClient: "当前客户",
-    globalKnowledge: "全局知识库",
-    startConversation: "开始对话",
-    choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
-    thinking: "思考中...",
-    inputPlaceholder: "输入消息... (Shift+Enter 换行)",
-  },
-  en: {
-    saveToProject: "Save to project docs",
-    copyContent: "Copy content",
-    saveToNotes: "Save to Notes",
-    selectNoteFile: "Please select a note file",
-    enterFileName: "Please enter a file name",
-    mergedIntoNote: "Merged into note",
-    savedAsNewNote: "Saved as new note",
-    saveFailed: "Failed to save",
-    mergeIntoExisting: "Merge into existing",
-    saveAsNew: "Save as new",
-    selectFolder: "Select folder",
-    rootFolder: "Root",
-    selectMergeTarget: "Select note file to merge into",
-    noNoteFiles: "No note files in this folder",
-    newNoteFileName: "New note file name",
-    newNoteFilePlaceholder: "e.g. requirements.md",
-    autoAppendMd: ".md extension will be added automatically",
-    cancel: "Cancel",
-    confirmSave: "Save",
-    createConversationFailed: "Failed to create conversation",
-    deleteConversationConfirm: "Are you sure you want to delete this conversation?",
-    deleteConversationFailed: "Failed to delete",
-    renameConversationFailed: "Failed to rename",
-    savedToProjectRoot: "Saved to project documents (root)",
-    saveToProjectFailed: "Failed to save to project",
-    sendFailed: "Failed to send message",
-    newChatButton: "New Chat",
-    noConversations: "No conversations yet",
-    projectAssistantTitle: "Project AI Assistant",
-    projectAssistantSubtitle: "Smart suggestions based on project context",
-    knowledgeScope: "Knowledge Scope",
-    currentProject: "Current Project",
-    currentClient: "Current Client",
-    globalKnowledge: "Global Knowledge",
-    startConversation: "Start a conversation",
-    choosePromptOrAsk: "Choose a quick prompt below or type your question",
-    thinking: "Thinking...",
-    inputPlaceholder: "Type a message... (Shift+Enter for new line)",
-  },
-} as const;
-
-const QUICK_PROMPTS = [
-  { key: "summary", icon: FileText, labelZh: "总结项目", labelEn: "Summarize Project" },
-  { key: "milestones", icon: Flag, labelZh: "分析里程碑", labelEn: "Analyze Milestones" },
-  { key: "risks", icon: AlertCircle, labelZh: "识别风险", labelEn: "Identify Risks" },
-  { key: "documents", icon: FolderKanban, labelZh: "文档问答", labelEn: "Document Q&A" },
-];
-
-function getProjectChatCopy(isZh: boolean) {
-  return isZh ? PROJECT_CHAT_COPY.zh : PROJECT_CHAT_COPY.en;
-}
 const ExportDropdown = memo<{
   conversationId: number;
   conversationTitle?: string;
@@ -207,7 +114,7 @@ const ExportDropdown = memo<{
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <BookOpen className="w-4 h-4 text-emerald-500" />
-              {t("projects.saveConversationToProject", "沉淀到项目文档")}
+              {t("projects.saveConversationToProject", "???????")}
             </button>
           )}
         </div>
@@ -269,7 +176,7 @@ const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>
         }`}
       >
         {isUser ? (
-          <span className="text-[10px] font-semibold text-gray-500">{t("chat.you", "你")}</span>
+          <span className="text-[10px] font-semibold text-gray-500">{t("chat.you", "?")}</span>
         ) : (
           <Sparkles className="w-3.5 h-3.5 text-white" />
         )}
@@ -277,7 +184,7 @@ const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>
 
       <div className={`flex-1 flex flex-col ${isUser ? "items-end" : "items-start"}`}>
         <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">
-          {isUser ? t("chat.you", "你") : "Aria"}
+          {isUser ? t("chat.you", "?") : "Aria"}
         </p>
 
         <div
@@ -344,252 +251,6 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
     </div>
   );
 });
-
-function buildDefaultTitle(content: string, isZh: boolean) {
-  const clean = content.replace(/[#*`\[\]]/g, "").trim();
-  if (!clean) return isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN;
-  return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
-}
-
-function SaveToNotesModal({
-  isOpen,
-  onClose,
-  projectId,
-  messageId,
-  conversationId,
-  files,
-  folders,
-  onSuccess,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  projectId: number;
-  messageId?: number | null;
-  conversationId?: number | null;
-  files: ProjectFile[];
-  folders: ProjectFolder[];
-  onSuccess: () => void;
-}) {
-  const { i18n } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
-  const copy = getProjectChatCopy(isZh);
-  const toast = useToast();
-  const [action, setAction] = useState<"merge" | "new">("merge");
-  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
-  const [fileName, setFileName] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const mdFiles = useMemo(() => files.filter((f) => f.file_type?.toLowerCase() === "md"), [files]);
-  const isConversationMode = !!conversationId;
-
-  const filesInSelectedFolder = useMemo(() => {
-    return mdFiles.filter((f) => (selectedFolderId == null ? f.folder_id == null : f.folder_id === selectedFolderId));
-  }, [mdFiles, selectedFolderId]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setAction("merge");
-      setSelectedFolderId(null);
-      setSelectedFileId(null);
-      setFileName(
-        isZh ? DEFAULT_PROJECT_NOTE_FILENAME_ZH : DEFAULT_PROJECT_NOTE_FILENAME_EN,
-      );
-      setLoading(false);
-    }
-  }, [isOpen, isZh]);
-
-  // Auto-select first file when folder changes in merge mode
-  useEffect(() => {
-    if (action === "merge") {
-      setSelectedFileId(filesInSelectedFolder[0]?.id ?? null);
-    }
-  }, [filesInSelectedFolder, action]);
-
-  if (!isOpen) return null;
-  if (!messageId && !conversationId) return null;
-
-  const handleSubmit = async () => {
-    if (action === "merge" && !selectedFileId) {
-      toast.error(copy.selectNoteFile);
-      return;
-    }
-    if (action === "new" && !fileName.trim()) {
-      toast.error(copy.enterFileName);
-      return;
-    }
-    setLoading(true);
-    try {
-      if (conversationId) {
-        await api.post(`/projects/${projectId}/conversations/${conversationId}/save-markdown`, {
-          action,
-          file_id: selectedFileId,
-          file_name: fileName.trim(),
-          folder_id: selectedFolderId,
-        });
-      } else {
-        await api.post(`/projects/${projectId}/messages/${messageId}/save-to-document`, {
-          action,
-          file_id: selectedFileId,
-          file_name: fileName.trim(),
-          folder_id: selectedFolderId,
-          prepend_header: true,
-        });
-      }
-      toast.success(action === "merge" ? copy.mergedIntoNote : copy.savedAsNewNote);
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || copy.saveFailed;
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">{copy.saveToNotes}</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          {/* Action tabs */}
-          <div className="flex rounded-lg bg-gray-100 p-1">
-            <button
-              onClick={() => setAction("merge")}
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                action === "merge" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {copy.mergeIntoExisting}
-            </button>
-            <button
-              onClick={() => setAction("new")}
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                action === "new" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {copy.saveAsNew}
-            </button>
-          </div>
-
-          {/* Folder selection (shared) */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-              {copy.selectFolder}
-            </label>
-            <div className="max-h-32 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-              <label
-                className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  selectedFolderId === null ? "bg-primary/5" : ""
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="folder"
-                  checked={selectedFolderId === null}
-                  onChange={() => setSelectedFolderId(null)}
-                  className="accent-primary"
-                />
-                <FolderKanban className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="text-sm text-gray-800">{copy.rootFolder}</span>
-              </label>
-              {folders.map((folder) => (
-                <label
-                  key={folder.id}
-                  className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    selectedFolderId === folder.id ? "bg-primary/5" : ""
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="folder"
-                    checked={selectedFolderId === folder.id}
-                    onChange={() => setSelectedFolderId(folder.id)}
-                    className="accent-primary"
-                  />
-                  <FolderKanban className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                  <span className="text-sm text-gray-800 truncate">{folder.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {action === "merge" ? (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                {copy.selectMergeTarget}
-              </label>
-              {filesInSelectedFolder.length === 0 ? (
-                <p className="text-sm text-gray-400 py-2">
-                  {copy.noNoteFiles}
-                </p>
-              ) : (
-                <div className="max-h-40 overflow-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-                  {filesInSelectedFolder.map((file) => (
-                    <label
-                      key={file.id}
-                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
-                        selectedFileId === file.id ? "bg-primary/5" : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="file"
-                        checked={selectedFileId === file.id}
-                        onChange={() => setSelectedFileId(file.id)}
-                        className="accent-primary"
-                      />
-                      <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <span className="text-sm text-gray-800 truncate">{file.name}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                {copy.newNoteFileName}
-              </label>
-              <input
-                type="text"
-                value={fileName}
-                onChange={(e) => setFileName(e.target.value)}
-                placeholder={copy.newNoteFilePlaceholder}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-              <p className="text-xs text-gray-400">{copy.autoAppendMd}</p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50">
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {copy.cancel}
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading || (action === "merge" && filesInSelectedFolder.length === 0)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {copy.confirmSave}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function ProjectChatTab({
   project,
@@ -693,7 +354,7 @@ export function ProjectChatTab({
 
   const createConversation = async (firstMessage?: string) => {
     try {
-      const title = buildDefaultTitle(firstMessage || "", isZh);
+      const title = buildDefaultChatTitle(firstMessage || "", isZh);
       const newConv = await api.post<Conversation>("/chat/conversations", {
         project_id: project.id,
         title,
@@ -738,20 +399,6 @@ export function ProjectChatTab({
     } catch (error) {
       console.error("Failed to rename conversation:", error);
       toast.error(copy.renameConversationFailed);
-    }
-  };
-
-  const saveConversationToProject = async () => {
-    if (!activeConvId) return;
-    try {
-      await api.post(`/projects/${project.id}/conversations/${activeConvId}/save-markdown`, {});
-      await onProjectUpdate();
-      toast.success(copy.savedToProjectRoot);
-    } catch (error: any) {
-      console.error("Failed to save conversation to project:", error);
-      const detail = error?.response?.data?.detail;
-      toast.error(detail || copy.saveToProjectFailed);
-      throw error;
     }
   };
 
@@ -1114,7 +761,7 @@ export function ProjectChatTab({
         </div>
       </div>
 
-      <SaveToNotesModal
+      <ProjectChatSaveModal
         isOpen={saveModalOpen}
         onClose={() => setSaveModalOpen(false)}
         projectId={project.id}
@@ -1124,7 +771,7 @@ export function ProjectChatTab({
         onSuccess={() => onProjectUpdate()}
       />
 
-      <SaveToNotesModal
+      <ProjectChatSaveModal
         isOpen={conversationSaveModalOpen}
         onClose={() => setConversationSaveModalOpen(false)}
         projectId={project.id}
