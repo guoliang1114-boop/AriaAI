@@ -135,6 +135,7 @@ def persist_assistant_message(
     conv_id: int,
     content: str,
     user_content: str,
+    metadata: Optional[dict] = None,
 ) -> bool:
     need_title = False
     with Session(bind) as new_session:
@@ -142,6 +143,7 @@ def persist_assistant_message(
             conversation_id=conv_id,
             role="assistant",
             content=content,
+            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else "{}",
         )
         new_session.add(asst_msg)
         conv = new_session.get(Conversation, conv_id)

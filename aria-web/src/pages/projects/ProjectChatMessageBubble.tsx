@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
   BookOpen,
   CheckCircle2,
@@ -10,8 +11,10 @@ import {
   Wrench,
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { Message } from "../../types/api";
+import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
 import { getProjectChatCopy } from "./projectChatCopy";
+import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
+import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 
 const MessageCopyButton = memo(({ text, title }: { text: string; title: string }) => {
   const [copied, setCopied] = useState(false);
@@ -48,21 +51,32 @@ const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title
 
 interface ProjectChatMessageBubbleProps {
   msg: Message;
+  onDownloadArtifact?: (artifact: GeneratedArtifact) => void;
   onSaveToNotes?: () => void;
+  projectId: number;
 }
 
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
-  ({ msg, onSaveToNotes }) => {
+  ({ msg, onDownloadArtifact, onSaveToNotes, projectId }) => {
     const { t, i18n } = useTranslation();
     const isUser = msg.role === "user";
+    const isZh = i18n.language.startsWith("zh");
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
 
-    let references: Array<{ type: string; id: number; title: string }> = [];
+    let metadata: MessageMetadata = {};
     try {
-      references = JSON.parse(msg.metadata_json || "{}").references || [];
+      metadata = JSON.parse(msg.metadata_json || "{}") as MessageMetadata;
     } catch {
-      references = [];
+      metadata = {};
     }
+    const references: Reference[] = metadata.references || [];
+    const toolCalls: ToolCallEvent[] = metadata.tool_calls || [];
+    const artifacts: GeneratedArtifact[] = metadata.artifacts || [];
+
+    const buildReferenceHref = (reference: Reference) => {
+      if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
+      return `/projects/${projectId}/documents`;
+    };
 
     return (
       <div className={`flex items-start gap-3.5 group ${isUser ? "flex-row-reverse" : ""}`}>
@@ -99,19 +113,41 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             )}
           </div>
 
-          {!isUser && references.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {references.map((ref, i) => (
-                <span
-                  key={`${ref.type}-${ref.id}-${i}`}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200"
-                >
-                  {ref.type === "skill" && <Wrench className="w-3 h-3" />}
-                  {ref.type === "doc" && <BookOpen className="w-3 h-3" />}
-                  {ref.type === "file" && <FileText className="w-3 h-3" />}
-                  {ref.title}
-                </span>
+          {!isUser && (references.length > 0 || toolCalls.length > 0 || artifacts.length > 0) && (
+            <div className="mt-3 space-y-2 max-w-[40rem]">
+              {toolCalls.map((call, index) => (
+                <ProjectChatToolCallCard
+                  key={`${call.tool_name}-${call.status}-${index}`}
+                  call={call}
+                  isZh={isZh}
+                />
               ))}
+              {artifacts.map((artifact) =>
+                onDownloadArtifact ? (
+                  <ProjectChatArtifactCard
+                    key={`${artifact.id ?? artifact.path}-${artifact.name}`}
+                    artifact={artifact}
+                    isZh={isZh}
+                    onDownload={onDownloadArtifact}
+                  />
+                ) : null,
+              )}
+              {references.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {references.map((ref, i) => (
+                    <Link
+                      key={`${ref.type}-${ref.id}-${i}`}
+                      to={buildReferenceHref(ref)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200 hover:border-primary/30 hover:text-primary"
+                    >
+                      {ref.type === "skill" && <Wrench className="w-3 h-3" />}
+                      {ref.type === "doc" && <BookOpen className="w-3 h-3" />}
+                      {ref.type === "file" && <FileText className="w-3 h-3" />}
+                      {ref.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -126,5 +162,11 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
       </div>
     );
   },
-  (prev, next) => prev.msg.id === next.msg.id && prev.msg.content === next.msg.content && prev.onSaveToNotes === next.onSaveToNotes,
+  (prev, next) =>
+    prev.msg.id === next.msg.id &&
+    prev.msg.content === next.msg.content &&
+    prev.msg.metadata_json === next.msg.metadata_json &&
+    prev.projectId === next.projectId &&
+    prev.onDownloadArtifact === next.onDownloadArtifact &&
+    prev.onSaveToNotes === next.onSaveToNotes,
 );

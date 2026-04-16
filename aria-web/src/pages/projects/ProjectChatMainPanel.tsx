@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { Conversation, Message } from "../../types/api";
+import type { Conversation, GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
 import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
@@ -21,11 +21,16 @@ interface ProjectChatMainPanelProps {
   onQuickPrompt: (content: string) => void;
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
+  onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
+  projectId: number;
   quickPrompts: ProjectQuickPrompt[];
   startConversationLabel: string;
+  streamingArtifacts: GeneratedArtifact[];
   streamingContent: string;
+  streamingReferences: Reference[];
+  streamingToolCalls: ToolCallEvent[];
   subtitle: string;
   thinkingLabel: string;
   title: string;
@@ -51,10 +56,15 @@ export function ProjectChatMainPanel({
   onQuickPrompt,
   onSaveMessage,
   onSend,
+  onDownloadArtifact,
   onToggleSidebar,
   quickPrompts,
+  projectId,
   startConversationLabel,
+  streamingArtifacts,
   streamingContent,
+  streamingReferences,
+  streamingToolCalls,
   subtitle,
   thinkingLabel,
   title,
@@ -86,9 +96,14 @@ export function ProjectChatMainPanel({
       >
         <ProjectChatMessages
           messages={messages}
+          onDownloadArtifact={onDownloadArtifact}
           streamingContent={streamingContent}
+          streamingArtifacts={streamingArtifacts}
+          streamingReferences={streamingReferences}
+          streamingToolCalls={streamingToolCalls}
           isLoading={isLoading}
           isLoadingMessages={isLoadingMessages}
+          projectId={projectId}
           startConversationLabel={startConversationLabel}
           choosePromptLabel={choosePromptLabel}
           thinkingLabel={thinkingLabel}

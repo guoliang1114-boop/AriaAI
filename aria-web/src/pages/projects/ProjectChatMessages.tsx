@@ -1,16 +1,33 @@
 import { memo, useMemo } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import { BookOpen, FileText, Loader2, Sparkles, Wrench } from "lucide-react";
 
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { Message } from "../../types/api";
+import type { GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
 import type { ProjectQuickPrompt } from "./projectChatCopy";
+import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatEmptyState } from "./ProjectChatEmptyState";
 import { ProjectChatMessageBubble } from "./ProjectChatMessageBubble";
+import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 
 type ChatMessage = Message;
 
-const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
+const ChatStreamingMessage = memo<{
+  artifacts: GeneratedArtifact[];
+  content: string;
+  isZh: boolean;
+  onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  projectId: number;
+  references: Reference[];
+  toolCalls: ToolCallEvent[];
+}>(({ artifacts, content, isZh, onDownloadArtifact, projectId, references, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
+
+  const buildReferenceHref = (reference: Reference) => {
+    if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
+    return `/projects/${projectId}/documents`;
+  };
 
   return (
     <div className="flex items-start gap-3.5">
@@ -24,6 +41,41 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
             {renderedContent}
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
           </div>
+          {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
+            <div className="mt-3 space-y-2 max-w-[40rem]">
+              {toolCalls.map((call, index) => (
+                <ProjectChatToolCallCard
+                  key={`${call.tool_name}-${call.status}-${index}`}
+                  call={call}
+                  isZh={isZh}
+                />
+              ))}
+              {artifacts.map((artifact) => (
+                <ProjectChatArtifactCard
+                  key={`${artifact.path}-${artifact.name}`}
+                  artifact={artifact}
+                  isZh={isZh}
+                  onDownload={onDownloadArtifact}
+                />
+              ))}
+              {references.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {references.map((ref, index) => (
+                    <Link
+                      to={buildReferenceHref(ref)}
+                      key={`${ref.type}-${ref.id}-${index}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500 hover:border-primary/30 hover:text-primary"
+                    >
+                      {ref.type === "skill" && <Wrench className="h-3 w-3" />}
+                      {ref.type === "doc" && <BookOpen className="h-3 w-3" />}
+                      {ref.type === "file" && <FileText className="h-3 w-3" />}
+                      {ref.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -32,9 +84,14 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
 
 type ProjectChatMessagesProps = {
   messages: ChatMessage[];
+  onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   streamingContent: string;
+  streamingArtifacts: GeneratedArtifact[];
+  streamingReferences: Reference[];
+  streamingToolCalls: ToolCallEvent[];
   isLoading: boolean;
   isLoadingMessages: boolean;
+  projectId: number;
   startConversationLabel: string;
   choosePromptLabel: string;
   thinkingLabel: string;
@@ -45,9 +102,14 @@ type ProjectChatMessagesProps = {
 
 export function ProjectChatMessages({
   messages,
+  onDownloadArtifact,
   streamingContent,
+  streamingArtifacts,
+  streamingReferences,
+  streamingToolCalls,
   isLoading,
   isLoadingMessages,
+  projectId,
   startConversationLabel,
   choosePromptLabel,
   thinkingLabel,
@@ -55,6 +117,9 @@ export function ProjectChatMessages({
   onQuickPrompt,
   onSaveMessage,
 }: ProjectChatMessagesProps) {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
+
   return (
     <>
       {isLoadingMessages && (
@@ -91,20 +156,41 @@ export function ProjectChatMessages({
             <ProjectChatMessageBubble
               key={msg.id}
               msg={msg}
+              onDownloadArtifact={onDownloadArtifact}
+              projectId={projectId}
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
             />
           ))}
-          {streamingContent && <ChatStreamingMessage content={streamingContent} />}
+          {streamingContent && (
+            <ChatStreamingMessage
+              artifacts={streamingArtifacts}
+              content={streamingContent}
+              isZh={isZh}
+              onDownloadArtifact={onDownloadArtifact}
+              projectId={projectId}
+              references={streamingReferences}
+              toolCalls={streamingToolCalls}
+            />
+          )}
           {isLoading && !streamingContent && (
             <div className="flex gap-3">
               <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-white" />
               </div>
-              <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                  <span className="text-sm text-gray-500">{thinkingLabel}</span>
+              <div className="space-y-2">
+                <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span className="text-sm text-gray-500">{thinkingLabel}</span>
+                  </div>
                 </div>
+                {streamingToolCalls.map((call, index) => (
+                  <ProjectChatToolCallCard
+                    key={`${call.tool_name}-${call.status}-${index}`}
+                    call={call}
+                    isZh={isZh}
+                  />
+                ))}
               </div>
             </div>
           )}

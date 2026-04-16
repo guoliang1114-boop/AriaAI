@@ -159,6 +159,39 @@ export interface Message {
   created_at: string
 }
 
+export interface Reference {
+  type: 'skill' | 'doc' | 'file' | 'milestone'
+  id: number
+  title: string
+}
+
+export interface ToolCallEvent {
+  tool_name: string
+  status: 'running' | 'completed' | 'error'
+  message?: string
+  summary?: string
+  error?: string
+}
+
+export interface GeneratedArtifact {
+  id?: number
+  conversation_id?: number
+  project_id?: number | null
+  name: string
+  file_type: string
+  path: string
+  size_bytes?: number
+  description?: string
+  created_at?: string
+}
+
+export interface MessageMetadata {
+  references?: Reference[]
+  tool_calls?: ToolCallEvent[]
+  artifacts?: GeneratedArtifact[]
+  project_id?: number
+}
+
 export interface SendMessageRequest {
   conversation_id?: number
   content: string
@@ -170,17 +203,16 @@ export interface SendMessageRequest {
 }
 
 export interface StreamEvent {
-  type: 'conversation_id' | 'chunk' | 'references' | 'done' | 'error'
+  type: 'conversation_id' | 'chunk' | 'text' | 'references' | 'tool_executing' | 'tool_result' | 'done' | 'error'
   id?: number
   content?: string
   references?: Reference[]
+  tool_name?: string
+  message?: string
+  total?: number
+  current?: number
+  result?: Record<string, unknown>
   error?: string
-}
-
-export interface Reference {
-  type: 'skill' | 'doc' | 'file' | 'milestone'
-  id: number
-  title: string
 }
 
 // Knowledge Base

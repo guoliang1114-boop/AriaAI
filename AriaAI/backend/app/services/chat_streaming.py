@@ -129,6 +129,33 @@ def _to_user_friendly_error(error_msg: str) -> str:
     return error_msg
 
 
+def _extract_artifact(result: dict) -> dict | None:
+    artifact_path = result.get("file_path") or result.get("path")
+    artifact_name = result.get("file_name") or result.get("name")
+    artifact_type = result.get("file_type")
+    if not artifact_path or not artifact_name or not artifact_type:
+        return None
+
+    return {
+        "name": artifact_name,
+        "file_type": artifact_type,
+        "path": artifact_path,
+        "description": result.get("note") or result.get("message") or "",
+    }
+
+
+def _summarize_tool_result(result: dict) -> str:
+    if result.get("error"):
+        return str(result.get("error"))
+    if result.get("file_name"):
+        return f"Created {result.get('file_name')}"
+    if result.get("message"):
+        return str(result.get("message"))
+    if result.get("success") is True:
+        return "Completed successfully"
+    return ""
+
+
 async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind):
     yield f"data: {json.dumps({'type': 'conversation_id', 'id': runtime.conv_id})}\n\n"
     if runtime.rag_sources:
@@ -136,6 +163,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
     full_text = ""
     need_title = False
+    tool_call_events = []
+    artifacts = []
 
     try:
         text_buffer = ""
@@ -198,6 +227,20 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             print(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}", flush=True)
             yield f"data: {json.dumps({'type': 'tool_result', 'result': result})}\n\n"
 
+            tool_call_events.append(
+                {
+                    "tool_name": tool_name,
+                    "status": "error" if result.get("status") == "error" or result.get("success") is False else "completed",
+                    "message": _tool_progress_payload(tool_name, tool_input).get("message", ""),
+                    "summary": _summarize_tool_result(result),
+                    **({"error": str(result.get("error"))} if result.get("error") else {}),
+                }
+            )
+
+            artifact = _extract_artifact(result)
+            if artifact:
+                artifacts.append(artifact)
+
             output = result.get("output", result)
             tool_result_blocks.append(
                 {
@@ -252,7 +295,23 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
         if full_text:
-            need_title = persist_assistant_message(bind, runtime.conv_id, full_text, req.content)
+            metadata = {}
+            if runtime.rag_sources:
+                metadata["references"] = runtime.rag_sources
+            if tool_call_events:
+                metadata["tool_calls"] = tool_call_events
+            if artifacts:
+                metadata["artifacts"] = artifacts
+            if req.project_id:
+                metadata["project_id"] = req.project_id
+
+            need_title = persist_assistant_message(
+                bind,
+                runtime.conv_id,
+                full_text,
+                req.content,
+                metadata or None,
+            )
 
     except Exception as exc:
         import traceback

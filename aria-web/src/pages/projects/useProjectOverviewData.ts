@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { ProjectDetail as ProjectDetailType } from "../../types/api";
+import type { GeneratedArtifact, ProjectDetail as ProjectDetailType } from "../../types/api";
 
 const formatAmount = (amount: number | undefined | null): string => {
   if (!amount || amount === 0) return "0";
@@ -41,6 +41,8 @@ export function useProjectOverviewData({
   const [summaryError, setSummaryError] = useState("");
   const [descExpanded, setDescExpanded] = useState(false);
   const [overviewNotesText, setOverviewNotesText] = useState((mdNotes || "").trim());
+  const [recentArtifacts, setRecentArtifacts] = useState<GeneratedArtifact[]>([]);
+  const [isLoadingArtifacts, setIsLoadingArtifacts] = useState(false);
 
   const firstMarkdownFile = useMemo(
     () =>
@@ -111,6 +113,34 @@ export function useProjectOverviewData({
     };
   }, [firstMarkdownFile, mdNotes, projectId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadArtifacts = async () => {
+      setIsLoadingArtifacts(true);
+      try {
+        const data = await api.get<GeneratedArtifact[]>(`/artifacts?project_id=${projectId}`);
+        if (!cancelled) {
+          setRecentArtifacts(data.slice(0, 5));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load artifacts:", error);
+          setRecentArtifacts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingArtifacts(false);
+        }
+      }
+    };
+
+    void loadArtifacts();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
   const generateSummary = async () => {
     setGeneratingSummary(true);
     setSummaryText("");
@@ -177,7 +207,9 @@ export function useProjectOverviewData({
     formatAmountInTenThousand,
     generateSummary,
     generatingSummary,
+    isLoadingArtifacts,
     overviewNotesText,
+    recentArtifacts,
     recentFiles,
     recentMilestones,
     recentTodos,

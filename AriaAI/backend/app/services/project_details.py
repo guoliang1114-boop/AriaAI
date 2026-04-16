@@ -33,7 +33,7 @@ def build_project_detail(
         .order_by(ProjectFolder.sort_order)
     ).all()
     if not folders:
-        folders = init_default_folders(project_id, session)
+        folders = init_default_folders(session, project_id)
 
     payments = list_project_payments(session, project_id)
     todos = list_project_todos(session, project_id)

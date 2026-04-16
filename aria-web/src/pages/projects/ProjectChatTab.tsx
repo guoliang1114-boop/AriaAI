@@ -1,15 +1,13 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../contexts/ToastContext";
-import type { Project, ProjectFile, ProjectFolder } from "../../types/api";
+import type { GeneratedArtifact, Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
-import {
-  getProjectChatCopy,
-  getProjectQuickPrompts,
-} from "./projectChatCopy";
+import { downloadArtifact } from "./downloadArtifact";
+import { getProjectChatCopy, getProjectQuickPrompts } from "./projectChatCopy";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 import { useProjectChatPanel } from "./useProjectChatPanel";
@@ -65,7 +63,15 @@ export function ProjectChatTab({
 
   const panel = useProjectChatPanel();
 
-  const { isLoading, streamingContent, resetStreamingContent, sendMessage } = useProjectChatComposer({
+  const {
+    isLoading,
+    streamingArtifacts,
+    streamingContent,
+    streamingReferences,
+    streamingToolCalls,
+    resetStreamingContent,
+    sendMessage,
+  } = useProjectChatComposer({
     projectId: project.id,
     activeConvId,
     knowledgeScope: panel.knowledgeScope,
@@ -77,6 +83,15 @@ export function ProjectChatTab({
     scrollToBottom: panel.scrollToBottom,
     onSendError: () => toast.error(copy.sendFailed),
   });
+
+  const handleArtifactDownload = async (artifact: GeneratedArtifact) => {
+    try {
+      await downloadArtifact({ artifact });
+    } catch (error) {
+      console.error("Failed to download artifact:", error);
+      toast.error(isZh ? "生成物下载失败" : "Artifact download failed");
+    }
+  };
 
   useEffect(() => {
     resetStreamingContent();
@@ -95,21 +110,21 @@ export function ProjectChatTab({
   }, [panel, streamingContent]);
 
   return (
-    <div className="h-full bg-white rounded-xl border border-gray-200 flex overflow-hidden">
+    <div className="flex h-full overflow-hidden rounded-xl border border-gray-200 bg-white">
       <ProjectChatSidebar
-        isOpen={panel.isSidebarOpen}
         activeConvId={activeConvId}
         conversations={conversations}
-        isLoadingConversations={isLoadingConversations}
-        editingConvId={editingConvId}
         editTitle={editTitle}
-        onStartNewChat={startNewChat}
-        onSelectConversation={setActiveConvId}
+        editingConvId={editingConvId}
+        isLoadingConversations={isLoadingConversations}
+        isOpen={panel.isSidebarOpen}
         onBeginRename={beginRenameConversation}
-        onRenameTitleChange={setEditTitle}
-        onRenameSubmit={renameConversation}
         onCancelRename={() => setEditingConvId(null)}
         onDeleteConversation={openDeleteConversationDialog}
+        onRenameSubmit={renameConversation}
+        onRenameTitleChange={setEditTitle}
+        onSelectConversation={setActiveConvId}
+        onStartNewChat={startNewChat}
       />
 
       <ProjectChatMainPanel
@@ -124,6 +139,7 @@ export function ProjectChatTab({
         knowledgeScope={panel.knowledgeScope}
         messages={messages}
         messagesContainerRef={panel.messagesContainerRef}
+        onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
         onInputChange={panel.setInputValue}
         onKnowledgeScopeChange={panel.setKnowledgeScope}
         onOpenConversationSaveModal={panel.openConversationSaveModal}
@@ -133,38 +149,42 @@ export function ProjectChatTab({
         onSaveMessage={panel.openSaveModal}
         onSend={() => panel.handleSend(sendMessage)}
         onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
+        projectId={project.id}
         quickPrompts={quickPrompts}
         startConversationLabel={copy.startConversation}
+        streamingArtifacts={streamingArtifacts}
         streamingContent={streamingContent}
+        streamingReferences={streamingReferences}
+        streamingToolCalls={streamingToolCalls}
         subtitle={copy.projectAssistantSubtitle}
         thinkingLabel={copy.thinking}
         title={activeConversation?.title || copy.projectAssistantTitle}
       />
 
       <ProjectChatSaveModal
-        isOpen={panel.saveModalOpen}
-        onClose={panel.closeSaveModal}
-        projectId={project.id}
-        messageId={panel.saveMessageId}
         files={files || []}
         folders={folders || []}
+        isOpen={panel.saveModalOpen}
+        messageId={panel.saveMessageId}
+        onClose={panel.closeSaveModal}
         onSuccess={() => onProjectUpdate()}
+        projectId={project.id}
       />
 
       <ProjectChatSaveModal
-        isOpen={panel.conversationSaveModalOpen}
-        onClose={panel.closeConversationSaveModal}
-        projectId={project.id}
         conversationId={activeConvId}
         files={files || []}
         folders={folders || []}
+        isOpen={panel.conversationSaveModalOpen}
+        onClose={panel.closeConversationSaveModal}
         onSuccess={() => onProjectUpdate()}
+        projectId={project.id}
       />
 
       <ProjectChatDeleteDialog
-        isOpen={!!conversationPendingDelete}
         conversationTitle={conversationPendingDelete?.title}
         isDeleting={isDeletingConversation}
+        isOpen={!!conversationPendingDelete}
         onCancel={closeDeleteConversationDialog}
         onConfirm={() => {
           if (!conversationPendingDelete) return;

@@ -1,7 +1,9 @@
 import { Circle, DollarSign, ListTodo, Plus } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ProjectFinancials, ProjectTodo } from "../../types/api";
 
 interface ProjectOverviewSidebarProps {
+  artifactsCard?: ReactNode;
   financials: ProjectFinancials;
   formatAmount: (amount: number | undefined | null) => string;
   isZh: boolean;
@@ -13,6 +15,7 @@ interface ProjectOverviewSidebarProps {
 }
 
 export function ProjectOverviewSidebar({
+  artifactsCard,
   financials,
   formatAmount,
   isZh,
@@ -73,6 +76,8 @@ export function ProjectOverviewSidebar({
           </div>
         </div>
       </div>
+
+      {artifactsCard}
 
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">

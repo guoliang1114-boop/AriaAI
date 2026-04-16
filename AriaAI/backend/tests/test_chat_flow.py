@@ -1821,6 +1821,35 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(len(assistant_messages), 1)
             self.assertEqual(assistant_messages[0].content, "hello world")
 
+    def test_stream_chat_events_emits_and_persists_references(self):
+        conv_id = self._create_conversation()
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=FakeStreamingLLM([["answer with source"]]),
+            system="system",
+            api_messages=[{"role": "user", "content": "hello"}],
+            rag_sources=[{"type": "file", "id": 7, "title": "project-brief.md"}],
+            tools=None,
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="hello", project_id=12)
+
+        events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+        joined = "".join(events)
+        self.assertIn('"references"', joined)
+        self.assertIn('"project-brief.md"', joined)
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            self.assertEqual(metadata["references"][0]["title"], "project-brief.md")
+            self.assertEqual(metadata["project_id"], 12)
+
     def test_stream_chat_events_handles_tool_follow_up(self):
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
@@ -1844,7 +1873,20 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         req = chat_router_module.SendMessageRequest(content="make doc")
 
-        with patch("app.services.chat_streaming.registry.execute", new=AsyncMock(return_value={"status": "ok", "output": {"file": "spec.docx"}})):
+        with patch(
+            "app.services.chat_streaming.registry.execute",
+            new=AsyncMock(
+                return_value={
+                    "status": "ok",
+                    "tool_name": "generate_docx",
+                    "success": True,
+                    "file_name": "spec.docx",
+                    "file_type": "docx",
+                    "file_path": "generated/spec.docx",
+                    "output": {"file": "spec.docx"},
+                }
+            ),
+        ):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         joined = "".join(events)
@@ -1858,6 +1900,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
             self.assertEqual(assistant_messages[0].content, "follow-up answer")
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            self.assertEqual(metadata["tool_calls"][0]["tool_name"], "generate_docx")
+            self.assertEqual(metadata["tool_calls"][0]["status"], "completed")
+            self.assertEqual(metadata["artifacts"][0]["name"], "spec.docx")
+            self.assertEqual(metadata["artifacts"][0]["path"], "generated/spec.docx")
 
     def test_stream_chat_events_surfaces_friendly_errors(self):
         conv_id = self._create_conversation()
