@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 export function useProjectChatPanel() {
   const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
@@ -11,17 +11,17 @@ export function useProjectChatPanel() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
     isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  };
+  }, []);
 
-  const scrollToBottom = (smooth = true) => {
+  const scrollToBottom = useCallback((smooth = true) => {
     const el = messagesContainerRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  };
+  }, []);
 
   const openSaveModal = (messageId: number) => {
     setSaveMessageId(messageId);
@@ -40,11 +40,11 @@ export function useProjectChatPanel() {
     setConversationSaveModalOpen(false);
   };
 
-  const handleSend = (sendMessage: (content: string) => Promise<unknown> | unknown) => {
+  const handleSend = useCallback((sendMessage: (content: string) => Promise<unknown> | unknown) => {
     const content = inputValue;
     setInputValue("");
     void sendMessage(content);
-  };
+  }, [inputValue]);
 
   return {
     closeConversationSaveModal,

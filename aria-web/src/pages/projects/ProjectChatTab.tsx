@@ -104,15 +104,15 @@ export function ProjectChatTab({
 
   useEffect(() => {
     if (messages.length > 0 && panel.isNearBottomRef.current) {
-      panel.scrollToBottom(true);
+      panel.scrollToBottom(false);
     }
-  }, [messages.length, panel]);
+  }, [messages.length, panel.scrollToBottom]);
 
   useEffect(() => {
     if (streamingContent && panel.isNearBottomRef.current) {
       panel.scrollToBottom(false);
     }
-  }, [panel, streamingContent]);
+  }, [panel.scrollToBottom, streamingContent]);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white">

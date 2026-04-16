@@ -64,14 +64,37 @@ def build_project_context_prompt(project_data: str) -> str:
         "critical milestones, and important context a consultant should always remember. "
         "Each bullet should be specific and actionable, not generic. "
         "Use **bold** for key terms or milestones within each bullet. "
-        "Return ONLY the bullet points, one per line, starting with '•'. "
+        "Return ONLY the bullet points, one per line, starting with '- '. "
         "Write in the same language as the project name (Chinese if Chinese, English if English).\n\n"
         f"Project data:\n{project_data}"
     )
+
+
+def _split_text_for_sse(text: str, max_chars: int = 12) -> list[str]:
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    buffer = ""
+    punctuation = "，。！？；：,.!?;:\n"
+
+    for char in text:
+        buffer += char
+        if len(buffer) >= max_chars or char in punctuation:
+            chunks.append(buffer)
+            buffer = ""
+
+    if buffer:
+        chunks.append(buffer)
+
+    return chunks
 
 
 async def stream_llm_text_chunks(chunks: AsyncIterator[str]) -> AsyncIterator[str]:
     async for chunk in chunks:
         if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
             continue
-        yield chunk
+        for piece in _split_text_for_sse(chunk):
+            yield piece

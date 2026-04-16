@@ -24,7 +24,7 @@ export function buildProjectDetailRouteConfig({
 }: ProjectDetailRouteConfigArgs): ProjectDetailRouteConfigItem[] {
   return [
     {
-      path: "/",
+      path: "",
       element: (
         <ProjectOverviewTab
           projectDetail={projectDetail}
@@ -34,7 +34,7 @@ export function buildProjectDetailRouteConfig({
       ),
     },
     {
-      path: "/documents",
+      path: "documents",
       element: (
         <ProjectDocumentsTab
           projectDetail={projectDetail}
@@ -44,7 +44,7 @@ export function buildProjectDetailRouteConfig({
       ),
     },
     {
-      path: "/milestones",
+      path: "milestones",
       element: (
         <ProjectMilestonesTab
           projectDetail={projectDetail}
@@ -54,7 +54,7 @@ export function buildProjectDetailRouteConfig({
       ),
     },
     {
-      path: "/financials",
+      path: "financials",
       element: (
         <ProjectFinancialsTab
           projectDetail={projectDetail}
@@ -64,7 +64,7 @@ export function buildProjectDetailRouteConfig({
       ),
     },
     {
-      path: "/settings",
+      path: "settings",
       element: (
         <ProjectSettingsTab
           projectDetail={projectDetail}
