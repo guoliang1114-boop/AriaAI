@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import (
     LOG_LEVEL, LOG_FORMAT, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS,
-    JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL
+    JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
 from app.database import create_db, migrate_db, engine
 from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, artifacts
@@ -82,6 +82,7 @@ def _fix_pg_sequences():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    validate_jwt_secret()
     create_db()
     migrate_db()
     _fix_pg_sequences()

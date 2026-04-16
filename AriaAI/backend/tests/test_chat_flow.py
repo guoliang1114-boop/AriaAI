@@ -27,6 +27,8 @@ from app.models.db import (
     ProjectTodo,
     User,
 )
+from app import config as app_config
+from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
@@ -93,7 +95,9 @@ class ChatRouterTestCase(unittest.TestCase):
                 yield session
 
         app = FastAPI()
+        app.include_router(auth_router_module.router)
         app.include_router(chat_router_module.router)
+        app.dependency_overrides[auth_router_module.get_session] = override_session
         app.dependency_overrides[chat_router_module.get_session] = override_session
         self.client = TestClient(app)
 
@@ -156,8 +160,50 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertIn('"conversation_id"', resp.text)
         self.assertIn('"done"', resp.text)
 
+    def test_login_rate_limit_blocks_repeated_failures(self):
+        auth_router_module._LOGIN_ATTEMPTS.clear()
+
+        with Session(self.engine) as session:
+            session.add(
+                User(
+                    email="admin@example.com",
+                    display_name="Admin",
+                    password_hash=auth_router_module._hash("correct-password"),
+                    is_admin=True,
+                    is_active=True,
+                )
+            )
+            session.commit()
+
+        headers = {"x-forwarded-for": "203.0.113.5"}
+        for _ in range(5):
+            response = self.client.post(
+                "/auth/login",
+                json={"email": "admin@example.com", "password": "wrong-password"},
+                headers=headers,
+            )
+            self.assertEqual(response.status_code, 401)
+
+        blocked = self.client.post(
+            "/auth/login",
+            json={"email": "admin@example.com", "password": "wrong-password"},
+            headers=headers,
+        )
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.json()["detail"], "Too many login attempts. Please try again later.")
+        self.assertIn("Retry-After", blocked.headers)
+
 
 class ProjectServiceHelperTestCase(unittest.TestCase):
+    def test_validate_jwt_secret_rejects_default_secret(self):
+        with patch.object(app_config, "ALLOW_INSECURE_JWT_SECRET", False):
+            with self.assertRaises(RuntimeError):
+                app_config.validate_jwt_secret(app_config.DEFAULT_JWT_SECRET)
+
+    def test_validate_jwt_secret_accepts_strong_secret(self):
+        with patch.object(app_config, "ALLOW_INSECURE_JWT_SECRET", False):
+            app_config.validate_jwt_secret("this-is-a-very-strong-jwt-secret-2026")
+
     def test_build_project_context_prompt_emphasizes_current_project_only(self):
         prompt = project_contexts_module.build_project_context_prompt(
             "Project: Alpha\nClient: Client A\nStatus: active"

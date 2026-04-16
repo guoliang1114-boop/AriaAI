@@ -46,9 +46,13 @@ KEYCHAIN_KEY_DEEPSEEK = "deepseek_api_key"
 KEYCHAIN_KEY_BIGMODEL = "bigmodel_api_key"
 
 # JWT / Token settings
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+DEFAULT_JWT_SECRET = "your-secret-key-change-in-production"
+JWT_SECRET = os.getenv("JWT_SECRET", DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+LOGIN_RATE_LIMIT_ATTEMPTS = int(os.getenv("LOGIN_RATE_LIMIT_ATTEMPTS", "5"))
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "300"))
+ALLOW_INSECURE_JWT_SECRET = os.getenv("ALLOW_INSECURE_JWT_SECRET", "false").lower() == "true"
 
 # =============================================================================
 # LLM Provider Configuration
@@ -128,3 +132,22 @@ LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %
 ENABLE_BIGMODEL = os.getenv("ENABLE_BIGMODEL", "true").lower() == "true"
 ENABLE_RAG = os.getenv("ENABLE_RAG", "true").lower() == "true"
 ENABLE_FILE_GENERATION = os.getenv("ENABLE_FILE_GENERATION", "true").lower() == "true"
+
+
+def validate_jwt_secret(secret: str | None = None) -> None:
+    if ALLOW_INSECURE_JWT_SECRET:
+        return
+
+    candidate = (secret or JWT_SECRET).strip()
+    insecure_values = {
+        "",
+        DEFAULT_JWT_SECRET,
+        "secret",
+        "changeme",
+        "your-secret-key",
+    }
+
+    if candidate in insecure_values or len(candidate) < 32:
+        raise RuntimeError(
+            "Refusing to start with an insecure JWT_SECRET. Set a strong secret or explicitly enable ALLOW_INSECURE_JWT_SECRET=true for local-only use."
+        )

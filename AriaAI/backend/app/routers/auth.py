@@ -1,16 +1,19 @@
 """Auth router — login, user management."""
+import time
 import uuid
 import bcrypt
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.config import LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS
 from app.database import get_session, engine
 from app.models.db import User, UserToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 
 
 def _fix_user_id_sequence(session: Session) -> None:
@@ -49,6 +52,43 @@ def _hash(password: str) -> str:
 
 def _verify(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def _get_login_rate_limit_key(request: Request, email: str) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else ""
+    if not client_ip:
+        client_ip = request.client.host if request.client else "unknown"
+    return f"{client_ip}:{email.lower().strip()}"
+
+
+def _prune_login_attempts(now: float, attempts: list[float]) -> list[float]:
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    return [attempt for attempt in attempts if attempt > cutoff]
+
+
+def _ensure_login_not_rate_limited(key: str) -> None:
+    now = time.time()
+    attempts = _prune_login_attempts(now, _LOGIN_ATTEMPTS.get(key, []))
+    _LOGIN_ATTEMPTS[key] = attempts
+    if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
+        retry_after = max(1, int(LOGIN_RATE_LIMIT_WINDOW_SECONDS - (now - attempts[0])))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _record_failed_login_attempt(key: str) -> None:
+    now = time.time()
+    attempts = _prune_login_attempts(now, _LOGIN_ATTEMPTS.get(key, []))
+    attempts.append(now)
+    _LOGIN_ATTEMPTS[key] = attempts
+
+
+def _clear_failed_login_attempts(key: str) -> None:
+    _LOGIN_ATTEMPTS.pop(key, None)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -136,14 +176,19 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, session: Session = Depends(get_session)):
+def login(body: LoginRequest, request: Request, session: Session = Depends(get_session)):
+    rate_limit_key = _get_login_rate_limit_key(request, body.email)
+    _ensure_login_not_rate_limited(rate_limit_key)
+
     user = session.exec(
         select(User).where(User.email == body.email.lower().strip())
     ).first()
     if not user or not _verify(body.password, user.password_hash):
+        _record_failed_login_attempt(rate_limit_key)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
+    _clear_failed_login_attempts(rate_limit_key)
 
     # 创建新的 token（支持多设备同时登录）
     new_token = UserToken(
