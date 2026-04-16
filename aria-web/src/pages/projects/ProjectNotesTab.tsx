@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Loader2 } from "lucide-react";
-import { api } from "../../api/client";
-import { getApiBaseUrl } from "../../config/api";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
@@ -11,6 +9,7 @@ import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
 import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
 import { ProjectNotesToolbar } from "./ProjectNotesToolbar";
+import { useProjectNotesActions } from "./useProjectNotesActions";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
 
 interface ProjectNotesTabProps {
@@ -21,40 +20,7 @@ interface ProjectNotesTabProps {
   onUpdate: () => void;
 }
 
-type DocumentDialogMode = "create" | "rename";
-
 const COPY = {
-  saved: { zh: "文档已保存", en: "Document saved" },
-  saveFailed: { zh: "保存失败", en: "Failed to save" },
-  templateCreated: {
-    zh: "咨询售前模板已创建",
-    en: "Consulting pre-sales template created",
-  },
-  templateCreatedAndCleaned: {
-    zh: "模板已创建，并清理了重复目录",
-    en: "Template created and duplicate folders cleaned",
-  },
-  templateCreateFailed: { zh: "模板创建失败", en: "Failed to create template" },
-  documentCreated: { zh: "文档已创建", en: "Document created" },
-  documentCreateFailed: { zh: "创建文档失败", en: "Failed to create document" },
-  documentRenamed: { zh: "文档已重命名", en: "Document renamed" },
-  documentRenameFailed: {
-    zh: "重命名文档失败",
-    en: "Failed to rename document",
-  },
-  documentDeleted: { zh: "文档已删除", en: "Document deleted" },
-  documentDeleteFailed: {
-    zh: "删除文档失败",
-    en: "Failed to delete document",
-  },
-  aiGenerationFailed: {
-    zh: "AI 润色失败，请稍后重试",
-    en: "AI generation failed, please try again",
-  },
-  aiApplied: {
-    zh: "已应用到当前文档",
-    en: "Applied to current document",
-  },
   emptyTitle: { zh: "请先从左侧选择文档", en: "Choose a document from the left" },
   emptyDescription: {
     zh: "可以先生成咨询售前模板，或者新建一篇 Markdown 文档开始整理。",
@@ -108,28 +74,50 @@ export function ProjectNotesTab({
     folders,
   });
   const [mode, setMode] = useState<"edit" | "preview" | "split">("preview");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
-  const [isCreatingDoc, setIsCreatingDoc] = useState(false);
-  const [isRenamingDoc, setIsRenamingDoc] = useState(false);
-  const [isDeletingDoc, setIsDeletingDoc] = useState(false);
-  const [showDocumentDialog, setShowDocumentDialog] = useState(false);
-  const [documentDialogMode, setDocumentDialogMode] =
-    useState<DocumentDialogMode>("create");
-  const [documentName, setDocumentName] = useState("");
-  const [pendingFolderId, setPendingFolderId] = useState<number | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
-  const [showAIModal, setShowAIModal] = useState(false);
-  const [aiDraft, setAiDraft] = useState("");
-  const [aiResult, setAiResult] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const contentRef = useRef(content);
 
-  useEffect(() => {
-    contentRef.current = content;
-  }, [content]);
+  const {
+    aiDraft,
+    aiLoading,
+    aiResult,
+    applyAIResult,
+    closeAIModal,
+    closeDocumentDialog,
+    documentDialogMode,
+    documentName,
+    handleAIGenerate,
+    handleDeleteDocument,
+    handleInitTemplate,
+    handleSave,
+    isBootstrapping,
+    isCreatingDoc,
+    isDeletingDoc,
+    isRenamingDoc,
+    isSaving,
+    openCreateDialog,
+    openRenameDialog,
+    setAiDraft,
+    setShowAIModal,
+    setDocumentName,
+    setShowDeleteDialog,
+    showAIModal,
+    showDeleteDialog,
+    showDocumentDialog,
+    submitDocumentDialog,
+  } = useProjectNotesActions({
+    content,
+    isZh,
+    markdownFiles,
+    onResetDocumentState: resetDocumentState,
+    onSelectFile: setSelectedFileId,
+    onTemplateUpdated: onUpdate,
+    onToastError: toast.error,
+    onToastSuccess: toast.success,
+    projectId,
+    selectedFile,
+    updateContent,
+  });
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -143,207 +131,6 @@ export function ProjectNotesTab({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
-
-  const handleSave = async () => {
-    if (!selectedFileId) return;
-    setIsSaving(true);
-    try {
-      await api.patch(`/projects/${projectId}/documents/${selectedFileId}`, {
-        content,
-      });
-      markContentSynced(content);
-      onUpdate();
-      toast.success(pick(isZh, COPY.saved));
-    } catch (error) {
-      console.error("Failed to save document:", error);
-      toast.error(pick(isZh, COPY.saveFailed));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleInitTemplate = async () => {
-    setIsBootstrapping(true);
-    try {
-      const result = await api.post<{ cleaned_folder_count?: number }>(
-        `/projects/${projectId}/notes/templates/presales`,
-        {},
-      );
-      onUpdate();
-      toast.success(
-        result.cleaned_folder_count
-          ? pick(isZh, COPY.templateCreatedAndCleaned)
-          : pick(isZh, COPY.templateCreated),
-      );
-    } catch (error) {
-      console.error("Failed to initialize template:", error);
-      toast.error(pick(isZh, COPY.templateCreateFailed));
-    } finally {
-      setIsBootstrapping(false);
-    }
-  };
-
-  const openCreateDialog = (folderId?: number | null) => {
-    setDocumentDialogMode("create");
-    setPendingFolderId(folderId ?? null);
-    setDocumentName("");
-    setShowDocumentDialog(true);
-  };
-
-  const openRenameDialog = () => {
-    if (!selectedFile) return;
-    setDocumentDialogMode("rename");
-    setPendingFolderId(selectedFile.folder_id ?? null);
-    setDocumentName(selectedFile.name);
-    setShowDocumentDialog(true);
-  };
-
-  const closeDocumentDialog = () => {
-    if (isCreatingDoc || isRenamingDoc) return;
-    setShowDocumentDialog(false);
-    setDocumentName("");
-    setPendingFolderId(null);
-  };
-
-  const handleCreateDocument = async () => {
-    const normalizedName = documentName.trim();
-    if (!normalizedName) return;
-    setIsCreatingDoc(true);
-    try {
-      const created = await api.post<ProjectFile>(
-        `/projects/${projectId}/documents`,
-        {
-          folder_id: pendingFolderId,
-          name: normalizedName,
-          content: `# ${normalizedName.replace(/\.md$/i, "")}\n`,
-        },
-      );
-      onUpdate();
-      setSelectedFileId(created.id);
-      closeDocumentDialog();
-      toast.success(pick(isZh, COPY.documentCreated));
-    } catch (error) {
-      console.error("Failed to create document:", error);
-      toast.error(pick(isZh, COPY.documentCreateFailed));
-    } finally {
-      setIsCreatingDoc(false);
-    }
-  };
-
-  const handleRenameDocument = async () => {
-    if (!selectedFile) return;
-    const normalizedName = documentName.trim();
-    if (!normalizedName || normalizedName === selectedFile.name) return;
-    setIsRenamingDoc(true);
-    try {
-      await api.patch(`/projects/${projectId}/documents/${selectedFile.id}`, {
-        name: normalizedName,
-      });
-      onUpdate();
-      closeDocumentDialog();
-      toast.success(pick(isZh, COPY.documentRenamed));
-    } catch (error) {
-      console.error("Failed to rename document:", error);
-      toast.error(pick(isZh, COPY.documentRenameFailed));
-    } finally {
-      setIsRenamingDoc(false);
-    }
-  };
-
-  const handleDeleteDocument = async () => {
-    if (!selectedFile) return;
-    setIsDeletingDoc(true);
-    try {
-      await api.delete(`/projects/${projectId}/files/${selectedFile.id}`);
-      const nextFile =
-        markdownFiles.find((file) => file.id !== selectedFile.id) || null;
-      setSelectedFileId(nextFile?.id ?? null);
-      resetDocumentState();
-      setShowDeleteDialog(false);
-      onUpdate();
-      toast.success(pick(isZh, COPY.documentDeleted));
-    } catch (error) {
-      console.error("Failed to delete document:", error);
-      toast.error(pick(isZh, COPY.documentDeleteFailed));
-    } finally {
-      setIsDeletingDoc(false);
-    }
-  };
-
-  const handleAIGenerate = async () => {
-    const draft = aiDraft.trim() || content.trim();
-    if (!draft) return;
-    setAiLoading(true);
-    setAiResult("");
-    try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/projects/${projectId}/notes/ai-polish-stream`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Auth-Token": localStorage.getItem("authToken") || "",
-          },
-          body: JSON.stringify({ draft }),
-        },
-      );
-      if (!response.ok) throw new Error("Network response was not ok");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No reader");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
-        for (const event of events) {
-          const line = event
-            .split("\n")
-            .map((item) => item.trim())
-            .find((item) => item.startsWith("data: "));
-          if (!line) continue;
-          try {
-            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
-            if (payload.type === "text" && payload.content) {
-              setAiResult((current) => current + payload.content);
-            } else if (payload.type === "error") {
-              throw new Error(payload.message || "AI generation failed");
-            }
-          } catch (error) {
-            console.error("Failed to parse stream event:", error);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error("AI generation failed:", error);
-      toast.error(error?.message || pick(isZh, COPY.aiGenerationFailed));
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const applyAIResult = (applyMode: "replace" | "append") => {
-    const currentResult = aiResult.trim();
-    if (!currentResult) return;
-    const prevContent = contentRef.current;
-    const nextContent =
-      applyMode === "replace"
-        ? currentResult
-        : `${prevContent.trim() ? `${prevContent}\n\n---\n\n` : ""}${currentResult}`;
-    updateContent(nextContent);
-    setShowAIModal(false);
-    setAiDraft("");
-    setAiResult("");
-    toast.success(pick(isZh, COPY.aiApplied));
-  };
-
-  const closeAIModal = () => {
-    setShowAIModal(false);
-    setAiDraft("");
-    setAiResult("");
-  };
 
   const showEdit = mode === "edit" || mode === "split";
   const showPreview = mode === "preview" || mode === "split";
@@ -387,7 +174,7 @@ export function ProjectNotesTab({
                 setShowMoreMenu(false);
                 setShowDeleteDialog(true);
               }}
-              onSave={() => void handleSave()}
+              onSave={() => void handleSave(markContentSynced)}
               onSetMode={setMode}
               onToggleMoreMenu={() => setShowMoreMenu((value) => !value)}
             />
@@ -453,11 +240,7 @@ export function ProjectNotesTab({
         value={documentName}
         onChange={setDocumentName}
         onClose={closeDocumentDialog}
-        onSubmit={() =>
-          void (documentDialogMode === "create"
-            ? handleCreateDocument()
-            : handleRenameDocument())
-        }
+        onSubmit={() => void submitDocumentDialog()}
       />
 
       <ProjectNotesDeleteDialog
