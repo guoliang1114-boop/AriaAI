@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import HTTPException
 from sqlmodel import Session
@@ -24,3 +25,23 @@ def save_project_notes(session: Session, project_id: int, content: str, *, appen
     session.commit()
     session.refresh(project)
     return project
+
+
+def build_project_note_polish_messages(project: Project, draft: str) -> list[dict[str, Any]]:
+    system_prompt = (
+        "You are a helpful assistant that turns rough drafts into well-structured Markdown project notes. "
+        "Keep the user's original meaning, organize content with headings, bullet points, and checklists where appropriate, "
+        "and output clean Markdown without wrapping it in code blocks."
+    )
+    user_prompt = f"""Please polish the following rough draft into well-structured Markdown project notes.
+
+Project name: {project.name}
+Client: {project.client}
+
+Draft:
+{draft}
+"""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]

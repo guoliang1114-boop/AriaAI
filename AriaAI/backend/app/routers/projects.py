@@ -19,7 +19,12 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
-from app.services.project_contexts import build_project_context_data, save_project_context_summary
+from app.services.project_contexts import (
+    build_project_context_data,
+    build_project_context_prompt,
+    save_project_context_summary,
+    stream_llm_text_chunks,
+)
 from app.services.project_deletion import delete_project_cascade
 from app.services.project_details import build_project_detail
 from app.services.project_documents import (
@@ -59,7 +64,7 @@ from app.services.project_milestones import (
     list_project_milestones,
     update_project_milestone,
 )
-from app.services.project_notes import save_project_notes
+from app.services.project_notes import build_project_note_polish_messages, save_project_notes
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -1340,58 +1345,13 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
 @router.post("/{project_id}/generate-context")
 async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
     """Ask LLM to generate a structured context summary (SSE streaming)."""
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    milestones = list_project_milestones(session, project_id)
-    files = list_project_files(session, project_id)
-
-    # Build project data block
-    lines = [
-        f"Project: {project.name}",
-        f"Client: {project.client}",
-        f"Status: {project.status}",
-    ]
-    if project.description:
-        lines.append(f"Description: {project.description}")
-    if milestones:
-        lines.append(f"Milestones ({len(milestones)} total, {sum(1 for m in milestones if m.is_done)} completed):")
-        for m in milestones:
-            status = "✓" if m.is_done else "○"
-            lines.append(f"  {status} {m.title}" + (f" [{m.priority}]" if m.priority == "high" else ""))
-    if files:
-        lines.append(f"Uploaded files ({len(files)}):")
-        for f in files:
-            lines.append(f"  - {f.name}" + (f": {f.summary[:120]}" if f.summary else ""))
-
-    project_data = "\n".join(lines)
-    project, project_data = build_project_context_data(session, project_id)
-
-    prompt = (
-        "You are an AI consultant assistant. Based on the project data below, "
-        "treat the current project as the only source of truth. "
-        "Do not blend in facts, progress, or risks from other projects under the same client unless explicitly stated in the project data below. "
-        "If some information appears ambiguous, stay conservative and note the uncertainty rather than borrowing context from elsewhere. "
-        "generate a concise context summary of 3-5 bullet points that capture: "
-        "the project's core objective, current stage, key risks or open questions, "
-        "critical milestones, and important context a consultant should always remember. "
-        "Each bullet should be specific and actionable, not generic. "
-        "Use **bold** for key terms or milestones within each bullet. "
-        "Return ONLY the bullet points, one per line, starting with '•'. "
-        "Write in the same language as the project name (Chinese if Chinese, English if English).\n\n"
-        f"Project data:\n{project_data}"
-    )
-
-    messages = [{"role": "user", "content": prompt}]
+    _, project_data = build_project_context_data(session, project_id)
+    messages = [{"role": "user", "content": build_project_context_prompt(project_data)}]
 
     async def event_stream():
         accumulated: list[str] = []
         try:
-            async for chunk in _stream(messages, max_tokens=4000):
-                # Skip tool_use JSON blobs and TOOL_START markers
-                if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
-                    continue
+            async for chunk in stream_llm_text_chunks(_stream(messages, max_tokens=4000)):
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -1501,23 +1461,7 @@ async def ai_polish_project_notes(project_id: int, body: NotePolishBody, session
     if not project:
         raise HTTPException(404, "Project not found")
 
-    system_prompt = (
-        "You are a helpful assistant that turns rough drafts into well-structured Markdown project notes. "
-        "Keep the user's original meaning, organize content with headings, bullet points, and checklists where appropriate, "
-        "and output clean Markdown without wrapping it in code blocks."
-    )
-    user_prompt = f"""Please polish the following rough draft into well-structured Markdown project notes.
-
-Project name: {project.name}
-Client: {project.client}
-
-Draft:
-{body.draft}
-"""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = build_project_note_polish_messages(project, body.draft)
     result = await _complete(messages, max_tokens=4000)
     return {"result": result}
 
@@ -1529,29 +1473,11 @@ async def ai_polish_project_notes_stream(project_id: int, body: NotePolishBody, 
     if not project:
         raise HTTPException(404, "Project not found")
 
-    system_prompt = (
-        "You are a helpful assistant that turns rough drafts into well-structured Markdown project notes. "
-        "Keep the user's original meaning, organize content with headings, bullet points, and checklists where appropriate, "
-        "and output clean Markdown without wrapping it in code blocks."
-    )
-    user_prompt = f"""Please polish the following rough draft into well-structured Markdown project notes.
-
-Project name: {project.name}
-Client: {project.client}
-
-Draft:
-{body.draft}
-"""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = build_project_note_polish_messages(project, body.draft)
 
     async def event_stream():
         try:
-            async for chunk in _stream(messages, max_tokens=4000):
-                if chunk.startswith('{"type": "tool_use"') or chunk.startswith("[TOOL_START:"):
-                    continue
+            async for chunk in stream_llm_text_chunks(_stream(messages, max_tokens=4000)):
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

@@ -31,6 +31,8 @@ from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import context_builder as context_builder_module
+from app.services import project_contexts as project_contexts_module
+from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
 
@@ -150,6 +152,38 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn('"conversation_id"', resp.text)
         self.assertIn('"done"', resp.text)
+
+
+class ProjectServiceHelperTestCase(unittest.TestCase):
+    def test_build_project_context_prompt_emphasizes_current_project_only(self):
+        prompt = project_contexts_module.build_project_context_prompt(
+            "Project: Alpha\nClient: Client A\nStatus: active"
+        )
+
+        self.assertIn("current project as the only source of truth", prompt)
+        self.assertIn("Do not blend in facts, progress, or risks from other projects", prompt)
+        self.assertIn("Project data:\nProject: Alpha", prompt)
+
+    def test_stream_llm_text_chunks_skips_tool_markers(self):
+        async def fake_chunks():
+            yield '{"type": "tool_use","id":"tool-1"}'
+            yield "[TOOL_START:generate_docx]"
+            yield "final text"
+
+        chunks = collect_async_generator(project_contexts_module.stream_llm_text_chunks(fake_chunks()))
+        self.assertEqual(chunks, ["final text"])
+
+    def test_build_project_note_polish_messages_includes_project_context(self):
+        project = Project(name="Alpha", client="Client A")
+        messages = project_notes_module.build_project_note_polish_messages(project, "raw draft")
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("well-structured Markdown project notes", messages[0]["content"])
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("Project name: Alpha", messages[1]["content"])
+        self.assertIn("Client: Client A", messages[1]["content"])
+        self.assertIn("raw draft", messages[1]["content"])
 
 
 class ProjectConversationArchiveTestCase(unittest.TestCase):
