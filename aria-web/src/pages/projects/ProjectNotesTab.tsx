@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BookOpen, Loader2 } from "lucide-react";
-import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
-import { ProjectNotesAIModal } from "./ProjectNotesAIModal";
-import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
-import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
+import { ProjectNotesContentPanel } from "./ProjectNotesContentPanel";
+import { ProjectNotesDialogs } from "./ProjectNotesDialogs";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
 import { ProjectNotesToolbar } from "./ProjectNotesToolbar";
 import { getProjectNotesCopy } from "./projectNotesCopy";
 import { useProjectNotesActions } from "./useProjectNotesActions";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
+import { useProjectNotesUI } from "./useProjectNotesUI";
 
 interface ProjectNotesTabProps {
   projectId: string;
@@ -33,6 +30,13 @@ export function ProjectNotesTab({
   const copy = getProjectNotesCopy(isZh);
   const toast = useToast();
   const {
+    mode,
+    moreMenuRef,
+    setMode,
+    setShowMoreMenu,
+    showMoreMenu,
+  } = useProjectNotesUI();
+  const {
     content,
     dirty,
     folderList,
@@ -52,9 +56,6 @@ export function ProjectNotesTab({
     files,
     folders,
   });
-  const [mode, setMode] = useState<"edit" | "preview" | "split">("preview");
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const {
     aiDraft,
@@ -97,22 +98,6 @@ export function ProjectNotesTab({
     selectedFile,
     updateContent,
   });
-
-  useEffect(() => {
-    const handleClick = (event: MouseEvent) => {
-      if (
-        moreMenuRef.current &&
-        !moreMenuRef.current.contains(event.target as Node)
-      ) {
-        setShowMoreMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  const showEdit = mode === "edit" || mode === "split";
-  const showPreview = mode === "preview" || mode === "split";
 
   return (
     <div className="h-full min-h-[calc(100vh-220px)] overflow-hidden rounded-2xl border border-gray-200 bg-white">
@@ -160,87 +145,41 @@ export function ProjectNotesTab({
           </div>
 
           <div className="min-h-0 flex-1 bg-white">
-            {!selectedFile ? (
-              <div className="flex h-full items-center justify-center px-8 text-center">
-                <div>
-                  <BookOpen className="mx-auto h-12 w-12 text-gray-300" />
-                  <p className="mt-4 text-base font-medium text-gray-900">
-                    {copy.emptyTitle}
-                  </p>
-                  <p className="mt-2 text-sm text-gray-500">
-                    {copy.emptyDescription}
-                  </p>
-                </div>
-              </div>
-            ) : isLoadingDoc ? (
-              <div className="flex h-full items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="flex h-full gap-4 p-4">
-                {showEdit && (
-                  <div className={`${mode === "split" ? "w-1/2" : "w-full"} min-w-0`}>
-                    <textarea
-                      value={content}
-                      onChange={(event) => updateContent(event.target.value)}
-                      placeholder={copy.editPlaceholder}
-                      className="h-full min-h-[calc(100vh-340px)] w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-4 font-mono text-sm leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      spellCheck={false}
-                    />
-                  </div>
-                )}
-
-                {showPreview && (
-                  <div className={`${mode === "split" ? "w-1/2" : "w-full"} min-w-0`}>
-                    <div className="h-full min-h-[calc(100vh-340px)] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-5 py-4">
-                      {content.trim() ? (
-                        <div className="md-root">
-                          <MarkdownRenderer content={content} />
-                        </div>
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                          {copy.previewEmpty}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            <ProjectNotesContentPanel
+              content={content}
+              copy={copy}
+              isLoadingDoc={isLoadingDoc}
+              mode={mode}
+              selectedFile={selectedFile}
+              updateContent={updateContent}
+            />
           </div>
         </section>
       </div>
 
-      <ProjectNotesDocumentDialog
-        isOpen={showDocumentDialog}
-        isPending={isCreatingDoc || isRenamingDoc}
-        isZh={isZh}
-        mode={documentDialogMode}
-        value={documentName}
-        onChange={setDocumentName}
-        onClose={closeDocumentDialog}
-        onSubmit={() => void submitDocumentDialog()}
-      />
-
-      <ProjectNotesDeleteDialog
-        file={selectedFile}
-        isDeleting={isDeletingDoc}
-        isOpen={showDeleteDialog}
-        isZh={isZh}
-        onClose={() => setShowDeleteDialog(false)}
-        onConfirm={() => void handleDeleteDocument()}
-      />
-
-      <ProjectNotesAIModal
+      <ProjectNotesDialogs
         aiDraft={aiDraft}
         aiLoading={aiLoading}
         aiResult={aiResult}
-        isOpen={showAIModal}
+        documentDialogMode={documentDialogMode}
+        documentName={documentName}
+        isCreatingDoc={isCreatingDoc}
+        isDeletingDoc={isDeletingDoc}
+        isOpenAIModal={showAIModal}
+        isOpenDeleteDialog={showDeleteDialog}
+        isOpenDocumentDialog={showDocumentDialog}
+        isRenamingDoc={isRenamingDoc}
         isZh={isZh}
-        onApply={applyAIResult}
-        onChangeDraft={setAiDraft}
-        onClose={closeAIModal}
-        onGenerate={() => void handleAIGenerate()}
+        onApplyAIResult={applyAIResult}
+        onChangeAIDraft={setAiDraft}
+        onChangeDocumentName={setDocumentName}
+        onCloseAIModal={closeAIModal}
+        onCloseDeleteDialog={() => setShowDeleteDialog(false)}
+        onCloseDocumentDialog={closeDocumentDialog}
+        onConfirmDelete={() => void handleDeleteDocument()}
+        onGenerateAI={() => void handleAIGenerate()}
+        onSubmitDocumentDialog={() => void submitDocumentDialog()}
+        selectedFile={selectedFile}
       />
     </div>
   );

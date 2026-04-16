@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../contexts/ToastContext";
 import type { Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
-import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
-import { ProjectChatHeader } from "./ProjectChatHeader";
-import { ProjectChatInput } from "./ProjectChatInput";
-import { ProjectChatMessages } from "./ProjectChatMessages";
+import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
 import {
@@ -15,6 +12,7 @@ import {
 } from "./projectChatCopy";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
+import { useProjectChatPanel } from "./useProjectChatPanel";
 
 export function ProjectChatTab({
   project,
@@ -32,26 +30,6 @@ export function ProjectChatTab({
   const copy = getProjectChatCopy(isZh);
   const quickPrompts = getProjectQuickPrompts(isZh);
   const toast = useToast();
-  const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
-  const [inputValue, setInputValue] = useState("");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
-  const [conversationSaveModalOpen, setConversationSaveModalOpen] = useState(false);
-
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const isNearBottomRef = useRef(true);
-  const handleScroll = () => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  };
-
-  const scrollToBottom = (smooth = true) => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  };
 
   const {
     conversations,
@@ -84,44 +62,42 @@ export function ProjectChatTab({
     onDeleteConversationError: () => toast.error(copy.deleteConversationFailed),
     onRenameConversationError: () => toast.error(copy.renameConversationFailed),
   });
+
+  const panel = useProjectChatPanel();
+
   const { isLoading, streamingContent, resetStreamingContent, sendMessage } = useProjectChatComposer({
     projectId: project.id,
     activeConvId,
-    knowledgeScope,
+    knowledgeScope: panel.knowledgeScope,
     setMessages,
     createConversation,
     fetchMessages,
     fetchConversations,
-    isNearBottomRef,
-    scrollToBottom,
+    isNearBottomRef: panel.isNearBottomRef,
+    scrollToBottom: panel.scrollToBottom,
     onSendError: () => toast.error(copy.sendFailed),
   });
 
   useEffect(() => {
     resetStreamingContent();
-  }, [activeConvId]);
+  }, [activeConvId, resetStreamingContent]);
 
   useEffect(() => {
-    if (messages.length > 0 && isNearBottomRef.current) scrollToBottom(true);
-  }, [messages]);
+    if (messages.length > 0 && panel.isNearBottomRef.current) {
+      panel.scrollToBottom(true);
+    }
+  }, [messages.length, panel]);
 
   useEffect(() => {
-    if (streamingContent && isNearBottomRef.current) scrollToBottom(false);
-  }, [streamingContent]);
-
-  const openSaveModal = (messageId: number) => {
-    setSaveMessageId(messageId);
-    setSaveModalOpen(true);
-  };
-
-  const openConversationSaveModal = () => {
-    setConversationSaveModalOpen(true);
-  };
+    if (streamingContent && panel.isNearBottomRef.current) {
+      panel.scrollToBottom(false);
+    }
+  }, [panel, streamingContent]);
 
   return (
     <div className="h-full bg-white rounded-xl border border-gray-200 flex overflow-hidden">
       <ProjectChatSidebar
-        isOpen={isSidebarOpen}
+        isOpen={panel.isSidebarOpen}
         activeConvId={activeConvId}
         conversations={conversations}
         isLoadingConversations={isLoadingConversations}
@@ -136,68 +112,48 @@ export function ProjectChatTab({
         onDeleteConversation={openDeleteConversationDialog}
       />
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <ProjectChatHeader
-          isSidebarOpen={isSidebarOpen}
-          title={activeConversation?.title || copy.projectAssistantTitle}
-          subtitle={copy.projectAssistantSubtitle}
-          knowledgeScope={knowledgeScope}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onKnowledgeScopeChange={setKnowledgeScope}
-          exportControl={
-            activeConversation?.id ? (
-              <ProjectChatExportDropdown
-                conversationId={activeConversation.id}
-                conversationTitle={activeConversation.title}
-                onOpenSaveModal={openConversationSaveModal}
-              />
-            ) : undefined
-          }
-        />
-
-        <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
-          <ProjectChatMessages
-            messages={messages}
-            streamingContent={streamingContent}
-            isLoading={isLoading}
-            isLoadingMessages={isLoadingMessages}
-            startConversationLabel={copy.startConversation}
-            choosePromptLabel={copy.choosePromptOrAsk}
-            thinkingLabel={copy.thinking}
-            quickPrompts={quickPrompts}
-            onQuickPrompt={(content) => {
-              void sendMessage(content);
-            }}
-            onSaveMessage={openSaveModal}
-          />
-        </div>
-
-        <ProjectChatInput
-          value={inputValue}
-          isLoading={isLoading}
-          placeholder={copy.inputPlaceholder}
-          onChange={setInputValue}
-          onSend={() => {
-            const content = inputValue;
-            setInputValue("");
-            void sendMessage(content);
-          }}
-        />
-      </div>
+      <ProjectChatMainPanel
+        activeConversation={activeConversation}
+        choosePromptLabel={copy.choosePromptOrAsk}
+        handleScroll={panel.handleScroll}
+        inputPlaceholder={copy.inputPlaceholder}
+        inputValue={panel.inputValue}
+        isLoading={isLoading}
+        isLoadingMessages={isLoadingMessages}
+        isSidebarOpen={panel.isSidebarOpen}
+        knowledgeScope={panel.knowledgeScope}
+        messages={messages}
+        messagesContainerRef={panel.messagesContainerRef}
+        onInputChange={panel.setInputValue}
+        onKnowledgeScopeChange={panel.setKnowledgeScope}
+        onOpenConversationSaveModal={panel.openConversationSaveModal}
+        onQuickPrompt={(content) => {
+          void sendMessage(content);
+        }}
+        onSaveMessage={panel.openSaveModal}
+        onSend={() => panel.handleSend(sendMessage)}
+        onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
+        quickPrompts={quickPrompts}
+        startConversationLabel={copy.startConversation}
+        streamingContent={streamingContent}
+        subtitle={copy.projectAssistantSubtitle}
+        thinkingLabel={copy.thinking}
+        title={activeConversation?.title || copy.projectAssistantTitle}
+      />
 
       <ProjectChatSaveModal
-        isOpen={saveModalOpen}
-        onClose={() => setSaveModalOpen(false)}
+        isOpen={panel.saveModalOpen}
+        onClose={panel.closeSaveModal}
         projectId={project.id}
-        messageId={saveMessageId}
+        messageId={panel.saveMessageId}
         files={files || []}
         folders={folders || []}
         onSuccess={() => onProjectUpdate()}
       />
 
       <ProjectChatSaveModal
-        isOpen={conversationSaveModalOpen}
-        onClose={() => setConversationSaveModalOpen(false)}
+        isOpen={panel.conversationSaveModalOpen}
+        onClose={panel.closeConversationSaveModal}
         projectId={project.id}
         conversationId={activeConvId}
         files={files || []}
