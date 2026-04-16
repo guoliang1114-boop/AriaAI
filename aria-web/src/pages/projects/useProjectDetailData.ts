@@ -4,9 +4,7 @@ import type { ProjectDetail as ProjectDetailType } from "../../types/api";
 
 export function useProjectDetailData(projectId?: string) {
   const [initialLoading, setInitialLoading] = useState(true);
-  const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(
-    null,
-  );
+  const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(null);
 
   const refreshProjectDetail = async () => {
     if (!projectId) return;
@@ -29,7 +27,7 @@ export function useProjectDetailData(projectId?: string) {
 
   return {
     initialLoading,
-    projectDetail: projectDetail as ProjectDetailType,
+    projectDetail,
     refreshProjectDetail,
   };
 }

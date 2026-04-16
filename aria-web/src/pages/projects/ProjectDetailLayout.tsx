@@ -161,7 +161,6 @@ function ProjectHeader({
     </div>
   );
 }
-
 function PersistentProjectTabs({
   projectId,
   project,

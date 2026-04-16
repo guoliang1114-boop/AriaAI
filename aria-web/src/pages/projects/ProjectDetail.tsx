@@ -20,9 +20,6 @@ export function ProjectDetail() {
   const isTodosTab = location.pathname.endsWith("/todos");
   const { initialLoading, projectDetail, refreshProjectDetail } =
     useProjectDetailData(id);
-  const fetchProjectDetail = async (_projectId: number) => {
-    await refreshProjectDetail();
-  };
 
   if (initialLoading) {
     return (
