@@ -162,29 +162,41 @@ export function useProjectOverviewData({
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullSummary = "";
+      let buffer = "";
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === "text" && data.content) {
-                  fullSummary += data.content;
-                  setSummaryText(fullSummary);
-                } else if (data.type === "done") {
-                  fullSummary = data.context_summary || fullSummary;
-                  setSummaryText(fullSummary);
-                }
-              } catch {
-                // Ignore malformed stream lines and keep the stream alive.
+            if (!line.startsWith("data: ")) continue;
+
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === "text" && data.content) {
+                fullSummary += data.content;
+                setSummaryText(fullSummary);
+              } else if (data.type === "done") {
+                fullSummary = data.context_summary || fullSummary;
+                setSummaryText(fullSummary);
+              } else if (data.type === "error") {
+                throw new Error(
+                  data.message ||
+                    (isZh
+                      ? "生成项目总结失败，请稍后重试"
+                      : "Failed to generate project summary, please try again"),
+                );
               }
+            } catch (streamError) {
+              if (streamError instanceof Error) {
+                throw streamError;
+              }
+              // Ignore malformed stream lines and keep the stream alive.
             }
           }
         }
@@ -192,9 +204,11 @@ export function useProjectOverviewData({
     } catch (error) {
       console.error("Failed to generate summary:", error);
       setSummaryError(
-        isZh
-          ? "鐢熸垚鎽樿澶辫触锛岃绋嶅悗閲嶈瘯"
-          : "Failed to generate summary, please try again",
+        error instanceof Error && error.message
+          ? error.message
+          : isZh
+            ? "生成项目总结失败，请稍后重试"
+            : "Failed to generate summary, please try again",
       );
     } finally {
       setGeneratingSummary(false);
