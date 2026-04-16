@@ -22,6 +22,8 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import type { Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
+import { ProjectChatHeader } from "./ProjectChatHeader";
+import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
 import {
@@ -373,48 +375,27 @@ export function ProjectChatTab({
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
-            >
-              {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-            </button>
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
-              <Bot className="w-5 h-5 text-primary" />
-            </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 text-base">
-              {activeConversation?.title || copy.projectAssistantTitle}
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {copy.projectAssistantSubtitle}
-            </p>
-          </div>
-        </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2">
-              <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
-              <select
-                value={knowledgeScope}
-                onChange={(event) => setKnowledgeScope(event.target.value as "project" | "client" | "global")}
-                className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="project">{copy.currentProject}</option>
-                <option value="client">{copy.currentClient}</option>
-                <option value="global">{copy.globalKnowledge}</option>
-              </select>
-            </div>
-            {activeConversation?.id && (
+        <ProjectChatHeader
+          isSidebarOpen={isSidebarOpen}
+          title={activeConversation?.title || copy.projectAssistantTitle}
+          subtitle={copy.projectAssistantSubtitle}
+          knowledgeScopeLabel={copy.knowledgeScope}
+          knowledgeScope={knowledgeScope}
+          currentProjectLabel={copy.currentProject}
+          currentClientLabel={copy.currentClient}
+          globalKnowledgeLabel={copy.globalKnowledge}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onKnowledgeScopeChange={setKnowledgeScope}
+          exportControl={
+            activeConversation?.id ? (
               <ExportDropdown
                 conversationId={activeConversation.id}
                 conversationTitle={activeConversation.title}
                 onOpenSaveModal={openConversationSaveModal}
               />
-            )}
-          </div>
-        </div>
+            ) : undefined
+          }
+        />
 
         <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
           {isLoadingMessages && (
@@ -491,44 +472,17 @@ export function ProjectChatTab({
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-white">
-          <div className="flex items-end gap-3">
-            <div className="flex-1 relative">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    const content = inputValue;
-                    setInputValue("");
-                    void sendMessage(content);
-                  }
-                }}
-                placeholder={copy.inputPlaceholder}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 resize-none min-h-[48px] max-h-[120px] transition-all"
-                rows={1}
-                style={{ height: "auto" }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = "auto";
-                  target.style.height = `${target.scrollHeight}px`;
-                }}
-              />
-            </div>
-            <button
-              onClick={() => {
-                const content = inputValue;
-                setInputValue("");
-                void sendMessage(content);
-              }}
-              disabled={!inputValue.trim() || isLoading}
-              className="p-3 rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow"
-            >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
+        <ProjectChatInput
+          value={inputValue}
+          isLoading={isLoading}
+          placeholder={copy.inputPlaceholder}
+          onChange={setInputValue}
+          onSend={() => {
+            const content = inputValue;
+            setInputValue("");
+            void sendMessage(content);
+          }}
+        />
       </div>
 
       <ProjectChatSaveModal
