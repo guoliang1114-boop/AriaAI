@@ -1,11 +1,65 @@
 import { useTranslation } from "react-i18next";
-import { useParams, useNavigate, Routes, Route, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { PageTitle } from "../../components/PageTitle";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
-import { buildProjectDetailRouteConfig } from "./projectDetailRouteConfig";
-import { getActiveProjectDetailTabId } from "./projectDetailTabs";
+import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
+import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
+import { ProjectOverviewTab } from "./ProjectOverviewTab";
+import { ProjectSettingsTab } from "./ProjectSettingsTab";
+import { getActiveProjectDetailTabId, type ProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
+
+function renderProjectDetailContent(
+  activeTabId: ProjectDetailTabId,
+  projectId: string,
+  projectDetail: NonNullable<ReturnType<typeof useProjectDetailData>["projectDetail"]>,
+  onRefresh: () => void,
+) {
+  switch (activeTabId) {
+    case "documents":
+      return (
+        <ProjectDocumentsTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+          onUpdate={onRefresh}
+        />
+      );
+    case "milestones":
+      return (
+        <ProjectMilestonesTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+          onUpdate={onRefresh}
+        />
+      );
+    case "financials":
+      return (
+        <ProjectFinancialsTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+          onUpdate={onRefresh}
+        />
+      );
+    case "settings":
+      return (
+        <ProjectSettingsTab
+          projectDetail={projectDetail}
+          onUpdate={onRefresh}
+        />
+      );
+    case "overview":
+    default:
+      return (
+        <ProjectOverviewTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+          onProjectUpdate={onRefresh}
+        />
+      );
+  }
+}
 
 export function ProjectDetail() {
   const { t } = useTranslation();
@@ -48,11 +102,6 @@ export function ProjectDetail() {
   }
 
   const { project } = projectDetail;
-  const routeConfig = buildProjectDetailRouteConfig({
-    projectDetail,
-    projectId: id!,
-    onRefresh: refreshProjectDetail,
-  });
 
   return (
     <>
@@ -65,11 +114,12 @@ export function ProjectDetail() {
         onBack={() => navigate("/projects")}
         onRefresh={refreshProjectDetail}
       >
-        <Routes>
-          {routeConfig.map((route) => (
-            <Route key={route.path} path={route.path} element={route.element} />
-          ))}
-        </Routes>
+        {renderProjectDetailContent(
+          activeTabId,
+          id!,
+          projectDetail,
+          refreshProjectDetail,
+        )}
       </ProjectDetailLayout>
     </>
   );
