@@ -1,14 +1,13 @@
 import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import { getProjectChatCopy } from "./projectChatCopy";
 
 type ProjectChatHeaderProps = {
   isSidebarOpen: boolean;
   title: string;
   subtitle: string;
-  knowledgeScopeLabel: string;
   knowledgeScope: "project" | "client" | "global";
-  currentProjectLabel: string;
-  currentClientLabel: string;
-  globalKnowledgeLabel: string;
   exportControl?: React.ReactNode;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -18,15 +17,14 @@ export function ProjectChatHeader({
   isSidebarOpen,
   title,
   subtitle,
-  knowledgeScopeLabel,
   knowledgeScope,
-  currentProjectLabel,
-  currentClientLabel,
-  globalKnowledgeLabel,
   exportControl,
   onToggleSidebar,
   onKnowledgeScopeChange,
 }: ProjectChatHeaderProps) {
+  const { i18n } = useTranslation();
+  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
+
   return (
     <div className="flex items-center justify-between border-b border-gray-100 bg-white p-4">
       <div className="flex items-center gap-3">
@@ -47,15 +45,15 @@ export function ProjectChatHeader({
 
       <div className="flex items-center gap-3">
         <div className="hidden items-center gap-2 md:flex">
-          <span className="text-xs text-gray-400">{knowledgeScopeLabel}</span>
+          <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
           <select
             value={knowledgeScope}
             onChange={(event) => onKnowledgeScopeChange(event.target.value as "project" | "client" | "global")}
             className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
-            <option value="project">{currentProjectLabel}</option>
-            <option value="client">{currentClientLabel}</option>
-            <option value="global">{globalKnowledgeLabel}</option>
+            <option value="project">{copy.currentProject}</option>
+            <option value="client">{copy.currentClient}</option>
+            <option value="global">{copy.globalKnowledge}</option>
           </select>
         </div>
         {exportControl}

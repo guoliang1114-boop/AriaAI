@@ -13,7 +13,7 @@ type ProjectChatExportDropdownProps = {
 
 export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
   ({ conversationId, conversationTitle, onOpenSaveModal }) => {
-    const { i18n, t } = useTranslation();
+    const { i18n } = useTranslation();
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
     const [isOpen, setIsOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -40,7 +40,7 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
         setIsOpen(false);
       } catch (error) {
         console.error("Export failed:", error);
-        alert(t("chat.exportFailed", copy.exportFailed));
+        alert(copy.exportFailed);
       } finally {
         setIsExporting(false);
       }
@@ -62,7 +62,7 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
         >
           {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          <span className="hidden sm:inline">{t("chat.export", copy.export)}</span>
+          <span className="hidden sm:inline">{copy.export}</span>
           <ChevronDown className="h-3 w-3" />
         </button>
 
@@ -73,14 +73,14 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
               className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
             >
               <FileText className="h-4 w-4 text-gray-400" />
-              {t("chat.exportMarkdown", copy.exportMarkdown)}
+              {copy.exportMarkdown}
             </button>
             <button
               onClick={() => handleExport("pdf")}
               className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
             >
               <FileText className="h-4 w-4 text-red-400" />
-              {t("chat.exportPDF", copy.exportPDF)}
+              {copy.exportPDF}
             </button>
             {onOpenSaveModal && (
               <button
@@ -88,7 +88,7 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
                 className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
               >
                 <BookOpen className="h-4 w-4 text-emerald-500" />
-                {t("projects.saveConversationToProject", copy.saveConversationToProject)}
+                {copy.saveConversationToProject}
               </button>
             )}
           </div>

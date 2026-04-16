@@ -141,11 +141,7 @@ export function ProjectChatTab({
           isSidebarOpen={isSidebarOpen}
           title={activeConversation?.title || copy.projectAssistantTitle}
           subtitle={copy.projectAssistantSubtitle}
-          knowledgeScopeLabel={copy.knowledgeScope}
           knowledgeScope={knowledgeScope}
-          currentProjectLabel={copy.currentProject}
-          currentClientLabel={copy.currentClient}
-          globalKnowledgeLabel={copy.globalKnowledge}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onKnowledgeScopeChange={setKnowledgeScope}
           exportControl={
