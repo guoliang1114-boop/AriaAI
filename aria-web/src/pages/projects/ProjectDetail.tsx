@@ -8,6 +8,7 @@ import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
+import { getActiveProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
 
 export function ProjectDetail() {
@@ -15,10 +16,8 @@ export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const isChatTab = location.pathname.endsWith("/chat");
-  const isNotesTab = location.pathname.endsWith("/notes");
-  const isTodosTab = location.pathname.endsWith("/todos");
-  const { initialLoading, projectDetail, refreshProjectDetail } =
+  const activeTabId = getActiveProjectDetailTabId(location.pathname, id);
+  const { error, initialLoading, projectDetail, refreshProjectDetail } =
     useProjectDetailData(id);
 
   if (initialLoading) {
@@ -39,6 +38,7 @@ export function ProjectDetail() {
         <div className="min-h-full bg-gray-50 flex items-center justify-center">
           <div className="text-center">
             <p className="text-gray-500">Project not found</p>
+            {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
             <button
               onClick={() => navigate("/projects")}
               className="mt-4 text-primary hover:underline"
@@ -60,9 +60,7 @@ export function ProjectDetail() {
         projectId={id!}
         project={project}
         projectDetail={projectDetail}
-        isChatTab={isChatTab}
-        isNotesTab={isNotesTab}
-        isTodosTab={isTodosTab}
+        activeTabId={activeTabId}
         onBack={() => navigate("/projects")}
         onRefresh={refreshProjectDetail}
       >
