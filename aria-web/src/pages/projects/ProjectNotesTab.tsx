@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BookOpen, Loader2, Sparkles, Wand2, X } from "lucide-react";
+import { BookOpen, Loader2 } from "lucide-react";
 import { api } from "../../api/client";
 import { getApiBaseUrl } from "../../config/api";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
+import { ProjectNotesAIModal } from "./ProjectNotesAIModal";
 import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
 import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
@@ -64,20 +65,6 @@ const COPY = {
     en: "Edit your Markdown document here...",
   },
   previewEmpty: { zh: "预览区域", en: "Preview area" },
-  aiTitle: { zh: "AI 写作助手", en: "AI Writing Assistant" },
-  aiDraftLabel: { zh: "草稿或补充说明", en: "Draft or instruction" },
-  aiDraftPlaceholder: {
-    zh: "输入补充要求，或留空以直接润色当前文档。",
-    en: "Add guidance here, or leave empty to polish the current document.",
-  },
-  aiGenerate: { zh: "生成", en: "Generate" },
-  aiResultLabel: { zh: "生成结果", en: "Generated result" },
-  aiResultEmpty: {
-    zh: "生成结果会显示在这里",
-    en: "The generated result will appear here",
-  },
-  aiReplace: { zh: "替换当前内容", en: "Replace" },
-  aiAppend: { zh: "追加到文档", en: "Append" },
 } as const;
 
 function pick(
@@ -352,6 +339,12 @@ export function ProjectNotesTab({
     toast.success(pick(isZh, COPY.aiApplied));
   };
 
+  const closeAIModal = () => {
+    setShowAIModal(false);
+    setAiDraft("");
+    setAiResult("");
+  };
+
   const showEdit = mode === "edit" || mode === "split";
   const showPreview = mode === "preview" || mode === "split";
 
@@ -476,91 +469,17 @@ export function ProjectNotesTab({
         onConfirm={() => void handleDeleteDocument()}
       />
 
-      {showAIModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-              <div className="flex items-center gap-2">
-                <Wand2 className="h-5 w-5 text-indigo-600" />
-                <h3 className="font-semibold text-gray-900">
-                  {pick(isZh, COPY.aiTitle)}
-                </h3>
-              </div>
-              <button
-                onClick={() => {
-                  setShowAIModal(false);
-                  setAiDraft("");
-                  setAiResult("");
-                }}
-                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-auto p-6">
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="flex flex-col gap-3">
-                  <label className="text-sm font-medium text-gray-700">
-                    {pick(isZh, COPY.aiDraftLabel)}
-                  </label>
-                  <textarea
-                    value={aiDraft}
-                    onChange={(event) => setAiDraft(event.target.value)}
-                    placeholder={pick(isZh, COPY.aiDraftPlaceholder)}
-                    className="min-h-[220px] resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                  <button
-                    onClick={() => void handleAIGenerate()}
-                    disabled={aiLoading}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {aiLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )}
-                    {pick(isZh, COPY.aiGenerate)}
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  <label className="text-sm font-medium text-gray-700">
-                    {pick(isZh, COPY.aiResultLabel)}
-                  </label>
-                  <div className="min-h-[220px] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    {aiResult.trim() ? (
-                      <div className="md-root text-sm">
-                        <MarkdownRenderer content={aiResult} />
-                      </div>
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                        {pick(isZh, COPY.aiResultEmpty)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => applyAIResult("replace")}
-                      disabled={!aiResult.trim()}
-                      className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      {pick(isZh, COPY.aiReplace)}
-                    </button>
-                    <button
-                      onClick={() => applyAIResult("append")}
-                      disabled={!aiResult.trim()}
-                      className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      {pick(isZh, COPY.aiAppend)}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProjectNotesAIModal
+        aiDraft={aiDraft}
+        aiLoading={aiLoading}
+        aiResult={aiResult}
+        isOpen={showAIModal}
+        isZh={isZh}
+        onApply={applyAIResult}
+        onChangeDraft={setAiDraft}
+        onClose={closeAIModal}
+        onGenerate={() => void handleAIGenerate()}
+      />
     </div>
   );
 }
