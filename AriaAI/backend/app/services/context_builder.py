@@ -16,84 +16,26 @@ from app.models.db import (
     ProjectPayment,
     Skill,
 )
+from app.services.document_text import extract_text_from_file
 from app.services.rag import retrieve_structured
 from app.services.tool_executor import format_tools_for_claude
-
-try:
-    import pdfplumber as _pdfplumber
-    _HAS_PDF = True
-except ImportError:
-    _HAS_PDF = False
-
-try:
-    from docx import Document as _DocxDocument
-    _HAS_DOCX = True
-except ImportError:
-    _HAS_DOCX = False
-
-try:
-    from pptx import Presentation as _Presentation
-    _HAS_PPTX = True
-except ImportError:
-    _HAS_PPTX = False
-
-try:
-    import openpyxl as _openpyxl
-    _HAS_XLSX = True
-except ImportError:
-    _HAS_XLSX = False
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
 
 
 def extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
-    """Extract plain text from a project file for AI context injection."""
-    if not path.exists():
-        return "[File not found]"
-    try:
-        ft = file_type.lower()
-        if ft == "pdf" and _HAS_PDF:
-            with _pdfplumber.open(path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages[:15]]
-            text = "\n".join(pages)
-        elif ft == "docx" and _HAS_DOCX:
-            doc = _DocxDocument(str(path))
-            text = "\n".join(p.text for p in doc.paragraphs)
-        elif ft == "pptx" and _HAS_PPTX:
-            prs = _Presentation(str(path))
-            parts = []
-            for i, slide in enumerate(prs.slides):
-                slide_texts = []
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        slide_texts.append(shape.text.strip())
-                if slide_texts:
-                    parts.append(f"[Slide {i+1}]\n" + "\n".join(slide_texts))
-            text = "\n\n".join(parts)
-        elif ft in ("xlsx", "xls") and _HAS_XLSX:
-            wb = _openpyxl.load_workbook(str(path), read_only=True, data_only=True)
-            parts = []
-            for sheet in wb.worksheets:
-                rows = []
-                for row in sheet.iter_rows(max_row=200, values_only=True):
-                    cells = [str(c) if c is not None else "" for c in row]
-                    if any(c.strip() for c in cells):
-                        rows.append("\t".join(cells))
-                if rows:
-                    parts.append(f"[Sheet: {sheet.title}]\n" + "\n".join(rows))
-            wb.close()
-            text = "\n\n".join(parts)
-        elif ft in ("txt", "md", "csv", "json"):
-            text = path.read_text(encoding="utf-8", errors="replace")
-        else:
-            return "[Binary file — text extraction not supported for this format]"
-        text = text.strip()
-        if len(text) > max_chars:
-            return text[:max_chars] + "\n…[truncated]"
-        return text if text else "[File appears to be empty]"
-    except Exception as exc:
-        return f"[Could not extract text: {exc}]"
+    text = extract_text_from_file(
+        path,
+        file_type,
+        max_chars=max_chars,
+        empty_placeholder="[File appears to be empty]",
+        unsupported_placeholder="[Binary file — text extraction not supported for this format]",
+        error_prefix="[Could not extract text: ",
+    )
+    if text.startswith("[Could not extract text: ") and not text.endswith("]"):
+        return f"{text}]"
+    return text
 
 
 class SkillContext:

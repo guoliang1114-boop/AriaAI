@@ -18,6 +18,7 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.document_text import extract_text_from_file
 from app.services.project_ai import (
     build_project_ai_suggest_messages,
     parse_project_ai_suggestions,
@@ -83,6 +84,7 @@ from app.services.project_milestones import (
     update_project_milestone,
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
+from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -92,7 +94,6 @@ from app.services.project_todos import (
     serialize_todo,
     update_project_todo,
 )
-from app.services.provider_selector import get_selected_model, resolve_provider_from_model, _load_provider_module
 from app.routers.auth import get_current_user
 from app.routers.chat_export import build_markdown_export_content
 
@@ -105,102 +106,11 @@ def _bust_project(project_id: int) -> None:
     projects_cache.delete_prefix("list:")
 
 
-async def _complete(messages: list[dict], max_tokens: int = 4000) -> str:
-    """Call the active LLM provider using the user's selected model."""
-    from app.database import engine
-    from sqlmodel import Session as _S
-    with _S(engine) as s:
-        model = get_selected_model(s)
-        provider = resolve_provider_from_model(model)
-    llm = _load_provider_module(provider)
-    return await llm.complete(messages, model=model, max_tokens=max_tokens)
-
-
-async def _stream(messages: list[dict], max_tokens: int = 4000):
-    """Stream response chunks from the active LLM provider."""
-    from app.database import engine
-    from sqlmodel import Session as _S
-    with _S(engine) as s:
-        model = get_selected_model(s)
-        provider = resolve_provider_from_model(model)
-    llm = _load_provider_module(provider)
-    async for chunk in llm.stream_response(messages, model=model, max_tokens=max_tokens):
-        yield chunk
-
 # Shared file text extraction
-
-try:
-    import pdfplumber as _pdfplumber
-    _HAS_PDF = True
-except ImportError:
-    _HAS_PDF = False
-
-try:
-    from docx import Document as _DocxDocument
-    _HAS_DOCX = True
-except ImportError:
-    _HAS_DOCX = False
-
-try:
-    from pptx import Presentation as _Presentation
-    _HAS_PPTX = True
-except ImportError:
-    _HAS_PPTX = False
-
-try:
-    import openpyxl as _openpyxl
-    _HAS_XLSX = True
-except ImportError:
-    _HAS_XLSX = False
 
 
 def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
-    """Extract plain text from a project file for AI context injection."""
-    if not path.exists():
-        return "[File not found]"
-    try:
-        ft = file_type.lower()
-        if ft == "pdf" and _HAS_PDF:
-            with _pdfplumber.open(path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages[:15]]
-            text = "\n".join(pages)
-        elif ft == "docx" and _HAS_DOCX:
-            doc = _DocxDocument(str(path))
-            text = "\n".join(p.text for p in doc.paragraphs)
-        elif ft == "pptx" and _HAS_PPTX:
-            prs = _Presentation(str(path))
-            parts = []
-            for i, slide in enumerate(prs.slides):
-                slide_texts = []
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        slide_texts.append(shape.text.strip())
-                if slide_texts:
-                    parts.append(f"[Slide {i+1}]\n" + "\n".join(slide_texts))
-            text = "\n\n".join(parts)
-        elif ft in ("xlsx", "xls") and _HAS_XLSX:
-            wb = _openpyxl.load_workbook(str(path), read_only=True, data_only=True)
-            parts = []
-            for sheet in wb.worksheets:
-                rows = []
-                for row in sheet.iter_rows(max_row=200, values_only=True):
-                    cells = [str(c) if c is not None else "" for c in row]
-                    if any(c.strip() for c in cells):
-                        rows.append("\t".join(cells))
-                if rows:
-                    parts.append(f"[Sheet: {sheet.title}]\n" + "\n".join(rows))
-            wb.close()
-            text = "\n\n".join(parts)
-        elif ft in ("txt", "md", "csv", "json"):
-            text = path.read_text(encoding="utf-8", errors="replace")
-        else:
-            return ""  # Binary — skip auto-summary
-        text = text.strip()
-        if len(text) > max_chars:
-            return text[:max_chars] + "\n…[truncated]"
-        return text if text else ""
-    except Exception:
-        return ""
+    return extract_text_from_file(path, file_type, max_chars=max_chars)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -773,7 +683,7 @@ class ProjectAISuggestion(BaseModel):
 async def ai_suggest_project(body: ProjectAISuggestQuery):
     """Ask Claude to propose 1-3 consulting project names + descriptions."""
     try:
-        raw = await _complete(
+        raw = await complete_with_selected_model(
             messages=build_project_ai_suggest_messages(
                 body.query,
                 client_name=body.client_name,
@@ -799,7 +709,7 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
         file_path=file_path,
         file_type=file_type,
         extract_file_text=_extract_file_text,
-        complete=_complete,
+        complete=lambda messages, max_tokens: complete_with_selected_model(messages, max_tokens=max_tokens),
         session_factory=lambda: _Session(engine),
     )
 
@@ -815,7 +725,7 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
     async def event_stream():
         accumulated: list[str] = []
         try:
-            async for chunk in stream_llm_text_chunks(_stream(messages, max_tokens=4000)):
+            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=4000)):
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -926,7 +836,7 @@ async def ai_polish_project_notes(project_id: int, body: NotePolishBody, session
         raise HTTPException(404, "Project not found")
 
     messages = build_project_note_polish_messages(project, body.draft)
-    result = await _complete(messages, max_tokens=4000)
+    result = await complete_with_selected_model(messages, max_tokens=4000)
     return {"result": result}
 
 
@@ -941,7 +851,7 @@ async def ai_polish_project_notes_stream(project_id: int, body: NotePolishBody, 
 
     async def event_stream():
         try:
-            async for chunk in stream_llm_text_chunks(_stream(messages, max_tokens=4000)):
+            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=4000)):
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

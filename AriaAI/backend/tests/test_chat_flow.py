@@ -31,6 +31,7 @@ from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import context_builder as context_builder_module
+from app.services import document_text as document_text_module
 from app.services import project_ai as project_ai_module
 from app.services import project_contexts as project_contexts_module
 from app.services import project_notes as project_notes_module
@@ -214,6 +215,17 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("write a concise 2-3 sentence summary", prompt)
         self.assertIn("Document excerpt:\nImportant project excerpt", prompt)
 
+    def test_extract_text_from_file_reads_markdown(self):
+        fd, temp_path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        path = Path(temp_path)
+        try:
+            path.write_text("# Hello", encoding="utf-8")
+            text = document_text_module.extract_text_from_file(path, "md", max_chars=4000)
+        finally:
+            path.unlink(missing_ok=True)
+        self.assertEqual(text, "# Hello")
+
 
 class ProjectConversationArchiveTestCase(unittest.TestCase):
     def setUp(self):
@@ -367,7 +379,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_ai_suggest_project_parses_fenced_json_response(self):
         with patch.object(
             projects_router_module,
-            "_complete",
+            "complete_with_selected_model",
             new=AsyncMock(
                 return_value="""```json
 [
@@ -417,7 +429,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         with patch.object(projects_router_module, "_extract_file_text", return_value="Important summary source"), patch.object(
             projects_router_module,
-            "_complete",
+            "complete_with_selected_model",
             new=AsyncMock(return_value="Concise consultant summary"),
         ), patch("app.database.engine", self.engine):
             asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md"))
@@ -1114,7 +1126,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch.object(projects_router_module, "_stream", side_effect=fake_stream), patch("app.database.engine", self.engine):
+        with patch.object(projects_router_module, "stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
             resp = self.client.post(f"/projects/{project_id}/generate-context")
 
         self.assertEqual(resp.status_code, 200)
