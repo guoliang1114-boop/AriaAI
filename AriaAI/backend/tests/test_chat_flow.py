@@ -426,6 +426,52 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             refreshed = session.get(ProjectFile, file_id)
             self.assertEqual(refreshed.summary, "Concise consultant summary")
 
+    def test_create_project_initializes_default_folders(self):
+        resp = self.client.post(
+            "/projects",
+            json={
+                "name": "New Project",
+                "client": "Client",
+                "description": "Desc",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        project_id = resp.json()["id"]
+
+        folders_resp = self.client.get(f"/projects/{project_id}/folders")
+        self.assertEqual(folders_resp.status_code, 200)
+        folder_names = [folder["name"] for folder in folders_resp.json()]
+        self.assertEqual(
+            folder_names,
+            ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"],
+        )
+
+    def test_list_projects_filters_by_member_user_id(self):
+        with Session(self.engine) as session:
+            user = User(
+                email="filter-member@example.com",
+                display_name="Filter Member",
+                password_hash="hashed",
+            )
+            member_project = Project(name="Member Project", client="Client")
+            other_project = Project(name="Other Project", client="Client")
+            session.add(user)
+            session.add(member_project)
+            session.add(other_project)
+            session.commit()
+            session.refresh(user)
+            session.refresh(member_project)
+            session.refresh(other_project)
+            session.add(ProjectMember(project_id=member_project.id, user_id=user.id))
+            session.commit()
+            user_id = user.id
+
+        resp = self.client.get(f"/projects?member_user_id={user_id}")
+        self.assertEqual(resp.status_code, 200)
+        projects = resp.json()
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["name"], "Member Project")
+
     def test_project_members_crud_and_detail_payload(self):
         with Session(self.engine) as session:
             project = Project(name="Gamma", client="Client")

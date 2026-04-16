@@ -23,6 +23,13 @@ from app.services.project_ai import (
     parse_project_ai_suggestions,
     summarize_uploaded_project_file,
 )
+from app.services.project_core import (
+    create_project_record,
+    get_project_or_404,
+    init_default_project_folders,
+    list_projects_basic,
+    update_project_record,
+)
 from app.services.project_contexts import (
     build_project_context_data,
     build_project_context_prompt,
@@ -120,9 +127,6 @@ async def _stream(messages: list[dict], max_tokens: int = 4000):
     async for chunk in llm.stream_response(messages, model=model, max_tokens=max_tokens):
         yield chunk
 
-
-DEFAULT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
-
 # Shared file text extraction
 
 try:
@@ -197,24 +201,6 @@ def _extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str
         return text if text else ""
     except Exception:
         return ""
-
-def _init_default_folders(project_id: int, session: Session) -> list[ProjectFolder]:
-    """Create the 4 default folders for a project. Safe to call if they already exist."""
-    existing = session.exec(
-        select(ProjectFolder).where(ProjectFolder.project_id == project_id)
-    ).all()
-    if existing:
-        return existing
-    folders = [
-        ProjectFolder(project_id=project_id, name=name, sort_order=i)
-        for i, name in enumerate(DEFAULT_FOLDER_NAMES)
-    ]
-    for f in folders:
-        session.add(f)
-    session.commit()
-    for f in folders:
-        session.refresh(f)
-    return folders
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -351,40 +337,21 @@ def list_projects(
     cached = projects_cache.get(cache_key)
     if cached is not None:
         return cached
-    stmt = select(Project).order_by(Project.updated_at.desc())
-    if status:
-        stmt = stmt.where(Project.status == status)
-    if member_user_id is not None:
-        from sqlalchemy.orm import joinedload
-        # join with members and filter; distinct to avoid duplicate projects
-        stmt = (
-            stmt.join(ProjectMember, ProjectMember.project_id == Project.id)
-            .where(ProjectMember.user_id == member_user_id)
-            .distinct()
-        )
-    result = session.exec(stmt).all()
+    result = list_projects_basic(session, status=status, member_user_id=member_user_id)
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
 
 
 @router.post("", status_code=201)
 def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
-    project = Project(**data.model_dump())
-    session.add(project)
-    session.commit()
-    session.refresh(project)
-    _init_default_folders(project.id, session)
-    session.refresh(project)  # re-refresh: _init_default_folders commits, expiring project
+    project = create_project_record(session, data.model_dump())
     projects_cache.delete_prefix("list:")   # no detail key yet — project just created
     return project
 
 
 @router.get("/{project_id}")
 def get_project(project_id: int, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    return project
+    return get_project_or_404(session, project_id)
 
 
 @router.get("/{project_id}/detail")
@@ -398,22 +365,14 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     if cached is not None:
         return cached
 
-    result = build_project_detail(session, project_id, init_default_folders=_init_default_folders)
+    result = build_project_detail(session, project_id, init_default_folders=init_default_project_folders)
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
 
 
 @router.patch("/{project_id}")
 def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    for k, v in data.model_dump(exclude_none=True).items():
-        setattr(project, k, v)
-    project.updated_at = datetime.utcnow()
-    session.add(project)
-    session.commit()
-    session.refresh(project)
+    project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
     _bust_project(project_id)
     return project
 
@@ -495,7 +454,7 @@ def create_project_document(
         name=data.name,
         content=data.content,
         uploads_dir=UPLOADS_DIR,
-        init_default_folders=_init_default_folders,
+        init_default_folders=init_default_project_folders,
     )
     _bust_project(project_id)
     return project_file
@@ -518,7 +477,7 @@ def update_project_document(
         project_id,
         file_id,
         uploads_dir=UPLOADS_DIR,
-        init_default_folders=_init_default_folders,
+        init_default_folders=init_default_project_folders,
         content=data.content,
         name=data.name,
         folder_id=data.folder_id,
@@ -587,7 +546,7 @@ def save_conversation_markdown(
         resolve_project_folder(
             session,
             project_id,
-            init_default_folders=_init_default_folders,
+            init_default_folders=init_default_project_folders,
             preferred_folder_id=data.folder_id,
         )
         if data.folder_id is not None
@@ -669,7 +628,7 @@ def save_message_to_document(
         resolve_project_folder(
             session,
             project_id,
-            init_default_folders=_init_default_folders,
+            init_default_folders=init_default_project_folders,
             preferred_folder_id=data.folder_id,
         )
         if data.folder_id is not None
@@ -747,7 +706,7 @@ def download_file(project_id: int, file_id: int, session: Session = Depends(get_
 
 @router.get("/{project_id}/folders")
 def list_folders(project_id: int, session: Session = Depends(get_session)):
-    return list_project_folders(session, project_id, init_default_folders=_init_default_folders)
+    return list_project_folders(session, project_id, init_default_folders=init_default_project_folders)
 
 
 @router.post("/{project_id}/folders", status_code=201)
