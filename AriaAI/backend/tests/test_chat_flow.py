@@ -31,6 +31,7 @@ from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import context_builder as context_builder_module
+from app.services import project_ai as project_ai_module
 from app.services import project_contexts as project_contexts_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
@@ -185,6 +186,34 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("Client: Client A", messages[1]["content"])
         self.assertIn("raw draft", messages[1]["content"])
 
+    def test_build_project_ai_suggest_messages_include_client_context(self):
+        messages = project_ai_module.build_project_ai_suggest_messages(
+            "Need a China entry plan",
+            client_name="Acme",
+            client_industry="Retail",
+        )
+
+        self.assertEqual(len(messages), 1)
+        self.assertIn('The project is for: Client: Acme (Retail)', messages[0]["content"])
+        self.assertIn('The user described the project as: "Need a China entry plan"', messages[0]["content"])
+
+    def test_parse_project_ai_suggestions_supports_fenced_json(self):
+        raw = """```json
+[
+  {"name": "China Market Entry Strategy", "description": "Define market priorities."}
+]
+```"""
+        suggestions = project_ai_module.parse_project_ai_suggestions(raw)
+        self.assertEqual(
+            suggestions,
+            [{"name": "China Market Entry Strategy", "description": "Define market priorities."}],
+        )
+
+    def test_build_project_file_summary_prompt_contains_excerpt(self):
+        prompt = project_ai_module.build_project_file_summary_prompt("Important project excerpt")
+        self.assertIn("write a concise 2-3 sentence summary", prompt)
+        self.assertIn("Document excerpt:\nImportant project excerpt", prompt)
+
 
 class ProjectConversationArchiveTestCase(unittest.TestCase):
     def setUp(self):
@@ -334,6 +363,68 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             new_folder = session.get(ProjectFolder, migrated_file.folder_id)
             self.assertIsNotNone(new_folder)
             self.assertEqual(new_folder.name, "02_需求与方案")
+
+    def test_ai_suggest_project_parses_fenced_json_response(self):
+        with patch.object(
+            projects_router_module,
+            "_complete",
+            new=AsyncMock(
+                return_value="""```json
+[
+  {"name": "China Market Entry Strategy", "description": "Assess demand, competitors, and go-to-market priorities."}
+]
+```"""
+            ),
+        ):
+            resp = self.client.post(
+                "/projects/ai-suggest",
+                json={
+                    "query": "Help expand into China",
+                    "client_name": "Acme",
+                    "client_industry": "Retail",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(len(body), 1)
+        self.assertEqual(body[0]["name"], "China Market Entry Strategy")
+        self.assertIn("go-to-market", body[0]["description"])
+
+    def test_auto_summarize_file_persists_generated_summary(self):
+        with Session(self.engine) as session:
+            project = Project(name="Upload Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            file_path = Path("projects") / str(project.id) / "brief.md"
+            full_path = self.uploads_dir / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Brief", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                name="brief.md",
+                file_type="md",
+                path=str(file_path),
+                size_bytes=full_path.stat().st_size,
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+            file_id = project_file.id
+
+        with patch.object(projects_router_module, "_extract_file_text", return_value="Important summary source"), patch.object(
+            projects_router_module,
+            "_complete",
+            new=AsyncMock(return_value="Concise consultant summary"),
+        ), patch("app.database.engine", self.engine):
+            asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md"))
+
+        with Session(self.engine) as session:
+            refreshed = session.get(ProjectFile, file_id)
+            self.assertEqual(refreshed.summary, "Concise consultant summary")
 
     def test_project_members_crud_and_detail_payload(self):
         with Session(self.engine) as session:

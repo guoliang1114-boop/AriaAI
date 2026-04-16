@@ -18,6 +18,11 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.project_ai import (
+    build_project_ai_suggest_messages,
+    parse_project_ai_suggestions,
+    summarize_uploaded_project_file,
+)
 from app.services.project_contexts import (
     build_project_context_data,
     build_project_context_prompt,
@@ -808,44 +813,16 @@ class ProjectAISuggestion(BaseModel):
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
 async def ai_suggest_project(body: ProjectAISuggestQuery):
     """Ask Claude to propose 1-3 consulting project names + descriptions."""
-    client_context = ""
-    if body.client_name:
-        client_context = f"Client: {body.client_name}"
-        if body.client_industry:
-            client_context += f" ({body.client_industry})"
-
-    prompt = f"""You are a senior consultant at a top-tier consulting firm.
-{f"The project is for: {client_context}" if client_context else ""}
-The user described the project as: "{body.query}"
-
-Generate 1 to 3 consulting project name and description suggestions.
-- If the idea is specific, return 1 suggestion.
-- If the idea is broad or ambiguous, return up to 3 distinct angle variations.
-
-Return ONLY a valid JSON array (no markdown, no extra text):
-[
-  {{
-    "name": "Crisp, professional project title (5-8 words max)",
-    "description": "2-3 sentence scope statement: objectives, key workstreams, and expected deliverable"
-  }}
-]
-
-Rules:
-- name: concise, consulting-style (e.g. "China Market Entry Strategy", "Digital Transformation Roadmap")
-- description: professional, specific, actionable — no filler phrases
-- Return pure JSON array only"""
-
     try:
         raw = await _complete(
-            messages=[{"role": "user", "content": prompt}],
+            messages=build_project_ai_suggest_messages(
+                body.query,
+                client_name=body.client_name,
+                client_industry=body.client_industry,
+            ),
             max_tokens=4000,
         )
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        suggestions = json.loads(text)
+        suggestions = parse_project_ai_suggestions(raw)
         return [ProjectAISuggestion(**s) for s in suggestions[:3]]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI suggestion failed: {e}")
@@ -858,32 +835,14 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
     from app.database import engine
     from sqlmodel import Session as _Session
 
-    text = _extract_file_text(Path(file_path), file_type, max_chars=3000)
-    if not text or text.startswith("["):
-        return  # Nothing to summarize
-
-    prompt = (
-        "You are a professional consultant analyst. "
-        "Read the following document excerpt and write a concise 2-3 sentence summary "
-        "covering: what this document is, its main purpose, and the most important information it contains. "
-        "Be specific and professional. Return ONLY the summary, no preamble.\n\n"
-        f"Document excerpt:\n{text}"
+    await summarize_uploaded_project_file(
+        file_id,
+        file_path=file_path,
+        file_type=file_type,
+        extract_file_text=_extract_file_text,
+        complete=_complete,
+        session_factory=lambda: _Session(engine),
     )
-    try:
-        summary = await _complete(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000,
-        )
-        summary = summary.strip()
-        if summary:
-            with _Session(engine) as session:
-                pf = session.get(ProjectFile, file_id)
-                if pf:
-                    pf.summary = summary
-                    session.add(pf)
-                    session.commit()
-    except Exception:
-        pass  # Best-effort — don't break the upload flow
 
 
 # ── Generate project context summary ──────────────────────────────────────────
