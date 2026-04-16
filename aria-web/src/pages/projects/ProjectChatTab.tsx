@@ -29,9 +29,9 @@ import {
   DEFAULT_NEW_CHAT_TITLE_EN,
   DEFAULT_NEW_CHAT_TITLE_ZH,
   QUICK_PROMPTS,
-  buildDefaultChatTitle,
   getProjectChatCopy,
 } from "./projectChatCopy";
+import { useProjectChatConversations } from "./useProjectChatConversations";
 
 type ChatMessage = Message;
 
@@ -266,45 +266,50 @@ export function ProjectChatTab({
   const copy = getProjectChatCopy(isZh);
   const toast = useToast();
   const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
-
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [streamingContent, setStreamingContent] = useState("");
-  const [editingConvId, setEditingConvId] = useState<number | null>(null);
-  const [editTitle, setEditTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
   const [conversationSaveModalOpen, setConversationSaveModalOpen] = useState(false);
-  const [conversationPendingDelete, setConversationPendingDelete] = useState<Conversation | null>(null);
-  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const skipNextFetchRef = useRef(false);
   const isNearBottomRef = useRef(true);
+  const {
+    conversations,
+    activeConvId,
+    setActiveConvId,
+    messages,
+    setMessages,
+    activeConversation,
+    isLoadingMessages,
+    isLoadingConversations,
+    editingConvId,
+    setEditingConvId,
+    editTitle,
+    setEditTitle,
+    conversationPendingDelete,
+    isDeletingConversation,
+    fetchConversations,
+    fetchMessages,
+    createConversation,
+    deleteConversation,
+    renameConversation,
+    beginRenameConversation,
+    startNewChat,
+    openDeleteConversationDialog,
+    closeDeleteConversationDialog,
+  } = useProjectChatConversations({
+    projectId: project.id,
+    isZh,
+    onCreateConversationError: () => toast.error(copy.createConversationFailed),
+    onDeleteConversationError: () => toast.error(copy.deleteConversationFailed),
+    onRenameConversationError: () => toast.error(copy.renameConversationFailed),
+  });
 
   useEffect(() => {
-    void fetchConversations();
-  }, [project.id]);
-
-  useEffect(() => {
-    if (activeConvId) {
-      if (skipNextFetchRef.current) {
-        skipNextFetchRef.current = false;
-        return;
-      }
-      setMessages([]);
-      setStreamingContent("");
-      void fetchMessages(activeConvId);
-    } else {
-      setMessages([]);
-      setStreamingContent("");
-    }
+    setStreamingContent("");
   }, [activeConvId]);
 
   useEffect(() => {
@@ -327,84 +332,6 @@ export function ProjectChatTab({
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   };
 
-  const fetchConversations = async () => {
-    setIsLoadingConversations(true);
-    try {
-      const data = await api.get<Conversation[]>(`/chat/conversations?project_id=${project.id}`);
-      setConversations(data);
-      if (data.length > 0 && !activeConvId) setActiveConvId(data[0].id);
-    } catch (error) {
-      console.error("Failed to fetch conversations:", error);
-    } finally {
-      setIsLoadingConversations(false);
-    }
-  };
-
-  const fetchMessages = async (convId: number) => {
-    setIsLoadingMessages(true);
-    try {
-      const data = await api.get<ChatMessage[]>(`/chat/conversations/${convId}/messages`);
-      setMessages(data);
-    } catch (error) {
-      console.error("Failed to fetch messages:", error);
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  };
-
-  const createConversation = async (firstMessage?: string) => {
-    try {
-      const title = buildDefaultChatTitle(firstMessage || "", isZh);
-      const newConv = await api.post<Conversation>("/chat/conversations", {
-        project_id: project.id,
-        title,
-      });
-      setConversations((prev) => [newConv, ...prev]);
-      skipNextFetchRef.current = true;
-      setActiveConvId(newConv.id);
-      return newConv.id;
-    } catch (error) {
-      console.error("Failed to create conversation:", error);
-      toast.error(copy.createConversationFailed);
-      return null;
-    }
-  };
-
-  const deleteConversation = async (convId: number) => {
-    setIsDeletingConversation(true);
-    try {
-      await api.delete(`/chat/conversations/${convId}`);
-      setConversations((prev) => prev.filter((c) => c.id !== convId));
-      if (activeConvId === convId) {
-        setActiveConvId(null);
-        setMessages([]);
-        setStreamingContent("");
-      }
-      setConversationPendingDelete(null);
-    } catch (error) {
-      console.error("Failed to delete conversation:", error);
-      toast.error(copy.deleteConversationFailed);
-    } finally {
-      setIsDeletingConversation(false);
-    }
-  };
-
-  const renameConversation = async (convId: number, newTitle: string) => {
-    const title = newTitle.trim();
-    if (!title) {
-      setEditingConvId(null);
-      return;
-    }
-    try {
-      await api.patch(`/chat/conversations/${convId}`, { title });
-      setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
-      setEditingConvId(null);
-    } catch (error) {
-      console.error("Failed to rename conversation:", error);
-      toast.error(copy.renameConversationFailed);
-    }
-  };
-
   const openSaveModal = (messageId: number) => {
     setSaveMessageId(messageId);
     setSaveModalOpen(true);
@@ -412,26 +339,6 @@ export function ProjectChatTab({
 
   const openConversationSaveModal = () => {
     setConversationSaveModalOpen(true);
-  };
-
-  const openDeleteConversationDialog = (conversation: Conversation) => {
-    setConversationPendingDelete(conversation);
-  };
-
-  const closeDeleteConversationDialog = () => {
-    if (isDeletingConversation) return;
-    setConversationPendingDelete(null);
-  };
-
-  const beginRenameConversation = (conversation: Conversation) => {
-    setEditingConvId(conversation.id);
-    setEditTitle(conversation.title);
-  };
-
-  const startNewChat = () => {
-    setActiveConvId(null);
-    setMessages([]);
-    setStreamingContent("");
   };
 
   const sendMessage = async (content: string) => {
@@ -527,8 +434,6 @@ export function ProjectChatTab({
       setIsLoading(false);
     }
   };
-
-  const activeConversation = conversations.find((c) => c.id === activeConvId);
 
   return (
     <div className="h-full bg-white rounded-xl border border-gray-200 flex overflow-hidden">
