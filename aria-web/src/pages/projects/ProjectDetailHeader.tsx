@@ -13,8 +13,7 @@ export function ProjectDetailHeader({
   onBack: () => void;
   projectId: string;
 }) {
-  const { i18n } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
+  const { t } = useTranslation();
 
   return (
     <div className="sticky top-0 z-30 border-b border-gray-200 bg-white">
@@ -25,7 +24,7 @@ export function ProjectDetailHeader({
             className="flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-primary"
           >
             <FolderKanban className="h-4 w-4" />
-            <span>{isZh ? "\u9879\u76ee\u7a7a\u95f4" : "Projects"}</span>
+            <span>{t("nav.projects")}</span>
           </button>
           <ChevronRight className="h-4 w-4 text-gray-400" />
           <span className="max-w-[200px] truncate text-sm font-medium text-gray-900">
@@ -50,7 +49,7 @@ export function ProjectDetailHeader({
               }
             >
               <tab.icon className="h-4 w-4" />
-              {isZh ? tab.labelZh : tab.label}
+              {t(tab.labelKey)}
             </NavLink>
           ))}
         </div>

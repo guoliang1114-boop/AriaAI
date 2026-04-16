@@ -21,8 +21,7 @@ export type ProjectDetailTabId =
 
 interface ProjectDetailTabConfig {
   id: ProjectDetailTabId;
-  label: string;
-  labelZh: string;
+  labelKey: string;
   icon: typeof LayoutDashboard;
   path: string;
   getPath: (projectId: string) => string;
@@ -31,64 +30,56 @@ interface ProjectDetailTabConfig {
 export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
   {
     id: "overview",
-    label: "Overview",
-    labelZh: "\u6982\u89c8",
+    labelKey: "projects.projectDetail.overview",
     icon: LayoutDashboard,
     path: "",
     getPath: (projectId) => `/projects/${projectId}`,
   },
   {
     id: "notes",
-    label: "Notes",
-    labelZh: "\u7b14\u8bb0",
+    labelKey: "projects.projectDetail.notes",
     icon: BookOpen,
     path: "notes",
     getPath: (projectId) => `/projects/${projectId}/notes`,
   },
   {
     id: "todos",
-    label: "Todos",
-    labelZh: "\u5f85\u529e",
+    labelKey: "projects.projectDetail.todos",
     icon: ListTodo,
     path: "todos",
     getPath: (projectId) => `/projects/${projectId}/todos`,
   },
   {
     id: "milestones",
-    label: "Milestones",
-    labelZh: "\u91cc\u7a0b\u7891",
+    labelKey: "projects.projectDetail.milestones",
     icon: Flag,
     path: "milestones",
     getPath: (projectId) => `/projects/${projectId}/milestones`,
   },
   {
     id: "chat",
-    label: "Project Chat",
-    labelZh: "\u9879\u76ee\u5bf9\u8bdd",
+    labelKey: "projects.projectDetail.chat",
     icon: MessageSquare,
     path: "chat",
     getPath: (projectId) => `/projects/${projectId}/chat`,
   },
   {
     id: "financials",
-    label: "Financials",
-    labelZh: "\u8d22\u52a1",
+    labelKey: "projects.projectDetail.financials",
     icon: DollarSign,
     path: "financials",
     getPath: (projectId) => `/projects/${projectId}/financials`,
   },
   {
     id: "documents",
-    label: "Documents",
-    labelZh: "\u6587\u6863",
+    labelKey: "projects.projectDetail.documents",
     icon: Files,
     path: "documents",
     getPath: (projectId) => `/projects/${projectId}/documents`,
   },
   {
     id: "settings",
-    label: "Settings",
-    labelZh: "\u8bbe\u7f6e",
+    labelKey: "projects.projectDetail.settings",
     icon: Settings,
     path: "settings",
     getPath: (projectId) => `/projects/${projectId}/settings`,
