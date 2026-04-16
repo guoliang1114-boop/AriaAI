@@ -8,6 +8,8 @@ import { ProjectNotesTab } from "./ProjectNotesTab";
 import { ProjectTodosTab } from "./ProjectTodosTab";
 import type { ProjectDetailTabId } from "./projectDetailTabs";
 
+type PersistentPanelId = "chat" | "notes" | "todos";
+
 const PANEL_WRAPPER_CLASSNAMES: Partial<Record<ProjectDetailTabId, string>> = {
   chat: "flex-1 overflow-hidden px-6 py-4",
   notes: "min-h-[calc(100vh-180px)] max-w-full px-6 py-6",
@@ -30,6 +32,59 @@ function PanelContainer({
   );
 }
 
+interface PersistentPanelConfigArgs {
+  projectId: string;
+  project: Project;
+  projectDetail: ProjectDetailType;
+  onRefresh: () => void;
+}
+
+function buildPersistentPanelConfig({
+  projectId,
+  project,
+  projectDetail,
+  onRefresh,
+}: PersistentPanelConfigArgs): Array<{
+  id: PersistentPanelId;
+  element: ReactNode;
+}> {
+  return [
+    {
+      id: "chat",
+      element: (
+        <ProjectChatTab
+          project={project}
+          files={projectDetail.files}
+          folders={projectDetail.folders}
+          onProjectUpdate={onRefresh}
+        />
+      ),
+    },
+    {
+      id: "notes",
+      element: (
+        <ProjectNotesTab
+          projectId={projectId}
+          projectName={project.name}
+          files={projectDetail.files}
+          folders={projectDetail.folders}
+          onUpdate={onRefresh}
+        />
+      ),
+    },
+    {
+      id: "todos",
+      element: (
+        <ProjectTodosTab
+          projectId={projectId}
+          todos={projectDetail.todos}
+          onUpdate={onRefresh}
+        />
+      ),
+    },
+  ];
+}
+
 export function PersistentProjectPanels({
   projectId,
   project,
@@ -43,34 +98,24 @@ export function PersistentProjectPanels({
   activeTabId: ProjectDetailTabId;
   onRefresh: () => void;
 }) {
+  const panels = buildPersistentPanelConfig({
+    projectId,
+    project,
+    projectDetail,
+    onRefresh,
+  });
+
   return (
     <>
-      <PanelContainer isActive={activeTabId === "chat"} tabId="chat">
-        <ProjectChatTab
-          project={project}
-          files={projectDetail.files}
-          folders={projectDetail.folders}
-          onProjectUpdate={onRefresh}
-        />
-      </PanelContainer>
-
-      <PanelContainer isActive={activeTabId === "notes"} tabId="notes">
-        <ProjectNotesTab
-          projectId={projectId}
-          projectName={project.name}
-          files={projectDetail.files}
-          folders={projectDetail.folders}
-          onUpdate={onRefresh}
-        />
-      </PanelContainer>
-
-      <PanelContainer isActive={activeTabId === "todos"} tabId="todos">
-        <ProjectTodosTab
-          projectId={projectId}
-          todos={projectDetail.todos}
-          onUpdate={onRefresh}
-        />
-      </PanelContainer>
+      {panels.map((panel) => (
+        <PanelContainer
+          key={panel.id}
+          isActive={activeTabId === panel.id}
+          tabId={panel.id}
+        >
+          {panel.element}
+        </PanelContainer>
+      ))}
     </>
   );
 }

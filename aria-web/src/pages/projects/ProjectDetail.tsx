@@ -2,12 +2,8 @@ import { useTranslation } from "react-i18next";
 import { useParams, useNavigate, Routes, Route, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { PageTitle } from "../../components/PageTitle";
-import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
-import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
-import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
-import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
-import { ProjectOverviewTab } from "./ProjectOverviewTab";
+import { buildProjectDetailRouteConfig } from "./projectDetailRouteConfig";
 import { getActiveProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
 
@@ -52,6 +48,11 @@ export function ProjectDetail() {
   }
 
   const { project } = projectDetail;
+  const routeConfig = buildProjectDetailRouteConfig({
+    projectDetail,
+    projectId: id!,
+    onRefresh: refreshProjectDetail,
+  });
 
   return (
     <>
@@ -65,55 +66,9 @@ export function ProjectDetail() {
         onRefresh={refreshProjectDetail}
       >
         <Routes>
-          <Route
-            path="/"
-            element={
-              <ProjectOverviewTab
-                projectDetail={projectDetail}
-                projectId={id!}
-                onProjectUpdate={refreshProjectDetail}
-              />
-            }
-          />
-          <Route
-            path="/documents"
-            element={
-              <ProjectDocumentsTab
-                projectDetail={projectDetail}
-                projectId={id!}
-                onUpdate={refreshProjectDetail}
-              />
-            }
-          />
-          <Route
-            path="/milestones"
-            element={
-              <ProjectMilestonesTab
-                projectDetail={projectDetail}
-                projectId={id!}
-                onUpdate={refreshProjectDetail}
-              />
-            }
-          />
-          <Route
-            path="/financials"
-            element={
-              <ProjectFinancialsTab
-                projectDetail={projectDetail}
-                projectId={id!}
-                onUpdate={refreshProjectDetail}
-              />
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProjectSettingsTab
-                projectDetail={projectDetail}
-                onUpdate={refreshProjectDetail}
-              />
-            }
-          />
+          {routeConfig.map((route) => (
+            <Route key={route.path} path={route.path} element={route.element} />
+          ))}
         </Routes>
       </ProjectDetailLayout>
     </>
