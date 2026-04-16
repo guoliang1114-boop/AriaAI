@@ -73,6 +73,10 @@ const PROJECT_CHAT_COPY = {
     currentProject: "仅当前项目",
     currentClient: "当前客户",
     globalKnowledge: "全局知识库",
+    startConversation: "开始对话",
+    choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
+    thinking: "思考中...",
+    inputPlaceholder: "输入消息... (Shift+Enter 换行)",
   },
   en: {
     saveToProject: "Save to project docs",
@@ -109,6 +113,10 @@ const PROJECT_CHAT_COPY = {
     currentProject: "Current Project",
     currentClient: "Current Client",
     globalKnowledge: "Global Knowledge",
+    startConversation: "Start a conversation",
+    choosePromptOrAsk: "Choose a quick prompt below or type your question",
+    thinking: "Thinking...",
+    inputPlaceholder: "Type a message... (Shift+Enter for new line)",
   },
 } as const;
 
@@ -1024,9 +1032,9 @@ export function ProjectChatTab({
               <div className="w-16 h-16 rounded-2xl bg-primary/5 flex items-center justify-center mb-4 border border-primary/10">
                 <Bot className="w-8 h-8 text-primary/40" />
               </div>
-              <p className="text-base font-semibold text-gray-900 mb-2">{isZh ? "开始对话" : "Start a conversation"}</p>
+              <p className="text-base font-semibold text-gray-900 mb-2">{copy.startConversation}</p>
               <p className="text-sm text-gray-500 mb-6 max-w-xs text-center">
-                {isZh ? "选择下方快捷场景或直接输入问题" : "Choose a quick prompt below or type your question"}
+                {copy.choosePromptOrAsk}
               </p>
               <div className="grid grid-cols-2 gap-3 max-w-md">
                 {QUICK_PROMPTS.map((prompt) => (
@@ -1063,7 +1071,7 @@ export function ProjectChatTab({
                   <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      <span className="text-sm text-gray-500">{isZh ? "思考中..." : "Thinking..."}</span>
+                      <span className="text-sm text-gray-500">{copy.thinking}</span>
                     </div>
                   </div>
                 </div>
@@ -1084,7 +1092,7 @@ export function ProjectChatTab({
                     void sendMessage(inputValue);
                   }
                 }}
-                placeholder={isZh ? "输入消息... (Shift+Enter 换行)" : "Type a message... (Shift+Enter for new line)"}
+                placeholder={copy.inputPlaceholder}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 resize-none min-h-[48px] max-h-[120px] transition-all"
                 rows={1}
                 style={{ height: "auto" }}
