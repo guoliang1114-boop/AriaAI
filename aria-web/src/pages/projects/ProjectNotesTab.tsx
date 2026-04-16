@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   BookOpen,
@@ -22,6 +22,7 @@ import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { useToast } from '../../contexts/ToastContext'
 import type { ProjectFile, ProjectFolder } from '../../types/api'
+import { useProjectNotesDocuments } from './useProjectNotesDocuments'
 
 interface ProjectNotesTabProps {
   projectId: string
@@ -31,43 +32,38 @@ interface ProjectNotesTabProps {
   onUpdate: () => void
 }
 
-interface ProjectDocumentDetail {
-  id: number
-  project_id: number
-  folder_id?: number | null
-  name: string
-  content: string
-  summary?: string
-  uploaded_at: string
-}
-
 type DocumentDialogMode = 'create' | 'rename'
 
 export function ProjectNotesTab({ projectId, projectName, files, folders, onUpdate }: ProjectNotesTabProps) {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const toast = useToast()
-
-  const markdownFiles = useMemo(
-    () => files.filter((file) => file.file_type?.toLowerCase() === 'md').sort((a, b) => a.name.localeCompare(b.name)),
-    [files]
-  )
-  const folderList = useMemo(
-    () => [...folders].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
-    [folders]
-  )
-
-  const [selectedFileId, setSelectedFileId] = useState<number | null>(null)
-  const [content, setContent] = useState('')
+  const {
+    content,
+    dirty,
+    folderList,
+    groupedFiles,
+    isLoadingDoc,
+    markdownFiles,
+    openFolders,
+    selectedFile,
+    selectedFileId,
+    setSelectedFileId,
+    toggleFolder,
+    updateContent,
+    markContentSynced,
+    resetDocumentState,
+  } = useProjectNotesDocuments({
+    projectId,
+    files,
+    folders,
+  })
   const [mode, setMode] = useState<'edit' | 'preview' | 'split'>('preview')
-  const [isLoadingDoc, setIsLoadingDoc] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
   const [isCreatingDoc, setIsCreatingDoc] = useState(false)
   const [isRenamingDoc, setIsRenamingDoc] = useState(false)
   const [isDeletingDoc, setIsDeletingDoc] = useState(false)
-  const [dirty, setDirty] = useState(false)
-  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({})
   const [showDocumentDialog, setShowDocumentDialog] = useState(false)
   const [documentDialogMode, setDocumentDialogMode] = useState<DocumentDialogMode>('create')
   const [documentName, setDocumentName] = useState('')
@@ -83,19 +79,6 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
   const contentRef = useRef(content)
   useEffect(() => { contentRef.current = content }, [content])
 
-  const lastLoadedContentRef = useRef('')
-
-  useEffect(() => {
-    setOpenFolders((prev) => {
-      const next = { ...prev }
-      for (const folder of folderList) {
-        if (!(folder.id in next)) next[folder.id] = true
-      }
-      if (!('uncategorized' in next)) next.uncategorized = true
-      return next
-    })
-  }, [folderList])
-
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
@@ -106,69 +89,12 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  useEffect(() => {
-    if (markdownFiles.length === 0) {
-      setSelectedFileId(null)
-      setContent('')
-      setDirty(false)
-      lastLoadedContentRef.current = ''
-      return
-    }
-
-    if (!selectedFileId || !markdownFiles.some((file) => file.id === selectedFileId)) {
-      setSelectedFileId(markdownFiles[0].id)
-    }
-  }, [markdownFiles, selectedFileId])
-
-  useEffect(() => {
-    if (!selectedFileId) return
-    let cancelled = false
-
-    const loadDocument = async () => {
-      setIsLoadingDoc(true)
-      try {
-        const data = await api.get<ProjectDocumentDetail>(`/projects/${projectId}/documents/${selectedFileId}`)
-        if (cancelled) return
-        setContent(data.content || '')
-        setDirty(false)
-        lastLoadedContentRef.current = data.content || ''
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to load project document:', error)
-        }
-      } finally {
-        if (!cancelled) setIsLoadingDoc(false)
-      }
-    }
-
-    void loadDocument()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedFileId, projectId])
-
-  const selectedFile = markdownFiles.find((file) => file.id === selectedFileId) || null
-
-  const groupedFiles = useMemo(() => {
-    const map = new Map<number | 'uncategorized', ProjectFile[]>()
-    for (const folder of folderList) map.set(folder.id, [])
-    map.set('uncategorized', [])
-    for (const file of markdownFiles) {
-      const key = file.folder_id ?? 'uncategorized'
-      const bucket = map.get(key) || []
-      bucket.push(file)
-      map.set(key, bucket)
-    }
-    return map
-  }, [folderList, markdownFiles])
-
   const handleSave = async () => {
     if (!selectedFileId) return
     setIsSaving(true)
     try {
       await api.patch(`/projects/${projectId}/documents/${selectedFileId}`, { content })
-      lastLoadedContentRef.current = content
-      setDirty(false)
+      markContentSynced(content)
       onUpdate()
       toast.success(isZh ? '文档已保存' : 'Document saved')
     } catch (error) {
@@ -268,9 +194,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
       await api.delete(`/projects/${projectId}/files/${selectedFile.id}`)
       const nextFile = markdownFiles.find((file) => file.id !== selectedFile.id) || null
       setSelectedFileId(nextFile?.id ?? null)
-      setContent('')
-      setDirty(false)
-      lastLoadedContentRef.current = ''
+      resetDocumentState()
       setShowDeleteDialog(false)
       onUpdate()
       toast.success(isZh ? '文档已删除' : 'Document deleted')
@@ -338,16 +262,11 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
     const nextContent = applyMode === 'replace'
       ? currentResult
       : `${prevContent.trim() ? `${prevContent}\n\n---\n\n` : ''}${currentResult}`
-    setContent(nextContent)
-    setDirty(nextContent !== lastLoadedContentRef.current)
+    updateContent(nextContent)
     setShowAIModal(false)
     setAiDraft('')
     setAiResult('')
     toast.success(isZh ? '已应用到当前文档' : 'Applied to current document')
-  }
-
-  const toggleFolder = (key: string | number) => {
-    setOpenFolders((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   const showEdit = mode === 'edit' || mode === 'split'
@@ -608,9 +527,7 @@ export function ProjectNotesTab({ projectId, projectName, files, folders, onUpda
                     <textarea
                       value={content}
                       onChange={(event) => {
-                        const nextValue = event.target.value
-                        setContent(nextValue)
-                        setDirty(nextValue !== lastLoadedContentRef.current)
+                        updateContent(event.target.value)
                       }}
                       placeholder={isZh ? '在这里编辑 Markdown 文档...' : 'Edit your Markdown document here...'}
                       className="w-full h-full min-h-[calc(100vh-340px)] rounded-xl border border-gray-200 bg-white px-4 py-4 text-sm font-mono leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
