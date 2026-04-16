@@ -20,8 +20,7 @@ import { api } from "../../api/client";
 import { exportConversationFile } from "../../api/chatExport";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
-import { getApiBaseUrl } from "../../config/api";
-import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
+import type { Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
@@ -31,6 +30,7 @@ import {
   QUICK_PROMPTS,
   getProjectChatCopy,
 } from "./projectChatCopy";
+import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 
 type ChatMessage = Message;
@@ -267,8 +267,6 @@ export function ProjectChatTab({
   const toast = useToast();
   const [knowledgeScope, setKnowledgeScope] = useState<"project" | "client" | "global">("project");
   const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
@@ -276,6 +274,18 @@ export function ProjectChatTab({
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  const handleScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  const scrollToBottom = (smooth = true) => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  };
+
   const {
     conversations,
     activeConvId,
@@ -307,9 +317,21 @@ export function ProjectChatTab({
     onDeleteConversationError: () => toast.error(copy.deleteConversationFailed),
     onRenameConversationError: () => toast.error(copy.renameConversationFailed),
   });
+  const { isLoading, streamingContent, resetStreamingContent, sendMessage } = useProjectChatComposer({
+    projectId: project.id,
+    activeConvId,
+    knowledgeScope,
+    setMessages,
+    createConversation,
+    fetchMessages,
+    fetchConversations,
+    isNearBottomRef,
+    scrollToBottom,
+    onSendError: () => toast.error(copy.sendFailed),
+  });
 
   useEffect(() => {
-    setStreamingContent("");
+    resetStreamingContent();
   }, [activeConvId]);
 
   useEffect(() => {
@@ -320,18 +342,6 @@ export function ProjectChatTab({
     if (streamingContent && isNearBottomRef.current) scrollToBottom(false);
   }, [streamingContent]);
 
-  const handleScroll = () => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  };
-
-  const scrollToBottom = (smooth = true) => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  };
-
   const openSaveModal = (messageId: number) => {
     setSaveMessageId(messageId);
     setSaveModalOpen(true);
@@ -339,100 +349,6 @@ export function ProjectChatTab({
 
   const openConversationSaveModal = () => {
     setConversationSaveModalOpen(true);
-  };
-
-  const sendMessage = async (content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return;
-
-    let convId = activeConvId;
-    setInputValue("");
-    setIsLoading(true);
-    setStreamingContent("");
-
-    if (!convId) {
-      convId = await createConversation(trimmed);
-      if (!convId) {
-        setIsLoading(false);
-        return;
-      }
-    }
-
-    const tempUserMsg: ChatMessage = {
-      id: Date.now(),
-      conversation_id: convId,
-      role: "user",
-      content: trimmed,
-      metadata_json: "{}",
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, tempUserMsg]);
-    isNearBottomRef.current = true;
-    setTimeout(() => scrollToBottom(true), 0);
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Auth-Token": localStorage.getItem("authToken") || "",
-        },
-        body: JSON.stringify({
-          conversation_id: convId,
-          content: trimmed,
-          project_id: project.id,
-          knowledge_scope: knowledgeScope,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Failed to send message");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullContent = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
-
-        for (const event of events) {
-          const line = event
-            .split("\n")
-            .map((item) => item.trim())
-            .find((item) => item.startsWith("data: "));
-          if (!line) continue;
-
-          try {
-            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
-            if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
-              fullContent += payload.content;
-              setStreamingContent(fullContent);
-            } else if (payload.type === "error") {
-              throw new Error(payload.message || payload.error || "Chat failed");
-            }
-          } catch (error) {
-            console.error("Failed to parse stream event:", error);
-          }
-        }
-      }
-
-      setStreamingContent("");
-      await fetchMessages(convId);
-      await fetchConversations();
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      setStreamingContent("");
-      toast.error(copy.sendFailed);
-      await fetchMessages(convId);
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   return (
@@ -533,7 +449,9 @@ export function ProjectChatTab({
                 {QUICK_PROMPTS.map((prompt) => (
                   <button
                     key={prompt.key}
-                    onClick={() => void sendMessage(isZh ? prompt.labelZh : prompt.labelEn)}
+                    onClick={() => {
+                      void sendMessage(isZh ? prompt.labelZh : prompt.labelEn);
+                    }}
                     className="flex items-center gap-2 p-3 bg-white border border-gray-200 hover:border-primary/30 hover:bg-primary/5 rounded-xl text-left transition-all shadow-sm hover:shadow"
                   >
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -582,7 +500,9 @@ export function ProjectChatTab({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    void sendMessage(inputValue);
+                    const content = inputValue;
+                    setInputValue("");
+                    void sendMessage(content);
                   }
                 }}
                 placeholder={copy.inputPlaceholder}
@@ -597,7 +517,11 @@ export function ProjectChatTab({
               />
             </div>
             <button
-              onClick={() => void sendMessage(inputValue)}
+              onClick={() => {
+                const content = inputValue;
+                setInputValue("");
+                void sendMessage(content);
+              }}
               disabled={!inputValue.trim() || isLoading}
               className="p-3 rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow"
             >
