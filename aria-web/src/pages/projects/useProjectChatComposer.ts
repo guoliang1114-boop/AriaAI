@@ -1,4 +1,10 @@
-import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import {
+  useCallback,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 
 import { getApiBaseUrl } from "../../config/api";
 import type {
@@ -93,14 +99,14 @@ export function useProjectChatComposer({
   const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallEvent[]>([]);
   const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
 
-  const resetStreamingContent = () => {
+  const resetStreamingContent = useCallback(() => {
     setStreamingContent("");
     setStreamingReferences([]);
     setStreamingToolCalls([]);
     setStreamingArtifacts([]);
-  };
+  }, []);
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = useCallback(async (content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return false;
 
@@ -255,7 +261,19 @@ export function useProjectChatComposer({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [
+    activeConvId,
+    createConversation,
+    fetchConversations,
+    fetchMessages,
+    isNearBottomRef,
+    knowledgeScope,
+    onSendError,
+    projectId,
+    resetStreamingContent,
+    scrollToBottom,
+    setMessages,
+  ]);
 
   return {
     isLoading,

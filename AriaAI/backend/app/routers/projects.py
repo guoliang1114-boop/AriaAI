@@ -725,7 +725,7 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
     async def event_stream():
         accumulated: list[str] = []
         try:
-            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=4000)):
+            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=900)):
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:

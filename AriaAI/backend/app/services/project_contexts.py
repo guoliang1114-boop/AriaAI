@@ -10,6 +10,11 @@ from app.models.db import Project
 from app.services.project_files import list_project_files
 from app.services.project_milestones import list_project_milestones
 
+MAX_SUMMARY_MILESTONES = 8
+MAX_SUMMARY_FILES = 10
+MAX_FILE_SUMMARY_CHARS = 80
+MAX_DESCRIPTION_CHARS = 400
+
 
 def build_project_context_data(session: Session, project_id: int) -> tuple[Project, str]:
     project = session.get(Project, project_id)
@@ -25,19 +30,30 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
         f"Status: {project.status}",
     ]
     if project.description:
-        lines.append(f"Description: {project.description}")
+        lines.append(f"Description: {project.description[:MAX_DESCRIPTION_CHARS]}")
     if milestones:
-        lines.append(f"Milestones ({len(milestones)} total, {sum(1 for m in milestones if m.is_done)} completed):")
-        for milestone in milestones:
+        completed_count = sum(1 for milestone in milestones if milestone.is_done)
+        lines.append(
+          f"Milestones ({len(milestones)} total, {completed_count} completed, showing latest {min(len(milestones), MAX_SUMMARY_MILESTONES)}):"
+        )
+        for milestone in milestones[:MAX_SUMMARY_MILESTONES]:
             status = "done" if milestone.is_done else "pending"
             priority = f" [{milestone.priority}]" if milestone.priority == "high" else ""
-            lines.append(f"  - {status} {milestone.title}{priority}")
+            due_hint = f" (due {milestone.due_date})" if milestone.due_date else ""
+            lines.append(f"  - {status} {milestone.title}{priority}{due_hint}")
     if files:
-        lines.append(f"Uploaded files ({len(files)}):")
-        for project_file in files:
+        lines.append(
+          f"Uploaded files ({len(files)} total, showing latest {min(len(files), MAX_SUMMARY_FILES)}):"
+        )
+        recent_files = sorted(files, key=lambda project_file: project_file.uploaded_at, reverse=True)
+        for project_file in recent_files[:MAX_SUMMARY_FILES]:
             lines.append(
                 f"  - {project_file.name}"
-                + (f": {project_file.summary[:120]}" if project_file.summary else "")
+                + (
+                    f": {project_file.summary[:MAX_FILE_SUMMARY_CHARS]}"
+                    if project_file.summary
+                    else ""
+                )
             )
 
     return project, "\n".join(lines)
@@ -59,12 +75,13 @@ def build_project_context_prompt(project_data: str) -> str:
         "treat the current project as the only source of truth. "
         "Do not blend in facts, progress, or risks from other projects under the same client unless explicitly stated in the project data below. "
         "If some information appears ambiguous, stay conservative and note the uncertainty rather than borrowing context from elsewhere. "
-        "generate a concise context summary of 3-5 bullet points that capture: "
-        "the project's core objective, current stage, key risks or open questions, "
-        "critical milestones, and important context a consultant should always remember. "
+        "Write a concise context summary of exactly 3-5 bullet points covering: "
+        "the core objective, current stage, key risks or open questions, critical milestones, "
+        "and the few most important facts a consultant should remember. "
         "Each bullet should be specific and actionable, not generic. "
-        "Use **bold** for key terms or milestones within each bullet. "
-        "Return ONLY the bullet points, one per line, starting with '- '. "
+        "Use **bold** only for the most important terms or milestones. "
+        "Return ONLY bullet points, one per line, starting with '- '. "
+        "Keep the full answer under 180 words. "
         "Write in the same language as the project name (Chinese if Chinese, English if English).\n\n"
         f"Project data:\n{project_data}"
     )
