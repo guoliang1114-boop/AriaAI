@@ -9,14 +9,10 @@ import {
   ChevronRight,
   Copy,
   Download,
-  Edit3,
   FileText,
   Loader2,
-  MessageSquare,
-  Plus,
   Send,
   Sparkles,
-  Trash2,
   Wrench,
   Save,
 } from "lucide-react";
@@ -28,6 +24,7 @@ import { getApiBaseUrl } from "../../config/api";
 import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
+import { ProjectChatSidebar } from "./ProjectChatSidebar";
 import {
   DEFAULT_NEW_CHAT_TITLE_EN,
   DEFAULT_NEW_CHAT_TITLE_ZH,
@@ -115,7 +112,7 @@ const ExportDropdown = memo<{
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <BookOpen className="w-4 h-4 text-emerald-500" />
-              {t("projects.saveConversationToProject", "???????")}
+              {t("projects.saveConversationToProject", "Save to project")}
             </button>
           )}
         </div>
@@ -177,7 +174,7 @@ const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>
         }`}
       >
         {isUser ? (
-          <span className="text-[10px] font-semibold text-gray-500">{t("chat.you", "?")}</span>
+          <span className="text-[10px] font-semibold text-gray-500">{t("chat.you", "You")}</span>
         ) : (
           <Sparkles className="w-3.5 h-3.5 text-white" />
         )}
@@ -185,7 +182,7 @@ const ChatMessageBubble = memo<{ msg: ChatMessage; onSaveToNotes?: () => void }>
 
       <div className={`flex-1 flex flex-col ${isUser ? "items-end" : "items-start"}`}>
         <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">
-          {isUser ? t("chat.you", "?") : "Aria"}
+          {isUser ? t("chat.you", "You") : "Aria"}
         </p>
 
         <div
@@ -426,6 +423,17 @@ export function ProjectChatTab({
     setConversationPendingDelete(null);
   };
 
+  const beginRenameConversation = (conversation: Conversation) => {
+    setEditingConvId(conversation.id);
+    setEditTitle(conversation.title);
+  };
+
+  const startNewChat = () => {
+    setActiveConvId(null);
+    setMessages([]);
+    setStreamingContent("");
+  };
+
   const sendMessage = async (content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return;
@@ -524,106 +532,24 @@ export function ProjectChatTab({
 
   return (
     <div className="h-full bg-white rounded-xl border border-gray-200 flex overflow-hidden">
-      <div
-        className={`${isSidebarOpen ? "w-64" : "w-0"} border-r border-gray-200 bg-gray-50/50 flex flex-col transition-all duration-300 ${isSidebarOpen ? "" : "overflow-hidden"}`}
-      >
-        <div className="p-4 border-b border-gray-100 bg-white">
-          <button
-            onClick={() => {
-              setActiveConvId(null);
-              setMessages([]);
-              setStreamingContent("");
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            {copy.newChatButton}
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {activeConvId === null && (
-            <div className="flex items-center gap-2 p-2.5 bg-white rounded-lg border border-primary/20 shadow-sm">
-              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <MessageSquare className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-              </div>
-              <p className="text-sm font-medium text-gray-900 truncate">
-                {isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN}
-              </p>
-            </div>
-          )}
-
-          {isLoadingConversations ? (
-            <div className="p-2 space-y-2 animate-pulse">
-              {[80, 60, 70, 55].map((w, i) => (
-                <div key={i} className="flex items-center gap-2 p-2.5">
-                  <div className="w-6 h-6 rounded bg-gray-200 flex-shrink-0" />
-                  <div className="h-3 bg-gray-200 rounded-full" style={{ width: `${w}%` }} />
-                </div>
-              ))}
-            </div>
-          ) : conversations.length === 0 && activeConvId !== null ? (
-            <div className="p-4 text-center text-gray-400 text-sm">{copy.noConversations}</div>
-          ) : (
-            conversations.map((conv) => (
-              <div
-                key={conv.id}
-                onClick={() => setActiveConvId(conv.id)}
-                className={`group flex items-center gap-2 p-2.5 cursor-pointer rounded-lg transition-all ${
-                  activeConvId === conv.id
-                    ? "bg-white shadow-sm border border-gray-200"
-                    : "hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200"
-                }`}
-              >
-                <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${activeConvId === conv.id ? "bg-primary/10" : "bg-gray-100 group-hover:bg-primary/5"}`}>
-                  <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${activeConvId === conv.id ? "text-primary" : "text-gray-400 group-hover:text-primary/60"}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  {editingConvId === conv.id ? (
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") renameConversation(conv.id, editTitle);
-                        else if (e.key === "Escape") setEditingConvId(null);
-                      }}
-                      onBlur={() => renameConversation(conv.id, editTitle)}
-                      className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      autoFocus
-                    />
-                  ) : (
-                    <p className={`text-sm truncate ${activeConvId === conv.id ? "font-medium text-gray-900" : "text-gray-600"}`}>
-                      {conv.title}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingConvId(conv.id);
-                      setEditTitle(conv.title);
-                    }}
-                    className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openDeleteConversationDialog(conv);
-                    }}
-                    className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      <ProjectChatSidebar
+        isOpen={isSidebarOpen}
+        activeConvId={activeConvId}
+        conversations={conversations}
+        isLoadingConversations={isLoadingConversations}
+        editingConvId={editingConvId}
+        editTitle={editTitle}
+        newChatLabel={copy.newChatButton}
+        emptyLabel={copy.noConversations}
+        draftTitleLabel={isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN}
+        onStartNewChat={startNewChat}
+        onSelectConversation={setActiveConvId}
+        onBeginRename={beginRenameConversation}
+        onRenameTitleChange={setEditTitle}
+        onRenameSubmit={renameConversation}
+        onCancelRename={() => setEditingConvId(null)}
+        onDeleteConversation={openDeleteConversationDialog}
+      />
 
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white">
