@@ -35,7 +35,7 @@ export function ProjectOverviewSidebar({
               {isZh ? "合同金额" : "Contract"}
             </span>
             <span className="font-semibold text-gray-900">
-              ¥{formatAmount(financials.contract_amount)}
+              CNY {formatAmount(financials.contract_amount)}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -43,7 +43,7 @@ export function ProjectOverviewSidebar({
               {isZh ? "已收款" : "Received"}
             </span>
             <span className="font-semibold text-emerald-600">
-              ¥{financials.total_received.toLocaleString()}
+              CNY {financials.total_received.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -51,7 +51,7 @@ export function ProjectOverviewSidebar({
               {isZh ? "已开票" : "Invoiced"}
             </span>
             <span className="font-semibold text-blue-600">
-              ¥{financials.total_invoiced.toLocaleString()}
+              CNY {financials.total_invoiced.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -59,7 +59,7 @@ export function ProjectOverviewSidebar({
               {isZh ? "支出" : "Expenses"}
             </span>
             <span className="font-semibold text-red-500">
-              ¥{financials.total_expense.toLocaleString()}
+              CNY {financials.total_expense.toLocaleString()}
             </span>
           </div>
           <div className="h-px bg-gray-100" />
@@ -68,7 +68,7 @@ export function ProjectOverviewSidebar({
               {isZh ? "未收款" : "Outstanding"}
             </span>
             <span className="font-bold text-gray-900">
-              ¥{financials.uncollected.toLocaleString()}
+              CNY {financials.uncollected.toLocaleString()}
             </span>
           </div>
         </div>

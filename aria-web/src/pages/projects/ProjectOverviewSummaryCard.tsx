@@ -25,7 +25,7 @@ export function ProjectOverviewSummaryCard({
               <Sparkles className="w-4 h-4 text-indigo-600" />
             </div>
             <h3 className="font-semibold text-gray-900">
-              {isZh ? "AI 椤圭洰鎽樿" : "AI Project Summary"}
+              {isZh ? "AI 项目总结" : "AI Project Summary"}
             </h3>
           </div>
           <button
@@ -38,7 +38,7 @@ export function ProjectOverviewSummaryCard({
             ) : (
               <Sparkles className="w-3 h-3" />
             )}
-            {isZh ? "閲嶆柊鐢熸垚" : "Regenerate"}
+            {isZh ? "重新生成" : "Regenerate"}
           </button>
         </div>
         {summaryError && (
@@ -49,7 +49,7 @@ export function ProjectOverviewSummaryCard({
         {generatingSummary ? (
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Loader2 className="w-4 h-4 animate-spin" />
-            {isZh ? "姝ｅ湪鐢熸垚鎽樿..." : "Generating summary..."}
+            {isZh ? "正在生成总结..." : "Generating summary..."}
           </div>
         ) : (
           <div className="md-root">
@@ -77,11 +77,11 @@ export function ProjectOverviewSummaryCard({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">
-              {isZh ? "AI 椤圭洰鎽樿" : "AI Project Summary"}
+              {isZh ? "AI 项目总结" : "AI Project Summary"}
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {isZh
-                ? "鍩轰簬椤圭洰鏂囨。銆侀噷绋嬬鍜岃储鍔＄姸鍐电敓鎴愭櫤鑳芥€荤粨"
+                ? "基于文档、里程碑和财务信息生成智能总结"
                 : "Generate intelligent summary based on documents, milestones & financials"}
             </p>
           </div>
@@ -98,7 +98,7 @@ export function ProjectOverviewSummaryCard({
             ) : (
               <Sparkles className="w-4 h-4" />
             )}
-            {isZh ? "鐢熸垚鎽樿" : "Generate"}
+            {isZh ? "生成总结" : "Generate"}
           </button>
         </div>
       </div>

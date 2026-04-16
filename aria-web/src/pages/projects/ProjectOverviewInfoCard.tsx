@@ -33,37 +33,37 @@ export function ProjectOverviewInfoCard({
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-gray-900">
-          {isZh ? "椤圭洰淇℃伅" : "Project Info"}
+          {isZh ? "项目基本信息" : "Project Info"}
         </h3>
         <button
           onClick={onEdit}
           className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors"
         >
           <Edit3 className="w-4 h-4" />
-          {isZh ? "缂栬緫" : "Edit"}
+          {isZh ? "编辑" : "Edit"}
         </button>
       </div>
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">{isZh ? "闃舵:" : "Stage:"}</span>
+          <span className="text-sm text-gray-500">{isZh ? "阶段：" : "Stage:"}</span>
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${stage.bgColor} ${stage.color} ${stage.borderColor}`}
           >
             <Icon className="w-3 h-3" />
-            {stage.labelZh}
+            {isZh ? stage.labelZh : stage.label}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <User className="w-4 h-4 text-gray-400" />
           <span className="text-sm text-gray-600">
-            {isZh ? "瀹㈡埛: " : "Client: "}
+            {isZh ? "客户：" : "Client: "}
             {projectClient}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <Calendar className="w-4 h-4 text-gray-400" />
           <span className="text-sm text-gray-600">
-            {isZh ? "鍒涘缓浜? " : "Created: "}
+            {isZh ? "创建时间：" : "Created: "}
             {createdAt}
           </span>
         </div>
@@ -71,7 +71,7 @@ export function ProjectOverviewInfoCard({
           <div className="flex items-center gap-3">
             <DollarSign className="w-4 h-4 text-gray-400" />
             <span className="text-sm text-gray-600">
-              {isZh ? "鍚堝悓閲戦: " : "Contract: "}
+              {isZh ? "合同金额：" : "Contract: "}
               {contractAmountText}
             </span>
           </div>
@@ -85,7 +85,7 @@ export function ProjectOverviewInfoCard({
               <ChevronDown
                 className={`w-3 h-3 transition-transform ${descExpanded ? "rotate-180" : ""}`}
               />
-              {isZh ? "鎻忚堪" : "Description"}
+              {isZh ? "项目描述" : "Description"}
             </button>
             {descExpanded && (
               <p className="text-sm text-gray-600 whitespace-pre-wrap">{description}</p>
@@ -94,7 +94,7 @@ export function ProjectOverviewInfoCard({
         )}
         {notes && (
           <div className="pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-1">{isZh ? "澶囨敞" : "Notes"}</p>
+            <p className="text-xs text-gray-500 mb-1">{isZh ? "备注" : "Notes"}</p>
             <p className="text-sm text-gray-600 whitespace-pre-wrap">{notes}</p>
           </div>
         )}

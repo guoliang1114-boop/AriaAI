@@ -2,10 +2,10 @@ import { Download, FileText, Files } from "lucide-react";
 import type { ProjectFile } from "../../types/api";
 
 interface ProjectOverviewDocumentsCardProps {
-  files: ProjectFile[]
-  isZh: boolean
-  onDownload: (file: ProjectFile) => void
-  onOpen: () => void
+  files: ProjectFile[];
+  isZh: boolean;
+  onDownload: (file: ProjectFile) => void;
+  onOpen: () => void;
 }
 
 export function ProjectOverviewDocumentsCard({
@@ -45,8 +45,8 @@ export function ProjectOverviewDocumentsCard({
               </div>
               <button
                 onClick={(event) => {
-                  event.stopPropagation()
-                  onDownload(file)
+                  event.stopPropagation();
+                  onDownload(file);
                 }}
                 className="p-2 rounded-lg hover:bg-gray-200 text-gray-400"
               >
@@ -57,5 +57,5 @@ export function ProjectOverviewDocumentsCard({
         )}
       </div>
     </div>
-  )
+  );
 }

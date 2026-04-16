@@ -2,9 +2,9 @@ import { CheckCircle2, Circle, Flag } from "lucide-react";
 import type { Milestone } from "../../types/api";
 
 interface ProjectOverviewMilestonesCardProps {
-  isZh: boolean
-  milestones: Milestone[]
-  onOpen: () => void
+  isZh: boolean;
+  milestones: Milestone[];
+  onOpen: () => void;
 }
 
 export function ProjectOverviewMilestonesCard({
@@ -45,7 +45,7 @@ export function ProjectOverviewMilestonesCard({
                   </p>
                   {milestone.due_date && (
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {isZh ? "截止: " : "Due: "}
+                      {isZh ? "截止：" : "Due: "}
                       {new Date(milestone.due_date).toLocaleDateString()}
                     </p>
                   )}
@@ -67,5 +67,5 @@ export function ProjectOverviewMilestonesCard({
         )}
       </div>
     </div>
-  )
+  );
 }
