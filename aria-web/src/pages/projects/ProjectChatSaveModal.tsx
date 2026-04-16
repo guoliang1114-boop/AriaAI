@@ -6,8 +6,6 @@ import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import {
-  DEFAULT_PROJECT_NOTE_FILENAME_EN,
-  DEFAULT_PROJECT_NOTE_FILENAME_ZH,
   getProjectChatCopy,
 } from "./projectChatCopy";
 
@@ -53,9 +51,9 @@ export function ProjectChatSaveModal({
     setAction("merge");
     setSelectedFolderId(null);
     setSelectedFileId(null);
-    setFileName(isZh ? DEFAULT_PROJECT_NOTE_FILENAME_ZH : DEFAULT_PROJECT_NOTE_FILENAME_EN);
+    setFileName(copy.defaultProjectNoteFilename);
     setLoading(false);
-  }, [isOpen, isZh]);
+  }, [copy.defaultProjectNoteFilename, isOpen]);
 
   useEffect(() => {
     if (action === "merge") {

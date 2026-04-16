@@ -1,12 +1,15 @@
-import { AlertCircle, FileText, Flag, FolderKanban, type LucideIcon } from "lucide-react";
-
-export const DEFAULT_NEW_CHAT_TITLE_ZH = "新对话";
-export const DEFAULT_NEW_CHAT_TITLE_EN = "New Chat";
-export const DEFAULT_PROJECT_NOTE_FILENAME_ZH = "对话沉淀.md";
-export const DEFAULT_PROJECT_NOTE_FILENAME_EN = "chat-note.md";
+import {
+  AlertCircle,
+  FileText,
+  Flag,
+  FolderKanban,
+  type LucideIcon,
+} from "lucide-react";
 
 export const PROJECT_CHAT_COPY = {
   zh: {
+    defaultNewChatTitle: "新对话",
+    defaultProjectNoteFilename: "对话沉淀.md",
     saveToProject: "沉淀到项目文档",
     copyContent: "复制内容",
     saveToNotes: "保存到笔记",
@@ -47,8 +50,19 @@ export const PROJECT_CHAT_COPY = {
     choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
     thinking: "思考中...",
     inputPlaceholder: "输入消息... (Shift+Enter 换行)",
+    export: "导出",
+    exportMarkdown: "导出 Markdown",
+    exportPDF: "导出 PDF",
+    exportFailed: "导出失败",
+    saveConversationToProject: "保存到项目",
+    quickPromptSummary: "总结项目",
+    quickPromptMilestones: "分析里程碑",
+    quickPromptRisks: "识别风险",
+    quickPromptDocuments: "文档问答",
   },
   en: {
+    defaultNewChatTitle: "New Chat",
+    defaultProjectNoteFilename: "chat-note.md",
     saveToProject: "Save to project docs",
     copyContent: "Copy content",
     saveToNotes: "Save to Notes",
@@ -70,7 +84,8 @@ export const PROJECT_CHAT_COPY = {
     confirmSave: "Save",
     createConversationFailed: "Failed to create conversation",
     deleteConversationTitle: "Delete conversation",
-    deleteConversationConfirm: "Are you sure you want to delete this conversation?",
+    deleteConversationConfirm:
+      "Are you sure you want to delete this conversation?",
     deleteConversationAction: "Delete",
     deleteConversationFailed: "Failed to delete",
     renameConversationFailed: "Failed to rename",
@@ -89,29 +104,41 @@ export const PROJECT_CHAT_COPY = {
     choosePromptOrAsk: "Choose a quick prompt below or type your question",
     thinking: "Thinking...",
     inputPlaceholder: "Type a message... (Shift+Enter for new line)",
+    export: "Export",
+    exportMarkdown: "Export Markdown",
+    exportPDF: "Export PDF",
+    exportFailed: "Export failed",
+    saveConversationToProject: "Save to project",
+    quickPromptSummary: "Summarize Project",
+    quickPromptMilestones: "Analyze Milestones",
+    quickPromptRisks: "Identify Risks",
+    quickPromptDocuments: "Document Q&A",
   },
 } as const;
 
+export type ProjectChatCopy = (typeof PROJECT_CHAT_COPY)[keyof typeof PROJECT_CHAT_COPY];
 export type ProjectQuickPrompt = {
   key: string;
   icon: LucideIcon;
-  labelZh: string;
-  labelEn: string;
+  label: string;
 };
-
-export const QUICK_PROMPTS: ProjectQuickPrompt[] = [
-  { key: "summary", icon: FileText, labelZh: "总结项目", labelEn: "Summarize Project" },
-  { key: "milestones", icon: Flag, labelZh: "分析里程碑", labelEn: "Analyze Milestones" },
-  { key: "risks", icon: AlertCircle, labelZh: "识别风险", labelEn: "Identify Risks" },
-  { key: "documents", icon: FolderKanban, labelZh: "文档问答", labelEn: "Document Q&A" },
-];
 
 export function getProjectChatCopy(isZh: boolean) {
   return isZh ? PROJECT_CHAT_COPY.zh : PROJECT_CHAT_COPY.en;
 }
 
+export function getProjectQuickPrompts(isZh: boolean): ProjectQuickPrompt[] {
+  const copy = getProjectChatCopy(isZh);
+  return [
+    { key: "summary", icon: FileText, label: copy.quickPromptSummary },
+    { key: "milestones", icon: Flag, label: copy.quickPromptMilestones },
+    { key: "risks", icon: AlertCircle, label: copy.quickPromptRisks },
+    { key: "documents", icon: FolderKanban, label: copy.quickPromptDocuments },
+  ];
+}
+
 export function buildDefaultChatTitle(content: string, isZh: boolean) {
   const clean = content.replace(/[#*`\[\]]/g, "").trim();
-  if (!clean) return isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN;
+  if (!clean) return getProjectChatCopy(isZh).defaultNewChatTitle;
   return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
 }

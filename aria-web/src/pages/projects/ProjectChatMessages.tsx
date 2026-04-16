@@ -207,13 +207,13 @@ export function ProjectChatMessages({
             {quickPrompts.map((prompt) => (
               <button
                 key={prompt.key}
-                onClick={() => onQuickPrompt(isZh ? prompt.labelZh : prompt.labelEn)}
+                onClick={() => onQuickPrompt(prompt.label)}
                 className="flex items-center gap-2 p-3 bg-white border border-gray-200 hover:border-primary/30 hover:bg-primary/5 rounded-xl text-left transition-all shadow-sm hover:shadow"
               >
                 <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <prompt.icon className="w-4 h-4 text-primary" />
                 </div>
-                <span className="text-sm font-medium text-gray-700">{isZh ? prompt.labelZh : prompt.labelEn}</span>
+                <span className="text-sm font-medium text-gray-700">{prompt.label}</span>
               </button>
             ))}
           </div>
