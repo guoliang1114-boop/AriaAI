@@ -26,6 +26,7 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import { getApiBaseUrl } from "../../config/api";
 import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from "../../types/api";
+import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import {
   DEFAULT_NEW_CHAT_TITLE_EN,
@@ -283,6 +284,8 @@ export function ProjectChatTab({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveMessageId, setSaveMessageId] = useState<number | null>(null);
   const [conversationSaveModalOpen, setConversationSaveModalOpen] = useState(false);
+  const [conversationPendingDelete, setConversationPendingDelete] = useState<Conversation | null>(null);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const skipNextFetchRef = useRef(false);
@@ -371,7 +374,7 @@ export function ProjectChatTab({
   };
 
   const deleteConversation = async (convId: number) => {
-    if (!confirm(copy.deleteConversationConfirm)) return;
+    setIsDeletingConversation(true);
     try {
       await api.delete(`/chat/conversations/${convId}`);
       setConversations((prev) => prev.filter((c) => c.id !== convId));
@@ -380,9 +383,12 @@ export function ProjectChatTab({
         setMessages([]);
         setStreamingContent("");
       }
+      setConversationPendingDelete(null);
     } catch (error) {
       console.error("Failed to delete conversation:", error);
       toast.error(copy.deleteConversationFailed);
+    } finally {
+      setIsDeletingConversation(false);
     }
   };
 
@@ -409,6 +415,15 @@ export function ProjectChatTab({
 
   const openConversationSaveModal = () => {
     setConversationSaveModalOpen(true);
+  };
+
+  const openDeleteConversationDialog = (conversation: Conversation) => {
+    setConversationPendingDelete(conversation);
+  };
+
+  const closeDeleteConversationDialog = () => {
+    if (isDeletingConversation) return;
+    setConversationPendingDelete(null);
   };
 
   const sendMessage = async (content: string) => {
@@ -597,7 +612,7 @@ export function ProjectChatTab({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      void deleteConversation(conv.id);
+                      openDeleteConversationDialog(conv);
                     }}
                     className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                   >
@@ -779,6 +794,17 @@ export function ProjectChatTab({
         files={files || []}
         folders={folders || []}
         onSuccess={() => onProjectUpdate()}
+      />
+
+      <ProjectChatDeleteDialog
+        isOpen={!!conversationPendingDelete}
+        conversationTitle={conversationPendingDelete?.title}
+        isDeleting={isDeletingConversation}
+        onCancel={closeDeleteConversationDialog}
+        onConfirm={() => {
+          if (!conversationPendingDelete) return;
+          void deleteConversation(conversationPendingDelete.id);
+        }}
       />
     </div>
   );
