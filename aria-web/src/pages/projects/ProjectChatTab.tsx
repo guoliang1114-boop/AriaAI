@@ -33,6 +33,11 @@ import type { Conversation, Message, Project, ProjectFile, ProjectFolder } from 
 
 type ChatMessage = Message;
 
+const DEFAULT_NEW_CHAT_TITLE_ZH = "新对话";
+const DEFAULT_NEW_CHAT_TITLE_EN = "New Chat";
+const DEFAULT_PROJECT_NOTE_FILENAME_ZH = "对话沉淀.md";
+const DEFAULT_PROJECT_NOTE_FILENAME_EN = "chat-note.md";
+
 const QUICK_PROMPTS = [
   { key: "summary", icon: FileText, labelZh: "总结项目", labelEn: "Summarize Project" },
   { key: "milestones", icon: Flag, labelZh: "分析里程碑", labelEn: "Analyze Milestones" },
@@ -255,7 +260,7 @@ const ChatStreamingMessage = memo<{ content: string }>(({ content }) => {
 
 function buildDefaultTitle(content: string, isZh: boolean) {
   const clean = content.replace(/[#*`\[\]]/g, "").trim();
-  if (!clean) return isZh ? "新对话" : "New Chat";
+  if (!clean) return isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN;
   return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
 }
 
@@ -299,7 +304,9 @@ function SaveToNotesModal({
       setAction("merge");
       setSelectedFolderId(null);
       setSelectedFileId(null);
-      setFileName(isZh ? "对话沉淀.md" : "chat-note.md");
+      setFileName(
+        isZh ? DEFAULT_PROJECT_NOTE_FILENAME_ZH : DEFAULT_PROJECT_NOTE_FILENAME_EN,
+      );
       setLoading(false);
     }
   }, [isOpen, isZh]);
@@ -789,7 +796,9 @@ export function ProjectChatTab({
               <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <MessageSquare className="w-3.5 h-3.5 text-primary flex-shrink-0" />
               </div>
-              <p className="text-sm font-medium text-gray-900 truncate">{isZh ? "新对话" : "New Chat"}</p>
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {isZh ? DEFAULT_NEW_CHAT_TITLE_ZH : DEFAULT_NEW_CHAT_TITLE_EN}
+              </p>
             </div>
           )}
 
