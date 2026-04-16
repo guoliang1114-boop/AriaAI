@@ -16,8 +16,13 @@ MAX_FILE_SUMMARY_CHARS = 60
 MAX_DESCRIPTION_CHARS = 240
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
+# Memory build: no quantity caps — feed all data to build comprehensive structured memory
+MAX_MEMORY_FILE_SUMMARY_CHARS = 200
+MAX_MEMORY_DESCRIPTION_CHARS = 1000
+
 
 def build_project_context_data(session: Session, project_id: int) -> tuple[Project, str]:
+    """Lightweight context for real-time view summary (capped quantities)."""
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -52,6 +57,45 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
                 f"  - {project_file.name}"
                 + (
                     f": {project_file.summary[:MAX_FILE_SUMMARY_CHARS]}"
+                    if project_file.summary
+                    else ""
+                )
+            )
+
+    return project, "\n".join(lines)
+
+
+def build_project_memory_data(session: Session, project_id: int) -> tuple[Project, str]:
+    """Full context for structured memory rebuild — no quantity caps on milestones or files."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    milestones = list_project_milestones(session, project_id)
+    files = list_project_files(session, project_id)
+
+    lines = [
+        f"Project: {project.name}",
+        f"Client: {project.client}",
+        f"Status: {project.status}",
+    ]
+    if project.description:
+        lines.append(f"Description: {project.description[:MAX_MEMORY_DESCRIPTION_CHARS]}")
+    if milestones:
+        completed_count = sum(1 for milestone in milestones if milestone.is_done)
+        lines.append(f"Milestones ({len(milestones)} total, {completed_count} completed):")
+        for milestone in milestones:
+            status = "done" if milestone.is_done else "pending"
+            priority = f" [{milestone.priority}]" if milestone.priority == "high" else ""
+            due_hint = f" (due {milestone.due_date})" if milestone.due_date else ""
+            lines.append(f"  - {status} {milestone.title}{priority}{due_hint}")
+    if files:
+        lines.append(f"Uploaded files ({len(files)} total):")
+        for project_file in files:
+            lines.append(
+                f"  - {project_file.name}"
+                + (
+                    f": {project_file.summary[:MAX_MEMORY_FILE_SUMMARY_CHARS]}"
                     if project_file.summary
                     else ""
                 )
