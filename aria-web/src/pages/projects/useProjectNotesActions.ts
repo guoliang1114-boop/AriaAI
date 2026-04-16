@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../../api/client";
 import { getApiBaseUrl } from "../../config/api";
 import type { ProjectFile } from "../../types/api";
+import { getProjectNotesCopy } from "./projectNotesCopy";
 
 type DocumentDialogMode = "create" | "rename";
 type ApplyMode = "replace" | "append";
@@ -20,50 +21,6 @@ interface UseProjectNotesActionsOptions {
   updateContent: (value: string) => void;
 }
 
-const COPY = {
-  saved: { zh: "文档已保存", en: "Document saved" },
-  saveFailed: { zh: "保存失败", en: "Failed to save" },
-  templateCreated: {
-    zh: "咨询售前模板已创建",
-    en: "Consulting pre-sales template created",
-  },
-  templateCreatedAndCleaned: {
-    zh: "模板已创建，并清理了重复目录",
-    en: "Template created and duplicate folders cleaned",
-  },
-  templateCreateFailed: { zh: "模板创建失败", en: "Failed to create template" },
-  documentCreated: { zh: "文档已创建", en: "Document created" },
-  documentCreateFailed: { zh: "创建文档失败", en: "Failed to create document" },
-  documentRenamed: { zh: "文档已重命名", en: "Document renamed" },
-  documentRenameFailed: {
-    zh: "重命名文档失败",
-    en: "Failed to rename document",
-  },
-  documentDeleted: { zh: "文档已删除", en: "Document deleted" },
-  documentDeleteFailed: {
-    zh: "删除文档失败",
-    en: "Failed to delete document",
-  },
-  aiGenerationFailed: {
-    zh: "AI 润色失败，请稍后重试",
-    en: "AI generation failed, please try again",
-  },
-  aiApplied: {
-    zh: "已应用到当前文档",
-    en: "Applied to current document",
-  },
-} as const;
-
-function pick(
-  isZh: boolean,
-  value: {
-    zh: string;
-    en: string;
-  },
-) {
-  return isZh ? value.zh : value.en;
-}
-
 export function useProjectNotesActions({
   content,
   isZh,
@@ -77,6 +34,7 @@ export function useProjectNotesActions({
   selectedFile,
   updateContent,
 }: UseProjectNotesActionsOptions) {
+  const copy = getProjectNotesCopy(isZh);
   const [isSaving, setIsSaving] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [isCreatingDoc, setIsCreatingDoc] = useState(false);
@@ -102,10 +60,10 @@ export function useProjectNotesActions({
       });
       markContentSynced(content);
       onTemplateUpdated();
-      onToastSuccess(pick(isZh, COPY.saved));
+      onToastSuccess(copy.saved);
     } catch (error) {
       console.error("Failed to save document:", error);
-      onToastError(pick(isZh, COPY.saveFailed));
+      onToastError(copy.saveFailed);
     } finally {
       setIsSaving(false);
     }
@@ -121,12 +79,12 @@ export function useProjectNotesActions({
       onTemplateUpdated();
       onToastSuccess(
         result.cleaned_folder_count
-          ? pick(isZh, COPY.templateCreatedAndCleaned)
-          : pick(isZh, COPY.templateCreated),
+          ? copy.templateCreatedAndCleaned
+          : copy.templateCreated,
       );
     } catch (error) {
       console.error("Failed to initialize template:", error);
-      onToastError(pick(isZh, COPY.templateCreateFailed));
+      onToastError(copy.templateCreateFailed);
     } finally {
       setIsBootstrapping(false);
     }
@@ -172,10 +130,10 @@ export function useProjectNotesActions({
         onTemplateUpdated();
         onSelectFile(created.id);
         closeDocumentDialog();
-        onToastSuccess(pick(isZh, COPY.documentCreated));
+        onToastSuccess(copy.documentCreated);
       } catch (error) {
         console.error("Failed to create document:", error);
-        onToastError(pick(isZh, COPY.documentCreateFailed));
+        onToastError(copy.documentCreateFailed);
       } finally {
         setIsCreatingDoc(false);
       }
@@ -191,10 +149,10 @@ export function useProjectNotesActions({
       });
       onTemplateUpdated();
       closeDocumentDialog();
-      onToastSuccess(pick(isZh, COPY.documentRenamed));
+      onToastSuccess(copy.documentRenamed);
     } catch (error) {
       console.error("Failed to rename document:", error);
-      onToastError(pick(isZh, COPY.documentRenameFailed));
+      onToastError(copy.documentRenameFailed);
     } finally {
       setIsRenamingDoc(false);
     }
@@ -211,10 +169,10 @@ export function useProjectNotesActions({
       onResetDocumentState();
       setShowDeleteDialog(false);
       onTemplateUpdated();
-      onToastSuccess(pick(isZh, COPY.documentDeleted));
+      onToastSuccess(copy.documentDeleted);
     } catch (error) {
       console.error("Failed to delete document:", error);
-      onToastError(pick(isZh, COPY.documentDeleteFailed));
+      onToastError(copy.documentDeleteFailed);
     } finally {
       setIsDeletingDoc(false);
     }
@@ -268,7 +226,7 @@ export function useProjectNotesActions({
       }
     } catch (error: any) {
       console.error("AI generation failed:", error);
-      onToastError(error?.message || pick(isZh, COPY.aiGenerationFailed));
+      onToastError(error?.message || copy.aiGenerationFailed);
     } finally {
       setAiLoading(false);
     }
@@ -283,7 +241,7 @@ export function useProjectNotesActions({
         : `${content.trim() ? `${content}\n\n---\n\n` : ""}${currentResult}`;
     updateContent(nextContent);
     closeAIModal();
-    onToastSuccess(pick(isZh, COPY.aiApplied));
+    onToastSuccess(copy.aiApplied);
   };
 
   const closeAIModal = () => {
@@ -296,6 +254,7 @@ export function useProjectNotesActions({
     aiDraft,
     aiLoading,
     aiResult,
+    applyAIResult,
     closeAIModal,
     closeDocumentDialog,
     documentDialogMode,
@@ -319,6 +278,5 @@ export function useProjectNotesActions({
     showDeleteDialog,
     showDocumentDialog,
     submitDocumentDialog,
-    applyAIResult,
   };
 }

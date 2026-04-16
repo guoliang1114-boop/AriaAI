@@ -8,30 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ProjectFile } from "../../types/api";
-
-const COPY = {
-  currentDocument: { zh: "当前文档", en: "Current Document" },
-  selectDocument: { zh: "请选择文档", en: "Select a document" },
-  unsavedChanges: { zh: "有未保存的修改", en: "Unsaved changes" },
-  edit: { zh: "编辑", en: "Edit" },
-  split: { zh: "分栏", en: "Split" },
-  preview: { zh: "预览", en: "Preview" },
-  aiAssist: { zh: "AI 润色", en: "AI Assist" },
-  save: { zh: "保存", en: "Save" },
-  moreActions: { zh: "更多操作", en: "More actions" },
-  rename: { zh: "重命名", en: "Rename" },
-  delete: { zh: "删除", en: "Delete" },
-} as const;
-
-function pick(
-  isZh: boolean,
-  value: {
-    zh: string;
-    en: string;
-  },
-) {
-  return isZh ? value.zh : value.en;
-}
+import { getProjectNotesCopy } from "./projectNotesCopy";
 
 export function ProjectNotesToolbar({
   dirty,
@@ -64,19 +41,19 @@ export function ProjectNotesToolbar({
   onSetMode: (mode: "edit" | "preview" | "split") => void;
   onToggleMoreMenu: () => void;
 }) {
+  const copy = getProjectNotesCopy(isZh);
+
   return (
     <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4">
       <div className="min-w-0">
         <p className="text-xs uppercase tracking-[0.18em] text-gray-400">
-          {pick(isZh, COPY.currentDocument)}
+          {copy.currentDocument}
         </p>
         <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">
-          {selectedFile?.name || pick(isZh, COPY.selectDocument)}
+          {selectedFile?.name || copy.selectDocument}
         </h3>
         {dirty && (
-          <p className="mt-1 text-xs text-amber-600">
-            {pick(isZh, COPY.unsavedChanges)}
-          </p>
+          <p className="mt-1 text-xs text-amber-600">{copy.unsavedChanges}</p>
         )}
       </div>
 
@@ -90,7 +67,7 @@ export function ProjectNotesToolbar({
                 : "text-gray-500"
             }`}
           >
-            {pick(isZh, COPY.edit)}
+            {copy.edit}
           </button>
           <button
             onClick={() => onSetMode("split")}
@@ -100,7 +77,7 @@ export function ProjectNotesToolbar({
                 : "text-gray-500"
             }`}
           >
-            {pick(isZh, COPY.split)}
+            {copy.split}
           </button>
           <button
             onClick={() => onSetMode("preview")}
@@ -111,7 +88,7 @@ export function ProjectNotesToolbar({
             }`}
           >
             <Eye className="h-3.5 w-3.5" />
-            {pick(isZh, COPY.preview)}
+            {copy.preview}
           </button>
         </div>
 
@@ -121,7 +98,7 @@ export function ProjectNotesToolbar({
           className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
         >
           <Sparkles className="h-4 w-4" />
-          {pick(isZh, COPY.aiAssist)}
+          {copy.aiAssist}
         </button>
 
         <button
@@ -134,14 +111,14 @@ export function ProjectNotesToolbar({
           ) : (
             <Save className="h-4 w-4" />
           )}
-          {pick(isZh, COPY.save)}
+          {copy.save}
         </button>
 
         <button
           onClick={onToggleMoreMenu}
           disabled={!selectedFile}
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          title={pick(isZh, COPY.moreActions)}
+          title={copy.moreActions}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
@@ -158,7 +135,7 @@ export function ProjectNotesToolbar({
               ) : (
                 <Pencil className="h-4 w-4 text-gray-400" />
               )}
-              {pick(isZh, COPY.rename)}
+              {copy.rename}
             </button>
             <button
               onClick={onRequestDelete}
@@ -170,7 +147,7 @@ export function ProjectNotesToolbar({
               ) : (
                 <Trash2 className="h-4 w-4 text-red-500" />
               )}
-              {pick(isZh, COPY.delete)}
+              {copy.delete}
             </button>
           </div>
         )}

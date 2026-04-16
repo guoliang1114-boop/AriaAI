@@ -1,5 +1,6 @@
 import { Loader2, Sparkles, Wand2, X } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
+import { getProjectNotesCopy } from "./projectNotesCopy";
 
 interface ProjectNotesAIModalProps {
   aiDraft: string;
@@ -13,33 +14,6 @@ interface ProjectNotesAIModalProps {
   onGenerate: () => void;
 }
 
-const COPY = {
-  title: { zh: "AI 写作助手", en: "AI Writing Assistant" },
-  draftLabel: { zh: "草稿或补充说明", en: "Draft or instruction" },
-  draftPlaceholder: {
-    zh: "输入补充要求，或留空以直接润色当前文档。",
-    en: "Add guidance here, or leave empty to polish the current document.",
-  },
-  generate: { zh: "生成", en: "Generate" },
-  resultLabel: { zh: "生成结果", en: "Generated result" },
-  resultEmpty: {
-    zh: "生成结果会显示在这里",
-    en: "The generated result will appear here",
-  },
-  replace: { zh: "替换当前内容", en: "Replace" },
-  append: { zh: "追加到文档", en: "Append" },
-} as const;
-
-function pick(
-  isZh: boolean,
-  value: {
-    zh: string;
-    en: string;
-  },
-) {
-  return isZh ? value.zh : value.en;
-}
-
 export function ProjectNotesAIModal({
   aiDraft,
   aiLoading,
@@ -51,6 +25,7 @@ export function ProjectNotesAIModal({
   onClose,
   onGenerate,
 }: ProjectNotesAIModalProps) {
+  const copy = getProjectNotesCopy(isZh);
   if (!isOpen) return null;
 
   return (
@@ -59,9 +34,7 @@ export function ProjectNotesAIModal({
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-indigo-600" />
-            <h3 className="font-semibold text-gray-900">
-              {pick(isZh, COPY.title)}
-            </h3>
+            <h3 className="font-semibold text-gray-900">{copy.aiTitle}</h3>
           </div>
           <button
             onClick={onClose}
@@ -75,12 +48,12 @@ export function ProjectNotesAIModal({
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="flex flex-col gap-3">
               <label className="text-sm font-medium text-gray-700">
-                {pick(isZh, COPY.draftLabel)}
+                {copy.aiDraftLabel}
               </label>
               <textarea
                 value={aiDraft}
                 onChange={(event) => onChangeDraft(event.target.value)}
-                placeholder={pick(isZh, COPY.draftPlaceholder)}
+                placeholder={copy.aiDraftPlaceholder}
                 className="min-h-[220px] resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <button
@@ -93,13 +66,13 @@ export function ProjectNotesAIModal({
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                {pick(isZh, COPY.generate)}
+                {copy.generate}
               </button>
             </div>
 
             <div className="flex flex-col gap-3">
               <label className="text-sm font-medium text-gray-700">
-                {pick(isZh, COPY.resultLabel)}
+                {copy.generatedResult}
               </label>
               <div className="min-h-[220px] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                 {aiResult.trim() ? (
@@ -108,7 +81,7 @@ export function ProjectNotesAIModal({
                   </div>
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                    {pick(isZh, COPY.resultEmpty)}
+                    {copy.generatedResultEmpty}
                   </div>
                 )}
               </div>
@@ -118,14 +91,14 @@ export function ProjectNotesAIModal({
                   disabled={!aiResult.trim()}
                   className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {pick(isZh, COPY.replace)}
+                  {copy.replace}
                 </button>
                 <button
                   onClick={() => onApply("append")}
                   disabled={!aiResult.trim()}
                   className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {pick(isZh, COPY.append)}
+                  {copy.append}
                 </button>
               </div>
             </div>

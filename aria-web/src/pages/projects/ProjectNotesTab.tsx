@@ -9,6 +9,7 @@ import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
 import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
 import { ProjectNotesToolbar } from "./ProjectNotesToolbar";
+import { getProjectNotesCopy } from "./projectNotesCopy";
 import { useProjectNotesActions } from "./useProjectNotesActions";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
 
@@ -20,29 +21,6 @@ interface ProjectNotesTabProps {
   onUpdate: () => void;
 }
 
-const COPY = {
-  emptyTitle: { zh: "请先从左侧选择文档", en: "Choose a document from the left" },
-  emptyDescription: {
-    zh: "可以先生成咨询售前模板，或者新建一篇 Markdown 文档开始整理。",
-    en: "Create the consulting pre-sales template or start a new Markdown document.",
-  },
-  editPlaceholder: {
-    zh: "在这里编辑 Markdown 文档……",
-    en: "Edit your Markdown document here...",
-  },
-  previewEmpty: { zh: "预览区域", en: "Preview area" },
-} as const;
-
-function pick(
-  isZh: boolean,
-  value: {
-    zh: string;
-    en: string;
-  },
-) {
-  return isZh ? value.zh : value.en;
-}
-
 export function ProjectNotesTab({
   projectId,
   projectName,
@@ -52,6 +30,7 @@ export function ProjectNotesTab({
 }: ProjectNotesTabProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const copy = getProjectNotesCopy(isZh);
   const toast = useToast();
   const {
     content,
@@ -186,10 +165,10 @@ export function ProjectNotesTab({
                 <div>
                   <BookOpen className="mx-auto h-12 w-12 text-gray-300" />
                   <p className="mt-4 text-base font-medium text-gray-900">
-                    {pick(isZh, COPY.emptyTitle)}
+                    {copy.emptyTitle}
                   </p>
                   <p className="mt-2 text-sm text-gray-500">
-                    {pick(isZh, COPY.emptyDescription)}
+                    {copy.emptyDescription}
                   </p>
                 </div>
               </div>
@@ -204,7 +183,7 @@ export function ProjectNotesTab({
                     <textarea
                       value={content}
                       onChange={(event) => updateContent(event.target.value)}
-                      placeholder={pick(isZh, COPY.editPlaceholder)}
+                      placeholder={copy.editPlaceholder}
                       className="h-full min-h-[calc(100vh-340px)] w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-4 font-mono text-sm leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
                       spellCheck={false}
                     />
@@ -220,7 +199,7 @@ export function ProjectNotesTab({
                         </div>
                       ) : (
                         <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                          {pick(isZh, COPY.previewEmpty)}
+                          {copy.previewEmpty}
                         </div>
                       )}
                     </div>

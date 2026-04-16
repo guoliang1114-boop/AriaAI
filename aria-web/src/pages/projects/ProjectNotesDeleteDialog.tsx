@@ -1,5 +1,6 @@
 import { Loader2, Trash2 } from "lucide-react";
 import type { ProjectFile } from "../../types/api";
+import { getProjectNotesCopy } from "./projectNotesCopy";
 
 interface ProjectNotesDeleteDialogProps {
   file: ProjectFile | null;
@@ -10,26 +11,6 @@ interface ProjectNotesDeleteDialogProps {
   onConfirm: () => void;
 }
 
-const COPY = {
-  title: { zh: "删除文档", en: "Delete Document" },
-  body: {
-    zh: "确定要删除“{name}”吗？此操作不可撤销。",
-    en: 'Delete "{name}"? This action cannot be undone.',
-  },
-  cancel: { zh: "取消", en: "Cancel" },
-  confirm: { zh: "删除", en: "Delete" },
-} as const;
-
-function pick(
-  isZh: boolean,
-  value: {
-    zh: string;
-    en: string;
-  },
-) {
-  return isZh ? value.zh : value.en;
-}
-
 export function ProjectNotesDeleteDialog({
   file,
   isDeleting,
@@ -38,9 +19,10 @@ export function ProjectNotesDeleteDialog({
   onClose,
   onConfirm,
 }: ProjectNotesDeleteDialogProps) {
+  const copy = getProjectNotesCopy(isZh);
   if (!isOpen || !file) return null;
 
-  const body = pick(isZh, COPY.body).replace("{name}", file.name);
+  const body = copy.deleteDocumentConfirm.replace("{name}", file.name);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -51,7 +33,7 @@ export function ProjectNotesDeleteDialog({
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-lg font-semibold text-gray-900">
-              {pick(isZh, COPY.title)}
+              {copy.deleteDocument}
             </h3>
             <p className="mt-1 text-sm leading-6 text-gray-500">{body}</p>
           </div>
@@ -63,7 +45,7 @@ export function ProjectNotesDeleteDialog({
             disabled={isDeleting}
             className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
           >
-            {pick(isZh, COPY.cancel)}
+            {copy.cancel}
           </button>
           <button
             onClick={onConfirm}
@@ -71,7 +53,7 @@ export function ProjectNotesDeleteDialog({
             className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
           >
             {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
-            {pick(isZh, COPY.confirm)}
+            {copy.delete}
           </button>
         </div>
       </div>
