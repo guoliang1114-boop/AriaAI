@@ -11,6 +11,7 @@ from sqlmodel import Session
 from app.database import get_session
 from app.models.db import Message
 from app.routers.chat_schemas import ExportConversationRequest
+from app.services.chat_exports import build_markdown_export_content, safe_export_filename
 from app.services.chat_store import get_conversation_or_404, get_full_message_history
 
 router = APIRouter()
@@ -34,42 +35,12 @@ async def export_conversation(
         return await _export_pdf(conv, messages)
     raise HTTPException(400, f"Unsupported format: {format_type}. Use 'markdown' or 'pdf'")
 
-
-def _safe_export_filename(title: str, created_at: datetime, extension: str) -> str:
-    safe_title = "".join(c for c in (title or "conversation") if c.isalnum() or c in " _-").strip()
-    return f"{safe_title}_{created_at.strftime('%Y%m%d')}.{extension}"
-
-
-def build_markdown_export_content(conv, messages: List[Message]) -> str:
-    lines = [
-        f"# {conv.title or 'Untitled Conversation'}",
-        "",
-        f"**Created:** {conv.created_at.strftime('%Y-%m-%d %H:%M')}",
-        f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
-        "",
-        "---",
-        "",
-    ]
-
-    for msg in messages:
-        role_label = "**User**" if msg.role == "user" else "**Assistant**"
-        time_str = msg.created_at.strftime('%H:%M')
-        lines.append(f"{role_label} *({time_str})*")
-        lines.append("")
-        lines.append(msg.content)
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-
-    return "\n".join(lines)
-
-
 def _export_markdown(conv, messages: List[Message]):
     return PlainTextResponse(
         content=build_markdown_export_content(conv, messages),
         media_type="text/markdown",
         headers={
-            "Content-Disposition": f'attachment; filename="{_safe_export_filename(conv.title, conv.created_at, "md")}"'
+            "Content-Disposition": f'attachment; filename="{safe_export_filename(conv.title, conv.created_at, "md")}"'
         },
     )
 
@@ -137,7 +108,7 @@ async def _export_pdf(conv, messages: List[Message]):
             content=pdf_content,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{_safe_export_filename(conv.title, conv.created_at, "pdf")}"'
+                "Content-Disposition": f'attachment; filename="{safe_export_filename(conv.title, conv.created_at, "pdf")}"'
             },
         )
     except ImportError:

@@ -18,6 +18,7 @@ from app.models.db import Conversation, Message, Project, Milestone, ProjectFile
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.chat_exports import build_markdown_export_content
 from app.services.document_text import extract_text_from_file
 from app.services.project_ai import (
     build_project_ai_suggest_messages,
@@ -95,7 +96,6 @@ from app.services.project_todos import (
     update_project_todo,
 )
 from app.routers.auth import get_current_user
-from app.routers.chat_export import build_markdown_export_content
 
 _PROJECTS_TTL = 120.0
 

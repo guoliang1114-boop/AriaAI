@@ -30,6 +30,7 @@ from app.models.db import (
 from app.routers import chat as chat_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
+from app.services import chat_exports as chat_exports_module
 from app.services import context_builder as context_builder_module
 from app.services import document_text as document_text_module
 from app.services import project_ai as project_ai_module
@@ -225,6 +226,24 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
         self.assertEqual(text, "# Hello")
+
+    def test_build_markdown_export_content_formats_messages(self):
+        conversation = Conversation(
+            title="Alpha Review",
+            created_at=datetime(2026, 4, 16, 9, 30),
+        )
+        messages = [
+            Message(role="user", content="hello", created_at=datetime(2026, 4, 16, 9, 31)),
+            Message(role="assistant", content="world", created_at=datetime(2026, 4, 16, 9, 32)),
+        ]
+
+        content = chat_exports_module.build_markdown_export_content(conversation, messages)
+
+        self.assertIn("# Alpha Review", content)
+        self.assertIn("**User** *(09:31)*", content)
+        self.assertIn("**Assistant** *(09:32)*", content)
+        self.assertIn("hello", content)
+        self.assertIn("world", content)
 
 
 class ProjectConversationArchiveTestCase(unittest.TestCase):
