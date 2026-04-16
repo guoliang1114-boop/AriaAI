@@ -1,7 +1,12 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../contexts/ToastContext";
-import type { GeneratedArtifact, Project, ProjectFile, ProjectFolder } from "../../types/api";
+import type {
+  GeneratedArtifact,
+  Project,
+  ProjectFile,
+  ProjectFolder,
+} from "../../types/api";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
@@ -110,7 +115,7 @@ export function ProjectChatTab({
   }, [panel, streamingContent]);
 
   return (
-    <div className="flex h-full overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white">
       <ProjectChatSidebar
         activeConvId={activeConvId}
         conversations={conversations}

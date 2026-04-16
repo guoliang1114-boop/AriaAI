@@ -53,11 +53,11 @@ export function ProjectTodosPanel({
           <div className="flex items-center gap-2">
             <ListTodo className="h-5 w-5 text-gray-400" />
             <h3 className="font-semibold text-gray-900">
-              {isZh ? "椤圭洰寰呭姙" : "Project Todos"}
+              {isZh ? "项目待办" : "Project Todos"}
             </h3>
           </div>
           <span className="text-sm text-gray-500">
-            {completedCount} / {todos.length} {isZh ? "宸插畬鎴?" : "done"}
+            {completedCount} / {todos.length} {isZh ? "已完成" : "done"}
           </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
@@ -72,9 +72,9 @@ export function ProjectTodosPanel({
         {todos.length === 0 ? (
           <div className="py-12 text-center text-gray-400">
             <ListTodo className="mx-auto mb-3 h-12 w-12 opacity-20" />
-            <p className="text-sm">{isZh ? "鏆傛棤寰呭姙浜嬮」" : "No todos yet"}</p>
+            <p className="text-sm">{isZh ? "暂无待办事项" : "No todos yet"}</p>
             <p className="mt-1 text-xs opacity-70">
-              {isZh ? "鍦ㄤ笂鏂硅緭鍏ュ苟娣诲姞绗竴涓緟鍔?" : "Type above to add your first todo"}
+              {isZh ? "在上方输入并添加第一个待办" : "Type above to add your first todo"}
             </p>
           </div>
         ) : (

@@ -40,7 +40,7 @@ export function ProjectChatSidebar({
 
   return (
     <div
-      className={`${isOpen ? "w-64" : "w-0"} border-r border-gray-200 bg-gray-50/50 flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
+      className={`${isOpen ? "w-64" : "w-0"} min-h-0 border-r border-gray-200 bg-gray-50/50 flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
       <div className="p-4 border-b border-gray-100 bg-white">
         <button

@@ -1,18 +1,18 @@
-import { Calendar, Loader2, Plus } from 'lucide-react'
-import { UserPicker, type ProjectUserPickerItem as UserItem } from './ProjectUserPicker'
+import { Calendar, Loader2, Plus } from "lucide-react";
+import { UserPicker, type ProjectUserPickerItem as UserItem } from "./ProjectUserPicker";
 
 interface ProjectTodoCreateFormProps {
-  isAdding: boolean
-  isZh: boolean
-  loadingUsers: boolean
-  newAssignee: number | null
-  newContent: string
-  newDueDate: string
-  onAssigneeChange: (value: number | null) => void
-  onContentChange: (value: string) => void
-  onCreate: () => void
-  onDueDateChange: (value: string) => void
-  users: UserItem[]
+  isAdding: boolean;
+  isZh: boolean;
+  loadingUsers: boolean;
+  newAssignee: number | null;
+  newContent: string;
+  newDueDate: string;
+  onAssigneeChange: (value: number | null) => void;
+  onContentChange: (value: string) => void;
+  onCreate: () => void;
+  onDueDateChange: (value: string) => void;
+  users: UserItem[];
 }
 
 export function ProjectTodoCreateForm({
@@ -36,9 +36,9 @@ export function ProjectTodoCreateForm({
           value={newContent}
           onChange={(event) => onContentChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') onCreate()
+            if (event.key === "Enter") onCreate();
           }}
-          placeholder={isZh ? '添加新的待办事项...' : 'Add a new todo...'}
+          placeholder={isZh ? "添加新的待办事项..." : "Add a new todo..."}
           className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
         <div className="sm:w-44">
@@ -66,9 +66,9 @@ export function ProjectTodoCreateForm({
           className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
           {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          {isZh ? '添加' : 'Add'}
+          {isZh ? "添加" : "Add"}
         </button>
       </div>
     </div>
-  )
+  );
 }

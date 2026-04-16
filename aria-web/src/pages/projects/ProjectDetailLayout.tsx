@@ -24,18 +24,11 @@ export function ProjectDetailLayout({
   onRefresh: () => void;
   children: ReactNode;
 }) {
-  const isChatTab = activeTabId === "chat";
   const isPersistentTab =
     activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
 
   return (
-    <div
-      className={
-        isChatTab
-          ? "flex h-screen flex-col overflow-hidden bg-gray-50"
-          : "min-h-full bg-gray-50"
-      }
-    >
+    <div className="min-h-full bg-gray-50">
       <ProjectDetailHeader
         project={project}
         onBack={onBack}

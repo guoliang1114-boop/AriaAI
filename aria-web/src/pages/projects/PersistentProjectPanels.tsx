@@ -13,7 +13,7 @@ type PersistentPanelId = "chat" | "notes";
 type ProjectPanelId = PersistentPanelId | "todos";
 
 const PANEL_WRAPPER_CLASSNAMES: Record<ProjectPanelId, string> = {
-  chat: "flex-1 overflow-hidden px-6 py-4",
+  chat: "h-[calc(100vh-9.5rem)] min-h-[32rem] px-6 py-4",
   notes: "min-h-[calc(100vh-180px)] max-w-full px-6 py-6",
   todos: "min-h-[calc(100vh-180px)] max-w-full px-6 py-6",
 };

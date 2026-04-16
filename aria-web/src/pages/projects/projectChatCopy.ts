@@ -10,7 +10,7 @@ export const PROJECT_CHAT_COPY = {
   zh: {
     defaultNewChatTitle: "新对话",
     defaultProjectNoteFilename: "对话沉淀.md",
-    saveToProject: "沉淀到项目文档",
+    saveToProject: "保存到项目文档",
     copyContent: "复制内容",
     saveToNotes: "保存到笔记",
     selectNoteFile: "请选择一个笔记文件",
@@ -31,25 +31,25 @@ export const PROJECT_CHAT_COPY = {
     confirmSave: "确认保存",
     createConversationFailed: "创建对话失败",
     deleteConversationTitle: "删除对话",
-    deleteConversationConfirm: "确定要删除这个对话吗？",
+    deleteConversationConfirm: "确定要删除这段对话吗？",
     deleteConversationAction: "删除",
     deleteConversationFailed: "删除失败",
     renameConversationFailed: "重命名失败",
-    savedToProjectRoot: "已沉淀到项目文档根目录",
-    saveToProjectFailed: "沉淀失败",
+    savedToProjectRoot: "已保存到项目文档根目录",
+    saveToProjectFailed: "保存到项目失败",
     sendFailed: "发送失败，请重试",
     newChatButton: "新建对话",
     noConversations: "暂无对话",
     projectAssistantTitle: "项目 AI 助手",
     projectAssistantSubtitle: "基于项目上下文提供智能建议",
     knowledgeScope: "知识范围",
-    currentProject: "仅当前项目",
+    currentProject: "当前项目",
     currentClient: "当前客户",
     globalKnowledge: "全局知识库",
     startConversation: "开始对话",
     choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
     thinking: "思考中...",
-    inputPlaceholder: "输入消息... (Shift+Enter 换行)",
+    inputPlaceholder: "输入消息...（Shift+Enter 换行）",
     export: "导出",
     exportMarkdown: "导出 Markdown",
     exportPDF: "导出 PDF",
@@ -116,7 +116,8 @@ export const PROJECT_CHAT_COPY = {
   },
 } as const;
 
-export type ProjectChatCopy = (typeof PROJECT_CHAT_COPY)[keyof typeof PROJECT_CHAT_COPY];
+export type ProjectChatCopy =
+  (typeof PROJECT_CHAT_COPY)[keyof typeof PROJECT_CHAT_COPY];
 export type ProjectQuickPrompt = {
   key: string;
   icon: LucideIcon;
