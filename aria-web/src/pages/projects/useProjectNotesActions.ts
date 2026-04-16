@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { api } from "../../api/client";
-import { getApiBaseUrl } from "../../config/api";
 import type { ProjectFile } from "../../types/api";
 import { getProjectNotesCopy } from "./projectNotesCopy";
+import { useProjectNotesAI } from "./useProjectNotesAI";
 
 type DocumentDialogMode = "create" | "rename";
-type ApplyMode = "replace" | "append";
 
 interface UseProjectNotesActionsOptions {
   content: string;
@@ -46,10 +45,24 @@ export function useProjectNotesActions({
   const [documentName, setDocumentName] = useState("");
   const [pendingFolderId, setPendingFolderId] = useState<number | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showAIModal, setShowAIModal] = useState(false);
-  const [aiDraft, setAiDraft] = useState("");
-  const [aiResult, setAiResult] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
+  const {
+    aiDraft,
+    aiLoading,
+    aiResult,
+    applyAIResult,
+    closeAIModal,
+    handleAIGenerate,
+    openAIModal,
+    setAiDraft,
+    showAIModal,
+  } = useProjectNotesAI({
+    content,
+    isZh,
+    onToastError,
+    onToastSuccess,
+    projectId,
+    updateContent,
+  });
 
   const handleSave = async (markContentSynced: (value: string) => void) => {
     if (!selectedFile) return;
@@ -178,78 +191,6 @@ export function useProjectNotesActions({
     }
   };
 
-  const handleAIGenerate = async () => {
-    const draft = aiDraft.trim() || content.trim();
-    if (!draft) return;
-    setAiLoading(true);
-    setAiResult("");
-    try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/projects/${projectId}/notes/ai-polish-stream`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Auth-Token": localStorage.getItem("authToken") || "",
-          },
-          body: JSON.stringify({ draft }),
-        },
-      );
-      if (!response.ok) throw new Error("Network response was not ok");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No reader");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
-        for (const event of events) {
-          const line = event
-            .split("\n")
-            .map((item) => item.trim())
-            .find((item) => item.startsWith("data: "));
-          if (!line) continue;
-          try {
-            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
-            if (payload.type === "text" && payload.content) {
-              setAiResult((current) => current + payload.content);
-            } else if (payload.type === "error") {
-              throw new Error(payload.message || "AI generation failed");
-            }
-          } catch (error) {
-            console.error("Failed to parse stream event:", error);
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error("AI generation failed:", error);
-      onToastError(error?.message || copy.aiGenerationFailed);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const applyAIResult = (applyMode: ApplyMode) => {
-    const currentResult = aiResult.trim();
-    if (!currentResult) return;
-    const nextContent =
-      applyMode === "replace"
-        ? currentResult
-        : `${content.trim() ? `${content}\n\n---\n\n` : ""}${currentResult}`;
-    updateContent(nextContent);
-    closeAIModal();
-    onToastSuccess(copy.aiApplied);
-  };
-
-  const closeAIModal = () => {
-    setShowAIModal(false);
-    setAiDraft("");
-    setAiResult("");
-  };
-
   return {
     aiDraft,
     aiLoading,
@@ -269,10 +210,10 @@ export function useProjectNotesActions({
     isRenamingDoc,
     isSaving,
     openCreateDialog,
+    openAIModal,
     openRenameDialog,
     setAiDraft,
     setDocumentName,
-    setShowAIModal,
     setShowDeleteDialog,
     showAIModal,
     showDeleteDialog,

@@ -75,9 +75,9 @@ export function ProjectNotesTab({
     isRenamingDoc,
     isSaving,
     openCreateDialog,
+    openAIModal,
     openRenameDialog,
     setAiDraft,
-    setShowAIModal,
     setDocumentName,
     setShowDeleteDialog,
     showAIModal,
@@ -144,7 +144,7 @@ export function ProjectNotesTab({
               mode={mode}
               selectedFile={selectedFile}
               showMoreMenu={showMoreMenu}
-              onOpenAIModal={() => setShowAIModal(true)}
+              onOpenAIModal={openAIModal}
               onOpenRename={() => {
                 setShowMoreMenu(false);
                 openRenameDialog();
