@@ -64,7 +64,7 @@ export function ProjectSettingsFormCard({
     <div className="rounded-xl border border-gray-200 bg-white p-6">
       <div className="mb-6 flex items-center justify-between">
         <h3 className="font-semibold text-gray-900">
-          {isZh ? "椤圭洰淇℃伅" : "Project Information"}
+          {isZh ? "项目信息" : "Project Information"}
         </h3>
         {!isEditing ? (
           <button
@@ -72,7 +72,7 @@ export function ProjectSettingsFormCard({
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
           >
             <Edit3 className="h-4 w-4" />
-            {isZh ? "缂栬緫" : "Edit"}
+            {isZh ? "编辑" : "Edit"}
           </button>
         ) : (
           <div className="flex items-center gap-2">
@@ -81,7 +81,7 @@ export function ProjectSettingsFormCard({
               disabled={isSaving}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
             >
-              {isZh ? "鍙栨秷" : "Cancel"}
+              {isZh ? "取消" : "Cancel"}
             </button>
             <button
               onClick={onSave}
@@ -93,7 +93,7 @@ export function ProjectSettingsFormCard({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              {isZh ? "淇濆瓨" : "Save"}
+              {isZh ? "保存" : "Save"}
             </button>
           </div>
         )}

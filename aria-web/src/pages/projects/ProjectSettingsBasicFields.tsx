@@ -9,7 +9,10 @@ interface ProjectSettingsBasicFieldsProps {
   isLoadingClients: boolean;
   isZh: boolean;
   name: string;
-  onChange: (field: "name" | "client" | "start_date" | "end_date" | "contract_amount", value: string) => void;
+  onChange: (
+    field: "name" | "client" | "start_date" | "end_date" | "contract_amount",
+    value: string,
+  ) => void;
   startDate: string;
 }
 
@@ -54,9 +57,7 @@ export function ProjectSettingsBasicFields({
               disabled={isLoadingClients}
               className="w-full cursor-pointer appearance-none rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
             >
-              <option value="">
-                {isZh ? "选择客户" : "Select a client"}
-              </option>
+              <option value="">{isZh ? "选择客户" : "Select a client"}</option>
               {clients.map((item) => (
                 <option key={item} value={item}>
                   {item}

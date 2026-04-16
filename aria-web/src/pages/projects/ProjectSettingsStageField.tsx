@@ -65,7 +65,7 @@ export function ProjectSettingsStageField({
     return (
       <div>
         <label className="mb-2 block text-sm font-medium text-gray-700">
-          {isZh ? "椤圭洰闃舵" : "Project Stage"}
+          {isZh ? "项目阶段" : "Project Stage"}
         </label>
         <div
           className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${stage.bgColor} ${stage.color} ${stage.borderColor}`}
@@ -83,11 +83,11 @@ export function ProjectSettingsStageField({
   return (
     <div>
       <label className="mb-2 block text-sm font-medium text-gray-700">
-        {isZh ? "椤圭洰闃舵" : "Project Stage"}
+        {isZh ? "项目阶段" : "Project Stage"}
       </label>
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-          {isZh ? "鍟嗘満闃舵" : "Business Phase"}
+          {isZh ? "商务阶段" : "Business Phase"}
         </p>
         <StageOptionGroup
           columnsClassName="mb-3 grid grid-cols-5 gap-1.5"
@@ -98,7 +98,7 @@ export function ProjectSettingsStageField({
         />
 
         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-          {isZh ? "浜や粯闃舵" : "Delivery Phase"}
+          {isZh ? "交付阶段" : "Delivery Phase"}
         </p>
         <StageOptionGroup
           columnsClassName="mb-3 grid grid-cols-4 gap-1.5"
