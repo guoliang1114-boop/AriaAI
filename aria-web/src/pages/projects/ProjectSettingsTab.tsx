@@ -6,25 +6,20 @@ import {
   ChevronRight,
   Edit3,
   Loader2,
-  Sparkles,
-  Trash2,
-  Wand2,
   X,
 } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import {
-  PROJECT_STAGE_CONFIGS,
-  resolveProjectStage,
   toBackendStatus,
+  type ProjectStage,
 } from "../../types/enums";
-import type { ProjectDetail as ProjectDetailType, ProjectMember } from "../../types/api";
+import type { ProjectDetail as ProjectDetailType } from "../../types/api";
+import { ProjectSettingsAIAssistant } from "./ProjectSettingsAIAssistant";
 import { UserPicker } from "./ProjectUserPicker";
-
-interface UserItem {
-  id: number;
-  display_name: string;
-}
+import { ProjectSettingsDeleteDialog } from "./ProjectSettingsDeleteDialog";
+import { ProjectSettingsStageField } from "./ProjectSettingsStageField";
+import { useProjectSettingsMembers } from "./useProjectSettingsMembers";
 
 interface SuggestionItem {
   name: string;
@@ -40,21 +35,10 @@ interface ProjectWithDates {
   end_date?: string;
 }
 
-interface ApiErrorLike {
-  response?: {
-    data?: {
-      detail?: string;
-    };
-  };
-}
-
 interface ProjectSettingsTabProps {
   projectDetail: ProjectDetailType;
   onUpdate: () => void;
 }
-
-const getApiErrorMessage = (error: unknown): string | undefined =>
-  (error as ApiErrorLike | undefined)?.response?.data?.detail;
 
 export function ProjectSettingsTab({
   projectDetail,
@@ -91,36 +75,24 @@ export function ProjectSettingsTab({
     end_date: projectWithDates.end_date || "",
   });
 
-  const [members, setMembers] = useState<ProjectMember[]>(projectDetail.members || []);
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [isAddingMember, setIsAddingMember] = useState(false);
-  const [removingUserId, setRemovingUserId] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMembers(projectDetail.members || []);
-  }, [projectDetail.members]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoadingUsers(true);
-    api
-      .get<UserItem[]>("/auth/users/simple")
-      .then((data) => {
-        if (!cancelled) setUsers(data);
-      })
-      .catch((error) => {
-        console.error("Failed to load users:", error);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingUsers(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    availableUsers,
+    handleAddMember,
+    handleRemoveMember,
+    isAddingMember,
+    isLoadingUsers,
+    members,
+    removingUserId,
+    selectedUserId,
+    setSelectedUserId,
+  } = useProjectSettingsMembers({
+    isZh,
+    members: projectDetail.members || [],
+    onUpdate,
+    projectId: project.id,
+    toast,
+  });
 
   useEffect(() => {
     if (!isEditing) return;
@@ -173,34 +145,6 @@ export function ProjectSettingsTab({
 
   const handleChange = (field: keyof typeof formData, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleAddMember = async () => {
-    if (!selectedUserId) return;
-    setIsAddingMember(true);
-    try {
-      await api.post(`/projects/${project.id}/members`, { user_id: selectedUserId });
-      toast.success(isZh ? "成员已添加" : "Member added");
-      setSelectedUserId(null);
-      onUpdate();
-    } catch (error) {
-      toast.error(getApiErrorMessage(error) || (isZh ? "添加成员失败" : "Failed to add member"));
-    } finally {
-      setIsAddingMember(false);
-    }
-  };
-
-  const handleRemoveMember = async (userId: number) => {
-    setRemovingUserId(userId);
-    try {
-      await api.delete(`/projects/${project.id}/members/${userId}`);
-      toast.success(isZh ? "成员已移除" : "Member removed");
-      onUpdate();
-    } catch (error) {
-      toast.error(getApiErrorMessage(error) || (isZh ? "移除成员失败" : "Failed to remove member"));
-    } finally {
-      setRemovingUserId(null);
-    }
   };
 
   const handleArchive = async () => {
@@ -336,9 +280,6 @@ export function ProjectSettingsTab({
     setAiError("");
   };
 
-  const availableUsers = users.filter(
-    (user) => !members.some((member) => member.user_id === user.id),
-  );
 
   return (
     <div className="w-full">
@@ -477,176 +418,26 @@ export function ProjectSettingsTab({
               </div>
 
               <div ref={stageRef}>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  {isZh ? "项目阶段" : "Project Stage"}
-                </label>
-                {isEditing ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                      {isZh ? "商机阶段" : "Business Phase"}
-                    </p>
-                    <div className="mb-3 grid grid-cols-5 gap-1.5">
-                      {PROJECT_STAGE_CONFIGS.filter((stage) => stage.phase === "business").map(
-                        (stage) => {
-                          const Icon = stage.icon;
-                          const isActive =
-                            resolveProjectStage(formData.status).id === stage.id;
-                          return (
-                            <button
-                              key={stage.id}
-                              type="button"
-                              onClick={() => handleChange("status", stage.id)}
-                              className={`flex flex-col items-center gap-1 rounded-lg border p-2 text-center transition-all ${
-                                isActive
-                                  ? `${stage.bgColor} ${stage.color} ${stage.borderColor} shadow-sm`
-                                  : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100"
-                              }`}
-                            >
-                              <Icon className="h-4 w-4" />
-                              <span className="text-xs leading-tight">
-                                {isZh ? stage.labelZh : stage.label}
-                              </span>
-                            </button>
-                          );
-                        },
-                      )}
-                    </div>
-
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                      {isZh ? "交付阶段" : "Delivery Phase"}
-                    </p>
-                    <div className="mb-3 grid grid-cols-4 gap-1.5">
-                      {PROJECT_STAGE_CONFIGS.filter((stage) => stage.phase === "delivery").map(
-                        (stage) => {
-                          const Icon = stage.icon;
-                          const isActive =
-                            resolveProjectStage(formData.status).id === stage.id;
-                          return (
-                            <button
-                              key={stage.id}
-                              type="button"
-                              onClick={() => handleChange("status", stage.id)}
-                              className={`flex flex-col items-center gap-1 rounded-lg border p-2 text-center transition-all ${
-                                isActive
-                                  ? `${stage.bgColor} ${stage.color} ${stage.borderColor} shadow-sm`
-                                  : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100"
-                              }`}
-                            >
-                              <Icon className="h-4 w-4" />
-                              <span className="text-xs leading-tight">
-                                {isZh ? stage.labelZh : stage.label}
-                              </span>
-                            </button>
-                          );
-                        },
-                      )}
-                    </div>
-
-                    {(() => {
-                      const archivedStage =
-                        PROJECT_STAGE_CONFIGS.find((stage) => stage.id === "archived") ||
-                        PROJECT_STAGE_CONFIGS[0];
-                      const Icon = archivedStage.icon;
-                      const isActive =
-                        resolveProjectStage(formData.status).id === "archived";
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => handleChange("status", "archived")}
-                          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all ${
-                            isActive
-                              ? `${archivedStage.bgColor} ${archivedStage.color} ${archivedStage.borderColor} shadow-sm`
-                              : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100"
-                          }`}
-                        >
-                          <Icon className="h-4 w-4" />
-                          {isZh ? archivedStage.labelZh : archivedStage.label}
-                        </button>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  (() => {
-                    const stage = resolveProjectStage(formData.status);
-                    const Icon = stage.icon;
-                    return (
-                      <div
-                        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${stage.bgColor} ${stage.color} ${stage.borderColor}`}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {isZh ? stage.labelZh : stage.label}
-                      </div>
-                    );
-                  })()
-                )}
+                <ProjectSettingsStageField
+                  isEditing={isEditing}
+                  isZh={isZh}
+                  onChange={(value) => handleChange("status", value)}
+                  value={formData.status}
+                />
               </div>
 
               {isEditing && (
-                <div className="rounded-xl border border-primary/10 bg-gradient-to-r from-primary/5 to-purple-500/5 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium text-gray-700">
-                      {isZh ? "AI 助手" : "AI Assistant"}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={runAISuggest}
-                      disabled={isAILoading}
-                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      {isAILoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Wand2 className="h-3.5 w-3.5" />
-                      )}
-                      {isZh ? "生成建议" : "Generate"}
-                    </button>
-
-                    {formData.description && (
-                      <button
-                        type="button"
-                        onClick={runAIPolish}
-                        disabled={isAILoading}
-                        className="flex items-center gap-1.5 rounded-lg border border-primary bg-white px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/5 disabled:opacity-50"
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        {isZh ? "优化描述" : "Polish"}
-                      </button>
-                    )}
-                  </div>
-
-                  {aiError && (
-                    <div className="mt-2 text-xs text-amber-600">{aiError}</div>
-                  )}
-
-                  {showSuggestions && suggestions.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-xs text-gray-500">
-                        {isZh
-                          ? "AI 建议，点击即可应用"
-                          : "AI suggestions, click to apply"}
-                      </p>
-                      {suggestions.map((suggestion, index) => (
-                        <button
-                          key={`${suggestion.name}-${index}`}
-                          type="button"
-                          onClick={() => applySuggestion(suggestion)}
-                          className="w-full rounded-lg border border-gray-200 bg-white p-3 text-left transition-all hover:border-primary/50 hover:shadow-sm"
-                        >
-                          <p className="text-sm font-medium text-gray-900">
-                            {suggestion.name}
-                          </p>
-                          <p className="line-clamp-2 text-xs text-gray-500">
-                            {suggestion.description}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <ProjectSettingsAIAssistant
+                  aiError={aiError}
+                  description={formData.description}
+                  isAILoading={isAILoading}
+                  isZh={isZh}
+                  onApplySuggestion={applySuggestion}
+                  onPolish={runAIPolish}
+                  onSuggest={runAISuggest}
+                  showSuggestions={showSuggestions}
+                  suggestions={suggestions}
+                />
               )}
 
               <div>
@@ -811,55 +602,15 @@ export function ProjectSettingsTab({
       </div>
 
       {showDeleteDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50">
-                <Trash2 className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">
-                  {isZh ? "确认删除项目" : "Delete Project"}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  {isZh ? "此操作不可恢复" : "This action cannot be undone"}
-                </p>
-              </div>
-            </div>
-
-            <p className="mb-4 text-sm text-gray-600">
-              {isZh ? "请输入项目名称" : "Please type the project name"}{" "}
-              <span className="font-semibold text-gray-900">"{project.name}"</span>{" "}
-              {isZh ? "以确认删除。" : "to confirm deletion."}
-            </p>
-
-            <input
-              type="text"
-              value={deleteConfirmText}
-              onChange={(event) => setDeleteConfirmText(event.target.value)}
-              placeholder={project.name}
-              className="mb-4 w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-100"
-              autoFocus
-            />
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteDialog(false)}
-                className="rounded-lg px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50"
-              >
-                {isZh ? "取消" : "Cancel"}
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteConfirmText !== project.name || isDeleting}
-                className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {isZh ? "确认删除" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProjectSettingsDeleteDialog
+          deleteConfirmText={deleteConfirmText}
+          isDeleting={isDeleting}
+          isZh={isZh}
+          projectName={project.name}
+          onCancel={() => setShowDeleteDialog(false)}
+          onChangeDeleteConfirmText={setDeleteConfirmText}
+          onConfirm={handleDelete}
+        />
       )}
     </div>
   );

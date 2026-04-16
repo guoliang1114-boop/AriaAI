@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  AlertCircle,
-  CheckCircle2,
   ChevronRight,
   Download,
   Edit3,
@@ -11,14 +9,12 @@ import {
   FolderKanban,
   LayoutGrid,
   List,
-  Loader2,
   MoreVertical,
   Plus,
   Search,
   Share2,
   Trash2,
   Upload,
-  X,
 } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
@@ -27,6 +23,10 @@ import type {
   ProjectFile,
   ProjectFolder,
 } from "../../types/api";
+import { downloadProjectFile } from "./downloadProjectFile";
+import { ProjectDocumentsCreateFolderModal } from "./ProjectDocumentsCreateFolderModal";
+import { ProjectDocumentsDeleteDialog } from "./ProjectDocumentsDeleteDialog";
+import { ProjectDocumentsUploadPanel } from "./ProjectDocumentsUploadPanel";
 
 type ViewMode = "grid" | "list";
 type UploadStatus = "uploading" | "done" | "error";
@@ -189,19 +189,11 @@ export function ProjectDocumentsTab({
 
   const handleDownload = async (file: ProjectFile) => {
     try {
-      const response = await api.get<Blob>(
-        `/projects/${projectId}/files/${file.id}/download`,
-        { responseType: "blob" },
-      );
-
-      const url = window.URL.createObjectURL(new Blob([response]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", file.name);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadProjectFile({
+        fileId: file.id,
+        fileName: file.name,
+        projectId,
+      });
     } catch (error) {
       console.error("Failed to download file:", error);
       toast.error(isZh ? "下载失败" : "Download failed");
@@ -816,168 +808,42 @@ export function ProjectDocumentsTab({
       {renderContextMenu()}
 
       {showFolderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md m-4 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">
-                {isZh ? "新建文件夹" : "New Folder"}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowFolderModal(false);
-                  setFolderName("");
-                }}
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {isZh ? "文件夹名称" : "Folder name"}
-              </label>
-              <input
-                ref={folderInputRef}
-                type="text"
-                value={folderName}
-                onChange={(event) => setFolderName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && folderName.trim()) {
-                    void handleCreateFolder();
-                  }
-                  if (event.key === "Escape") {
-                    setShowFolderModal(false);
-                    setFolderName("");
-                  }
-                }}
-                placeholder={isZh ? "请输入文件夹名称" : "Enter folder name"}
-                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowFolderModal(false);
-                  setFolderName("");
-                }}
-                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {isZh ? "取消" : "Cancel"}
-              </button>
-              <button
-                onClick={() => void handleCreateFolder()}
-                disabled={!folderName.trim() || creatingFolder}
-                className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {creatingFolder && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isZh ? "创建" : "Create"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProjectDocumentsCreateFolderModal
+          creatingFolder={creatingFolder}
+          folderInputRef={folderInputRef}
+          folderName={folderName}
+          isZh={isZh}
+          onClose={() => {
+            setShowFolderModal(false);
+            setFolderName("");
+          }}
+          onCreate={() => void handleCreateFolder()}
+          onFolderNameChange={setFolderName}
+        />
       )}
 
       {showDeleteModal && fileToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md m-4 p-6">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
-                <Trash2 className="w-6 h-6 text-red-500" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">
-                  {isZh ? "删除文件" : "Delete File"}
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {isZh ? "此操作不可撤销" : "This action cannot be undone"}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-gray-700 truncate">
-                <span className="text-gray-500">{isZh ? "文件: " : "File: "}</span>
-                <span className="font-medium">{fileToDelete.name}</span>
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setFileToDelete(null);
-                }}
-                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {isZh ? "取消" : "Cancel"}
-              </button>
-              <button
-                onClick={() => void confirmDelete()}
-                disabled={deleting}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isZh ? "删除" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProjectDocumentsDeleteDialog
+          deleting={deleting}
+          fileToDelete={fileToDelete}
+          isZh={isZh}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setFileToDelete(null);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
       )}
 
       {showUploadPanel && uploadProgress.length > 0 && (
-        <div className="fixed bottom-6 right-6 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <h4 className="font-medium text-gray-900 text-sm">
-              {isZh ? "上传文件" : "Uploading Files"}
-            </h4>
-            <button
-              onClick={() => {
-                setShowUploadPanel(false);
-                setUploadProgress([]);
-              }}
-              className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            {uploadProgress.map((file, index) => (
-              <div
-                key={index}
-                className="px-4 py-3 border-b border-gray-50 last:border-0"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-700 truncate flex-1 mr-2">
-                    {file.name}
-                  </span>
-                  {file.status === "done" && (
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  )}
-                  {file.status === "error" && (
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                  )}
-                  {file.status === "uploading" && (
-                    <span className="text-xs text-gray-500">{file.progress}%</span>
-                  )}
-                </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      file.status === "error"
-                        ? "bg-red-500"
-                        : file.status === "done"
-                          ? "bg-green-500"
-                          : "bg-primary"
-                    }`}
-                    style={{ width: `${file.progress}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ProjectDocumentsUploadPanel
+          isZh={isZh}
+          uploadProgress={uploadProgress}
+          onClose={() => {
+            setShowUploadPanel(false);
+            setUploadProgress([]);
+          }}
+        />
       )}
     </div>
   );

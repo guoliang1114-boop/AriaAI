@@ -24,6 +24,7 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import { useToast } from "../../contexts/ToastContext";
 import { resolveProjectStage } from "../../types/enums";
 import type { ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
+import { downloadProjectFile } from "./downloadProjectFile";
 
 const formatAmount = (amount: number | undefined | null): string => {
   if (!amount || amount === 0) return "0";
@@ -114,21 +115,11 @@ export function ProjectOverviewTab({
 
   const handleDownload = async (file: ProjectFile) => {
     try {
-      const response = await api.get<Blob>(
-        `/projects/${projectId}/files/${file.id}/download`,
-        {
-          responseType: "blob",
-        },
-      );
-
-      const url = window.URL.createObjectURL(new Blob([response]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", file.name);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadProjectFile({
+        fileId: file.id,
+        fileName: file.name,
+        projectId,
+      });
     } catch (error) {
       console.error("Failed to download file:", error);
       toast.error(isZh ? "下载失败" : "Download failed");
