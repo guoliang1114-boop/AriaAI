@@ -50,11 +50,7 @@ export function ProjectDetailHeader({
               }
             >
               <tab.icon className="h-4 w-4" />
-              {tab.id === "memory"
-                ? isZh
-                  ? "项目记忆"
-                  : "Memory"
-                : t(tab.labelKey)}
+              {tab.id === "memory" ? (isZh ? "项目记忆" : "Memory") : t(tab.labelKey)}
             </NavLink>
           ))}
         </div>

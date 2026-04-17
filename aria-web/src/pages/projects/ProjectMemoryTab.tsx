@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Brain, Clock3, FileText, Loader2, ShieldAlert, Target, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Brain,
+  Clock3,
+  FileText,
+  ShieldAlert,
+  Target,
+  Users,
+} from "lucide-react";
 import { api } from "../../api/client";
-import type { ProjectDetail as ProjectDetailType, ProjectMemory, ProjectMemoryResponse } from "../../types/api";
+import type {
+  ProjectDetail as ProjectDetailType,
+  ProjectMemory,
+  ProjectMemoryResponse,
+} from "../../types/api";
 import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
 import { formatProjectMemoryUpdatedAt } from "./projectMemoryTime";
@@ -37,9 +49,9 @@ function SectionList({
 }
 
 function DetailCard({
+  children,
   icon: Icon,
   title,
-  children,
 }: {
   children: ReactNode;
   icon: typeof Brain;
@@ -123,26 +135,11 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
 
   const sourceCoverage = useMemo(
     () => [
-      {
-        label: isZh ? "项目文档" : "Documents",
-        value: files.length,
-      },
-      {
-        label: isZh ? "里程碑" : "Milestones",
-        value: milestones.length,
-      },
-      {
-        label: isZh ? "待办" : "Todos",
-        value: todos.length,
-      },
-      {
-        label: isZh ? "项目成员" : "Members",
-        value: members.length,
-      },
-      {
-        label: isZh ? "财务记录" : "Payments",
-        value: financials.payments.length,
-      },
+      { label: isZh ? "项目文档" : "Documents", value: files.length },
+      { label: isZh ? "里程碑" : "Milestones", value: milestones.length },
+      { label: isZh ? "待办" : "Todos", value: todos.length },
+      { label: isZh ? "项目成员" : "Members", value: members.length },
+      { label: isZh ? "财务记录" : "Payments", value: financials.payments.length },
     ],
     [files.length, financials.payments.length, isZh, members.length, milestones.length, todos.length],
   );
@@ -178,7 +175,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               {isZh ? "当前目标" : "Current Objective"}
             </div>
             <div className="mt-2 text-sm leading-relaxed text-gray-900">
-              {memory?.current_objective || (isZh ? "暂无明确目标" : "No objective yet")}
+              {memory?.current_objective || (isZh ? "暂未明确当前目标" : "No objective yet")}
             </div>
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -189,10 +186,18 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-5">
             <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
-              {isZh ? "数据覆盖" : "Source Coverage"}
+              {isZh ? "来源覆盖" : "Source Coverage"}
             </div>
             <div className="mt-2 text-sm text-gray-900">
               {sourceCoverage.reduce((sum, item) => sum + item.value, 0)}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+              {sourceCoverage.map((item) => (
+                <div key={item.label} className="rounded-lg bg-gray-50 px-2.5 py-2">
+                  <div>{item.label}</div>
+                  <div className="mt-1 font-semibold text-gray-900">{item.value}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

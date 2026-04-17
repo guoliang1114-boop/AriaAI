@@ -1,5 +1,7 @@
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectDetail as ProjectDetailType } from "../../types/api";
 import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
@@ -18,11 +20,12 @@ interface ProjectSettingsTabProps {
 }
 
 export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsTabProps) {
-  const { project } = projectDetail;
+  const { files, financials, members: projectMembers, milestones, project, todos } = projectDetail;
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
 
   const settingsInsight = useProjectMemorySummary({
     errorMessage: isZh
@@ -32,6 +35,32 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
     projectId: String(project.id),
     summaryType: "overview",
   });
+
+  const coverageItems = useMemo(
+    () => [
+      { label: isZh ? "文档" : "Docs", value: files.length },
+      { label: isZh ? "里程碑" : "Milestones", value: milestones.length },
+      { label: isZh ? "待办" : "Todos", value: todos.length },
+      { label: isZh ? "成员" : "Members", value: projectMembers.length },
+      { label: isZh ? "财务" : "Payments", value: financials.payments.length },
+    ],
+    [files.length, financials.payments.length, isZh, milestones.length, projectMembers.length, todos.length],
+  );
+
+  const rebuildMemory = async () => {
+    setIsRebuildingMemory(true);
+    try {
+      await api.post(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 60000 });
+      await settingsInsight.refresh();
+      onUpdate();
+      toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
+    } catch (error) {
+      console.error("Failed to rebuild project memory:", error);
+      toast.error(isZh ? "项目记忆重建失败" : "Failed to rebuild project memory");
+    } finally {
+      setIsRebuildingMemory(false);
+    }
+  };
 
   const {
     aiError,
@@ -77,7 +106,7 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
     setSelectedUserId,
   } = useProjectSettingsMembers({
     isZh,
-    members: projectDetail.members || [],
+    members: projectMembers || [],
     onUpdate,
     projectId: project.id,
     toast,
@@ -127,8 +156,13 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
           />
 
           <ProjectSettingsMemoryManagementCard
+            coverageItems={coverageItems}
+            isRebuilding={isRebuildingMemory}
             isZh={isZh}
             onOpenMemory={() => navigate(`/projects/${project.id}/memory`)}
+            onRebuild={() => {
+              void rebuildMemory();
+            }}
             project={project}
           />
 
