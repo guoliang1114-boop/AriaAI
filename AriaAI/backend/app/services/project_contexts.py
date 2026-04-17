@@ -30,6 +30,15 @@ SUPPORTED_MEMORY_SUMMARY_TYPES = {
 }
 
 
+def _resolve_output_language(language: str | None) -> str:
+    normalized = (language or "").strip().lower()
+    if normalized.startswith("zh"):
+        return "Chinese"
+    if normalized.startswith("en"):
+        return "English"
+    return "the user's selected language"
+
+
 def _default_project_memory(project: Project) -> dict[str, Any]:
     return {
         "project_brief": project.description[:300] if project.description else "",
@@ -206,13 +215,18 @@ def build_project_context_prompt(project_data: str) -> str:
     )
 
 
-def build_project_summary_from_memory_prompt(memory: dict[str, Any], project_name: str) -> str:
+def build_project_summary_from_memory_prompt(
+    memory: dict[str, Any],
+    project_name: str,
+    language: str | None = None,
+) -> str:
+    output_language = _resolve_output_language(language)
     return (
         "You are an AI consultant assistant. "
         "Based on the structured project memory below, write exactly 3-4 bullet points for an overview card. "
         "Focus on core objective, current stage, key risks or open questions, critical milestones or progress, and next actions. "
         "Each bullet must be specific and actionable. Use **bold** sparingly for key terms. "
-        "Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words.\n\n"
+        f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words. Write the answer in {output_language}.\n\n"
         f"Project: {project_name}\n"
         f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
     )
@@ -222,8 +236,10 @@ def build_project_memory_view_prompt(
     memory: dict[str, Any],
     project_name: str,
     summary_type: str = "overview",
+    language: str | None = None,
 ) -> str:
     normalized_type = summary_type if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES else "overview"
+    output_language = _resolve_output_language(language)
     instructions = {
         "overview": (
             "Write exactly 3-4 bullet points for an overview card. Focus on core objective, "
@@ -250,7 +266,7 @@ def build_project_memory_view_prompt(
         "You are an AI consultant assistant. "
         f"{instructions[normalized_type]} "
         "Each bullet must be specific and concise. Use **bold** sparingly for key terms. "
-        "Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words.\n\n"
+        f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words. Write the answer in {output_language}.\n\n"
         f"Project: {project_name}\n"
         f"Summary type: {normalized_type}\n"
         f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"

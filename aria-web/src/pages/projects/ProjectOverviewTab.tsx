@@ -54,6 +54,7 @@ export function ProjectOverviewTab({
     summaryText,
     summaryType,
   } = useProjectOverviewData({
+    language: i18n.language,
     isZh,
     mdNotes: md_notes,
     projectDetail,

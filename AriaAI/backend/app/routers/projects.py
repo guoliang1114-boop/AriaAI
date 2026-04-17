@@ -742,6 +742,7 @@ class ProjectMemorySummarizeRequest(BaseModel):
     summary_type: str = "overview"
     rebuild_if_stale: bool = True
     stream: bool = False
+    language: Optional[str] = None
 
 
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
@@ -781,15 +782,27 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
 
 # ── Generate project context summary ──────────────────────────────────────────
 
+class ProjectContextGenerateRequest(BaseModel):
+    language: Optional[str] = None
+
+
 @router.post("/{project_id}/generate-context")
-async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
+async def generate_project_context(
+    project_id: int,
+    body: Optional[ProjectContextGenerateRequest] = None,
+    session: Session = Depends(get_session),
+):
     """Generate overview summary from structured project memory, rebuilding memory when stale."""
     project, memory_payload = await _ensure_project_memory(session, project_id)
 
     messages = [
         {
             "role": "user",
-            "content": build_project_summary_from_memory_prompt(memory_payload, project.name),
+            "content": build_project_summary_from_memory_prompt(
+                memory_payload,
+                project.name,
+                body.language if body else None,
+            ),
         }
     ]
 
@@ -867,7 +880,12 @@ async def summarize_project_memory(
         memory_payload = get_project_memory_payload(project)
 
     summary_type = (body.summary_type or "overview").strip() or "overview"
-    prompt = build_project_memory_view_prompt(memory_payload, project.name, summary_type)
+    prompt = build_project_memory_view_prompt(
+        memory_payload,
+        project.name,
+        summary_type,
+        body.language,
+    )
     if body.stream:
         async def event_stream():
             accumulated: list[str] = []

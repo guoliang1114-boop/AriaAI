@@ -30,6 +30,7 @@ const formatAmountInTenThousand = (amount: number | undefined | null): string =>
 };
 
 interface UseProjectOverviewDataOptions {
+  language: string;
   isZh: boolean;
   mdNotes: string;
   projectDetail: ProjectDetailType;
@@ -107,6 +108,7 @@ async function streamSummaryRequest<TDone extends object>(options: {
 }
 
 export function useProjectOverviewData({
+  language,
   isZh,
   mdNotes,
   projectDetail,
@@ -291,6 +293,9 @@ export function useProjectOverviewData({
 
     try {
       const fullSummary = await streamSummaryRequest<{ context_summary?: string }>({
+        body: {
+          language,
+        },
         errorMessage: isZh
           ? "生成项目总结失败，请稍后重试"
           : "Failed to generate project summary, please try again",
@@ -339,6 +344,7 @@ export function useProjectOverviewData({
     try {
       const content = await streamSummaryRequest<ProjectMemorySummaryResponse>({
         body: {
+          language,
           summary_type: nextType,
           rebuild_if_stale: true,
           stream: true,
