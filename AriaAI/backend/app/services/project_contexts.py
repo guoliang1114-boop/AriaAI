@@ -188,6 +188,17 @@ def build_project_memory_prompt(project_data: str) -> str:
     )
 
 
+def build_project_context_prompt(project_data: str) -> str:
+    return (
+        "You are an AI consultant assistant preparing a project overview summary. "
+        "Treat the current project as the only source of truth. "
+        "Do not blend in facts, progress, or risks from other projects, even if they belong to the same client. "
+        "If information is missing, say less rather than guessing. "
+        "Write a concise project understanding based only on the material below.\n\n"
+        f"Project data:\n{project_data}"
+    )
+
+
 def build_project_summary_from_memory_prompt(memory: dict[str, Any], project_name: str) -> str:
     return (
         "You are an AI consultant assistant. "
