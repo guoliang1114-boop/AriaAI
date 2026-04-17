@@ -1,5 +1,12 @@
 import type { RefObject } from "react";
-import type { Conversation, GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
+import type {
+  Conversation,
+  GeneratedArtifact,
+  Message,
+  ProjectMemoryStatusResponse,
+  Reference,
+  ToolCallEvent,
+} from "../../types/api";
 import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
@@ -15,12 +22,16 @@ interface ProjectChatMainPanelProps {
   isLoadingMessages: boolean;
   isSidebarOpen: boolean;
   knowledgeScope: "project" | "client" | "global";
+  memoryStatus: ProjectMemoryStatusResponse | null;
+  isLoadingMemoryStatus: boolean;
+  isRebuildingMemory: boolean;
   memoryQuickActions: ProjectMemoryQuickAction[];
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
   onOpenConversationSaveModal: () => void;
   onQuickPrompt: (content: string) => void;
+  onRebuildMemory: () => void;
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
@@ -50,6 +61,9 @@ export function ProjectChatMainPanel({
   isLoadingMessages,
   isSidebarOpen,
   knowledgeScope,
+  memoryStatus,
+  isLoadingMemoryStatus,
+  isRebuildingMemory,
   memoryQuickActions,
   messages,
   messagesContainerRef,
@@ -57,6 +71,7 @@ export function ProjectChatMainPanel({
   onKnowledgeScopeChange,
   onOpenConversationSaveModal,
   onQuickPrompt,
+  onRebuildMemory,
   onSaveMessage,
   onSend,
   onDownloadArtifact,
@@ -75,10 +90,17 @@ export function ProjectChatMainPanel({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <ProjectChatHeader
+        hasMemory={memoryStatus?.has_memory ?? false}
         isSidebarOpen={isSidebarOpen}
+        isLoadingMemoryStatus={isLoadingMemoryStatus}
+        isRebuildingMemory={isRebuildingMemory}
         title={title}
         subtitle={subtitle}
         knowledgeScope={knowledgeScope}
+        memoryStale={memoryStatus?.memory_stale ?? false}
+        memoryUpdatedAt={memoryStatus?.memory_updated_at}
+        memoryVersion={memoryStatus?.memory_version ?? 0}
+        onRebuildMemory={onRebuildMemory}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
         exportControl={
