@@ -12,6 +12,10 @@ class ClientRecord(SQLModel, table=True):
     industry: str = ""
     contact: str = ""          # primary contact person name
     notes: str = ""
+    client_memory_json: str = "{}"
+    client_memory_stale: bool = True
+    client_memory_version: int = 0
+    client_memory_updated_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     documents: list["KnowledgeDocument"] = Relationship(back_populates="client")
@@ -32,6 +36,8 @@ class Project(SQLModel, table=True):
     memory_stale: bool = True
     memory_version: int = 0
     memory_updated_at: Optional[datetime] = None
+    memory_rebuild_status: str = "idle"
+    memory_rebuild_failed_at: Optional[datetime] = None
     notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
     md_notes: str = ""              # Project-level Markdown notes
     created_at: datetime = Field(default_factory=datetime.utcnow)

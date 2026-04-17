@@ -21,12 +21,12 @@ export function SettingsLayout() {
     <>
       <PageTitle title={t('settings.title')} />
       <div className="min-h-full bg-surface">
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="w-full px-6 py-8">
           <h1 className="text-headline-md text-on-surface mb-2">{t('settings.title')}</h1>
           <p className="text-body-md text-on-surface-muted mb-8">{t('settings.description')}</p>
 
-          <div className="flex gap-6">
-            <aside className="w-56 flex-shrink-0">
+          <div className="flex w-full gap-6">
+            <aside className="w-64 flex-shrink-0">
               <nav className="space-y-1 bg-surface-container-low rounded-xl p-2">
                 {settingNavItems.map((item) => (
                   <NavLink
@@ -48,7 +48,7 @@ export function SettingsLayout() {
               </nav>
             </aside>
 
-            <div className="flex-1 card">
+            <div className="min-w-0 flex-1 card">
               <Outlet />
             </div>
           </div>

@@ -33,6 +33,7 @@ from app.models.db import (
 from app import config as app_config
 from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
+from app.routers import clients as clients_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
@@ -266,6 +267,42 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("focused on the project's financial picture", financial_prompt)
         self.assertIn("Summary type: documents", documents_prompt)
         self.assertIn("focused on project documents and knowledge signals", documents_prompt)
+
+    def test_get_project_memory_payload_flattens_pinned_slots(self):
+        project = Project(
+            name="Alpha",
+            client="Client",
+            context_memory_json=json.dumps(
+                {
+                    "key_risks": {
+                        "ai": ["Timeline risk"],
+                        "pinned": ["Decision-maker alignment risk"],
+                    },
+                    "stakeholder_notes": {
+                        "ai": ["Finance team supports automation"],
+                        "pinned": ["CFO is the final approver"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            memory_version=2,
+            memory_stale=False,
+        )
+
+        payload = project_contexts_module.get_project_memory_payload(project)
+
+        self.assertEqual(
+            payload["key_risks"],
+            ["Timeline risk", "Decision-maker alignment risk"],
+        )
+        self.assertEqual(
+            payload["stakeholder_notes"],
+            ["Finance team supports automation", "CFO is the final approver"],
+        )
+        self.assertEqual(
+            payload["key_risks_detail"]["pinned"],
+            ["Decision-maker alignment risk"],
+        )
 
     def test_stream_llm_text_chunks_skips_tool_markers(self):
         async def fake_chunks():
@@ -1386,7 +1423,30 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             yield "- **Current summary**"
 
         with Session(self.engine) as session:
-            project = Project(name="Context Project", client="Client", status="active")
+            project = Project(
+                name="Context Project",
+                client="Client",
+                status="active",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Current project file summary",
+                        "current_stage": "active",
+                        "recent_progress": ["Current Milestone"],
+                        "key_risks": [],
+                        "open_questions": [],
+                        "next_actions": ["Review Current Note.md"],
+                        "important_documents": [
+                            {"name": "Current Note.md", "reason": "Latest project note"}
+                        ],
+                        "financial_status": "",
+                        "delivery_signals": [],
+                        "stakeholder_notes": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=1,
+                memory_stale=False,
+            )
             sibling = Project(name="Sibling Project", client="Client", status="lead")
             session.add(project)
             session.add(sibling)
@@ -1633,6 +1693,67 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         self.assertIsNotNone(cached)
         self.assertEqual(cached.content, "- fresh risk summary")
+
+    def test_memory_rebuild_persists_rebuild_log_and_coverage(self):
+        async def fake_complete(messages, max_tokens=4000):
+            return json.dumps(
+                {
+                    "project_brief": "Alpha brief",
+                    "current_stage": "delivery",
+                    "key_risks": ["Timeline risk"],
+                    "open_questions": ["Who signs off?"],
+                    "stakeholder_notes": ["Finance is supportive"],
+                },
+                ensure_ascii=False,
+            )
+
+        with Session(self.engine) as session:
+            project = Project(name="Rebuild Log Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(Milestone(project_id=project.id, title="Kickoff"))
+            session.commit()
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=fake_complete):
+            resp = self.client.post(f"/projects/{project_id}/memory/rebuild")
+
+        self.assertEqual(resp.status_code, 200)
+        memory = resp.json()["memory"]
+        self.assertEqual(memory["key_risks"], ["Timeline risk"])
+        self.assertEqual(memory["open_questions"], ["Who signs off?"])
+        self.assertIn("rebuild_log", memory)
+        self.assertEqual(memory["rebuild_log"][-1]["trigger"], "manual")
+        self.assertIn("_coverage", memory)
+        self.assertIn("milestones_total", memory["_coverage"])
+
+    def test_project_memory_stale_marks_matching_client_memory_stale(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps({"client_profile": "Existing memory"}, ensure_ascii=False),
+                client_memory_version=1,
+                client_memory_stale=False,
+            )
+            project = Project(name="Acme Project", client="Acme Corp", description="Before update")
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            client_id = client.id
+
+        resp = self.client.patch(
+            f"/projects/{project_id}",
+            json={"description": "After update"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        with Session(self.engine) as session:
+            refreshed_client = session.get(ClientRecord, client_id)
+            self.assertIsNotNone(refreshed_client)
+            self.assertTrue(refreshed_client.client_memory_stale)
 
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
@@ -2231,6 +2352,47 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(ctx.rag_context, "")
         self.assertEqual(ctx.rag_sources, [])
 
+    def test_build_chat_context_client_scope_injects_client_memory_when_available(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Large enterprise account with multi-step approvals",
+                        "decision_patterns": ["Budget closes in Q4"],
+                        "lessons_learned": ["Technical team prefers phased rollouts"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=1,
+                client_memory_stale=False,
+            )
+            project = Project(
+                name="Client Memory Project",
+                client="Acme Corp",
+                description="Current project description",
+            )
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=FakeRetrievalContext(""),
+            ):
+                ctx = context_builder_module.build_chat_context(
+                    session=session,
+                    project_id=project.id,
+                    knowledge_scope="client",
+                    content="Summarize current relationship",
+                )
+
+        self.assertIn("Structured Client Memory", ctx.project_context)
+        self.assertIn("Budget closes in Q4", ctx.project_context)
+        self.assertIn("Current project description", ctx.project_context)
+
     def test_build_chat_context_file_ids_do_not_attach_sibling_project_files(self):
         with Session(self.engine) as session:
             primary_project = Project(name="Primary Project", client="Acme")
@@ -2406,6 +2568,137 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
             self.assertEqual(len(assistant_messages), 0)
+
+
+class ClientMemoryRouterTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.db_path = db_path
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app = FastAPI()
+        app.include_router(clients_router_module.router)
+        app.dependency_overrides[clients_router_module.get_session] = override_session
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        self.client.close()
+        self.engine.dispose()
+        Path(self.db_path).unlink(missing_ok=True)
+
+    def test_client_memory_rebuild_flow(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme Corp", notes="Large enterprise client")
+            project = Project(
+                name="Alpha Delivery",
+                client="Acme Corp",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Finance transformation project",
+                        "key_risks": ["Slow approvals"],
+                        "next_actions": ["Confirm sponsor"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=1,
+                memory_stale=False,
+            )
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "client_profile": "Large enterprise account with long procurement cycles",
+                        "decision_patterns": ["Budget closes in Q4"],
+                        "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Economic buyer"}],
+                        "lessons_learned": ["Senior sponsors want phased delivery"],
+                        "project_history": [{"project_name": "Alpha Delivery", "status": "delivering", "outcome": "", "key_factor": "Finance transformation"}],
+                        "sensitive_topics": ["Avoid aggressive automation claims"],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ):
+            resp = self.client.post(f"/clients/{client_id}/memory/rebuild")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["memory_version"], 1)
+        self.assertFalse(body["memory_stale"])
+        self.assertIn("Budget closes in Q4", body["memory"]["decision_patterns"])
+
+    def test_promote_project_memory_to_client(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps({"client_profile": "Existing client profile"}, ensure_ascii=False),
+                client_memory_version=1,
+                client_memory_stale=False,
+            )
+            project = Project(
+                name="Alpha Delivery",
+                client="Acme Corp",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Finance transformation project",
+                        "key_risks": ["Slow approvals"],
+                        "stakeholder_notes": ["CFO is supportive"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=2,
+                memory_stale=False,
+            )
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(client)
+            session.refresh(project)
+            client_id = client.id
+            project_id = project.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "client_profile": "Existing client profile",
+                        "decision_patterns": ["Budget closes in Q4"],
+                        "key_contacts": [],
+                        "lessons_learned": ["Finance transformation needs executive sponsorship"],
+                        "project_history": [{"project_name": "Alpha Delivery", "status": "delivering", "outcome": "", "key_factor": "Executive sponsorship"}],
+                        "sensitive_topics": [],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ):
+            resp = self.client.post(
+                f"/clients/{client_id}/memory/promote-project",
+                json={"project_id": project_id},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["memory_version"], 2)
+        self.assertIn(project_id, body["memory"]["source_project_ids"])
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -69,6 +70,48 @@ def _format_project_memory_for_prompt(project: Project) -> str:
     if not lines:
         return ""
     return "**Structured Project Memory:**\n" + "\n".join(lines)
+
+
+def _format_client_memory_for_prompt(client: ClientRecord) -> str:
+    try:
+        memory = json.loads(client.client_memory_json or "{}")
+        if not isinstance(memory, dict):
+            memory = {}
+    except Exception:
+        memory = {}
+
+    if not memory or (client.client_memory_version or 0) <= 0:
+        return ""
+
+    lines: list[str] = []
+    if memory.get("client_profile"):
+        lines.append(f"- Client profile: {memory['client_profile']}")
+    for key, label in (
+        ("decision_patterns", "Decision patterns"),
+        ("lessons_learned", "Lessons learned"),
+        ("sensitive_topics", "Sensitive topics"),
+    ):
+        items = [str(item).strip() for item in (memory.get(key) or []) if str(item).strip()]
+        if items:
+            lines.append(f"- {label}: " + "; ".join(items[:4]))
+
+    contacts = memory.get("key_contacts") or []
+    contact_bits: list[str] = []
+    for item in contacts[:4]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        role = str(item.get("role") or "").strip()
+        note = str(item.get("note") or "").strip()
+        bit = " / ".join(part for part in (name, role, note) if part)
+        if bit:
+            contact_bits.append(bit)
+    if contact_bits:
+        lines.append("- Key contacts: " + "; ".join(contact_bits))
+
+    if not lines:
+        return ""
+    return "**Structured Client Memory:**\n" + "\n".join(lines)
 
 
 def extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
@@ -391,6 +434,17 @@ def build_chat_context(
         project_context = build_project_context(session, project_id, file_ids)
     else:
         project_context = build_global_workspace_context(session)
+
+    if knowledge_scope == "client" and project_id is not None:
+        project = session.get(Project, project_id)
+        if project and project.client.strip():
+            client = session.exec(
+                select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))
+            ).first()
+            if client:
+                client_memory_context = _format_client_memory_for_prompt(client)
+                if client_memory_context:
+                    project_context = client_memory_context + "\n\n" + project_context
     
     # Build RAG context
     rag_data = build_rag_context(

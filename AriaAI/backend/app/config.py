@@ -119,6 +119,8 @@ SETTINGS_CACHE_TTL = float(os.getenv("SETTINGS_CACHE_TTL", "300.0"))
 # Scheduler Configuration
 # =============================================================================
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+MEMORY_REBUILD_DEBOUNCE_SECONDS = int(os.getenv("MEMORY_REBUILD_DEBOUNCE_SECONDS", "300"))
+MEMORY_REBUILD_MAX_WORKERS = int(os.getenv("MEMORY_REBUILD_MAX_WORKERS", "2"))
 
 # =============================================================================
 # Logging

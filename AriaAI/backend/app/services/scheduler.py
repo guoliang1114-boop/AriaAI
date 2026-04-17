@@ -1,17 +1,20 @@
 """APScheduler service — manage recurring AI tasks."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
+from app.config import MEMORY_REBUILD_MAX_WORKERS
 
 # Use ThreadPoolExecutor to support async functions
 _scheduler = BackgroundScheduler(
-    executors={'default': ThreadPoolExecutor(max_workers=10)}
+    executors={'default': ThreadPoolExecutor(max_workers=MEMORY_REBUILD_MAX_WORKERS)}
 )
 
 
@@ -29,6 +32,10 @@ def shutdown() -> None:
             _scheduler.shutdown(wait=False)
     except Exception:
         pass
+
+
+def is_running() -> bool:
+    return bool(_scheduler.running)
 
 
 def next_run_from_frequency(frequency: str, cron_expr: str = "") -> Optional[datetime]:
@@ -65,6 +72,34 @@ def remove_task(task_id: int) -> None:
     job_id = f"task_{task_id}"
     if _scheduler.get_job(job_id):
         _scheduler.remove_job(job_id)
+
+
+def remove_job(job_id: str) -> None:
+    if _scheduler.get_job(job_id):
+        _scheduler.remove_job(job_id)
+
+
+def get_job(job_id: str):
+    return _scheduler.get_job(job_id)
+
+
+def add_or_replace_date_job(job_id: str, run_at: datetime, func, args: Optional[list] = None) -> None:
+    if not _scheduler.running:
+        return
+
+    args = args or []
+
+    def _run_job():
+        result = func(*args)
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
+
+    _scheduler.add_job(
+        _run_job,
+        trigger=DateTrigger(run_date=run_at),
+        id=job_id,
+        replace_existing=True,
+    )
 
 
 def trigger_now(task) -> None:

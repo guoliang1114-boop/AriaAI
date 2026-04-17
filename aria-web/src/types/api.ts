@@ -67,6 +67,8 @@ export interface ProjectMemoryResponse {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+  memory_rebuild_status?: string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ProjectMemoryBatchRebuildItem {
@@ -100,6 +102,8 @@ export interface ProjectMemoryStatusResponse {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+  memory_rebuild_status?: string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ProjectMemorySummaryResponse {
@@ -110,6 +114,36 @@ export interface ProjectMemorySummaryResponse {
   memory_stale: boolean
   generated_at: string
   cached?: boolean
+}
+
+export interface ClientMemory {
+  client_profile: string
+  decision_patterns: string[]
+  key_contacts: Array<{ name: string; role: string; note: string }>
+  lessons_learned: string[]
+  project_history: Array<{ project_name: string; status: string; outcome: string; key_factor: string }>
+  sensitive_topics: string[]
+  memory_version: number
+  last_updated_at: string
+  stale: boolean
+  rebuild_log?: Array<{ at: string; trigger: string; version: number }>
+  source_project_ids?: number[]
+}
+
+export interface ClientMemoryResponse {
+  client_id: number
+  memory: ClientMemory
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
+}
+
+export interface ClientMemoryStatusResponse {
+  client_id: number
+  has_memory: boolean
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
 }
 
 export interface Milestone {

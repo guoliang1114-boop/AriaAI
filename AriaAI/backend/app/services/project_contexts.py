@@ -37,6 +37,7 @@ MAX_SUMMARY_LIST_ITEM_CHARS = 120
 MAX_SUMMARY_DOCUMENT_ITEMS = 4
 MAX_SUMMARY_DOCUMENT_NAME_CHARS = 80
 MAX_SUMMARY_DOCUMENT_REASON_CHARS = 120
+EDITABLE_MEMORY_SLOTS = ("key_risks", "open_questions", "stakeholder_notes")
 
 
 def _resolve_output_language(language: str | None) -> str:
@@ -63,17 +64,60 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "current_stage": project.status,
         "current_objective": "",
         "recent_progress": [],
-        "key_risks": [],
-        "open_questions": [],
+        "key_risks": {"ai": [], "pinned": []},
+        "open_questions": {"ai": [], "pinned": []},
         "next_actions": [],
         "important_documents": [],
         "financial_status": "",
         "delivery_signals": [],
-        "stakeholder_notes": [],
+        "stakeholder_notes": {"ai": [], "pinned": []},
         "memory_version": project.memory_version,
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
+        "rebuild_log": [],
+        "_coverage": {},
     }
+
+
+def _flatten_editable_slot(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        merged: list[str] = []
+        for key in ("ai", "pinned"):
+            slot_value = value.get(key, [])
+            if isinstance(slot_value, list):
+                merged.extend(str(item).strip() for item in slot_value if str(item).strip())
+        return merged
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _normalize_editable_slot(value: Any, pinned: list[str] | None = None) -> dict[str, list[str]]:
+    pinned_values = [str(item).strip() for item in (pinned or []) if str(item).strip()]
+    if isinstance(value, dict):
+        ai_values = value.get("ai", [])
+        pinned_values = [
+            *pinned_values,
+            *[str(item).strip() for item in value.get("pinned", []) if str(item).strip()],
+        ]
+        return {
+            "ai": [str(item).strip() for item in ai_values if str(item).strip()] if isinstance(ai_values, list) else [],
+            "pinned": list(dict.fromkeys(pinned_values)),
+        }
+    if isinstance(value, list):
+        return {
+            "ai": [str(item).strip() for item in value if str(item).strip()],
+            "pinned": list(dict.fromkeys(pinned_values)),
+        }
+    return {"ai": [], "pinned": list(dict.fromkeys(pinned_values))}
+
+
+def _get_existing_raw_memory(project: Project) -> dict[str, Any]:
+    try:
+        parsed = json.loads(project.context_memory_json or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def get_project_memory_payload(project: Project) -> dict[str, Any]:
@@ -84,20 +128,28 @@ def get_project_memory_payload(project: Project) -> dict[str, Any]:
             parsed = {}
     except json.JSONDecodeError:
         parsed = {}
-    return {
+    payload = {
         **base,
         **parsed,
         "memory_version": project.memory_version,
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
     }
+    for slot_name in EDITABLE_MEMORY_SLOTS:
+        raw_value = payload.get(slot_name)
+        normalized = _normalize_editable_slot(raw_value)
+        payload[f"{slot_name}_detail"] = normalized
+        payload[slot_name] = _flatten_editable_slot(normalized)
+    return payload
 
 
-def mark_project_memory_stale(session: Session, project_id: int) -> None:
+def mark_project_memory_stale(session: Session, project_id: int, trigger: str = "data_changed") -> None:
     project = session.get(Project, project_id)
     if not project:
         return
     project.memory_stale = True
+    if project.memory_rebuild_status != "rebuilding":
+        project.memory_rebuild_status = "idle"
     project.updated_at = datetime.utcnow()
     session.add(project)
     session.commit()
@@ -147,7 +199,7 @@ def build_project_context_data(session: Session, project_id: int) -> tuple[Proje
     return project, "\n".join(lines)
 
 
-def build_project_memory_data(session: Session, project_id: int) -> tuple[Project, str]:
+def build_project_memory_data(session: Session, project_id: int) -> tuple[Project, str, dict[str, Any]]:
     """Full context for structured memory rebuild."""
     project = session.get(Project, project_id)
     if not project:
@@ -203,7 +255,15 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
                 f"  - {payment.payment_date} | {payment.payment_type} | {payment.amount} | {payment.note}"
             )
 
-    return project, "\n".join(lines)
+    coverage = {
+        "milestones_total": len(milestones),
+        "files_total": len(files),
+        "todos_total": len(todos),
+        "payments_total": len(payments),
+        "built_at": datetime.utcnow().isoformat(),
+    }
+
+    return project, "\n".join(lines), coverage
 
 
 def build_project_memory_prompt(project_data: str) -> str:
@@ -418,6 +478,7 @@ def _extract_first_json_object(raw: str) -> str:
 
 def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     base = _default_project_memory(project)
+    existing_raw = _get_existing_raw_memory(project)
     try:
         parsed = json.loads(_extract_first_json_object(raw))
         if not isinstance(parsed, dict):
@@ -426,16 +487,20 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
         parsed = {}
 
     memory = {**base, **parsed}
-    for key in (
-        "recent_progress",
-        "key_risks",
-        "open_questions",
-        "next_actions",
-        "delivery_signals",
-        "stakeholder_notes",
-    ):
+    for key in ("recent_progress", "next_actions", "delivery_signals"):
         value = memory.get(key)
         memory[key] = value if isinstance(value, list) else []
+
+    for key in EDITABLE_MEMORY_SLOTS:
+        existing_slot = existing_raw.get(key, {})
+        existing_pinned = []
+        if isinstance(existing_slot, dict):
+            existing_pinned = [
+                str(item).strip()
+                for item in existing_slot.get("pinned", [])
+                if str(item).strip()
+            ]
+        memory[key] = _normalize_editable_slot(memory.get(key), pinned=existing_pinned)
 
     important_documents = memory.get("important_documents")
     if isinstance(important_documents, list):
@@ -450,21 +515,48 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     else:
         memory["important_documents"] = []
 
+    memory["rebuild_log"] = existing_raw.get("rebuild_log", []) if isinstance(existing_raw.get("rebuild_log"), list) else []
+    memory["_coverage"] = existing_raw.get("_coverage", {}) if isinstance(existing_raw.get("_coverage"), dict) else {}
+
     return memory
 
 
-def save_project_memory(session: Session, project_id: int, memory: dict[str, Any]) -> dict[str, Any]:
+def save_project_memory(
+    session: Session,
+    project_id: int,
+    memory: dict[str, Any],
+    trigger: str = "manual",
+    coverage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
 
     project.memory_version = (project.memory_version or 0) + 1
     project.memory_updated_at = datetime.utcnow()
+    rebuild_log = memory.get("rebuild_log", [])
+    if not isinstance(rebuild_log, list):
+        rebuild_log = []
+    rebuild_log.append(
+        {
+            "at": project.memory_updated_at.isoformat(),
+            "trigger": trigger,
+            "version": project.memory_version,
+        }
+    )
+    memory["rebuild_log"] = rebuild_log[-10:]
+    memory["_coverage"] = {
+        **(memory.get("_coverage", {}) if isinstance(memory.get("_coverage"), dict) else {}),
+        **(coverage or {}),
+        "built_at": project.memory_updated_at.isoformat(),
+    }
     memory["memory_version"] = project.memory_version
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
     memory["stale"] = False
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)
     project.memory_stale = False
+    project.memory_rebuild_status = "idle"
+    project.memory_rebuild_failed_at = None
     project.updated_at = datetime.utcnow()
     session.add(project)
     session.commit()

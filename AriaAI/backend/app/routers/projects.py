@@ -1,8 +1,9 @@
 """Projects router — CRUD for projects, milestones, file uploads."""
 from __future__ import annotations
 
+import asyncio
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,12 +13,14 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 import json
-from app.config import UPLOADS_DIR
-from app.database import get_session
+from app.config import MEMORY_REBUILD_DEBOUNCE_SECONDS, UPLOADS_DIR
+from app.database import engine, get_session
 from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, User
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
+from app.services import scheduler as scheduler_service
 from app.models.db import Setting as _Setting
 from app.services.cache import projects_cache
+from app.services.client_contexts import mark_client_memory_stale_by_name
 from app.services.chat_exports import build_markdown_export_content
 from app.services.document_text import extract_text_from_file
 from app.services.project_ai import (
@@ -117,23 +120,109 @@ def _bust_project(project_id: int) -> None:
     projects_cache.delete_prefix("list:")
 
 
-def _mark_project_memory_stale(session: Session, project_id: int) -> None:
-    mark_project_memory_stale(session, project_id)
+def _memory_rebuild_job_id(project_id: int) -> str:
+    return f"project_memory_rebuild_{project_id}"
+
+
+async def _generate_memory_summary_cache(
+    session: Session,
+    project: Project,
+    memory_payload: dict,
+    summary_type: str,
+    language: str | None = None,
+) -> None:
+    prompt = build_project_memory_view_prompt(
+        memory_payload,
+        project.name,
+        summary_type,
+        language,
+    )
+    content = await complete_with_selected_model(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1400,
+    )
+    save_project_memory_summary_cache(
+        session,
+        project_id=project.id,
+        summary_type=summary_type,
+        language=language,
+        memory_version=int(memory_payload.get("memory_version", 0) or 0),
+        content=content.strip(),
+    )
+
+
+async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debounced") -> None:
+    with Session(engine) as session:
+        project = get_project_or_404(session, project_id)
+        project.memory_rebuild_status = "rebuilding"
+        project.memory_rebuild_failed_at = None
+        session.add(project)
+        session.commit()
+
+        try:
+            memory_payload = await _rebuild_project_memory(
+                session,
+                project_id,
+                project=project,
+                trigger=trigger,
+            )
+            project = get_project_or_404(session, project_id)
+            await _generate_memory_summary_cache(session, project, memory_payload, "overview")
+            await _generate_memory_summary_cache(session, project, memory_payload, "risk")
+            _bust_project(project_id)
+        except Exception:
+            project = get_project_or_404(session, project_id)
+            project.memory_rebuild_status = "failed"
+            project.memory_rebuild_failed_at = datetime.utcnow()
+            session.add(project)
+            session.commit()
+            raise
+
+
+def _schedule_project_memory_rebuild(project_id: int, trigger: str = "data_changed") -> None:
+    if not scheduler_service.is_running():
+        return
+    run_at = datetime.utcnow() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
+    scheduler_service.add_or_replace_date_job(
+        _memory_rebuild_job_id(project_id),
+        run_at,
+        _run_project_memory_rebuild_job,
+        args=[project_id, trigger],
+    )
+
+
+def _mark_project_memory_stale(session: Session, project_id: int, trigger: str = "data_changed") -> None:
+    mark_project_memory_stale(session, project_id, trigger=trigger)
+    project = session.get(Project, project_id)
+    if project:
+        mark_client_memory_stale_by_name(session, project.client, trigger="project_changed")
+    _schedule_project_memory_rebuild(project_id, trigger=trigger)
+    if project and project.memory_rebuild_status != "rebuilding":
+        project.memory_rebuild_status = "queued" if scheduler_service.is_running() else "idle"
+        session.add(project)
+        session.commit()
+
+
+def _refresh_instance(session: Session, instance):
+    if instance is not None and hasattr(instance, "__sqlmodel_relationships__"):
+        session.refresh(instance)
+    return instance
 
 
 async def _rebuild_project_memory(
     session: Session,
     project_id: int,
     project: Optional[Project] = None,
+    trigger: str = "manual",
 ) -> dict:
     project = project or get_project_or_404(session, project_id)
-    _, project_memory_data = build_project_memory_data(session, project_id)
+    _, project_memory_data, coverage = build_project_memory_data(session, project_id)
     raw_memory = await complete_with_selected_model(
         messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
         max_tokens=2200,
     )
     parsed_memory = parse_project_memory(raw_memory, project)
-    return save_project_memory(session, project_id, parsed_memory)
+    return save_project_memory(session, project_id, parsed_memory, trigger=trigger, coverage=coverage)
 
 
 async def _ensure_project_memory(
@@ -144,7 +233,7 @@ async def _ensure_project_memory(
     project = project or get_project_or_404(session, project_id)
     memory_payload = get_project_memory_payload(project)
     if project.memory_stale or project.memory_version == 0:
-        memory_payload = await _rebuild_project_memory(session, project_id, project)
+        memory_payload = await _rebuild_project_memory(session, project_id, project, trigger="on_demand")
         project = get_project_or_404(session, project_id)
     return project, memory_payload
 
@@ -298,6 +387,12 @@ def list_projects(
 @router.post("", status_code=201)
 def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
     project = create_project_record(session, data.model_dump())
+    _schedule_project_memory_rebuild(project.id, trigger="project_created")
+    if scheduler_service.is_running():
+        project.memory_rebuild_status = "queued"
+        session.add(project)
+        session.commit()
+        session.refresh(project)
     projects_cache.delete_prefix("list:")   # no detail key yet — project just created
     return project
 
@@ -356,7 +451,7 @@ def create_milestone(project_id: int, data: MilestoneCreate, session: Session = 
     )
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return ms
+    return _refresh_instance(session, ms)
 
 
 @router.patch("/{project_id}/milestones/{ms_id}")
@@ -364,7 +459,7 @@ def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session
     ms = update_project_milestone(session, project_id, ms_id, data.model_dump(exclude_none=True))
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return ms
+    return _refresh_instance(session, ms)
 
 
 @router.delete("/{project_id}/milestones/{ms_id}")
@@ -416,7 +511,7 @@ def create_project_document(
     )
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return project_file
+    return _refresh_instance(session, project_file)
 
 
 @router.get("/{project_id}/documents/{file_id}")
@@ -443,7 +538,7 @@ def update_project_document(
     )
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return result
+    return _refresh_instance(session, result)
 
 
 @router.post("/{project_id}/conversations/{conv_id}/save-markdown", status_code=201)
@@ -644,7 +739,7 @@ async def upload_file(
 
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return pf
+    return _refresh_instance(session, pf)
 
 
 @router.delete("/{project_id}/files/{file_id}")
@@ -687,7 +782,7 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
     )
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return folder
+    return _refresh_instance(session, folder)
 
 
 @router.delete("/{project_id}/folders/{folder_id}")
@@ -717,7 +812,7 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
     )
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return payment
+    return _refresh_instance(session, payment)
 
 
 @router.delete("/{project_id}/financials/{payment_id}")
@@ -848,6 +943,8 @@ def get_project_memory(project_id: int, session: Session = Depends(get_session))
         "memory_version": project.memory_version,
         "memory_stale": project.memory_stale,
         "memory_updated_at": project.memory_updated_at,
+        "memory_rebuild_status": project.memory_rebuild_status,
+        "memory_rebuild_failed_at": project.memory_rebuild_failed_at,
     }
 
 
@@ -860,6 +957,8 @@ def get_project_memory_status(project_id: int, session: Session = Depends(get_se
         "memory_version": project.memory_version,
         "memory_stale": project.memory_stale,
         "memory_updated_at": project.memory_updated_at,
+        "memory_rebuild_status": project.memory_rebuild_status,
+        "memory_rebuild_failed_at": project.memory_rebuild_failed_at,
     }
 
 
@@ -894,7 +993,8 @@ async def rebuild_project_memory_batch(
             )
             continue
 
-        saved_memory = await _rebuild_project_memory(session, project.id, project)
+        scheduler_service.remove_job(_memory_rebuild_job_id(project.id))
+        saved_memory = await _rebuild_project_memory(session, project.id, project, trigger="batch")
         _bust_project(project.id)
         rebuilt.append(
             {
@@ -903,6 +1003,7 @@ async def rebuild_project_memory_batch(
                 "memory_version": saved_memory.get("memory_version", 0),
                 "memory_updated_at": saved_memory.get("last_updated_at", ""),
                 "memory_stale": False,
+                "memory_rebuild_status": "idle",
             }
         )
 
@@ -917,7 +1018,8 @@ async def rebuild_project_memory_batch(
 
 @router.post("/{project_id}/memory/rebuild")
 async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
-    saved_memory = await _rebuild_project_memory(session, project_id)
+    scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
+    saved_memory = await _rebuild_project_memory(session, project_id, trigger="manual")
     _bust_project(project_id)
     return {
         "ok": True,
@@ -925,6 +1027,7 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
         "memory": saved_memory,
         "memory_version": saved_memory.get("memory_version", 0),
         "memory_updated_at": saved_memory.get("last_updated_at", ""),
+        "memory_rebuild_status": "idle",
     }
 
 
