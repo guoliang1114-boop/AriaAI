@@ -17,6 +17,32 @@ const formatAmountInTenThousand = (amount: number | undefined | null): string =>
     : tenThousand.toLocaleString("zh-CN");
 };
 
+const MARKDOWN_BOLD = /\*\*(.*?)\*\*/g;
+const LEADING_BULLET = /^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/;
+const LABEL_PREFIX = /^([^:：]{1,12})[:：]\s*/;
+
+function truncateSummary(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+function toCardSummary(rawText: string, isZh: boolean): string {
+  const normalized = rawText
+    .replace(MARKDOWN_BOLD, "$1")
+    .split(/\r?\n+/)
+    .map((line) => line.replace(LEADING_BULLET, "").trim())
+    .filter(Boolean);
+
+  const candidates = normalized
+    .map((line) => line.replace(LABEL_PREFIX, "").trim())
+    .filter(Boolean);
+
+  const firstMeaningful = candidates[0] || "";
+  const firstSentence = firstMeaningful.split(/[。！？.!?；;]/)[0]?.trim() || firstMeaningful;
+
+  return truncateSummary(firstSentence, isZh ? 36 : 72);
+}
+
 interface ProjectKanbanCardProps {
   onClick: () => void;
   project: Project;
@@ -26,10 +52,8 @@ interface ProjectKanbanCardProps {
 export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCardProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const summaryText = (project.context_summary?.trim() || project.description?.trim() || "")
-    .replace(/^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const sourceText = project.context_summary?.trim() || project.description?.trim() || "";
+  const summaryText = sourceText ? toCardSummary(sourceText, isZh) : "";
 
   return (
     <div
@@ -50,7 +74,7 @@ export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCard
 
         <div className="mb-3 min-h-[20px] text-xs leading-relaxed text-gray-500">
           {summaryText ? (
-            <p className="line-clamp-2">{summaryText}</p>
+            <p className="line-clamp-1">{summaryText}</p>
           ) : (
             <p className="line-clamp-1">{isZh ? "暂无项目摘要" : "No summary yet"}</p>
           )}
