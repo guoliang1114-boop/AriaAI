@@ -47,7 +47,7 @@ export const PROJECT_CHAT_COPY = {
     currentClient: "当前客户",
     globalKnowledge: "全局知识库",
     startConversation: "开始对话",
-    choosePromptOrAsk: "选择下方快捷场景或直接输入问题",
+    choosePromptOrAsk: "选择下方快捷场景，或直接输入你的问题",
     thinking: "思考中...",
     inputPlaceholder: "输入消息...（Shift+Enter 换行）",
     export: "导出",
@@ -55,10 +55,10 @@ export const PROJECT_CHAT_COPY = {
     exportPDF: "导出 PDF",
     exportFailed: "导出失败",
     saveConversationToProject: "保存到项目",
-    quickPromptSummary: "总结项目",
-    quickPromptMilestones: "分析里程碑",
-    quickPromptRisks: "识别风险",
-    quickPromptDocuments: "文档问答",
+    quickPromptSummary: "项目概览",
+    quickPromptMilestones: "里程碑推进",
+    quickPromptRisks: "项目风险",
+    quickPromptDocuments: "文档洞察",
   },
   en: {
     defaultNewChatTitle: "New Chat",
@@ -84,8 +84,7 @@ export const PROJECT_CHAT_COPY = {
     confirmSave: "Save",
     createConversationFailed: "Failed to create conversation",
     deleteConversationTitle: "Delete conversation",
-    deleteConversationConfirm:
-      "Are you sure you want to delete this conversation?",
+    deleteConversationConfirm: "Are you sure you want to delete this conversation?",
     deleteConversationAction: "Delete",
     deleteConversationFailed: "Failed to delete",
     renameConversationFailed: "Failed to rename",
@@ -101,7 +100,7 @@ export const PROJECT_CHAT_COPY = {
     currentClient: "Current Client",
     globalKnowledge: "Global Knowledge",
     startConversation: "Start a conversation",
-    choosePromptOrAsk: "Choose a quick prompt below or type your question",
+    choosePromptOrAsk: "Choose a quick scenario below or type your question",
     thinking: "Thinking...",
     inputPlaceholder: "Type a message... (Shift+Enter for new line)",
     export: "Export",
@@ -109,19 +108,27 @@ export const PROJECT_CHAT_COPY = {
     exportPDF: "Export PDF",
     exportFailed: "Export failed",
     saveConversationToProject: "Save to project",
-    quickPromptSummary: "Summarize Project",
-    quickPromptMilestones: "Analyze Milestones",
-    quickPromptRisks: "Identify Risks",
-    quickPromptDocuments: "Document Q&A",
+    quickPromptSummary: "Project Overview",
+    quickPromptMilestones: "Milestone Review",
+    quickPromptRisks: "Risk Review",
+    quickPromptDocuments: "Document Insights",
   },
 } as const;
 
 export type ProjectChatCopy =
   (typeof PROJECT_CHAT_COPY)[keyof typeof PROJECT_CHAT_COPY];
+
 export type ProjectQuickPrompt = {
   key: string;
   icon: LucideIcon;
   label: string;
+  prompt: string;
+};
+
+export type ProjectMemoryQuickAction = {
+  key: "overview" | "risk" | "delivery" | "stakeholder";
+  label: string;
+  prompt: string;
 };
 
 export function getProjectChatCopy(isZh: boolean) {
@@ -130,11 +137,126 @@ export function getProjectChatCopy(isZh: boolean) {
 
 export function getProjectQuickPrompts(isZh: boolean): ProjectQuickPrompt[] {
   const copy = getProjectChatCopy(isZh);
+  if (isZh) {
+    return [
+      {
+        key: "summary",
+        icon: FileText,
+        label: copy.quickPromptSummary,
+        prompt:
+          "请基于当前项目的结构化记忆，给我一个 5 条以内的项目概览摘要，覆盖当前阶段、关键进展、风险和下一步动作。",
+      },
+      {
+        key: "milestones",
+        icon: Flag,
+        label: copy.quickPromptMilestones,
+        prompt:
+          "请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。",
+      },
+      {
+        key: "risks",
+        icon: AlertCircle,
+        label: copy.quickPromptRisks,
+        prompt:
+          "请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。",
+      },
+      {
+        key: "documents",
+        icon: FolderKanban,
+        label: copy.quickPromptDocuments,
+        prompt:
+          "请基于当前项目的结构化记忆和重要文档线索，总结最值得关注的文档洞察，并说明这些文档分别支持了什么判断。",
+      },
+    ];
+  }
+
   return [
-    { key: "summary", icon: FileText, label: copy.quickPromptSummary },
-    { key: "milestones", icon: Flag, label: copy.quickPromptMilestones },
-    { key: "risks", icon: AlertCircle, label: copy.quickPromptRisks },
-    { key: "documents", icon: FolderKanban, label: copy.quickPromptDocuments },
+    {
+      key: "summary",
+      icon: FileText,
+      label: copy.quickPromptSummary,
+      prompt:
+        "Based on the current project's structured memory, give me an overview in no more than 5 bullet points covering stage, progress, risks, and next actions.",
+    },
+    {
+      key: "milestones",
+      icon: Flag,
+      label: copy.quickPromptMilestones,
+      prompt:
+        "Based on the current project's structured memory, review milestone progress, call out completed progress, likely delays, and the next milestone that needs attention.",
+    },
+    {
+      key: "risks",
+      icon: AlertCircle,
+      label: copy.quickPromptRisks,
+      prompt:
+        "Based on the current project's structured memory, identify the most important project risks and blockers, then suggest practical mitigation actions.",
+    },
+    {
+      key: "documents",
+      icon: FolderKanban,
+      label: copy.quickPromptDocuments,
+      prompt:
+        "Based on the current project's structured memory and important document signals, summarize the document insights that matter most and explain what each document supports.",
+    },
+  ];
+}
+
+export function getProjectMemoryQuickActions(isZh: boolean): ProjectMemoryQuickAction[] {
+  if (isZh) {
+    return [
+      {
+        key: "overview",
+        label: "记忆概览",
+        prompt:
+          "请基于当前项目的结构化记忆，给我一个简明项目概览，覆盖阶段、核心进展、关键风险和下一步动作。",
+      },
+      {
+        key: "risk",
+        label: "风险视角",
+        prompt:
+          "请基于当前项目的结构化记忆，从风险视角总结最需要管理层注意的问题、潜在阻塞和建议动作。",
+      },
+      {
+        key: "delivery",
+        label: "交付视角",
+        prompt:
+          "请基于当前项目的结构化记忆，从交付视角总结当前推进状态、关键里程碑和最近需要执行的动作。",
+      },
+      {
+        key: "stakeholder",
+        label: "干系人视角",
+        prompt:
+          "请基于当前项目的结构化记忆，从干系人视角总结关键关注方、对齐状态、未决问题和建议跟进。",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "overview",
+      label: "Memory Overview",
+      prompt:
+        "Based on the current project's structured memory, give me a concise project overview covering stage, progress, key risks, and next actions.",
+    },
+    {
+      key: "risk",
+      label: "Risk View",
+      prompt:
+        "Based on the current project's structured memory, summarize the risks, blockers, and the actions that need the most attention.",
+    },
+    {
+      key: "delivery",
+      label: "Delivery View",
+      prompt:
+        "Based on the current project's structured memory, summarize the delivery status, milestone momentum, and the next execution steps.",
+    },
+    {
+      key: "stakeholder",
+      label: "Stakeholder View",
+      prompt:
+        "Based on the current project's structured memory, summarize the key stakeholders, alignment status, unresolved questions, and suggested follow-ups.",
+    },
   ];
 }
 

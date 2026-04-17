@@ -25,7 +25,7 @@ export function ProjectChatEmptyState({
         {quickPrompts.map((prompt) => (
           <button
             key={prompt.key}
-            onClick={() => onQuickPrompt(prompt.label)}
+            onClick={() => onQuickPrompt(prompt.prompt)}
             className="flex items-center gap-2 p-3 bg-white border border-gray-200 hover:border-primary/30 hover:bg-primary/5 rounded-xl text-left transition-all shadow-sm hover:shadow"
           >
             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">

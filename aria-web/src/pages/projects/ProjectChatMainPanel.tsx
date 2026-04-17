@@ -3,8 +3,9 @@ import type { Conversation, GeneratedArtifact, Message, Reference, ToolCallEvent
 import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
+import { ProjectChatMemoryQuickBar } from "./ProjectChatMemoryQuickBar";
 import { ProjectChatMessages } from "./ProjectChatMessages";
-import type { ProjectQuickPrompt } from "./projectChatCopy";
+import type { ProjectMemoryQuickAction, ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatMainPanelProps {
   activeConversation?: Conversation | null;
@@ -14,6 +15,7 @@ interface ProjectChatMainPanelProps {
   isLoadingMessages: boolean;
   isSidebarOpen: boolean;
   knowledgeScope: "project" | "client" | "global";
+  memoryQuickActions: ProjectMemoryQuickAction[];
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
@@ -48,6 +50,7 @@ export function ProjectChatMainPanel({
   isLoadingMessages,
   isSidebarOpen,
   knowledgeScope,
+  memoryQuickActions,
   messages,
   messagesContainerRef,
   onInputChange,
@@ -87,6 +90,11 @@ export function ProjectChatMainPanel({
             />
           ) : undefined
         }
+      />
+
+      <ProjectChatMemoryQuickBar
+        actions={memoryQuickActions}
+        onSelect={onQuickPrompt}
       />
 
       <div

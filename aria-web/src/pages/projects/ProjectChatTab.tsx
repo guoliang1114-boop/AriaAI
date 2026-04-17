@@ -12,7 +12,11 @@ import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
 import { downloadArtifact } from "./downloadArtifact";
-import { getProjectChatCopy, getProjectQuickPrompts } from "./projectChatCopy";
+import {
+  getProjectChatCopy,
+  getProjectMemoryQuickActions,
+  getProjectQuickPrompts,
+} from "./projectChatCopy";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 import { useProjectChatPanel } from "./useProjectChatPanel";
@@ -32,6 +36,7 @@ export function ProjectChatTab({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const quickPrompts = getProjectQuickPrompts(isZh);
+  const memoryQuickActions = getProjectMemoryQuickActions(isZh);
   const toast = useToast();
 
   const {
@@ -142,6 +147,7 @@ export function ProjectChatTab({
         isLoadingMessages={isLoadingMessages}
         isSidebarOpen={panel.isSidebarOpen}
         knowledgeScope={panel.knowledgeScope}
+        memoryQuickActions={memoryQuickActions}
         messages={messages}
         messagesContainerRef={panel.messagesContainerRef}
         onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
