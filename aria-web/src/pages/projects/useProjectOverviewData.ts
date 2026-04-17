@@ -38,6 +38,74 @@ interface UseProjectOverviewDataOptions {
 
 type SummaryCache = Partial<Record<ProjectMemorySummaryType, string>>;
 
+async function streamSummaryRequest<TDone extends object>(options: {
+  body?: Record<string, unknown>;
+  errorMessage: string;
+  onChunk: (content: string) => void;
+  onDone?: (payload: TDone) => void;
+  url: string;
+}) {
+  const token = localStorage.getItem("authToken") || "";
+  const response = await fetch(options.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Auth-Token": token,
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return "";
+  }
+
+  const decoder = new TextDecoder();
+  let fullText = "";
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+
+      const data = JSON.parse(line.slice(6)) as
+        | ({ type?: "text"; content?: string; message?: string } & TDone)
+        | ({ type?: "done"; content?: string; message?: string } & TDone)
+        | ({ type?: "error"; content?: string; message?: string } & TDone);
+
+      if (data.type === "text" && data.content) {
+        fullText += data.content;
+        options.onChunk(fullText);
+        continue;
+      }
+
+      if (data.type === "done") {
+        fullText = (data.content || fullText).trim();
+        options.onChunk(fullText);
+        options.onDone?.(data);
+        continue;
+      }
+
+      if (data.type === "error") {
+        throw new Error(data.message || options.errorMessage);
+      }
+    }
+  }
+
+  return fullText.trim();
+}
+
 export function useProjectOverviewData({
   isZh,
   mdNotes,
@@ -205,7 +273,11 @@ export function useProjectOverviewData({
   const rebuildMemory = async () => {
     setIsRebuildingMemory(true);
     try {
-      const data = await api.post<ProjectMemoryResponse>(`/projects/${projectId}/memory/rebuild`, {});
+      const data = await api.post<ProjectMemoryResponse>(
+        `/projects/${projectId}/memory/rebuild`,
+        {},
+        { timeout: 60000 },
+      );
       setMemory(data.memory);
     } finally {
       setIsRebuildingMemory(false);
@@ -218,53 +290,18 @@ export function useProjectOverviewData({
     setSummaryError("");
 
     try {
-      const token = localStorage.getItem("authToken") || "";
-      const response = await fetch(`/api/projects/${projectId}/generate-context`, {
-        method: "POST",
-        headers: {
-          "X-Auth-Token": token,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullSummary = "";
-      let buffer = "";
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-
-            const data = JSON.parse(line.slice(6));
-            if (data.type === "text" && data.content) {
-              fullSummary += data.content;
-              setSummaryText(fullSummary);
-            } else if (data.type === "done") {
-              fullSummary = data.context_summary || fullSummary;
-              setSummaryText(fullSummary);
-            } else if (data.type === "error") {
-              throw new Error(
-                data.message ||
-                  (isZh
-                    ? "生成项目总结失败，请稍后重试"
-                    : "Failed to generate project summary, please try again"),
-              );
-            }
+      const fullSummary = await streamSummaryRequest<{ context_summary?: string }>({
+        errorMessage: isZh
+          ? "生成项目总结失败，请稍后重试"
+          : "Failed to generate project summary, please try again",
+        onChunk: setSummaryText,
+        onDone: (data) => {
+          if (data.context_summary) {
+            setSummaryText(data.context_summary);
           }
-        }
-      }
+        },
+        url: `/api/projects/${projectId}/generate-context`,
+      });
 
       setSummaryCache((current) => ({
         ...current,
@@ -300,14 +337,19 @@ export function useProjectOverviewData({
     setSummaryText("");
 
     try {
-      const data = await api.post<ProjectMemorySummaryResponse>(
-        `/projects/${projectId}/memory/summarize`,
-        {
+      const content = await streamSummaryRequest<ProjectMemorySummaryResponse>({
+        body: {
           summary_type: nextType,
           rebuild_if_stale: true,
+          stream: true,
         },
-      );
-      const content = (data.content || "").trim();
+        errorMessage: isZh
+          ? "生成项目摘要失败，请稍后重试"
+          : "Failed to generate project summary, please try again",
+        onChunk: setSummaryText,
+        url: `/api/projects/${projectId}/memory/summarize`,
+      });
+
       setSummaryCache((current) => ({
         ...current,
         [nextType]: content,

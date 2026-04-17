@@ -2,6 +2,7 @@ import { Bot, ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react
 import { useTranslation } from "react-i18next";
 
 import { getProjectChatCopy } from "./projectChatCopy";
+import { formatProjectMemoryUpdatedAt } from "./projectMemoryTime";
 
 type ProjectChatHeaderProps = {
   hasMemory: boolean;
@@ -39,6 +40,7 @@ export function ProjectChatHeader({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
+
   const memoryLabel = isLoadingMemoryStatus
     ? isZh
       ? "记忆加载中"
@@ -54,11 +56,6 @@ export function ProjectChatHeader({
         : isZh
           ? "记忆已同步"
           : "Memory ready";
-  const updatedLabel = memoryUpdatedAt
-    ? new Date(memoryUpdatedAt).toLocaleString()
-    : isZh
-      ? "暂无"
-      : "N/A";
 
   return (
     <div className="flex items-center justify-between border-b border-gray-100 bg-white p-4">
@@ -67,7 +64,11 @@ export function ProjectChatHeader({
           onClick={onToggleSidebar}
           className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100"
         >
-          {isSidebarOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+          {isSidebarOpen ? (
+            <ChevronLeft className="h-5 w-5" />
+          ) : (
+            <ChevronRight className="h-5 w-5" />
+          )}
         </button>
         <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
           <Bot className="h-5 w-5 text-primary" />
@@ -96,14 +97,18 @@ export function ProjectChatHeader({
             </span>
           </div>
           <p className="mt-1 text-[11px] text-gray-400">
-            {isZh ? "更新时间" : "Updated"}: {updatedLabel}
+            {isZh ? "更新时间" : "Updated"}:{" "}
+            {formatProjectMemoryUpdatedAt(memoryUpdatedAt, isZh)}
           </p>
         </div>
+
         <div className="hidden items-center gap-2 md:flex">
           <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
           <select
             value={knowledgeScope}
-            onChange={(event) => onKnowledgeScopeChange(event.target.value as "project" | "client" | "global")}
+            onChange={(event) =>
+              onKnowledgeScopeChange(event.target.value as "project" | "client" | "global")
+            }
             className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
             <option value="project">{copy.currentProject}</option>
@@ -111,6 +116,7 @@ export function ProjectChatHeader({
             <option value="global">{copy.globalKnowledge}</option>
           </select>
         </div>
+
         <button
           type="button"
           onClick={onRebuildMemory}
@@ -124,6 +130,7 @@ export function ProjectChatHeader({
           )}
           {isZh ? "重建记忆" : "Rebuild Memory"}
         </button>
+
         {exportControl}
       </div>
     </div>

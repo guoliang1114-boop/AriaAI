@@ -483,6 +483,54 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body[0]["name"], "China Market Entry Strategy")
         self.assertIn("go-to-market", body[0]["description"])
 
+    def test_project_memory_status_and_rebuild_flow(self):
+        with Session(self.engine) as session:
+            project = Project(name="Memory Project", client="Client", description="Alpha project")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        status_before = self.client.get(f"/projects/{project_id}/memory/status")
+        self.assertEqual(status_before.status_code, 200)
+        self.assertFalse(status_before.json()["has_memory"])
+        self.assertTrue(status_before.json()["memory_stale"])
+
+        with patch.object(
+            projects_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "project_brief": "Alpha project brief",
+                        "current_stage": "lead",
+                        "recent_progress": ["Kickoff prepared"],
+                        "key_risks": ["Timeline risk"],
+                        "open_questions": [],
+                        "next_actions": ["Confirm scope"],
+                        "important_documents": [{"name": "brief.md", "reason": "Core scope"}],
+                        "financial_status": "No contract signed yet",
+                        "delivery_signals": [],
+                        "stakeholder_notes": [],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ):
+            rebuild_resp = self.client.post(f"/projects/{project_id}/memory/rebuild")
+
+        self.assertEqual(rebuild_resp.status_code, 200)
+        rebuild_body = rebuild_resp.json()
+        self.assertTrue(rebuild_body["ok"])
+        self.assertEqual(rebuild_body["memory"]["project_brief"], "Alpha project brief")
+        self.assertEqual(rebuild_body["memory_version"], 1)
+
+        status_after = self.client.get(f"/projects/{project_id}/memory/status")
+        self.assertEqual(status_after.status_code, 200)
+        self.assertTrue(status_after.json()["has_memory"])
+        self.assertFalse(status_after.json()["memory_stale"])
+        self.assertEqual(status_after.json()["memory_version"], 1)
+
     def test_auto_summarize_file_persists_generated_summary(self):
         with Session(self.engine) as session:
             project = Project(name="Upload Project", client="Client")

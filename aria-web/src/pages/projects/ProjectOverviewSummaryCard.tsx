@@ -44,19 +44,19 @@ function getSummaryHint(type: ProjectMemorySummaryType, isZh: boolean) {
   if (!isZh) {
     return {
       overview: "Streaming overview generated from project memory",
-      risk: "Focused on current risks and blocked decisions",
-      delivery: "Focused on delivery progress and next execution steps",
-      stakeholder: "Focused on stakeholder alignment and follow-ups",
-      "client-facing": "Focused on client-safe progress updates",
+      risk: "Streaming summary focused on current risks and blocked decisions",
+      delivery: "Streaming summary focused on delivery progress and next execution steps",
+      stakeholder: "Streaming summary focused on stakeholder alignment and follow-ups",
+      "client-facing": "Streaming summary focused on client-safe progress updates",
     }[type];
   }
 
   return {
     overview: "基于项目记忆流式生成的概览摘要",
-    risk: "聚焦当前风险、阻塞点和需要关注的事项",
-    delivery: "聚焦交付进展、重要文档和下一步执行动作",
-    stakeholder: "聚焦干系人关注点、对齐情况和后续跟进",
-    "client-facing": "聚焦适合对外沟通的客户视角进展",
+    risk: "流式聚焦当前风险、阻塞点和需要关注的事项",
+    delivery: "流式聚焦交付进展、重要文档和下一步执行动作",
+    stakeholder: "流式聚焦干系人关注点、对齐情况和后续跟进",
+    "client-facing": "流式聚焦适合对外沟通的客户视角进展",
   }[type];
 }
 
@@ -70,7 +70,7 @@ export function ProjectOverviewSummaryCard({
   summaryType,
 }: ProjectOverviewSummaryCardProps) {
   const title = isZh ? "AI 项目总结" : "AI Project Summary";
-  const generateLabel = isZh ? "生成摘要" : "Generate Summary";
+  const generateLabel = isZh ? "生成总结" : "Generate Summary";
   const regenerateLabel = isZh ? "重新生成" : "Regenerate";
 
   const controls = (
@@ -109,13 +109,7 @@ export function ProjectOverviewSummaryCard({
                 {generatingSummary && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[11px] text-indigo-600">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    {summaryType === "overview"
-                      ? isZh
-                        ? "流式生成中"
-                        : "Streaming"
-                      : isZh
-                        ? "生成中"
-                        : "Generating"}
+                    {isZh ? "流式生成中" : "Streaming"}
                   </span>
                 )}
               </div>
@@ -150,7 +144,7 @@ export function ProjectOverviewSummaryCard({
               .replace(/^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/gm, "- ")
               .replace(/\n(?!\n)/g, "\n\n")}
           />
-          {generatingSummary && summaryType === "overview" && (
+          {generatingSummary && (
             <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-indigo-500 align-middle" />
           )}
         </div>

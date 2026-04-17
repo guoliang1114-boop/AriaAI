@@ -741,6 +741,7 @@ class ProjectAISuggestion(BaseModel):
 class ProjectMemorySummarizeRequest(BaseModel):
     summary_type: str = "overview"
     rebuild_if_stale: bool = True
+    stream: bool = False
 
 
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
@@ -866,13 +867,45 @@ async def summarize_project_memory(
         memory_payload = get_project_memory_payload(project)
 
     summary_type = (body.summary_type or "overview").strip() or "overview"
+    prompt = build_project_memory_view_prompt(memory_payload, project.name, summary_type)
+    if body.stream:
+        async def event_stream():
+            accumulated: list[str] = []
+            try:
+                async for chunk in stream_llm_text_chunks(
+                    stream_with_selected_model(
+                        [{"role": "user", "content": prompt}],
+                        max_tokens=900,
+                    )
+                ):
+                    accumulated.append(chunk)
+                    yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                return
+
+            content = "".join(accumulated).strip()
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "done",
+                        "project_id": project_id,
+                        "summary_type": summary_type,
+                        "content": content,
+                        "source_memory_version": memory_payload.get("memory_version", 0),
+                        "memory_stale": memory_payload.get("stale", False),
+                        "generated_at": datetime.utcnow().isoformat(),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
     content = await complete_with_selected_model(
-        messages=[
-            {
-                "role": "user",
-                "content": build_project_memory_view_prompt(memory_payload, project.name, summary_type),
-            }
-        ],
+        messages=[{"role": "user", "content": prompt}],
         max_tokens=900,
     )
     return {

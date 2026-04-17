@@ -1,5 +1,6 @@
 import { Brain, Loader2, RefreshCw } from "lucide-react";
 import type { ProjectMemory } from "../../types/api";
+import { formatProjectMemoryUpdatedAt } from "./projectMemoryTime";
 
 interface ProjectOverviewMemoryCardProps {
   isZh: boolean;
@@ -7,13 +8,6 @@ interface ProjectOverviewMemoryCardProps {
   isRebuilding: boolean;
   memory: ProjectMemory | null;
   onRebuild: () => void;
-}
-
-function formatUpdatedAt(value: string | undefined, isZh: boolean) {
-  if (!value) return isZh ? "暂无" : "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
 }
 
 export function ProjectOverviewMemoryCard({
@@ -74,7 +68,7 @@ export function ProjectOverviewMemoryCard({
         <div className="flex items-start justify-between gap-4">
           <span className="text-gray-500">{isZh ? "更新时间" : "Updated"}</span>
           <span className="text-right font-medium text-gray-900">
-            {formatUpdatedAt(memory?.last_updated_at, isZh)}
+            {formatProjectMemoryUpdatedAt(memory?.last_updated_at, isZh)}
           </span>
         </div>
 
