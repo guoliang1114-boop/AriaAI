@@ -18,8 +18,8 @@ import { UsersSettings } from './pages/settings/UsersSettings'
 import { ServerSettings } from './pages/settings/ServerSettings'
 import { LanguageSettings } from './pages/settings/LanguageSettings'
 import { AboutSettings } from './pages/settings/AboutSettings'
+import { ProjectMemorySettings } from './pages/settings/ProjectMemorySettings'
 
-// Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
   if (!isAuthenticated) {
@@ -52,6 +52,7 @@ function AppRoutes() {
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<ProfileSettings />} />
           <Route path="ai" element={<AISettings />} />
+          <Route path="memory" element={<ProjectMemorySettings />} />
           <Route path="users" element={<UsersSettings />} />
           <Route path="server" element={<ServerSettings />} />
           <Route path="language" element={<LanguageSettings />} />

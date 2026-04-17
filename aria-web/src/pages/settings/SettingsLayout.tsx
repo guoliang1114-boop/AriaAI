@@ -1,14 +1,16 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Brain, Server, User, Globe, Users, Info } from 'lucide-react'
+import { Brain, Database, Globe, Info, Server, User, Users } from 'lucide-react'
 import { PageTitle } from '../../components/PageTitle'
 
 export function SettingsLayout() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
 
   const settingNavItems = [
     { path: '', icon: User, label: t('settings.profile') },
     { path: 'ai', icon: Brain, label: t('settings.aiModel') },
+    { path: 'memory', icon: Database, label: isZh ? '记忆管理' : 'Memory Manager' },
     { path: 'server', icon: Server, label: t('settings.server.title') },
     { path: 'language', icon: Globe, label: t('settings.language') },
     { path: 'users', icon: Users, label: t('settings.users') },
@@ -22,12 +24,11 @@ export function SettingsLayout() {
         <div className="max-w-7xl mx-auto px-6 py-8">
           <h1 className="text-headline-md text-on-surface mb-2">{t('settings.title')}</h1>
           <p className="text-body-md text-on-surface-muted mb-8">{t('settings.description')}</p>
-          
+
           <div className="flex gap-6">
-            {/* Sidebar */}
             <aside className="w-56 flex-shrink-0">
               <nav className="space-y-1 bg-surface-container-low rounded-xl p-2">
-                {settingNavItems.map(item => (
+                {settingNavItems.map((item) => (
                   <NavLink
                     key={item.path}
                     to={item.path}
@@ -47,7 +48,6 @@ export function SettingsLayout() {
               </nav>
             </aside>
 
-            {/* Content */}
             <div className="flex-1 card">
               <Outlet />
             </div>
