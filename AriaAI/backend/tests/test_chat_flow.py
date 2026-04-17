@@ -228,6 +228,20 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("focused on project risks", prompt)
         self.assertIn('"key_risks": ["Timeline risk"]', prompt)
 
+    def test_build_project_summary_from_memory_prompt_respects_language(self):
+        prompt = project_contexts_module.build_project_summary_from_memory_prompt(
+            {
+                "project_brief": "Alpha rollout",
+                "current_stage": "delivery",
+                "next_actions": ["Confirm scope"],
+            },
+            "Alpha",
+            "zh-CN",
+        )
+
+        self.assertIn("Write the answer in Chinese", prompt)
+        self.assertIn("Structured memory JSON", prompt)
+
     def test_stream_llm_text_chunks_skips_tool_markers(self):
         async def fake_chunks():
             yield '{"type": "tool_use","id":"tool-1"}'
@@ -1267,6 +1281,89 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         with Session(self.engine) as session:
             saved_project = session.get(Project, project_id)
             self.assertEqual(saved_project.context_summary, "- **Current summary**")
+
+    def test_generate_project_context_respects_requested_language(self):
+        captured = {}
+
+        async def fake_stream(messages, max_tokens=4000):
+            captured["prompt"] = messages[0]["content"]
+            yield "- 当前摘要"
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="Localized Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "next_actions": ["Confirm scope"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=1,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(projects_router_module, "stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
+            resp = self.client.post(
+                f"/projects/{project_id}/generate-context",
+                json={"language": "zh-CN"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("Write the answer in Chinese", captured["prompt"])
+        self.assertIn("当前摘要", resp.text)
+
+    def test_memory_summarize_streams_sse_events(self):
+        captured = {}
+
+        async def fake_stream(messages, max_tokens=4000):
+            captured["prompt"] = messages[0]["content"]
+            yield "- chunk 1"
+            yield " chunk 2"
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="Memory Stream Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                        "next_actions": ["Confirm scope"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=2,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(projects_router_module, "stream_with_selected_model", side_effect=fake_stream):
+            resp = self.client.post(
+                f"/projects/{project_id}/memory/summarize",
+                json={
+                    "summary_type": "risk",
+                    "stream": True,
+                    "language": "en-US",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("data: ", resp.text)
+        self.assertIn('"type": "text"', resp.text)
+        self.assertIn('"type": "done"', resp.text)
+        self.assertIn("- chunk 1 chunk 2", resp.text)
+        self.assertIn("Write the answer in English", captured["prompt"])
 
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:

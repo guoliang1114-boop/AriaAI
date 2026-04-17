@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type {
   GeneratedArtifact,
@@ -10,11 +10,11 @@ import type {
   ProjectMemoryResponse,
   ProjectMemoryStatusResponse,
 } from "../../types/api";
+import { downloadArtifact } from "./downloadArtifact";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
-import { downloadArtifact } from "./downloadArtifact";
 import {
   getProjectChatCopy,
   getProjectMemoryQuickActions,
@@ -44,6 +44,7 @@ export function ProjectChatTab({
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const autoRefreshAttemptedRef = useRef("");
 
   const {
     conversations,
@@ -137,10 +138,14 @@ export function ProjectChatTab({
     }
   };
 
-  const handleRebuildMemory = async () => {
+  const handleRebuildMemory = async (silent = false) => {
     setIsRebuildingMemory(true);
     try {
-      const data = await api.post<ProjectMemoryResponse>(`/projects/${project.id}/memory/rebuild`, {});
+      const data = await api.post<ProjectMemoryResponse>(
+        `/projects/${project.id}/memory/rebuild`,
+        {},
+        { timeout: 60000 },
+      );
       setMemoryStatus({
         project_id: project.id,
         has_memory: true,
@@ -148,14 +153,44 @@ export function ProjectChatTab({
         memory_updated_at: data.memory_updated_at,
         memory_version: data.memory_version,
       });
-      toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
+      if (!silent) {
+        toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
+      }
     } catch (error) {
       console.error("Failed to rebuild project memory:", error);
-      toast.error(isZh ? "重建项目记忆失败" : "Failed to rebuild project memory");
+      if (!silent) {
+        toast.error(isZh ? "重建项目记忆失败" : "Failed to rebuild project memory");
+      }
     } finally {
       setIsRebuildingMemory(false);
     }
   };
+
+  useEffect(() => {
+    if (!memoryStatus?.memory_stale || isLoadingMemoryStatus || isRebuildingMemory) {
+      return;
+    }
+
+    const attemptKey = `${project.id}:${memoryStatus.memory_version ?? 0}`;
+    if (autoRefreshAttemptedRef.current === attemptKey) {
+      return;
+    }
+    autoRefreshAttemptedRef.current = attemptKey;
+
+    const timer = window.setTimeout(() => {
+      void handleRebuildMemory(true);
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    isLoadingMemoryStatus,
+    isRebuildingMemory,
+    memoryStatus?.memory_stale,
+    memoryStatus?.memory_version,
+    project.id,
+  ]);
 
   useEffect(() => {
     resetStreamingContent();

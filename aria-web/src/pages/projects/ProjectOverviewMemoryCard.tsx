@@ -1,4 +1,4 @@
-import { Brain, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Brain, Loader2, RefreshCw } from "lucide-react";
 import type { ProjectMemory } from "../../types/api";
 import { formatProjectMemoryUpdatedAt } from "./projectMemoryTime";
 
@@ -24,7 +24,7 @@ export function ProjectOverviewMemoryCard({
       : "Loading"
     : memory?.stale
       ? isZh
-        ? "需要刷新"
+        ? "待刷新"
         : "Stale"
       : hasMemory
         ? isZh
@@ -71,6 +71,19 @@ export function ProjectOverviewMemoryCard({
             {formatProjectMemoryUpdatedAt(memory?.last_updated_at, isZh)}
           </span>
         </div>
+
+        {memory?.stale && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <p>
+                {isZh
+                  ? "项目数据最近发生过变化，当前记忆可能不是最新。系统会尝试自动刷新，你也可以手动点“重建”。"
+                  : "Project data changed recently, so this memory may be out of date. The app will try to refresh it automatically, or you can rebuild it manually."}
+              </p>
+            </div>
+          </div>
+        )}
 
         {hasMemory && (
           <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
