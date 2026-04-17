@@ -4,14 +4,12 @@ export function formatProjectMemoryUpdatedAt(
 ): string {
   if (!value) return isZh ? "暂无" : "N/A";
 
-  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
-    ? value
-    : `${value}Z`;
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
   const date = new Date(normalized);
 
   if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return date.toLocaleString();
+  return date.toLocaleString(isZh ? "zh-CN" : "en-US");
 }

@@ -242,6 +242,28 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("Write the answer in Chinese", prompt)
         self.assertIn("Structured memory JSON", prompt)
 
+    def test_build_project_memory_view_prompt_supports_financial_and_documents_summary(self):
+        financial_prompt = project_contexts_module.build_project_memory_view_prompt(
+            {
+                "financial_status": "Large receivable pending",
+                "key_risks": ["Collection delay"],
+            },
+            "Alpha",
+            "financial",
+        )
+        documents_prompt = project_contexts_module.build_project_memory_view_prompt(
+            {
+                "important_documents": [{"name": "SOW", "reason": "Scope baseline"}],
+            },
+            "Alpha",
+            "documents",
+        )
+
+        self.assertIn("Summary type: financial", financial_prompt)
+        self.assertIn("focused on the project's financial picture", financial_prompt)
+        self.assertIn("Summary type: documents", documents_prompt)
+        self.assertIn("focused on project documents and knowledge signals", documents_prompt)
+
     def test_stream_llm_text_chunks_skips_tool_markers(self):
         async def fake_chunks():
             yield '{"type": "tool_use","id":"tool-1"}'
@@ -544,6 +566,133 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertTrue(status_after.json()["has_memory"])
         self.assertFalse(status_after.json()["memory_stale"])
         self.assertEqual(status_after.json()["memory_version"], 1)
+
+    def test_project_memory_batch_rebuild_only_updates_requested_projects(self):
+        with Session(self.engine) as session:
+            project_a = Project(name="Memory A", client="Client", description="Alpha project")
+            project_b = Project(name="Memory B", client="Client", description="Beta project")
+            project_c = Project(
+                name="Memory C",
+                client="Client",
+                description="Gamma project",
+                memory_stale=False,
+                memory_version=2,
+                context_memory_json=json.dumps({"project_brief": "ready"}, ensure_ascii=False),
+            )
+            session.add(project_a)
+            session.add(project_b)
+            session.add(project_c)
+            session.commit()
+            session.refresh(project_a)
+            session.refresh(project_b)
+            session.refresh(project_c)
+            project_ids = [project_a.id, project_b.id, project_c.id]
+
+        async def fake_complete(messages, max_tokens=4000):
+            prompt = messages[0]["content"]
+            if "Alpha project" in prompt:
+                brief = "Alpha memory brief"
+            elif "Beta project" in prompt:
+                brief = "Beta memory brief"
+            else:
+                brief = "Unexpected"
+            return json.dumps(
+                {
+                    "project_brief": brief,
+                    "current_stage": "delivery",
+                    "recent_progress": [],
+                    "key_risks": [],
+                    "open_questions": [],
+                    "next_actions": ["Confirm scope"],
+                    "important_documents": [],
+                    "financial_status": "Healthy",
+                    "delivery_signals": [],
+                    "stakeholder_notes": [],
+                },
+                ensure_ascii=False,
+            )
+
+        with patch.object(projects_router_module, "complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+            rebuild_resp = self.client.post(
+                "/projects/memory/rebuild-batch",
+                json={"project_ids": project_ids, "stale_only": True},
+            )
+
+        self.assertEqual(rebuild_resp.status_code, 200)
+        body = rebuild_resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["requested_count"], 3)
+        self.assertEqual(body["rebuilt_count"], 2)
+        rebuilt_ids = {item["project_id"] for item in body["rebuilt"]}
+        self.assertEqual(rebuilt_ids, {project_ids[0], project_ids[1]})
+        self.assertEqual(body["skipped"], [{"project_id": project_ids[2], "reason": "not_stale"}])
+
+        with Session(self.engine) as session:
+            refreshed_a = session.get(Project, project_ids[0])
+            refreshed_b = session.get(Project, project_ids[1])
+            refreshed_c = session.get(Project, project_ids[2])
+
+            self.assertFalse(refreshed_a.memory_stale)
+            self.assertFalse(refreshed_b.memory_stale)
+            self.assertEqual(refreshed_a.memory_version, 1)
+            self.assertEqual(refreshed_b.memory_version, 1)
+            self.assertEqual(json.loads(refreshed_a.context_memory_json)["project_brief"], "Alpha memory brief")
+            self.assertEqual(json.loads(refreshed_b.context_memory_json)["project_brief"], "Beta memory brief")
+            self.assertEqual(refreshed_c.memory_version, 2)
+            self.assertFalse(refreshed_c.memory_stale)
+
+    def test_project_memory_batch_rebuild_can_generate_missing_memory(self):
+        with Session(self.engine) as session:
+            project_a = Project(name="Missing Memory A", client="Client", description="Alpha project")
+            project_b = Project(name="Missing Memory B", client="Client", description="Beta project")
+            session.add(project_a)
+            session.add(project_b)
+            session.commit()
+            session.refresh(project_a)
+            session.refresh(project_b)
+            project_ids = [project_a.id, project_b.id]
+
+        async def fake_complete(messages, max_tokens=4000):
+            prompt = messages[0]["content"]
+            brief = "Alpha generated brief" if "Alpha project" in prompt else "Beta generated brief"
+            return json.dumps(
+                {
+                    "project_brief": brief,
+                    "current_stage": "lead",
+                    "recent_progress": [],
+                    "key_risks": [],
+                    "open_questions": [],
+                    "next_actions": ["Confirm scope"],
+                    "important_documents": [],
+                    "financial_status": "Not started",
+                    "delivery_signals": [],
+                    "stakeholder_notes": [],
+                },
+                ensure_ascii=False,
+            )
+
+        with patch.object(projects_router_module, "complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+            rebuild_resp = self.client.post(
+                "/projects/memory/rebuild-batch",
+                json={"project_ids": project_ids, "stale_only": False},
+            )
+
+        self.assertEqual(rebuild_resp.status_code, 200)
+        body = rebuild_resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["requested_count"], 2)
+        self.assertEqual(body["rebuilt_count"], 2)
+        self.assertEqual(body["skipped"], [])
+
+        with Session(self.engine) as session:
+            refreshed_a = session.get(Project, project_ids[0])
+            refreshed_b = session.get(Project, project_ids[1])
+            self.assertEqual(refreshed_a.memory_version, 1)
+            self.assertEqual(refreshed_b.memory_version, 1)
+            self.assertFalse(refreshed_a.memory_stale)
+            self.assertFalse(refreshed_b.memory_stale)
+            self.assertEqual(json.loads(refreshed_a.context_memory_json)["project_brief"], "Alpha generated brief")
+            self.assertEqual(json.loads(refreshed_b.context_memory_json)["project_brief"], "Beta generated brief")
 
     def test_auto_summarize_file_persists_generated_summary(self):
         with Session(self.engine) as session:

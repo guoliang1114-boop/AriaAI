@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../../contexts/ToastContext'
+import { ProjectMemoryInsightCard } from './ProjectMemoryInsightCard'
 import type { ProjectTodo } from '../../types/api'
 import { ProjectTodoCreateForm } from './ProjectTodoCreateForm'
 import { ProjectTodoDeleteDialog } from './ProjectTodoDeleteDialog'
 import { ProjectTodosPanel } from './ProjectTodosPanel'
+import { useProjectMemorySummary } from './useProjectMemorySummary'
 import { useProjectTodosManager } from './useProjectTodosManager'
 
 interface ProjectTodosTabProps {
@@ -16,6 +18,12 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const toast = useToast()
+  const riskInsight = useProjectMemorySummary({
+    errorMessage: isZh ? '生成风险摘要失败，请稍后重试' : 'Failed to generate risk summary',
+    language: i18n.language,
+    projectId,
+    summaryType: 'risk',
+  })
   const {
     cancelEdit,
     closeDeleteDialog,
@@ -57,6 +65,22 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
 
   return (
     <div className="space-y-6">
+      <ProjectMemoryInsightCard
+        content={riskInsight.content}
+        error={riskInsight.error}
+        hint={
+          isZh
+            ? '基于项目记忆整理当前风险、阻塞点和最需要推进的待办方向'
+            : 'Structured-memory risk view for blockers, risks, and the next todo focus'
+        }
+        isZh={isZh}
+        loading={riskInsight.loading}
+        onRefresh={() => {
+          void riskInsight.refresh()
+        }}
+        title={isZh ? 'AI 风险摘要' : 'AI Risk Summary'}
+      />
+
       <ProjectTodosPanel
         completedCount={completedCount}
         deletingIds={deletingIds}

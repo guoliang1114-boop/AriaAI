@@ -18,6 +18,8 @@ const SUMMARY_TYPES: ProjectMemorySummaryType[] = [
   "delivery",
   "stakeholder",
   "client-facing",
+  "financial",
+  "documents",
 ];
 
 function getSummaryTypeLabel(type: ProjectMemorySummaryType, isZh: boolean) {
@@ -28,6 +30,8 @@ function getSummaryTypeLabel(type: ProjectMemorySummaryType, isZh: boolean) {
       delivery: "Delivery",
       stakeholder: "Stakeholder",
       "client-facing": "Client",
+      financial: "Financial",
+      documents: "Documents",
     }[type];
   }
 
@@ -37,6 +41,8 @@ function getSummaryTypeLabel(type: ProjectMemorySummaryType, isZh: boolean) {
     delivery: "交付",
     stakeholder: "干系人",
     "client-facing": "客户视角",
+    financial: "财务",
+    documents: "文档",
   }[type];
 }
 
@@ -48,6 +54,8 @@ function getSummaryHint(type: ProjectMemorySummaryType, isZh: boolean) {
       delivery: "Streaming summary focused on delivery progress and next execution steps",
       stakeholder: "Streaming summary focused on stakeholder alignment and follow-ups",
       "client-facing": "Streaming summary focused on client-safe progress updates",
+      financial: "Streaming summary focused on financial status, collections, and budget signals",
+      documents: "Streaming summary focused on important documents and knowledge gaps",
     }[type];
   }
 
@@ -57,6 +65,8 @@ function getSummaryHint(type: ProjectMemorySummaryType, isZh: boolean) {
     delivery: "流式聚焦交付进展、重要文档和下一步执行动作",
     stakeholder: "流式聚焦干系人关注点、对齐情况和后续跟进",
     "client-facing": "流式聚焦适合对外沟通的客户视角进展",
+    financial: "流式聚焦财务状态、回款风险和预算信号",
+    documents: "流式聚焦重要文档、知识缺口和下一步资料动作",
   }[type];
 }
 

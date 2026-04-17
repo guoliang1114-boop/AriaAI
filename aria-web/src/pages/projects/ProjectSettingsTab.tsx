@@ -4,7 +4,9 @@ import type { ProjectDetail as ProjectDetailType } from "../../types/api";
 import { ProjectSettingsDangerZone } from "./ProjectSettingsDangerZone";
 import { ProjectSettingsDeleteDialog } from "./ProjectSettingsDeleteDialog";
 import { ProjectSettingsFormCard } from "./ProjectSettingsFormCard";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectSettingsMembersCard } from "./ProjectSettingsMembersCard";
+import { useProjectMemorySummary } from "./useProjectMemorySummary";
 import { useProjectSettingsEditor } from "./useProjectSettingsEditor";
 import { useProjectSettingsMembers } from "./useProjectSettingsMembers";
 
@@ -21,6 +23,12 @@ export function ProjectSettingsTab({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const settingsInsight = useProjectMemorySummary({
+    errorMessage: isZh ? "生成项目设置摘要失败，请稍后重试" : "Failed to generate project settings summary",
+    language: i18n.language,
+    projectId: String(project.id),
+    summaryType: "overview",
+  });
   const {
     aiError,
     applySuggestion,
@@ -97,6 +105,22 @@ export function ProjectSettingsTab({
         </div>
 
         <div className="space-y-6 lg:col-span-1">
+          <ProjectMemoryInsightCard
+            content={settingsInsight.content}
+            error={settingsInsight.error}
+            hint={
+              isZh
+                ? "基于项目记忆快速查看当前项目状态、关键风险和下一步动作，便于在修改设置前先校准全局认知"
+                : "Structured-memory overview to align on status, risks, and next actions before editing settings"
+            }
+            isZh={isZh}
+            loading={settingsInsight.loading}
+            onRefresh={() => {
+              void settingsInsight.refresh();
+            }}
+            title={isZh ? "AI 项目状态摘要" : "AI Project State Summary"}
+          />
+
           <ProjectSettingsMembersCard
             availableUsers={availableUsers}
             handleAddMember={handleAddMember}

@@ -745,6 +745,11 @@ class ProjectMemorySummarizeRequest(BaseModel):
     language: Optional[str] = None
 
 
+class ProjectMemoryBatchRebuildRequest(BaseModel):
+    project_ids: list[int] = []
+    stale_only: bool = False
+
+
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
 async def ai_suggest_project(body: ProjectAISuggestQuery):
     """Ask Claude to propose 1-3 consulting project names + descriptions."""
@@ -851,6 +856,58 @@ def get_project_memory_status(project_id: int, session: Session = Depends(get_se
         "memory_version": project.memory_version,
         "memory_stale": project.memory_stale,
         "memory_updated_at": project.memory_updated_at,
+    }
+
+
+@router.post("/memory/rebuild-batch")
+async def rebuild_project_memory_batch(
+    body: ProjectMemoryBatchRebuildRequest,
+    session: Session = Depends(get_session),
+):
+    requested_ids = [int(project_id) for project_id in body.project_ids if int(project_id) > 0]
+    if requested_ids:
+        candidate_projects = session.exec(
+            select(Project).where(Project.id.in_(requested_ids))
+        ).all()
+        project_lookup = {project.id: project for project in candidate_projects}
+        projects_to_process = [project_lookup[project_id] for project_id in requested_ids if project_id in project_lookup]
+    elif body.stale_only:
+        projects_to_process = session.exec(
+            select(Project).where(Project.memory_stale == True)
+        ).all()
+    else:
+        projects_to_process = []
+
+    rebuilt: list[dict] = []
+    skipped: list[dict] = []
+    for project in projects_to_process:
+        if body.stale_only and not project.memory_stale:
+            skipped.append(
+                {
+                    "project_id": project.id,
+                    "reason": "not_stale",
+                }
+            )
+            continue
+
+        saved_memory = await _rebuild_project_memory(session, project.id, project)
+        _bust_project(project.id)
+        rebuilt.append(
+            {
+                "project_id": project.id,
+                "memory": saved_memory,
+                "memory_version": saved_memory.get("memory_version", 0),
+                "memory_updated_at": saved_memory.get("last_updated_at", ""),
+                "memory_stale": False,
+            }
+        )
+
+    return {
+        "ok": True,
+        "requested_count": len(requested_ids) if requested_ids else len(projects_to_process),
+        "rebuilt_count": len(rebuilt),
+        "rebuilt": rebuilt,
+        "skipped": skipped,
     }
 
 

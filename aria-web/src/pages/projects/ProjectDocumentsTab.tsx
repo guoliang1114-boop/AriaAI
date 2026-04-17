@@ -7,8 +7,10 @@ import { ProjectDocumentsCreateFolderModal } from "./ProjectDocumentsCreateFolde
 import { ProjectDocumentsDeleteDialog } from "./ProjectDocumentsDeleteDialog";
 import { ProjectDocumentsToolbar } from "./ProjectDocumentsToolbar";
 import { ProjectDocumentsUploadPanel } from "./ProjectDocumentsUploadPanel";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { useProjectDocumentsManager } from "./useProjectDocumentsManager";
 import { useProjectDocumentsView } from "./useProjectDocumentsView";
+import { useProjectMemorySummary } from "./useProjectMemorySummary";
 
 interface ProjectDocumentsTabProps {
   projectDetail: ProjectDetailType;
@@ -25,6 +27,12 @@ export function ProjectDocumentsTab({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const documentInsight = useProjectMemorySummary({
+    errorMessage: isZh ? "生成文档洞察失败，请稍后重试" : "Failed to generate document insight",
+    language: i18n.language,
+    projectId,
+    summaryType: "documents",
+  });
   const {
     currentFolder,
     enterFolder,
@@ -95,6 +103,24 @@ export function ProjectDocumentsTab({
 
   return (
     <div className="h-full flex flex-col">
+      <div className="mb-4">
+        <ProjectMemoryInsightCard
+          content={documentInsight.content}
+          error={documentInsight.error}
+          hint={
+            isZh
+              ? "基于项目记忆整理当前重要文档、交付线索和最值得优先查看的材料"
+              : "Structured-memory document insight for important files, delivery signals, and what to review next"
+          }
+          isZh={isZh}
+          loading={documentInsight.loading}
+          onRefresh={() => {
+            void documentInsight.refresh();
+          }}
+          title={isZh ? "AI 文档洞察" : "AI Document Insight"}
+        />
+      </div>
+
       <ProjectDocumentsToolbar
         currentFolder={currentFolder}
         fileInputRef={fileInputRef}

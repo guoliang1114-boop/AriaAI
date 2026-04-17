@@ -2,11 +2,13 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectFinancialsActions } from "./ProjectFinancialsActions";
 import { ProjectFinancialsContractAmountModal } from "./ProjectFinancialsContractAmountModal";
 import { ProjectFinancialsPaymentModal } from "./ProjectFinancialsPaymentModal";
 import { ProjectFinancialsSummary } from "./ProjectFinancialsSummary";
 import { ProjectFinancialsTransactions } from "./ProjectFinancialsTransactions";
+import { useProjectMemorySummary } from "./useProjectMemorySummary";
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectPayment,
@@ -45,6 +47,12 @@ export function ProjectFinancialsTab({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const financialInsight = useProjectMemorySummary({
+    errorMessage: isZh ? "生成财务风险摘要失败，请稍后重试" : "Failed to generate financial risk summary",
+    language: i18n.language,
+    projectId,
+    summaryType: "financial",
+  });
   const [filter, setFilter] = useState<PaymentFilter>("all");
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showContractModal, setShowContractModal] = useState(false);
@@ -103,6 +111,22 @@ export function ProjectFinancialsTab({
 
   return (
     <div className="w-full space-y-6">
+      <ProjectMemoryInsightCard
+        content={financialInsight.content}
+        error={financialInsight.error}
+        hint={
+          isZh
+            ? "基于项目记忆整理当前财务风险、回款关注点和需要优先处理的阻塞项"
+            : "Structured-memory risk view for financial signals, collections, and blockers"
+        }
+        isZh={isZh}
+        loading={financialInsight.loading}
+        onRefresh={() => {
+          void financialInsight.refresh();
+        }}
+        title={isZh ? "AI 财务风险摘要" : "AI Financial Risk Summary"}
+      />
+
       <ProjectFinancialsSummary
         financials={financials}
         formatAmountInTenThousand={formatAmountInTenThousand}

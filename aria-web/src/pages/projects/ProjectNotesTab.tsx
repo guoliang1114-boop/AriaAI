@@ -5,7 +5,9 @@ import { ProjectNotesContentPanel } from "./ProjectNotesContentPanel";
 import { ProjectNotesDialogs } from "./ProjectNotesDialogs";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
 import { ProjectNotesToolbar } from "./ProjectNotesToolbar";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { getProjectNotesCopy } from "./projectNotesCopy";
+import { useProjectMemorySummary } from "./useProjectMemorySummary";
 import { useProjectNotesActions } from "./useProjectNotesActions";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
 import { useProjectNotesUI } from "./useProjectNotesUI";
@@ -29,6 +31,12 @@ export function ProjectNotesTab({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectNotesCopy(isZh);
   const toast = useToast();
+  const stakeholderInsight = useProjectMemorySummary({
+    errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
+    language: i18n.language,
+    projectId,
+    summaryType: "stakeholder",
+  });
   const {
     mode,
     moreMenuRef,
@@ -119,6 +127,24 @@ export function ProjectNotesTab({
         />
 
         <section className="flex min-w-0 flex-1 flex-col">
+          <div className="border-b border-gray-100 p-4">
+            <ProjectMemoryInsightCard
+              content={stakeholderInsight.content}
+              error={stakeholderInsight.error}
+              hint={
+                isZh
+                  ? "基于项目记忆整理当前干系人关注点、对齐状态和建议跟进动作"
+                  : "Structured-memory stakeholder view for alignment status and follow-ups"
+              }
+              isZh={isZh}
+              loading={stakeholderInsight.loading}
+              onRefresh={() => {
+                void stakeholderInsight.refresh();
+              }}
+              title={isZh ? "AI 干系人摘要" : "AI Stakeholder Summary"}
+            />
+          </div>
+
           <div className="relative" ref={moreMenuRef}>
             <ProjectNotesToolbar
               dirty={dirty}

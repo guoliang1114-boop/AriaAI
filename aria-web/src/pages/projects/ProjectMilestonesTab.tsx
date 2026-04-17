@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type { Milestone, ProjectDetail as ProjectDetailType } from "../../types/api";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectMilestoneModal } from "./ProjectMilestoneModal";
 import { ProjectMilestonesList } from "./ProjectMilestonesList";
 import { ProjectMilestonesProgressCard } from "./ProjectMilestonesProgressCard";
+import { useProjectMemorySummary } from "./useProjectMemorySummary";
 
 interface RequestErrorPayload {
   detail?: string;
@@ -33,6 +35,12 @@ export function ProjectMilestonesTab({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+  const deliveryInsight = useProjectMemorySummary({
+    errorMessage: isZh ? "生成交付摘要失败，请稍后重试" : "Failed to generate delivery summary",
+    language: i18n.language,
+    projectId,
+    summaryType: "delivery",
+  });
   const [showModal, setShowModal] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [formData, setFormData] = useState({
@@ -134,6 +142,22 @@ export function ProjectMilestonesTab({
 
   return (
     <div className="space-y-6">
+      <ProjectMemoryInsightCard
+        content={deliveryInsight.content}
+        error={deliveryInsight.error}
+        hint={
+          isZh
+            ? "基于项目记忆整理当前交付节奏、里程碑推进和下一步执行动作"
+            : "Structured-memory delivery view for milestone momentum and next execution steps"
+        }
+        isZh={isZh}
+        loading={deliveryInsight.loading}
+        onRefresh={() => {
+          void deliveryInsight.refresh();
+        }}
+        title={isZh ? "AI 交付摘要" : "AI Delivery Summary"}
+      />
+
       <ProjectMilestonesProgressCard
         completedCount={completedCount}
         isZh={isZh}

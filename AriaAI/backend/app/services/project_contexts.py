@@ -27,6 +27,8 @@ SUPPORTED_MEMORY_SUMMARY_TYPES = {
     "stakeholder",
     "delivery",
     "client-facing",
+    "financial",
+    "documents",
 }
 
 
@@ -260,6 +262,14 @@ def build_project_memory_view_prompt(
         "client-facing": (
             "Write exactly 3-4 bullet points that are safe to share with a client. Focus on progress, "
             "current priorities, confirmed next steps, and avoid speculative internal wording."
+        ),
+        "financial": (
+            "Write exactly 3-4 bullet points focused on the project's financial picture. Highlight payment status, "
+            "collection risks, budget pressure, cash flow signals, and the next financial actions that matter."
+        ),
+        "documents": (
+            "Write exactly 3-4 bullet points focused on project documents and knowledge signals. Highlight important "
+            "documents, what each one supports, missing material, and the next documents worth reviewing or creating."
         ),
     }
     return (

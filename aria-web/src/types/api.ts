@@ -69,12 +69,30 @@ export interface ProjectMemoryResponse {
   memory_updated_at?: string | null
 }
 
+export interface ProjectMemoryBatchRebuildItem {
+  project_id: number
+  memory: ProjectMemory
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
+}
+
+export interface ProjectMemoryBatchRebuildResponse {
+  ok: boolean
+  requested_count: number
+  rebuilt_count: number
+  rebuilt: ProjectMemoryBatchRebuildItem[]
+  skipped: Array<{ project_id: number; reason: string }>
+}
+
 export type ProjectMemorySummaryType =
   | 'overview'
   | 'risk'
   | 'stakeholder'
   | 'delivery'
   | 'client-facing'
+  | 'financial'
+  | 'documents'
 
 export interface ProjectMemoryStatusResponse {
   project_id: number
