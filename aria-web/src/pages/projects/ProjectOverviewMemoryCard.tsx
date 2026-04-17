@@ -52,7 +52,7 @@ export function ProjectOverviewMemoryCard({
           ) : (
             <RefreshCw className="h-3 w-3" />
           )}
-          {isZh ? "重建" : "Rebuild"}
+          {isZh ? "更新记忆" : "Refresh Memory"}
         </button>
       </div>
 
@@ -60,10 +60,6 @@ export function ProjectOverviewMemoryCard({
         <div className="flex items-center justify-between">
           <span className="text-gray-500">{isZh ? "状态" : "Status"}</span>
           <span className="font-medium text-gray-900">{statusText}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-gray-500">{isZh ? "版本" : "Version"}</span>
-          <span className="font-medium text-gray-900">{memory?.memory_version ?? 0}</span>
         </div>
         <div className="flex items-start justify-between gap-4">
           <span className="text-gray-500">{isZh ? "更新时间" : "Updated"}</span>
@@ -78,8 +74,8 @@ export function ProjectOverviewMemoryCard({
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <p>
                 {isZh
-                  ? "项目最近发生过变化，这份记忆可能不是最新的。系统会尝试自动刷新，你也可以手动重建。"
-                  : "Project data changed recently, so this memory may be out of date. The app will try to refresh it automatically, or you can rebuild it manually."}
+                  ? "项目最近有更新，这份项目记忆可能略旧。系统会尝试自动刷新，你也可以手动更新。"
+                  : "Project data changed recently, so this memory may be slightly outdated. The app will try to refresh it automatically, or you can update it manually."}
               </p>
             </div>
           </div>
@@ -90,10 +86,16 @@ export function ProjectOverviewMemoryCard({
             {memory?.project_brief
               ? memory.project_brief
               : isZh
-                ? "项目记忆已经可用，可供概览摘要、项目聊天和各类执行页面复用。"
-                : "Project memory is ready for summaries, project chat, and execution views."}
+                ? "项目记忆已经可用，可供概览、聊天和各执行页面复用。"
+                : "Project memory is ready for summaries, chat, and execution views."}
           </div>
-        ) : null}
+        ) : (
+          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
+            {isZh
+              ? "系统还没有为这个项目整理出可复用的项目记忆。"
+              : "No reusable project memory has been generated for this project yet."}
+          </div>
+        )}
       </div>
     </div>
   );

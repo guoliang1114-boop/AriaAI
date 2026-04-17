@@ -33,7 +33,7 @@ export function ProjectMemoryInsightCard({
               {loading ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[11px] text-indigo-600">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  {isZh ? "流式生成中" : "Streaming"}
+                  {isZh ? "生成中" : "Streaming"}
                 </span>
               ) : null}
             </div>
@@ -52,7 +52,7 @@ export function ProjectMemoryInsightCard({
           ) : (
             <RefreshCw className="h-3 w-3" />
           )}
-          {isZh ? "刷新" : "Refresh"}
+          {isZh ? "重新生成" : "Regenerate"}
         </button>
       </div>
 
@@ -77,8 +77,8 @@ export function ProjectMemoryInsightCard({
         <div className="rounded-lg bg-white/70 p-3 text-sm text-gray-500">
           {loading
             ? isZh
-              ? "正在整理项目记忆摘要..."
-              : "Generating memory summary..."
+              ? "正在整理项目摘要..."
+              : "Generating summary..."
             : isZh
               ? "暂时还没有摘要内容。"
               : "No summary available yet."}

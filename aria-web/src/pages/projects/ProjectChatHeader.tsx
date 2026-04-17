@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { getProjectChatCopy } from "./projectChatCopy";
@@ -31,9 +31,7 @@ export function ProjectChatHeader({
   knowledgeScope,
   memoryStale,
   memoryUpdatedAt,
-  memoryVersion,
   exportControl,
-  onRebuildMemory,
   onToggleSidebar,
   onKnowledgeScopeChange,
 }: ProjectChatHeaderProps) {
@@ -41,10 +39,10 @@ export function ProjectChatHeader({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
 
-  const memoryLabel = isLoadingMemoryStatus
+  const memoryLabel = isLoadingMemoryStatus || isRebuildingMemory
     ? isZh
-      ? "记忆加载中"
-      : "Loading memory"
+      ? "记忆同步中"
+      : "Memory syncing"
     : !hasMemory
       ? isZh
         ? "未生成记忆"
@@ -85,21 +83,18 @@ export function ProjectChatHeader({
             <div className="flex items-center gap-2">
               <span
                 className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  memoryStale
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-emerald-100 text-emerald-700"
+                  !hasMemory
+                    ? "bg-gray-100 text-gray-500"
+                    : memoryStale
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-emerald-100 text-emerald-700"
                 }`}
               >
                 {memoryLabel}
               </span>
-              <span className="text-[11px] text-gray-400">
-                {isZh ? "版本" : "v"}
-                {memoryVersion || 0}
-              </span>
             </div>
             <p className="mt-1 text-[11px] text-gray-400">
-              {isZh ? "更新时间" : "Updated"}:{" "}
-              {formatProjectMemoryUpdatedAt(memoryUpdatedAt, isZh)}
+              {isZh ? "最近同步" : "Last sync"}: {formatProjectMemoryUpdatedAt(memoryUpdatedAt, isZh)}
             </p>
           </div>
 
@@ -118,34 +113,20 @@ export function ProjectChatHeader({
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={onRebuildMemory}
-            disabled={isRebuildingMemory}
-            className="hidden items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50 md:inline-flex"
-          >
-            {isRebuildingMemory ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            {isZh ? "重建记忆" : "Rebuild Memory"}
-          </button>
-
           {exportControl}
         </div>
       </div>
 
-      {memoryStale && (
+      {memoryStale ? (
         <div className="mt-3 hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 md:flex md:items-start md:gap-2">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <p>
             {isZh
-              ? "项目数据最近有更新，聊天正在使用的记忆可能不是最新。系统会尝试自动刷新；如果你想立刻同步，可以手动重建。"
-              : "Project data changed recently, so the memory used by chat may be outdated. The app will try to refresh it automatically, or you can rebuild it now."}
+              ? "项目数据最近有更新，聊天使用的项目记忆可能略旧。系统会自动尝试同步。"
+              : "Project data changed recently, so the memory used by chat may be slightly outdated. The app will try to sync it automatically."}
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
