@@ -31,13 +31,14 @@ export function ProjectMilestonesTab({
   projectId,
   onUpdate,
 }: ProjectMilestonesTabProps) {
-  const { milestones } = projectDetail;
+  const { milestones, project } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
   const deliveryInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成交付摘要失败，请稍后重试" : "Failed to generate delivery summary",
     language: i18n.language,
+    memoryVersion: project.memory_version ?? 0,
     projectId,
     summaryType: "delivery",
   });
@@ -153,7 +154,7 @@ export function ProjectMilestonesTab({
         isZh={isZh}
         loading={deliveryInsight.loading}
         onRefresh={() => {
-          void deliveryInsight.refresh();
+          void deliveryInsight.refresh(true);
         }}
         title={isZh ? "AI 交付摘要" : "AI Delivery Summary"}
       />

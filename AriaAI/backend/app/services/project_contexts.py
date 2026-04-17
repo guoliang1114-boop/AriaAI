@@ -5,9 +5,9 @@ from typing import Any, AsyncIterator
 import json
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.models.db import Project
+from app.models.db import Project, ProjectMemorySummary
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
@@ -31,6 +31,13 @@ SUPPORTED_MEMORY_SUMMARY_TYPES = {
     "documents",
 }
 
+MAX_SUMMARY_FIELD_CHARS = 320
+MAX_SUMMARY_LIST_ITEMS = 5
+MAX_SUMMARY_LIST_ITEM_CHARS = 120
+MAX_SUMMARY_DOCUMENT_ITEMS = 4
+MAX_SUMMARY_DOCUMENT_NAME_CHARS = 80
+MAX_SUMMARY_DOCUMENT_REASON_CHARS = 120
+
 
 def _resolve_output_language(language: str | None) -> str:
     normalized = (language or "").strip().lower()
@@ -39,6 +46,15 @@ def _resolve_output_language(language: str | None) -> str:
     if normalized.startswith("en"):
         return "English"
     return "the user's selected language"
+
+
+def normalize_summary_language(language: str | None) -> str:
+    normalized = (language or "").strip().lower()
+    if normalized.startswith("zh"):
+        return "zh"
+    if normalized.startswith("en"):
+        return "en"
+    return normalized or "default"
 
 
 def _default_project_memory(project: Project) -> dict[str, Any]:
@@ -242,6 +258,7 @@ def build_project_memory_view_prompt(
 ) -> str:
     normalized_type = summary_type if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES else "overview"
     output_language = _resolve_output_language(language)
+    compact_memory = build_project_memory_summary_payload(memory, normalized_type)
     instructions = {
         "overview": (
             "Write exactly 3-4 bullet points for an overview card. Focus on core objective, "
@@ -276,11 +293,115 @@ def build_project_memory_view_prompt(
         "You are an AI consultant assistant. "
         f"{instructions[normalized_type]} "
         "Each bullet must be specific and concise. Use **bold** sparingly for key terms. "
-        f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 120 words. Write the answer in {output_language}.\n\n"
+        "Do not restate every field. Synthesize only the most decision-relevant points. "
+        f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 90 words. Write the answer in {output_language}.\n\n"
         f"Project: {project_name}\n"
         f"Summary type: {normalized_type}\n"
-        f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
+        f"Structured memory JSON:\n{json.dumps(compact_memory, ensure_ascii=False)}"
     )
+
+
+def _trim_text(value: Any, max_chars: int = MAX_SUMMARY_FIELD_CHARS) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _trim_list(values: Any, limit: int = MAX_SUMMARY_LIST_ITEMS) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    trimmed: list[str] = []
+    for item in values:
+        text = _trim_text(item, MAX_SUMMARY_LIST_ITEM_CHARS)
+        if text:
+            trimmed.append(text)
+        if len(trimmed) >= limit:
+            break
+    return trimmed
+
+
+def _trim_documents(values: Any) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    documents: list[dict[str, str]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        name = _trim_text(item.get("name", ""), MAX_SUMMARY_DOCUMENT_NAME_CHARS)
+        reason = _trim_text(item.get("reason", ""), MAX_SUMMARY_DOCUMENT_REASON_CHARS)
+        if name or reason:
+            documents.append({"name": name, "reason": reason})
+        if len(documents) >= MAX_SUMMARY_DOCUMENT_ITEMS:
+            break
+    return documents
+
+
+def build_project_memory_summary_payload(memory: dict[str, Any], summary_type: str) -> dict[str, Any]:
+    base = {
+        "project_brief": _trim_text(memory.get("project_brief", "")),
+        "current_stage": _trim_text(memory.get("current_stage", ""), 80),
+        "current_objective": _trim_text(memory.get("current_objective", "")),
+        "recent_progress": _trim_list(memory.get("recent_progress", [])),
+        "key_risks": _trim_list(memory.get("key_risks", [])),
+        "open_questions": _trim_list(memory.get("open_questions", [])),
+        "next_actions": _trim_list(memory.get("next_actions", [])),
+        "important_documents": _trim_documents(memory.get("important_documents", [])),
+        "financial_status": _trim_text(memory.get("financial_status", "")),
+        "delivery_signals": _trim_list(memory.get("delivery_signals", [])),
+        "stakeholder_notes": _trim_list(memory.get("stakeholder_notes", [])),
+    }
+
+    if summary_type == "risk":
+        return {
+            "current_stage": base["current_stage"],
+            "current_objective": base["current_objective"],
+            "key_risks": base["key_risks"],
+            "open_questions": base["open_questions"],
+            "delivery_signals": base["delivery_signals"],
+            "next_actions": base["next_actions"],
+        }
+    if summary_type == "stakeholder":
+        return {
+            "project_brief": base["project_brief"],
+            "current_stage": base["current_stage"],
+            "stakeholder_notes": base["stakeholder_notes"],
+            "open_questions": base["open_questions"],
+            "next_actions": base["next_actions"],
+        }
+    if summary_type == "delivery":
+        return {
+            "current_stage": base["current_stage"],
+            "current_objective": base["current_objective"],
+            "recent_progress": base["recent_progress"],
+            "delivery_signals": base["delivery_signals"],
+            "next_actions": base["next_actions"],
+            "important_documents": base["important_documents"],
+        }
+    if summary_type == "client-facing":
+        return {
+            "project_brief": base["project_brief"],
+            "current_stage": base["current_stage"],
+            "recent_progress": base["recent_progress"],
+            "next_actions": base["next_actions"],
+        }
+    if summary_type == "financial":
+        return {
+            "current_stage": base["current_stage"],
+            "financial_status": base["financial_status"],
+            "key_risks": base["key_risks"],
+            "open_questions": base["open_questions"],
+            "next_actions": base["next_actions"],
+        }
+    if summary_type == "documents":
+        return {
+            "project_brief": base["project_brief"],
+            "important_documents": base["important_documents"],
+            "delivery_signals": base["delivery_signals"],
+            "open_questions": base["open_questions"],
+            "next_actions": base["next_actions"],
+        }
+    return base
 
 
 def _extract_first_json_object(raw: str) -> str:
@@ -359,6 +480,64 @@ def save_project_context_summary(session: Session, project_id: int, summary: str
     project.updated_at = datetime.utcnow()
     session.add(project)
     session.commit()
+
+
+def get_project_memory_summary_cache(
+    session: Session,
+    project_id: int,
+    summary_type: str,
+    language: str | None,
+    memory_version: int,
+) -> ProjectMemorySummary | None:
+    normalized_language = normalize_summary_language(language)
+    return session.exec(
+        select(ProjectMemorySummary)
+        .where(ProjectMemorySummary.project_id == project_id)
+        .where(ProjectMemorySummary.summary_type == summary_type)
+        .where(ProjectMemorySummary.language == normalized_language)
+        .where(ProjectMemorySummary.memory_version == memory_version)
+        .order_by(ProjectMemorySummary.updated_at.desc())
+    ).first()
+
+
+def save_project_memory_summary_cache(
+    session: Session,
+    project_id: int,
+    summary_type: str,
+    language: str | None,
+    memory_version: int,
+    content: str,
+) -> ProjectMemorySummary:
+    normalized_language = normalize_summary_language(language)
+    cached = get_project_memory_summary_cache(
+        session,
+        project_id=project_id,
+        summary_type=summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+    )
+    now = datetime.utcnow()
+    if cached:
+        cached.content = content
+        cached.updated_at = now
+        session.add(cached)
+        session.commit()
+        session.refresh(cached)
+        return cached
+
+    cached = ProjectMemorySummary(
+        project_id=project_id,
+        summary_type=summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+        content=content,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(cached)
+    session.commit()
+    session.refresh(cached)
+    return cached
 
 
 def _split_text_for_sse(text: str, max_chars: int = 12) -> list[str]:

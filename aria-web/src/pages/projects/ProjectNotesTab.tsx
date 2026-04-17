@@ -17,6 +17,7 @@ interface ProjectNotesTabProps {
   projectName: string;
   files: ProjectFile[];
   folders: ProjectFolder[];
+  memoryVersion?: number;
   onUpdate: () => void;
 }
 
@@ -25,6 +26,7 @@ export function ProjectNotesTab({
   projectName,
   files,
   folders,
+  memoryVersion,
   onUpdate,
 }: ProjectNotesTabProps) {
   const { i18n } = useTranslation();
@@ -34,6 +36,7 @@ export function ProjectNotesTab({
   const stakeholderInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
     language: i18n.language,
+    memoryVersion,
     projectId,
     summaryType: "stakeholder",
   });
@@ -139,7 +142,7 @@ export function ProjectNotesTab({
               isZh={isZh}
               loading={stakeholderInsight.loading}
               onRefresh={() => {
-                void stakeholderInsight.refresh();
+                void stakeholderInsight.refresh(true);
               }}
               title={isZh ? "AI 干系人摘要" : "AI Stakeholder Summary"}
             />

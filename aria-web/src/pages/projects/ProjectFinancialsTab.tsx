@@ -43,13 +43,14 @@ export function ProjectFinancialsTab({
   projectId,
   onUpdate,
 }: ProjectFinancialsTabProps) {
-  const { financials } = projectDetail;
+  const { financials, project } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
   const financialInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成财务风险摘要失败，请稍后重试" : "Failed to generate financial risk summary",
     language: i18n.language,
+    memoryVersion: project.memory_version ?? 0,
     projectId,
     summaryType: "financial",
   });
@@ -122,7 +123,7 @@ export function ProjectFinancialsTab({
         isZh={isZh}
         loading={financialInsight.loading}
         onRefresh={() => {
-          void financialInsight.refresh();
+          void financialInsight.refresh(true);
         }}
         title={isZh ? "AI 财务风险摘要" : "AI Financial Risk Summary"}
       />

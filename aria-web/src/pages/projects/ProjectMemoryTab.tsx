@@ -81,18 +81,21 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   const overviewInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目记忆摘要失败，请稍后重试" : "Failed to generate project memory summary",
     language: i18n.language,
+    memoryVersion: memory?.memory_version ?? project.memory_version ?? 0,
     projectId,
     summaryType: "overview",
   });
   const riskInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目风险摘要失败，请稍后重试" : "Failed to generate project risk summary",
     language: i18n.language,
+    memoryVersion: memory?.memory_version ?? project.memory_version ?? 0,
     projectId,
     summaryType: "risk",
   });
   const stakeholderInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
     language: i18n.language,
+    memoryVersion: memory?.memory_version ?? project.memory_version ?? 0,
     projectId,
     summaryType: "stakeholder",
   });
@@ -120,9 +123,9 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       );
       setMemory(data.memory);
       await Promise.all([
-        overviewInsight.refresh(),
-        riskInsight.refresh(),
-        stakeholderInsight.refresh(),
+        overviewInsight.refresh(true),
+        riskInsight.refresh(true),
+        stakeholderInsight.refresh(true),
       ]);
     } finally {
       setIsRebuildingMemory(false);
@@ -216,7 +219,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             isZh={isZh}
             loading={overviewInsight.loading}
             onRefresh={() => {
-              void overviewInsight.refresh();
+              void overviewInsight.refresh(true);
             }}
             title={isZh ? "AI 项目记忆摘要" : "AI Memory Overview"}
           />
@@ -233,7 +236,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             isZh={isZh}
             loading={riskInsight.loading}
             onRefresh={() => {
-              void riskInsight.refresh();
+              void riskInsight.refresh(true);
             }}
             title={isZh ? "AI 风险摘要" : "AI Risk Summary"}
           />
@@ -250,7 +253,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             isZh={isZh}
             loading={stakeholderInsight.loading}
             onRefresh={() => {
-              void stakeholderInsight.refresh();
+              void stakeholderInsight.refresh(true);
             }}
             title={isZh ? "AI 干系人摘要" : "AI Stakeholder Summary"}
           />

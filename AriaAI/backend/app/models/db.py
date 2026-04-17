@@ -45,6 +45,17 @@ class Project(SQLModel, table=True):
     members: list["ProjectMember"] = Relationship(back_populates="project")
 
 
+class ProjectMemorySummary(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    summary_type: str = Field(index=True)
+    language: str = Field(index=True)
+    memory_version: int = Field(index=True)
+    content: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Milestone(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)

@@ -23,13 +23,14 @@ export function ProjectDocumentsTab({
   projectId,
   onUpdate,
 }: ProjectDocumentsTabProps) {
-  const { folders } = projectDetail;
+  const { folders, project } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
   const documentInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成文档洞察失败，请稍后重试" : "Failed to generate document insight",
     language: i18n.language,
+    memoryVersion: project.memory_version ?? 0,
     projectId,
     summaryType: "documents",
   });
@@ -115,7 +116,7 @@ export function ProjectDocumentsTab({
           isZh={isZh}
           loading={documentInsight.loading}
           onRefresh={() => {
-            void documentInsight.refresh();
+            void documentInsight.refresh(true);
           }}
           title={isZh ? "AI 文档洞察" : "AI Document Insight"}
         />

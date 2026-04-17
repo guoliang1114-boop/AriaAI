@@ -5,12 +5,37 @@ interface UseProjectMemorySummaryOptions {
   enabled?: boolean;
   errorMessage: string;
   language: string;
+  memoryVersion?: number;
   projectId: string;
   summaryType: ProjectMemorySummaryType;
 }
 
+const memorySummaryCache = new Map<string, string>();
+
+function normalizeSummaryLanguage(language: string) {
+  const normalized = language.trim().toLowerCase();
+  if (normalized.startsWith("zh")) return "zh";
+  if (normalized.startsWith("en")) return "en";
+  return normalized || "default";
+}
+
+function buildSummaryCacheKey(options: {
+  language: string;
+  memoryVersion?: number;
+  projectId: string;
+  summaryType: ProjectMemorySummaryType;
+}) {
+  return [
+    options.projectId,
+    options.summaryType,
+    normalizeSummaryLanguage(options.language),
+    options.memoryVersion ?? 0,
+  ].join(":");
+}
+
 async function streamMemorySummary(options: {
   errorMessage: string;
+  forceRefresh?: boolean;
   language: string;
   projectId: string;
   summaryType: ProjectMemorySummaryType;
@@ -24,6 +49,7 @@ async function streamMemorySummary(options: {
       "X-Auth-Token": token,
     },
     body: JSON.stringify({
+      force_refresh: options.forceRefresh ?? false,
       language: options.language,
       rebuild_if_stale: true,
       stream: true,
@@ -79,14 +105,31 @@ export function useProjectMemorySummary({
   enabled = true,
   errorMessage,
   language,
+  memoryVersion,
   projectId,
   summaryType,
 }: UseProjectMemorySummaryOptions) {
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const cacheKey = buildSummaryCacheKey({
+    language,
+    memoryVersion,
+    projectId,
+    summaryType,
+  });
 
-  const refresh = async () => {
+  const refresh = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = memorySummaryCache.get(cacheKey);
+      if (cached) {
+        setError("");
+        setContent(cached);
+        setLoading(false);
+        return cached;
+      }
+    }
+
     setLoading(true);
     setError("");
     setContent("");
@@ -94,12 +137,15 @@ export function useProjectMemorySummary({
     try {
       const nextContent = await streamMemorySummary({
         errorMessage,
+        forceRefresh,
         language,
         onChunk: setContent,
         projectId,
         summaryType,
       });
+      memorySummaryCache.set(cacheKey, nextContent);
       setContent(nextContent);
+      return nextContent;
     } catch (nextError) {
       console.error("Failed to load project memory summary:", nextError);
       setError(
@@ -113,7 +159,7 @@ export function useProjectMemorySummary({
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-  }, [enabled, language, projectId, summaryType]);
+  }, [cacheKey, enabled]);
 
   return {
     content,

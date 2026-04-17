@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,6 +24,7 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectFolder,
+    ProjectMemorySummary,
     ProjectMember,
     ProjectPayment,
     ProjectTodo,
@@ -392,7 +395,16 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         projects_cache.clear()
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
+        db_path = Path(self.db_path)
+        try:
+            db_path.unlink(missing_ok=True)
+        except PermissionError:
+            gc.collect()
+            time.sleep(0.1)
+            try:
+                db_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass
 
     def test_save_project_conversation_as_markdown_file(self):
         with Session(self.engine) as session:
@@ -1513,6 +1525,114 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn('"type": "done"', resp.text)
         self.assertIn("- chunk 1 chunk 2", resp.text)
         self.assertIn("Write the answer in English", captured["prompt"])
+        resp.close()
+
+    def test_memory_summarize_uses_cached_summary_without_calling_llm(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Cached Memory Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=3,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project.id,
+                    summary_type="risk",
+                    language="zh",
+                    memory_version=3,
+                    content="- cached risk summary",
+                )
+            )
+            session.commit()
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+            resp = self.client.post(
+                f"/projects/{project_id}/memory/summarize",
+                json={
+                    "summary_type": "risk",
+                    "language": "zh-CN",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["content"], "- cached risk summary")
+        self.assertTrue(resp.json()["cached"])
+        resp.close()
+
+    def test_memory_summarize_force_refresh_bypasses_cache_and_updates_it(self):
+        async def fake_complete(messages, max_tokens=4000):
+            return "- fresh risk summary"
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="Forced Memory Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=4,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project.id,
+                    summary_type="risk",
+                    language="en",
+                    memory_version=4,
+                    content="- stale cached risk summary",
+                )
+            )
+            session.commit()
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=fake_complete):
+            resp = self.client.post(
+                f"/projects/{project_id}/memory/summarize",
+                json={
+                    "summary_type": "risk",
+                    "language": "en-US",
+                    "force_refresh": True,
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["content"], "- fresh risk summary")
+        self.assertFalse(resp.json()["cached"])
+        resp.close()
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ProjectMemorySummary).where(
+                    ProjectMemorySummary.project_id == project_id,
+                    ProjectMemorySummary.summary_type == "risk",
+                    ProjectMemorySummary.language == "en",
+                    ProjectMemorySummary.memory_version == 4,
+                )
+            ).first()
+
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached.content, "- fresh risk summary")
 
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:

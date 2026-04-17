@@ -10,17 +10,19 @@ import { useProjectTodosManager } from './useProjectTodosManager'
 
 interface ProjectTodosTabProps {
   projectId: string
+  memoryVersion?: number
   todos: ProjectTodo[]
   onUpdate: () => void
 }
 
-export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabProps) {
+export function ProjectTodosTab({ projectId, memoryVersion, todos, onUpdate }: ProjectTodosTabProps) {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const toast = useToast()
   const riskInsight = useProjectMemorySummary({
     errorMessage: isZh ? '生成风险摘要失败，请稍后重试' : 'Failed to generate risk summary',
     language: i18n.language,
+    memoryVersion,
     projectId,
     summaryType: 'risk',
   })
@@ -76,7 +78,7 @@ export function ProjectTodosTab({ projectId, todos, onUpdate }: ProjectTodosTabP
         isZh={isZh}
         loading={riskInsight.loading}
         onRefresh={() => {
-          void riskInsight.refresh()
+          void riskInsight.refresh(true)
         }}
         title={isZh ? 'AI 风险摘要' : 'AI Risk Summary'}
       />

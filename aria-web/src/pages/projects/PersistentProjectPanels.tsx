@@ -70,6 +70,7 @@ function buildPersistentPanelConfig({
           projectName={project.name}
           files={projectDetail.files}
           folders={projectDetail.folders}
+          memoryVersion={project.memory_version ?? 0}
           onUpdate={onRefresh}
         />
       ),
@@ -79,6 +80,7 @@ function buildPersistentPanelConfig({
       element: (
         <ProjectTodosTab
           projectId={projectId}
+          memoryVersion={project.memory_version ?? 0}
           todos={projectDetail.todos}
           onUpdate={onRefresh}
         />

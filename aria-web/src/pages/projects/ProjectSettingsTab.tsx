@@ -32,6 +32,7 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
       ? "生成项目状态摘要失败，请稍后重试"
       : "Failed to generate project state summary",
     language: i18n.language,
+    memoryVersion: project.memory_version ?? 0,
     projectId: String(project.id),
     summaryType: "overview",
   });
@@ -51,7 +52,7 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
     setIsRebuildingMemory(true);
     try {
       await api.post(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 60000 });
-      await settingsInsight.refresh();
+      await settingsInsight.refresh(true);
       onUpdate();
       toast.success(isZh ? "项目记忆已更新" : "Project memory refreshed");
     } catch (error) {
@@ -150,7 +151,7 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
             isZh={isZh}
             loading={settingsInsight.loading}
             onRefresh={() => {
-              void settingsInsight.refresh();
+              void settingsInsight.refresh(true);
             }}
             title={isZh ? "AI 项目状态摘要" : "AI Project State Summary"}
           />

@@ -39,11 +39,14 @@ from app.services.project_contexts import (
     build_project_memory_prompt,
     build_project_memory_view_prompt,
     build_project_summary_from_memory_prompt,
+    get_project_memory_summary_cache,
     get_project_memory_payload,
     mark_project_memory_stale,
+    normalize_summary_language,
     parse_project_memory,
     save_project_memory,
     save_project_context_summary,
+    save_project_memory_summary_cache,
     stream_llm_text_chunks,
 )
 from app.services.project_deletion import delete_project_cascade
@@ -743,6 +746,7 @@ class ProjectMemorySummarizeRequest(BaseModel):
     rebuild_if_stale: bool = True
     stream: bool = False
     language: Optional[str] = None
+    force_refresh: bool = False
 
 
 class ProjectMemoryBatchRebuildRequest(BaseModel):
@@ -937,6 +941,65 @@ async def summarize_project_memory(
         memory_payload = get_project_memory_payload(project)
 
     summary_type = (body.summary_type or "overview").strip() or "overview"
+    normalized_language = normalize_summary_language(body.language)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
+
+    cached_summary = None
+    if not body.force_refresh and memory_version > 0:
+        cached_summary = get_project_memory_summary_cache(
+            session,
+            project_id=project_id,
+            summary_type=summary_type,
+            language=normalized_language,
+            memory_version=memory_version,
+        )
+
+    if cached_summary:
+        if body.stream:
+            async def cached_event_stream():
+                generated_at = cached_summary.updated_at.isoformat()
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "text",
+                            "content": cached_summary.content,
+                            "cached": True,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "done",
+                            "project_id": project_id,
+                            "summary_type": summary_type,
+                            "content": cached_summary.content,
+                            "source_memory_version": memory_version,
+                            "memory_stale": memory_payload.get("stale", False),
+                            "generated_at": generated_at,
+                            "cached": True,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+
+            return StreamingResponse(cached_event_stream(), media_type="text/event-stream")
+
+        return {
+            "project_id": project_id,
+            "summary_type": summary_type,
+            "content": cached_summary.content,
+            "source_memory_version": memory_version,
+            "memory_stale": memory_payload.get("stale", False),
+            "generated_at": cached_summary.updated_at,
+            "cached": True,
+        }
+
     prompt = build_project_memory_view_prompt(
         memory_payload,
         project.name,
@@ -950,7 +1013,7 @@ async def summarize_project_memory(
                 async for chunk in stream_llm_text_chunks(
                     stream_with_selected_model(
                         [{"role": "user", "content": prompt}],
-                        max_tokens=900,
+                        max_tokens=1400,
                     )
                 ):
                     accumulated.append(chunk)
@@ -960,6 +1023,14 @@ async def summarize_project_memory(
                 return
 
             content = "".join(accumulated).strip()
+            cached = save_project_memory_summary_cache(
+                session,
+                project_id=project_id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=memory_version,
+                content=content,
+            )
             yield (
                 "data: "
                 + json.dumps(
@@ -968,9 +1039,10 @@ async def summarize_project_memory(
                         "project_id": project_id,
                         "summary_type": summary_type,
                         "content": content,
-                        "source_memory_version": memory_payload.get("memory_version", 0),
+                        "source_memory_version": memory_version,
                         "memory_stale": memory_payload.get("stale", False),
-                        "generated_at": datetime.utcnow().isoformat(),
+                        "generated_at": cached.updated_at.isoformat(),
+                        "cached": False,
                     },
                     ensure_ascii=False,
                 )
@@ -981,15 +1053,24 @@ async def summarize_project_memory(
 
     content = await complete_with_selected_model(
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=900,
+        max_tokens=1400,
+    )
+    cached = save_project_memory_summary_cache(
+        session,
+        project_id=project_id,
+        summary_type=summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+        content=content.strip(),
     )
     return {
         "project_id": project_id,
         "summary_type": summary_type,
-        "content": content.strip(),
-        "source_memory_version": memory_payload.get("memory_version", 0),
+        "content": cached.content,
+        "source_memory_version": memory_version,
         "memory_stale": memory_payload.get("stale", False),
-        "generated_at": datetime.utcnow(),
+        "generated_at": cached.updated_at,
+        "cached": False,
     }
 
 

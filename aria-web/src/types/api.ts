@@ -109,6 +109,7 @@ export interface ProjectMemorySummaryResponse {
   source_memory_version: number
   memory_stale: boolean
   generated_at: string
+  cached?: boolean
 }
 
 export interface Milestone {
