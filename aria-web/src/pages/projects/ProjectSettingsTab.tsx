@@ -29,8 +29,8 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
 
   const settingsInsight = useProjectMemorySummary({
     errorMessage: isZh
-      ? "生成项目设置摘要失败，请稍后重试"
-      : "Failed to generate project settings summary",
+      ? "生成项目状态摘要失败，请稍后重试"
+      : "Failed to generate project state summary",
     language: i18n.language,
     projectId: String(project.id),
     summaryType: "overview",
@@ -53,10 +53,10 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
       await api.post(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 60000 });
       await settingsInsight.refresh();
       onUpdate();
-      toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
+      toast.success(isZh ? "项目记忆已更新" : "Project memory refreshed");
     } catch (error) {
       console.error("Failed to rebuild project memory:", error);
-      toast.error(isZh ? "项目记忆重建失败" : "Failed to rebuild project memory");
+      toast.error(isZh ? "更新项目记忆失败" : "Failed to refresh project memory");
     } finally {
       setIsRebuildingMemory(false);
     }
@@ -144,8 +144,8 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
             error={settingsInsight.error}
             hint={
               isZh
-                ? "基于项目记忆快速查看当前状态、关键风险和下一步动作，方便在修改设置前先校准全局认知。"
-                : "Structured-memory overview to align on status, risks, and next actions before editing settings."
+                ? "先快速对齐项目当前状态、关键风险和下一步动作，再决定是否调整项目设置。"
+                : "Align on current status, major risks, and next actions before changing project settings."
             }
             isZh={isZh}
             loading={settingsInsight.loading}

@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { Calendar } from "lucide-react";
 import type { ProjectStageConfig } from "../../types/enums";
 import type { Project } from "../../types/api";
 
@@ -27,7 +26,10 @@ interface ProjectKanbanCardProps {
 export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCardProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const summaryText = project.context_summary?.trim() || project.description?.trim() || "";
+  const summaryText = (project.context_summary?.trim() || project.description?.trim() || "")
+    .replace(/^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return (
     <div
@@ -37,56 +39,41 @@ export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCard
       <div className={`absolute bottom-0 left-0 top-0 w-1 ${stage.lightColor}`} />
 
       <div className="pl-3">
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                {project.client}
-              </span>
-            </div>
-            <h4 className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
-              {project.name}
-            </h4>
+        <div className="mb-2 min-w-0">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            {project.client}
           </div>
+          <h4 className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
+            {project.name}
+          </h4>
         </div>
 
-        {summaryText ? (
-          <p className="mb-3 line-clamp-3 text-xs leading-relaxed text-gray-600">
-            {summaryText.replace(/^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/gm, "").trim()}
-          </p>
-        ) : null}
+        <div className="mb-3 min-h-[20px] text-xs leading-relaxed text-gray-500">
+          {summaryText ? (
+            <p className="line-clamp-2">{summaryText}</p>
+          ) : (
+            <p className="line-clamp-1">{isZh ? "暂无项目摘要" : "No summary yet"}</p>
+          )}
+        </div>
 
-        <div className="mb-3 flex items-center gap-2">
+        <div className="flex items-center justify-between border-t border-gray-50 pt-3">
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${stage.bgColor} ${stage.color}`}
           >
             <stage.icon className="h-3 w-3" />
             {isZh ? stage.labelZh : stage.label}
           </span>
-        </div>
 
-        <div className="flex items-center justify-between border-t border-gray-50 pt-3">
-          <div className="flex items-center gap-2">
-            {project.contract_amount ? (
-              <span className="text-xs font-bold text-gray-800">
-                CNY {formatAmountInTenThousand(project.contract_amount)}
-                {isZh ? "万" : "K"}
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
-                {isZh ? "待报价" : "Quote Pending"}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-            <Calendar className="h-3 w-3" />
-            <span>
-              {new Date(project.updated_at).toLocaleDateString(isZh ? "zh-CN" : "en-US", {
-                month: "short",
-                day: "numeric",
-              })}
+          {project.contract_amount ? (
+            <span className="text-xs font-bold text-gray-800">
+              CNY {formatAmountInTenThousand(project.contract_amount)}
+              {isZh ? "万" : "K"}
             </span>
-          </div>
+          ) : (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
+              {isZh ? "待报价" : "Quote Pending"}
+            </span>
+          )}
         </div>
       </div>
     </div>
