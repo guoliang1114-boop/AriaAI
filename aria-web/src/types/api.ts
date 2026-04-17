@@ -69,6 +69,30 @@ export interface ProjectMemoryResponse {
   memory_updated_at?: string | null
 }
 
+export type ProjectMemorySummaryType =
+  | 'overview'
+  | 'risk'
+  | 'stakeholder'
+  | 'delivery'
+  | 'client-facing'
+
+export interface ProjectMemoryStatusResponse {
+  project_id: number
+  has_memory: boolean
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
+}
+
+export interface ProjectMemorySummaryResponse {
+  project_id: number
+  summary_type: ProjectMemorySummaryType | string
+  content: string
+  source_memory_version: number
+  memory_stale: boolean
+  generated_at: string
+}
+
 export interface Milestone {
   id: number
   project_id: number

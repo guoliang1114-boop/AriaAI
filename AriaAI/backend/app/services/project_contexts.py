@@ -21,6 +21,13 @@ OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
 MAX_MEMORY_FILE_SUMMARY_CHARS = 200
 MAX_MEMORY_DESCRIPTION_CHARS = 1200
+SUPPORTED_MEMORY_SUMMARY_TYPES = {
+    "overview",
+    "risk",
+    "stakeholder",
+    "delivery",
+    "client-facing",
+}
 
 
 def _default_project_memory(project: Project) -> dict[str, Any]:
@@ -207,6 +214,45 @@ def build_project_summary_from_memory_prompt(memory: dict[str, Any], project_nam
         "Each bullet must be specific and actionable. Use **bold** sparingly for key terms. "
         "Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 180 words.\n\n"
         f"Project: {project_name}\n"
+        f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
+    )
+
+
+def build_project_memory_view_prompt(
+    memory: dict[str, Any],
+    project_name: str,
+    summary_type: str = "overview",
+) -> str:
+    normalized_type = summary_type if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES else "overview"
+    instructions = {
+        "overview": (
+            "Write exactly 3-5 bullet points for an overview card. Focus on core objective, "
+            "current stage, major progress, key risks or open questions, and next actions."
+        ),
+        "risk": (
+            "Write exactly 3-5 bullet points focused on project risks. Highlight key risks, "
+            "blocked decisions, weak delivery signals, and what needs attention next."
+        ),
+        "stakeholder": (
+            "Write exactly 3-5 bullet points focused on stakeholder alignment. Highlight who matters, "
+            "what each stakeholder cares about, open alignment issues, and suggested follow-ups."
+        ),
+        "delivery": (
+            "Write exactly 3-5 bullet points focused on delivery. Highlight current stage, progress, "
+            "important documents, delivery signals, and immediate execution next steps."
+        ),
+        "client-facing": (
+            "Write exactly 3-5 bullet points that are safe to share with a client. Focus on progress, "
+            "current priorities, confirmed next steps, and avoid speculative internal wording."
+        ),
+    }
+    return (
+        "You are an AI consultant assistant. "
+        f"{instructions[normalized_type]} "
+        "Each bullet must be specific and concise. Use **bold** sparingly for key terms. "
+        "Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 180 words.\n\n"
+        f"Project: {project_name}\n"
+        f"Summary type: {normalized_type}\n"
         f"Structured memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
     )
 

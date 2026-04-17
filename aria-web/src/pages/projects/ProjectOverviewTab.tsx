@@ -38,6 +38,7 @@ export function ProjectOverviewTab({
     formatAmountInTenThousand,
     generateSummary,
     generatingSummary,
+    handleSummaryTypeChange,
     isLoadingArtifacts,
     isLoadingMemory,
     isRebuildingMemory,
@@ -51,6 +52,7 @@ export function ProjectOverviewTab({
     setDescExpanded,
     summaryError,
     summaryText,
+    summaryType,
   } = useProjectOverviewData({
     isZh,
     mdNotes: md_notes,
@@ -106,8 +108,10 @@ export function ProjectOverviewTab({
           generatingSummary={generatingSummary}
           isZh={isZh}
           onGenerate={generateSummary}
+          onSummaryTypeChange={handleSummaryTypeChange}
           summaryError={summaryError}
-          summaryText={summaryText || project.context_summary || ""}
+          summaryText={summaryText}
+          summaryType={summaryType}
         />
 
         {overviewNotesText.length > 0 && (

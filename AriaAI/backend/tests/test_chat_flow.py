@@ -213,6 +213,21 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("Do not blend in facts, progress, or risks from other projects", prompt)
         self.assertIn("Project data:\nProject: Alpha", prompt)
 
+    def test_build_project_memory_view_prompt_supports_risk_summary(self):
+        prompt = project_contexts_module.build_project_memory_view_prompt(
+            {
+                "project_brief": "Alpha rollout",
+                "key_risks": ["Timeline risk"],
+                "next_actions": ["Confirm scope"],
+            },
+            "Alpha",
+            "risk",
+        )
+
+        self.assertIn("Summary type: risk", prompt)
+        self.assertIn("focused on project risks", prompt)
+        self.assertIn('"key_risks": ["Timeline risk"]', prompt)
+
     def test_stream_llm_text_chunks_skips_tool_markers(self):
         async def fake_chunks():
             yield '{"type": "tool_use","id":"tool-1"}'

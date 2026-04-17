@@ -37,6 +37,7 @@ from app.services.project_contexts import (
     build_project_context_prompt,
     build_project_memory_data,
     build_project_memory_prompt,
+    build_project_memory_view_prompt,
     build_project_summary_from_memory_prompt,
     get_project_memory_payload,
     mark_project_memory_stale,
@@ -115,6 +116,34 @@ def _bust_project(project_id: int) -> None:
 
 def _mark_project_memory_stale(session: Session, project_id: int) -> None:
     mark_project_memory_stale(session, project_id)
+
+
+async def _rebuild_project_memory(
+    session: Session,
+    project_id: int,
+    project: Optional[Project] = None,
+) -> dict:
+    project = project or get_project_or_404(session, project_id)
+    _, project_memory_data = build_project_memory_data(session, project_id)
+    raw_memory = await complete_with_selected_model(
+        messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
+        max_tokens=2200,
+    )
+    parsed_memory = parse_project_memory(raw_memory, project)
+    return save_project_memory(session, project_id, parsed_memory)
+
+
+async def _ensure_project_memory(
+    session: Session,
+    project_id: int,
+    project: Optional[Project] = None,
+) -> tuple[Project, dict]:
+    project = project or get_project_or_404(session, project_id)
+    memory_payload = get_project_memory_payload(project)
+    if project.memory_stale or project.memory_version == 0:
+        memory_payload = await _rebuild_project_memory(session, project_id, project)
+        project = get_project_or_404(session, project_id)
+    return project, memory_payload
 
 
 # Shared file text extraction
@@ -709,6 +738,11 @@ class ProjectAISuggestion(BaseModel):
     description: str
 
 
+class ProjectMemorySummarizeRequest(BaseModel):
+    summary_type: str = "overview"
+    rebuild_if_stale: bool = True
+
+
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
 async def ai_suggest_project(body: ProjectAISuggestQuery):
     """Ask Claude to propose 1-3 consulting project names + descriptions."""
@@ -749,17 +783,7 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
 @router.post("/{project_id}/generate-context")
 async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
     """Generate overview summary from structured project memory, rebuilding memory when stale."""
-    project = get_project_or_404(session, project_id)
-
-    memory_payload = get_project_memory_payload(project)
-    if project.memory_stale or project.memory_version == 0:
-        _, project_memory_data = build_project_memory_data(session, project_id)
-        raw_memory = await complete_with_selected_model(
-            messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
-            max_tokens=2200,
-        )
-        parsed_memory = parse_project_memory(raw_memory, project)
-        memory_payload = save_project_memory(session, project_id, parsed_memory)
+    project, memory_payload = await _ensure_project_memory(session, project_id)
 
     messages = [
         {
@@ -804,16 +828,21 @@ def get_project_memory(project_id: int, session: Session = Depends(get_session))
     }
 
 
+@router.get("/{project_id}/memory/status")
+def get_project_memory_status(project_id: int, session: Session = Depends(get_session)):
+    project = get_project_or_404(session, project_id)
+    return {
+        "project_id": project_id,
+        "has_memory": (project.memory_version or 0) > 0,
+        "memory_version": project.memory_version,
+        "memory_stale": project.memory_stale,
+        "memory_updated_at": project.memory_updated_at,
+    }
+
+
 @router.post("/{project_id}/memory/rebuild")
 async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
-    project = get_project_or_404(session, project_id)
-    _, project_memory_data = build_project_memory_data(session, project_id)
-    raw_memory = await complete_with_selected_model(
-        messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
-        max_tokens=2200,
-    )
-    parsed_memory = parse_project_memory(raw_memory, project)
-    saved_memory = save_project_memory(session, project_id, parsed_memory)
+    saved_memory = await _rebuild_project_memory(session, project_id)
     _bust_project(project_id)
     return {
         "ok": True,
@@ -821,6 +850,38 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
         "memory": saved_memory,
         "memory_version": saved_memory.get("memory_version", 0),
         "memory_updated_at": saved_memory.get("last_updated_at", ""),
+    }
+
+
+@router.post("/{project_id}/memory/summarize")
+async def summarize_project_memory(
+    project_id: int,
+    body: ProjectMemorySummarizeRequest,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    if body.rebuild_if_stale:
+        project, memory_payload = await _ensure_project_memory(session, project_id, project)
+    else:
+        memory_payload = get_project_memory_payload(project)
+
+    summary_type = (body.summary_type or "overview").strip() or "overview"
+    content = await complete_with_selected_model(
+        messages=[
+            {
+                "role": "user",
+                "content": build_project_memory_view_prompt(memory_payload, project.name, summary_type),
+            }
+        ],
+        max_tokens=900,
+    )
+    return {
+        "project_id": project_id,
+        "summary_type": summary_type,
+        "content": content.strip(),
+        "source_memory_version": memory_payload.get("memory_version", 0),
+        "memory_stale": memory_payload.get("stale", False),
+        "generated_at": datetime.utcnow(),
     }
 
 

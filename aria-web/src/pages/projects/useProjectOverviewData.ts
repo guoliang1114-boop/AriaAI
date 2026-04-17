@@ -5,6 +5,8 @@ import type {
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
   ProjectMemoryResponse,
+  ProjectMemorySummaryResponse,
+  ProjectMemorySummaryType,
 } from "../../types/api";
 
 const formatAmount = (amount: number | undefined | null): string => {
@@ -34,6 +36,8 @@ interface UseProjectOverviewDataOptions {
   projectId: string;
 }
 
+type SummaryCache = Partial<Record<ProjectMemorySummaryType, string>>;
+
 export function useProjectOverviewData({
   isZh,
   mdNotes,
@@ -41,6 +45,7 @@ export function useProjectOverviewData({
   projectId,
 }: UseProjectOverviewDataOptions) {
   const { files, milestones, project, todos } = projectDetail;
+  const [summaryType, setSummaryType] = useState<ProjectMemorySummaryType>("overview");
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [summaryText, setSummaryText] = useState(project.context_summary || "");
   const [summaryError, setSummaryError] = useState("");
@@ -51,6 +56,9 @@ export function useProjectOverviewData({
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const [summaryCache, setSummaryCache] = useState<SummaryCache>({
+    overview: project.context_summary || "",
+  });
 
   const firstMarkdownFile = useMemo(
     () =>
@@ -73,8 +81,7 @@ export function useProjectOverviewData({
       [...milestones]
         .sort(
           (a, b) =>
-            new Date(b.due_date || "").getTime() -
-            new Date(a.due_date || "").getTime(),
+            new Date(b.due_date || "").getTime() - new Date(a.due_date || "").getTime(),
         )
         .slice(0, 3),
     [milestones],
@@ -177,6 +184,24 @@ export function useProjectOverviewData({
     };
   }, [projectId]);
 
+  useEffect(() => {
+    setSummaryType("overview");
+    setSummaryError("");
+    setSummaryText(project.context_summary || "");
+    setSummaryCache({ overview: project.context_summary || "" });
+  }, [project.context_summary, projectId]);
+
+  const refreshMemory = async () => {
+    try {
+      const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
+      setMemory(data.memory);
+      return data.memory;
+    } catch (error) {
+      console.error("Failed to refresh project memory:", error);
+      return null;
+    }
+  };
+
   const rebuildMemory = async () => {
     setIsRebuildingMemory(true);
     try {
@@ -187,7 +212,7 @@ export function useProjectOverviewData({
     }
   };
 
-  const generateSummary = async () => {
+  const generateOverviewSummary = async () => {
     setGeneratingSummary(true);
     setSummaryText("");
     setSummaryError("");
@@ -222,37 +247,30 @@ export function useProjectOverviewData({
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
 
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "text" && data.content) {
-                fullSummary += data.content;
-                setSummaryText(fullSummary);
-              } else if (data.type === "done") {
-                fullSummary = data.context_summary || fullSummary;
-                setSummaryText(fullSummary);
-              } else if (data.type === "error") {
-                throw new Error(
-                  data.message ||
-                    (isZh
-                      ? "生成项目总结失败，请稍后重试"
-                      : "Failed to generate project summary, please try again"),
-                );
-              }
-            } catch (streamError) {
-              if (streamError instanceof Error) {
-                throw streamError;
-              }
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "text" && data.content) {
+              fullSummary += data.content;
+              setSummaryText(fullSummary);
+            } else if (data.type === "done") {
+              fullSummary = data.context_summary || fullSummary;
+              setSummaryText(fullSummary);
+            } else if (data.type === "error") {
+              throw new Error(
+                data.message ||
+                  (isZh
+                    ? "生成项目总结失败，请稍后重试"
+                    : "Failed to generate project summary, please try again"),
+              );
             }
           }
         }
       }
 
-      try {
-        const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
-        setMemory(data.memory);
-      } catch (memoryError) {
-        console.error("Failed to refresh memory after summary generation:", memoryError);
-      }
+      setSummaryCache((current) => ({
+        ...current,
+        overview: fullSummary,
+      }));
+      await refreshMemory();
     } catch (error) {
       console.error("Failed to generate summary:", error);
       setSummaryError(
@@ -267,12 +285,86 @@ export function useProjectOverviewData({
     }
   };
 
+  const generateMemorySummary = async (
+    nextType: Exclude<ProjectMemorySummaryType, "overview">,
+    force = false,
+  ) => {
+    if (!force && summaryCache[nextType]) {
+      setSummaryText(summaryCache[nextType] || "");
+      setSummaryError("");
+      return;
+    }
+
+    setGeneratingSummary(true);
+    setSummaryError("");
+    setSummaryText("");
+
+    try {
+      const data = await api.post<ProjectMemorySummaryResponse>(
+        `/projects/${projectId}/memory/summarize`,
+        {
+          summary_type: nextType,
+          rebuild_if_stale: true,
+        },
+      );
+      const content = (data.content || "").trim();
+      setSummaryCache((current) => ({
+        ...current,
+        [nextType]: content,
+      }));
+      setSummaryText(content);
+      await refreshMemory();
+    } catch (error) {
+      console.error("Failed to generate memory summary:", error);
+      setSummaryError(
+        error instanceof Error && error.message
+          ? error.message
+          : isZh
+            ? "生成项目摘要失败，请稍后重试"
+            : "Failed to generate project summary, please try again",
+      );
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
+
+  const generateSummary = async (
+    nextType: ProjectMemorySummaryType = summaryType,
+    force = true,
+  ) => {
+    if (nextType === "overview") {
+      await generateOverviewSummary();
+      return;
+    }
+    await generateMemorySummary(nextType, force);
+  };
+
+  const handleSummaryTypeChange = (nextType: ProjectMemorySummaryType) => {
+    setSummaryType(nextType);
+    setSummaryError("");
+
+    if (nextType === "overview") {
+      setSummaryText(summaryCache.overview || project.context_summary || "");
+      return;
+    }
+
+    const cached = summaryCache[nextType];
+    if (cached) {
+      setSummaryText(cached);
+      return;
+    }
+
+    setSummaryText("");
+    void generateMemorySummary(nextType, false);
+  };
+
   return {
     descExpanded,
     formatAmount,
     formatAmountInTenThousand,
     generateSummary,
     generatingSummary,
+    handleSummaryTypeChange,
     isLoadingArtifacts,
     isLoadingMemory,
     isRebuildingMemory,
@@ -286,5 +378,6 @@ export function useProjectOverviewData({
     setDescExpanded,
     summaryError,
     summaryText,
+    summaryType,
   };
 }
