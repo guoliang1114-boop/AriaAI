@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
@@ -50,6 +51,15 @@ export function buildProjectDetailRouteConfig({
           projectDetail={projectDetail}
           projectId={projectId}
           onUpdate={onRefresh}
+        />
+      ),
+    },
+    {
+      path: "memory",
+      element: (
+        <ProjectMemoryTab
+          projectDetail={projectDetail}
+          projectId={projectId}
         />
       ),
     },

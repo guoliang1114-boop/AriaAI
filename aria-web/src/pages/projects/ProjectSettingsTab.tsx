@@ -1,11 +1,13 @@
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectDetail as ProjectDetailType } from "../../types/api";
+import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectSettingsDangerZone } from "./ProjectSettingsDangerZone";
 import { ProjectSettingsDeleteDialog } from "./ProjectSettingsDeleteDialog";
 import { ProjectSettingsFormCard } from "./ProjectSettingsFormCard";
-import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectSettingsMembersCard } from "./ProjectSettingsMembersCard";
+import { ProjectSettingsMemoryManagementCard } from "./ProjectSettingsMemoryManagementCard";
 import { useProjectMemorySummary } from "./useProjectMemorySummary";
 import { useProjectSettingsEditor } from "./useProjectSettingsEditor";
 import { useProjectSettingsMembers } from "./useProjectSettingsMembers";
@@ -15,20 +17,22 @@ interface ProjectSettingsTabProps {
   projectDetail: ProjectDetailType;
 }
 
-export function ProjectSettingsTab({
-  onUpdate,
-  projectDetail,
-}: ProjectSettingsTabProps) {
+export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsTabProps) {
   const { project } = projectDetail;
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const toast = useToast();
+
   const settingsInsight = useProjectMemorySummary({
-    errorMessage: isZh ? "生成项目设置摘要失败，请稍后重试" : "Failed to generate project settings summary",
+    errorMessage: isZh
+      ? "生成项目设置摘要失败，请稍后重试"
+      : "Failed to generate project settings summary",
     language: i18n.language,
     projectId: String(project.id),
     summaryType: "overview",
   });
+
   const {
     aiError,
     applySuggestion,
@@ -60,6 +64,7 @@ export function ProjectSettingsTab({
     onUpdate,
     project,
   });
+
   const {
     availableUsers,
     handleAddMember,
@@ -110,8 +115,8 @@ export function ProjectSettingsTab({
             error={settingsInsight.error}
             hint={
               isZh
-                ? "基于项目记忆快速查看当前项目状态、关键风险和下一步动作，便于在修改设置前先校准全局认知"
-                : "Structured-memory overview to align on status, risks, and next actions before editing settings"
+                ? "基于项目记忆快速查看当前状态、关键风险和下一步动作，方便在修改设置前先校准全局认知。"
+                : "Structured-memory overview to align on status, risks, and next actions before editing settings."
             }
             isZh={isZh}
             loading={settingsInsight.loading}
@@ -119,6 +124,12 @@ export function ProjectSettingsTab({
               void settingsInsight.refresh();
             }}
             title={isZh ? "AI 项目状态摘要" : "AI Project State Summary"}
+          />
+
+          <ProjectSettingsMemoryManagementCard
+            isZh={isZh}
+            onOpenMemory={() => navigate(`/projects/${project.id}/memory`)}
+            project={project}
           />
 
           <ProjectSettingsMembersCard
@@ -143,7 +154,7 @@ export function ProjectSettingsTab({
         </div>
       </div>
 
-      {showDeleteDialog && (
+      {showDeleteDialog ? (
         <ProjectSettingsDeleteDialog
           deleteConfirmText={deleteConfirmText}
           isDeleting={isDeleting}
@@ -153,7 +164,7 @@ export function ProjectSettingsTab({
           onChangeDeleteConfirmText={setDeleteConfirmText}
           onConfirm={handleDelete}
         />
-      )}
+      ) : null}
     </div>
   );
 }

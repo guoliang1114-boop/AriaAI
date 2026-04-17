@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Brain,
   DollarSign,
   Files,
   Flag,
@@ -17,6 +18,7 @@ export type ProjectDetailTabId =
   | "todos"
   | "chat"
   | "financials"
+  | "memory"
   | "settings";
 
 interface ProjectDetailTabConfig {
@@ -62,6 +64,13 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     icon: MessageSquare,
     path: "chat",
     getPath: (projectId) => `/projects/${projectId}/chat`,
+  },
+  {
+    id: "memory",
+    labelKey: "projects.projectDetail.memory",
+    icon: Brain,
+    path: "memory",
+    getPath: (projectId) => `/projects/${projectId}/memory`,
   },
   {
     id: "financials",

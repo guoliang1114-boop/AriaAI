@@ -32,7 +32,7 @@ export function ProjectOverviewMemoryCard({
           : "Ready"
         : isZh
           ? "未生成"
-          : "Not built";
+          : "Not Built";
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
@@ -72,28 +72,28 @@ export function ProjectOverviewMemoryCard({
           </span>
         </div>
 
-        {memory?.stale && (
+        {memory?.stale ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <p>
                 {isZh
-                  ? "项目数据最近发生过变化，当前记忆可能不是最新。系统会尝试自动刷新，你也可以手动点“重建”。"
+                  ? "项目最近发生过变化，这份记忆可能不是最新的。系统会尝试自动刷新，你也可以手动重建。"
                   : "Project data changed recently, so this memory may be out of date. The app will try to refresh it automatically, or you can rebuild it manually."}
               </p>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {hasMemory && (
-          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+        {hasMemory ? (
+          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
             {memory?.project_brief
               ? memory.project_brief
               : isZh
-                ? "项目记忆已构建，可供概览摘要和项目聊天复用。"
-                : "Project memory is ready for overview summaries and chat context."}
+                ? "项目记忆已经可用，可供概览摘要、项目聊天和各类执行页面复用。"
+                : "Project memory is ready for summaries, project chat, and execution views."}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

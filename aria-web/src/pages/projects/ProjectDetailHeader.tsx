@@ -13,7 +13,8 @@ export function ProjectDetailHeader({
   onBack: () => void;
   projectId: string;
 }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
 
   return (
     <div className="sticky top-0 z-30 border-b border-gray-200 bg-white">
@@ -49,7 +50,11 @@ export function ProjectDetailHeader({
               }
             >
               <tab.icon className="h-4 w-4" />
-              {t(tab.labelKey)}
+              {tab.id === "memory"
+                ? isZh
+                  ? "项目记忆"
+                  : "Memory"
+                : t(tab.labelKey)}
             </NavLink>
           ))}
         </div>

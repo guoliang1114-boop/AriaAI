@@ -5,6 +5,7 @@ import { PageTitle } from "../../components/PageTitle";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
+import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
@@ -40,6 +41,13 @@ function renderProjectDetailContent(
           projectDetail={projectDetail}
           projectId={projectId}
           onUpdate={onRefresh}
+        />
+      );
+    case "memory":
+      return (
+        <ProjectMemoryTab
+          projectDetail={projectDetail}
+          projectId={projectId}
         />
       );
     case "settings":

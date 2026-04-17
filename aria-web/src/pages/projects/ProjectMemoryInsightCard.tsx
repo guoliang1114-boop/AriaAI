@@ -30,12 +30,12 @@ export function ProjectMemoryInsightCard({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-gray-900">{title}</h3>
-              {loading && (
+              {loading ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[11px] text-indigo-600">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {isZh ? "流式生成中" : "Streaming"}
                 </span>
-              )}
+              ) : null}
             </div>
             <p className="mt-1 text-xs text-gray-500">{hint}</p>
           </div>
@@ -56,11 +56,11 @@ export function ProjectMemoryInsightCard({
         </button>
       </div>
 
-      {error && (
+      {error ? (
         <div className="mb-3 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600">
           {error}
         </div>
-      )}
+      ) : null}
 
       {content ? (
         <div className="md-root">
@@ -69,9 +69,9 @@ export function ProjectMemoryInsightCard({
               .replace(/^[\u2022\u00b7\u25cf\u25aa\u25ab-]\s*/gm, "- ")
               .replace(/\n(?!\n)/g, "\n\n")}
           />
-          {loading && (
+          {loading ? (
             <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-indigo-500 align-middle" />
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="rounded-lg bg-white/70 p-3 text-sm text-gray-500">
