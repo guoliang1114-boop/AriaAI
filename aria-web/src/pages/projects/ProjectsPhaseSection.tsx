@@ -78,28 +78,18 @@ export function getProjectPhase(project: Project): ProjectPhase {
 
 interface ProjectsPhaseSectionProps {
   isExpanded: boolean;
-  isGenerating: boolean;
-  isRefreshing: boolean;
   onProjectClick: (id: number) => void;
-  onRefreshPhase: () => void;
   onToggle: () => void;
-  noMemoryCount: number;
   phase: PhaseConfig;
   projects: Project[];
-  staleCount: number;
 }
 
 export function ProjectsPhaseSection({
   isExpanded,
-  isGenerating,
-  isRefreshing,
   onProjectClick,
-  onRefreshPhase,
   onToggle,
-  noMemoryCount,
   phase,
   projects,
-  staleCount,
 }: ProjectsPhaseSectionProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
@@ -114,14 +104,9 @@ export function ProjectsPhaseSection({
     <div className="mb-8">
       <ProjectKanbanPhaseHeader
         isExpanded={isExpanded}
-        isGenerating={isGenerating}
-        isRefreshing={isRefreshing}
         isZh={isZh}
-        noMemoryCount={noMemoryCount}
-        onRefreshPhase={onRefreshPhase}
         onToggle={onToggle}
         phase={phase}
-        staleCount={staleCount}
         totalProjects={totalProjects}
         totalValue={totalValue}
       />
