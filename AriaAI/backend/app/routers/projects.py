@@ -35,6 +35,13 @@ from app.services.project_core import (
 from app.services.project_contexts import (
     build_project_context_data,
     build_project_context_prompt,
+    build_project_memory_data,
+    build_project_memory_prompt,
+    build_project_summary_from_memory_prompt,
+    get_project_memory_payload,
+    mark_project_memory_stale,
+    parse_project_memory,
+    save_project_memory,
     save_project_context_summary,
     stream_llm_text_chunks,
 )
@@ -104,6 +111,10 @@ def _bust_project(project_id: int) -> None:
     """Invalidate all caches that reference this project."""
     projects_cache.delete(f"detail:{project_id}")
     projects_cache.delete_prefix("list:")
+
+
+def _mark_project_memory_stale(session: Session, project_id: int) -> None:
+    mark_project_memory_stale(session, project_id)
 
 
 # Shared file text extraction
@@ -283,6 +294,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
 @router.patch("/{project_id}")
 def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
     project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return project
 
@@ -310,6 +322,7 @@ def create_milestone(project_id: int, data: MilestoneCreate, session: Session = 
         priority=data.priority,
         due_date=data.due_date,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return ms
 
@@ -317,6 +330,7 @@ def create_milestone(project_id: int, data: MilestoneCreate, session: Session = 
 @router.patch("/{project_id}/milestones/{ms_id}")
 def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session: Session = Depends(get_session)):
     ms = update_project_milestone(session, project_id, ms_id, data.model_dump(exclude_none=True))
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return ms
 
@@ -324,6 +338,7 @@ def update_milestone(project_id: int, ms_id: int, data: MilestoneUpdate, session
 @router.delete("/{project_id}/milestones/{ms_id}")
 def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get_session)):
     delete_project_milestone(session, project_id, ms_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -347,6 +362,7 @@ def init_presales_notes_template(
         uploads_dir=UPLOADS_DIR,
         overwrite=body.overwrite,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return result
 
@@ -366,6 +382,7 @@ def create_project_document(
         uploads_dir=UPLOADS_DIR,
         init_default_folders=init_default_project_folders,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return project_file
 
@@ -392,6 +409,7 @@ def update_project_document(
         name=data.name,
         folder_id=data.folder_id,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return result
 
@@ -441,6 +459,7 @@ def save_conversation_markdown(
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
+        _mark_project_memory_stale(session, project_id)
         _bust_project(project_id)
         return {
             "ok": True,
@@ -473,6 +492,8 @@ def save_conversation_markdown(
         uploads_dir=UPLOADS_DIR,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
     return {
         "ok": True,
         "action": "new",
@@ -524,6 +545,7 @@ def save_message_to_document(
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
+        _mark_project_memory_stale(session, project_id)
         _bust_project(project_id)
         return {
             "ok": True,
@@ -557,6 +579,8 @@ def save_message_to_document(
         uploads_dir=UPLOADS_DIR,
         summary=f"Saved from conversation: {conv.title or 'Untitled Conversation'}",
     )
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
     return {
         "ok": True,
         "action": "new",
@@ -586,6 +610,7 @@ async def upload_file(
     # Auto-generate file summary in the background
     background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), file_type)
 
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return pf
 
@@ -593,6 +618,7 @@ async def upload_file(
 @router.delete("/{project_id}/files/{file_id}")
 def delete_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
     delete_project_file(session, project_id, file_id, uploads_dir=UPLOADS_DIR)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -627,6 +653,7 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
         name=data.name,
         sort_order=data.sort_order,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return folder
 
@@ -634,6 +661,7 @@ def create_folder(project_id: int, data: FolderCreate, session: Session = Depend
 @router.delete("/{project_id}/folders/{folder_id}")
 def delete_folder(project_id: int, folder_id: int, session: Session = Depends(get_session)):
     delete_project_folder(session, project_id, folder_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -655,6 +683,7 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
         note=data.note,
         payment_type=data.payment_type,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return payment
 
@@ -662,6 +691,7 @@ def add_payment(project_id: int, data: PaymentCreate, session: Session = Depends
 @router.delete("/{project_id}/financials/{payment_id}")
 def delete_payment(project_id: int, payment_id: int, session: Session = Depends(get_session)):
     delete_project_payment(session, project_id, payment_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -718,14 +748,30 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
 
 @router.post("/{project_id}/generate-context")
 async def generate_project_context(project_id: int, session: Session = Depends(get_session)):
-    """Ask LLM to generate a structured context summary (SSE streaming)."""
-    _, project_data = build_project_context_data(session, project_id)
-    messages = [{"role": "user", "content": build_project_context_prompt(project_data)}]
+    """Generate overview summary from structured project memory, rebuilding memory when stale."""
+    project = get_project_or_404(session, project_id)
+
+    memory_payload = get_project_memory_payload(project)
+    if project.memory_stale or project.memory_version == 0:
+        _, project_memory_data = build_project_memory_data(session, project_id)
+        raw_memory = await complete_with_selected_model(
+            messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
+            max_tokens=2200,
+        )
+        parsed_memory = parse_project_memory(raw_memory, project)
+        memory_payload = save_project_memory(session, project_id, parsed_memory)
+
+    messages = [
+        {
+            "role": "user",
+            "content": build_project_summary_from_memory_prompt(memory_payload, project.name),
+        }
+    ]
 
     async def event_stream():
         accumulated: list[str] = []
         try:
-            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=1400)):
+            async for chunk in stream_llm_text_chunks(stream_with_selected_model(messages, max_tokens=900)):
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -746,12 +792,45 @@ async def generate_project_context(project_id: int, session: Session = Depends(g
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@router.get("/{project_id}/memory")
+def get_project_memory(project_id: int, session: Session = Depends(get_session)):
+    project = get_project_or_404(session, project_id)
+    return {
+        "project_id": project_id,
+        "memory": get_project_memory_payload(project),
+        "memory_version": project.memory_version,
+        "memory_stale": project.memory_stale,
+        "memory_updated_at": project.memory_updated_at,
+    }
+
+
+@router.post("/{project_id}/memory/rebuild")
+async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
+    project = get_project_or_404(session, project_id)
+    _, project_memory_data = build_project_memory_data(session, project_id)
+    raw_memory = await complete_with_selected_model(
+        messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
+        max_tokens=2200,
+    )
+    parsed_memory = parse_project_memory(raw_memory, project)
+    saved_memory = save_project_memory(session, project_id, parsed_memory)
+    _bust_project(project_id)
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "memory": saved_memory,
+        "memory_version": saved_memory.get("memory_version", 0),
+        "memory_updated_at": saved_memory.get("last_updated_at", ""),
+    }
+
+
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
 
 @router.post("/{project_id}/notes")
 def save_project_note(project_id: int, body: NoteBody, session: Session = Depends(get_session)):
     """Append or overwrite project notes."""
     project = save_project_notes(session, project_id, body.content, append=body.append)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"notes": project.notes}
 
@@ -774,6 +853,7 @@ def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(ge
         due_date=body.due_date,
         assigned_to_user_id=body.assigned_to_user_id,
     )
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return serialize_todo(todo)
 
@@ -781,6 +861,7 @@ def create_todo(project_id: int, body: TodoCreate, session: Session = Depends(ge
 @router.patch("/{project_id}/todos/{todo_id}")
 def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Session = Depends(get_session)):
     todo = update_project_todo(session, project_id, todo_id, body.model_dump(exclude_none=True))
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return serialize_todo(todo)
 
@@ -788,6 +869,7 @@ def update_todo(project_id: int, todo_id: int, body: TodoUpdate, session: Sessio
 @router.delete("/{project_id}/todos/{todo_id}")
 def delete_todo(project_id: int, todo_id: int, session: Session = Depends(get_session)):
     delete_project_todo(session, project_id, todo_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 
@@ -809,6 +891,7 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
 def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
     ensure_project_exists(session, project_id)
     member, user = add_project_member(session, project_id, body.user_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return MemberOut(
         id=member.id,
@@ -822,6 +905,7 @@ def add_member(project_id: int, body: MemberCreate, session: Session = Depends(g
 @router.delete("/{project_id}/members/{user_id}")
 def remove_member(project_id: int, user_id: int, session: Session = Depends(get_session)):
     remove_project_member(session, project_id, user_id)
+    _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return {"ok": True}
 

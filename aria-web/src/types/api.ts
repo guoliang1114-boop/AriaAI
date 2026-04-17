@@ -33,6 +33,40 @@ export interface Project {
   md_notes?: string
   contract_amount?: number
   context_freshness?: number
+  context_memory_json?: string
+  memory_stale?: boolean
+  memory_version?: number
+  memory_updated_at?: string | null
+}
+
+export interface ProjectMemoryDocument {
+  name: string
+  reason: string
+}
+
+export interface ProjectMemory {
+  project_brief: string
+  current_stage: string
+  current_objective: string
+  recent_progress: string[]
+  key_risks: string[]
+  open_questions: string[]
+  next_actions: string[]
+  important_documents: ProjectMemoryDocument[]
+  financial_status: string
+  delivery_signals: string[]
+  stakeholder_notes: string[]
+  memory_version: number
+  last_updated_at: string
+  stale: boolean
+}
+
+export interface ProjectMemoryResponse {
+  project_id: number
+  memory: ProjectMemory
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
 }
 
 export interface Milestone {

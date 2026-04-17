@@ -7,6 +7,7 @@ import { downloadArtifact } from "./downloadArtifact";
 import { ProjectOverviewArtifactsCard } from "./ProjectOverviewArtifactsCard";
 import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
 import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
+import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
 import { ProjectOverviewMilestonesCard } from "./ProjectOverviewMilestonesCard";
 import { ProjectOverviewNotesCard } from "./ProjectOverviewNotesCard";
 import { ProjectOverviewSidebar } from "./ProjectOverviewSidebar";
@@ -38,11 +39,15 @@ export function ProjectOverviewTab({
     generateSummary,
     generatingSummary,
     isLoadingArtifacts,
+    isLoadingMemory,
+    isRebuildingMemory,
+    memory,
     overviewNotesText,
     recentArtifacts,
     recentFiles,
     recentMilestones,
     recentTodos,
+    rebuildMemory,
     setDescExpanded,
     summaryError,
     summaryText,
@@ -139,6 +144,15 @@ export function ProjectOverviewTab({
         financials={financials}
         formatAmount={formatAmount}
         isZh={isZh}
+        memoryCard={
+          <ProjectOverviewMemoryCard
+            isLoading={isLoadingMemory}
+            isRebuilding={isRebuildingMemory}
+            isZh={isZh}
+            memory={memory}
+            onRebuild={() => void rebuildMemory()}
+          />
+        }
         onGoToDocuments={() => navigate(`/projects/${projectId}/documents`)}
         onGoToFinancials={() => navigate(`/projects/${projectId}/financials`)}
         onGoToMilestones={() => navigate(`/projects/${projectId}/milestones`)}

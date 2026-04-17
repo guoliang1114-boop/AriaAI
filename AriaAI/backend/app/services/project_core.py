@@ -50,6 +50,7 @@ def list_projects_basic(
 
 def create_project_record(session: Session, data: dict) -> Project:
     project = Project(**data)
+    project.memory_stale = True
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -69,6 +70,7 @@ def update_project_record(session: Session, project_id: int, changes: dict) -> P
     project = get_project_or_404(session, project_id)
     for key, value in changes.items():
         setattr(project, key, value)
+    project.memory_stale = True
     project.updated_at = datetime.utcnow()
     session.add(project)
     session.commit()

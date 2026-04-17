@@ -7,6 +7,7 @@ interface ProjectOverviewSidebarProps {
   financials: ProjectFinancials;
   formatAmount: (amount: number | undefined | null) => string;
   isZh: boolean;
+  memoryCard?: ReactNode;
   onGoToDocuments: () => void;
   onGoToFinancials: () => void;
   onGoToMilestones: () => void;
@@ -19,6 +20,7 @@ export function ProjectOverviewSidebar({
   financials,
   formatAmount,
   isZh,
+  memoryCard,
   onGoToDocuments,
   onGoToFinancials,
   onGoToMilestones,
@@ -78,6 +80,8 @@ export function ProjectOverviewSidebar({
       </div>
 
       {artifactsCard}
+
+      {memoryCard}
 
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">

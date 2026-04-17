@@ -1,6 +1,6 @@
 from sqlalchemy import inspect, text
-from sqlalchemy.dialects import sqlite
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import SQLModel, Session, create_engine
+
 from app.config import DATABASE_URL
 
 engine_kwargs = {
@@ -11,40 +11,47 @@ if DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
     engine_kwargs.update(
-        pool_size=10,            # 增加连接池大小
-        max_overflow=10,         # 增加溢出连接数
-        pool_recycle=300,        # 5 分钟回收一次，避免连接超时
-        pool_timeout=60,         # 增加等待连接超时时间
-        pool_pre_ping=True,      # 启用连接健康检查
+        pool_size=10,
+        max_overflow=10,
+        pool_recycle=300,
+        pool_timeout=60,
+        pool_pre_ping=True,
     )
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 
 def create_db():
-    """建表（幂等，已存在的表跳过）"""
+    """Create missing tables only."""
     SQLModel.metadata.create_all(engine)
 
 
 def migrate_db():
-    """Lightweight additive migrations for local SQLite dev DBs."""
-    if not DATABASE_URL.startswith("sqlite"):
-        return
+    """Lightweight additive migrations for existing databases.
 
-    def _sqlite_type(column) -> str:
-        return column.type.compile(dialect=sqlite.dialect())
+    This only adds missing nullable/defaulted columns. It does not handle
+    destructive schema changes or type rewrites.
+    """
+
+    def _column_type_sql(column) -> str:
+        return column.type.compile(dialect=engine.dialect)
 
     def _default_sql(column):
         if column.server_default is not None and hasattr(column.server_default, "arg"):
             arg = column.server_default.arg
+            if isinstance(arg, bool):
+                return "true" if arg else "false"
             if isinstance(arg, str):
-                return f"'{arg}'"
+                escaped = arg.replace("'", "''")
+                return f"'{escaped}'"
             return str(arg)
 
         if column.default is not None and getattr(column.default, "is_scalar", False):
             value = column.default.arg
             if isinstance(value, bool):
-                return "1" if value else "0"
+                if DATABASE_URL.startswith("sqlite"):
+                    return "1" if value else "0"
+                return "true" if value else "false"
             if isinstance(value, (int, float)):
                 return str(value)
             if value is None:
@@ -64,12 +71,10 @@ def migrate_db():
 
             existing_columns = {col["name"] for col in inspector.get_columns(table.name)}
             for column in table.columns:
-                if column.name in existing_columns:
-                    continue
-                if column.primary_key:
+                if column.name in existing_columns or column.primary_key:
                     continue
 
-                sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {_sqlite_type(column)}"
+                sql = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {_column_type_sql(column)}"
                 default_sql = _default_sql(column)
                 if default_sql is not None:
                     sql += f" DEFAULT {default_sql}"

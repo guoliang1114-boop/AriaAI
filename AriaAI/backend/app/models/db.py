@@ -28,6 +28,10 @@ class Project(SQLModel, table=True):
     context_freshness: float = 1.0  # 0–1
     contract_amount: float = 0.0    # total contract value
     context_summary: str = ""       # AI-generated project context summary
+    context_memory_json: str = "{}" # structured long-term project memory
+    memory_stale: bool = True
+    memory_version: int = 0
+    memory_updated_at: Optional[datetime] = None
     notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
     md_notes: str = ""              # Project-level Markdown notes
     created_at: datetime = Field(default_factory=datetime.utcnow)

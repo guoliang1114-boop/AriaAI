@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { GeneratedArtifact, ProjectDetail as ProjectDetailType } from "../../types/api";
+import type {
+  GeneratedArtifact,
+  ProjectDetail as ProjectDetailType,
+  ProjectMemory,
+  ProjectMemoryResponse,
+} from "../../types/api";
 
 const formatAmount = (amount: number | undefined | null): string => {
   if (!amount || amount === 0) return "0";
@@ -43,6 +48,9 @@ export function useProjectOverviewData({
   const [overviewNotesText, setOverviewNotesText] = useState((mdNotes || "").trim());
   const [recentArtifacts, setRecentArtifacts] = useState<GeneratedArtifact[]>([]);
   const [isLoadingArtifacts, setIsLoadingArtifacts] = useState(false);
+  const [memory, setMemory] = useState<ProjectMemory | null>(null);
+  const [isLoadingMemory, setIsLoadingMemory] = useState(false);
+  const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
 
   const firstMarkdownFile = useMemo(
     () =>
@@ -141,6 +149,44 @@ export function useProjectOverviewData({
     };
   }, [projectId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMemory = async () => {
+      setIsLoadingMemory(true);
+      try {
+        const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
+        if (!cancelled) {
+          setMemory(data.memory);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load project memory:", error);
+          setMemory(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMemory(false);
+        }
+      }
+    };
+
+    void loadMemory();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const rebuildMemory = async () => {
+    setIsRebuildingMemory(true);
+    try {
+      const data = await api.post<ProjectMemoryResponse>(`/projects/${projectId}/memory/rebuild`, {});
+      setMemory(data.memory);
+    } finally {
+      setIsRebuildingMemory(false);
+    }
+  };
+
   const generateSummary = async () => {
     setGeneratingSummary(true);
     setSummaryText("");
@@ -196,10 +242,16 @@ export function useProjectOverviewData({
               if (streamError instanceof Error) {
                 throw streamError;
               }
-              // Ignore malformed stream lines and keep the stream alive.
             }
           }
         }
+      }
+
+      try {
+        const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
+        setMemory(data.memory);
+      } catch (memoryError) {
+        console.error("Failed to refresh memory after summary generation:", memoryError);
       }
     } catch (error) {
       console.error("Failed to generate summary:", error);
@@ -222,11 +274,15 @@ export function useProjectOverviewData({
     generateSummary,
     generatingSummary,
     isLoadingArtifacts,
+    isLoadingMemory,
+    isRebuildingMemory,
+    memory,
     overviewNotesText,
     recentArtifacts,
     recentFiles,
     recentMilestones,
     recentTodos,
+    rebuildMemory,
     setDescExpanded,
     summaryError,
     summaryText,

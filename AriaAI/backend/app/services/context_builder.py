@@ -17,11 +17,58 @@ from app.models.db import (
     Skill,
 )
 from app.services.document_text import extract_text_from_file
+from app.services.project_contexts import get_project_memory_payload
 from app.services.rag import retrieve_structured
 from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
+
+
+def _format_project_memory_for_prompt(project: Project) -> str:
+    memory = get_project_memory_payload(project)
+    if not memory or (project.memory_version or 0) <= 0:
+        return ""
+
+    lines: list[str] = []
+    if memory.get("project_brief"):
+        lines.append(f"- Project brief: {memory['project_brief']}")
+    if memory.get("current_stage"):
+        lines.append(f"- Current stage: {memory['current_stage']}")
+    if memory.get("current_objective"):
+        lines.append(f"- Current objective: {memory['current_objective']}")
+
+    for key, label in (
+        ("recent_progress", "Recent progress"),
+        ("key_risks", "Key risks"),
+        ("open_questions", "Open questions"),
+        ("next_actions", "Next actions"),
+    ):
+        items = [str(item).strip() for item in (memory.get(key) or []) if str(item).strip()]
+        if items:
+            lines.append(f"- {label}: " + "; ".join(items[:4]))
+
+    important_documents = memory.get("important_documents") or []
+    document_bits: list[str] = []
+    for document in important_documents[:4]:
+        if isinstance(document, dict):
+            name = str(document.get("name") or "").strip()
+            summary = str(document.get("summary") or "").strip()
+            if name and summary:
+                document_bits.append(f"{name}: {summary}")
+            elif name:
+                document_bits.append(name)
+        elif document:
+            document_bits.append(str(document).strip())
+    if document_bits:
+        lines.append("- Important documents: " + "; ".join(document_bits))
+
+    if memory.get("financial_status"):
+        lines.append(f"- Financial status: {memory['financial_status']}")
+
+    if not lines:
+        return ""
+    return "**Structured Project Memory:**\n" + "\n".join(lines)
 
 
 def extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
@@ -105,7 +152,10 @@ def build_global_workspace_context(session: Session) -> str:
             ws_lines.append(f"- 合同金额：¥{p.contract_amount:,.0f}")
         if p.description:
             ws_lines.append(f"- 简介：{p.description[:200]}")
-        if p.context_summary:
+        memory_preview = _format_project_memory_for_prompt(p)
+        if memory_preview:
+            ws_lines.append("- Structured memory: ready")
+        elif p.context_summary:
             ws_lines.append(f"- AI 摘要：{p.context_summary[:300]}")
         if p.notes:
             ws_lines.append(f"- 项目笔记：{p.notes[:200]}")
@@ -171,8 +221,11 @@ def build_project_context(
     if project.contract_amount:
         lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
     
-    # AI-generated context summary
-    if project.context_summary:
+    # Prefer structured project memory over legacy free-form summary
+    memory_context = _format_project_memory_for_prompt(project)
+    if memory_context:
+        lines.append(f"\n{memory_context}")
+    elif project.context_summary:
         lines.append(f"\n**Project Context Summary:**\n{project.context_summary}")
     
     # Accumulated project notes
