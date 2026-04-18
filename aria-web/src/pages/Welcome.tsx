@@ -36,6 +36,17 @@ interface ClientSummary {
   client_memory_updated_at?: string | null
 }
 
+interface DashboardProjectSummary {
+  id: number
+  name: string
+  client: string
+  status: Project['status']
+  contract_amount?: number
+  updated_at: string
+  memory_stale?: boolean
+  memory_version?: number
+}
+
 const cardBase =
   'rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_60px_-30px_rgba(15,23,42,0.28)]'
 
@@ -110,9 +121,10 @@ export function Welcome() {
 
   const [loading, setLoading] = useState(true)
   const [secondaryLoading, setSecondaryLoading] = useState(true)
+  const [showExtendedSections, setShowExtendedSections] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [user] = useState<User | null>(() => readCachedUser())
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<DashboardProjectSummary[]>([])
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -122,6 +134,19 @@ export function Welcome() {
     void loadData()
   }, [])
 
+  useEffect(() => {
+    if (loading) {
+      setShowExtendedSections(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowExtendedSections(true)
+    }, 180)
+
+    return () => window.clearTimeout(timer)
+  }, [loading])
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -129,7 +154,7 @@ export function Welcome() {
       setError(null)
 
       const [allProjects, todos] = await Promise.all([
-        api.get<Project[]>('/projects'),
+        api.get<DashboardProjectSummary[]>('/projects/dashboard-summary'),
         api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
 
@@ -396,8 +421,10 @@ export function Welcome() {
             </div>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[1fr_1fr_1.05fr]">
-            <div className={cardBase}>
+          {showExtendedSections ? (
+            <>
+              <section className="grid gap-6 xl:grid-cols-[1fr_1fr_1.05fr]">
+                <div className={cardBase}>
               <h2 className="text-lg font-semibold text-on-surface">{isZh ? '项目阶段分布' : 'Pipeline overview'}</h2>
               <div className="mt-4 space-y-3">
                 {stageSummary.map((item) => (
@@ -462,11 +489,11 @@ export function Welcome() {
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
+                </div>
+              </section>
 
-          <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-            <div className={cardBase}>
+              <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className={cardBase}>
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-on-surface">{isZh ? '重点项目' : 'Top projects'}</h2>
@@ -529,8 +556,14 @@ export function Welcome() {
                   </button>
                 ))}
               </div>
-            </div>
-          </section>
+                </div>
+              </section>
+            </>
+          ) : (
+            <section className={cardBase}>
+              <LoadingBlock label={isZh ? '正在准备更多工作台内容' : 'Preparing more workspace insights'} />
+            </section>
+          )}
         </div>
       </div>
     </>

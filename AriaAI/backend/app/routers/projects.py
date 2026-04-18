@@ -582,6 +582,54 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     return result
 
 
+@router.get("/dashboard-summary")
+def list_projects_dashboard_summary(
+    session: Session = Depends(get_session),
+):
+    cache_key = "list:dashboard-summary"
+    cached = projects_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = session.exec(
+        select(
+            Project.id,
+            Project.name,
+            Project.client,
+            Project.status,
+            Project.contract_amount,
+            Project.updated_at,
+            Project.memory_stale,
+            Project.memory_version,
+        ).order_by(Project.updated_at.desc())
+    ).all()
+
+    result = [
+        {
+            "id": project_id,
+            "name": name,
+            "client": client,
+            "status": status,
+            "contract_amount": contract_amount,
+            "updated_at": updated_at,
+            "memory_stale": memory_stale,
+            "memory_version": memory_version,
+        }
+        for (
+            project_id,
+            name,
+            client,
+            status,
+            contract_amount,
+            updated_at,
+            memory_stale,
+            memory_version,
+        ) in rows
+    ]
+    projects_cache.set(cache_key, result, _PROJECTS_TTL)
+    return result
+
+
 @router.patch("/{project_id}")
 def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
     project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
