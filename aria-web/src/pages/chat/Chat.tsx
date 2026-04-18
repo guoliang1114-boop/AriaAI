@@ -368,6 +368,7 @@ export function Chat() {
       setSkills(skillsData)
       // Auto-select first conversation if none is active
       if (!searchParams.get('conversation') && convsData.length > 0) {
+        setConversation(convsData[0])
         navigate(`/chat?conversation=${convsData[0].id}`, { replace: true })
       }
     } catch (err) {
@@ -853,6 +854,8 @@ export function Chat() {
     conversation?.id ??
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
   const activeConversationTitle = conversation?.title || t('chat.newConversation')
+  const shouldBootstrapConversation =
+    isLoadingConversations || (!conversationId && conversations.length > 0)
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
@@ -1044,7 +1047,7 @@ export function Chat() {
             )}
 
             {/* Loading skeleton */}
-            {loading && conversationId && messages.length === 0 ? (
+            {(loading && conversationId && messages.length === 0) || shouldBootstrapConversation ? (
               <div className="flex flex-col items-center justify-center py-32">
                 <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
                   <Sparkles className="w-5 h-5 text-white" />
