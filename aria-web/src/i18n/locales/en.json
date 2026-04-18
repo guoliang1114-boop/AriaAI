@@ -515,5 +515,40 @@
     "copied": "Copied",
     "refresh": "Refresh",
     "checking": "Checking"
+  },
+  "errors": {
+    "actions": {
+      "goBack": "Go back",
+      "backToDashboard": "Back to dashboard",
+      "dashboard": "Dashboard"
+    },
+    "common": {
+      "quickLinks": "Quick links",
+      "quickRoutes": "Quick routes",
+      "projects": "Projects",
+      "chat": "Chat",
+      "knowledge": "Knowledge"
+    },
+    "forbidden": {
+      "title": "You don't have access to this area",
+      "description": "This page is available only to users with higher permissions. If you believe you should have access, contact your administrator or return to a workspace you can use right now.",
+      "nextTitle": "What you can do next",
+      "nextLine1": "Return to your recent project or conversation and continue from there.",
+      "nextLine2": "Ask an admin to grant access if this page is required for your role.",
+      "projectsHint": "Jump back into active delivery work.",
+      "chatHint": "Continue where you left off in a conversation.",
+      "profileSettings": "Profile settings",
+      "profileHint": "You can still update your own profile and preferences."
+    },
+    "notFound": {
+      "title": "This page doesn't exist",
+      "description": "The link may be outdated, the page may have moved, or the address may be incomplete. You can jump back to your main workspaces below instead of starting over.",
+      "keepMoving": "Keep moving",
+      "keepMovingLine1": "Use the shortcuts below to get back to a project, chat, or client workspace quickly.",
+      "keepMovingLine2": "If this came from a saved link, it may need to be updated.",
+      "projectsHint": "Return to your delivery and pipeline view.",
+      "chatHint": "Open recent conversations and continue working.",
+      "knowledgeHint": "Search files, notes, and client context."
+    }
   }
 }
