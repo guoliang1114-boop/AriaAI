@@ -79,8 +79,6 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
         Skill.category,
         Skill.description,
         Skill.estimated_time,
-        Skill.created_at,
-        Skill.updated_at,
     )
     if category:
         stmt = stmt.where(Skill.category == category)
@@ -93,8 +91,8 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
             category=row[2],
             description=row[3],
             estimated_time=row[4],
-            created_at=row[5].isoformat() if row[5] else None,
-            updated_at=row[6].isoformat() if row[6] else None,
+            created_at=None,
+            updated_at=None,
         )
         for row in rows
     ]
