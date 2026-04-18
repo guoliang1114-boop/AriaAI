@@ -91,6 +91,19 @@ export interface ProjectMemoryBatchRebuildResponse {
   skipped: Array<{ project_id: number; reason: string }>
 }
 
+export interface ProjectMemoryBatchWarmSummariesResponse {
+  ok: boolean
+  requested_count: number
+  processed_count: number
+  warmed_count: number
+  processed: Array<{
+    project_id: number
+    summary_types: string[]
+    memory_version: number
+  }>
+  skipped: Array<{ project_id: number; reason: string }>
+}
+
 export type ProjectMemorySummaryType =
   | 'overview'
   | 'risk'

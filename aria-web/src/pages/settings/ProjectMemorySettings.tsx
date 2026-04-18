@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
@@ -14,7 +14,12 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import { useToast } from '../../contexts/ToastContext'
-import type { Project, ProjectMemoryBatchRebuildResponse, ProjectMemoryResponse } from '../../types/api'
+import type {
+  Project,
+  ProjectMemoryBatchRebuildResponse,
+  ProjectMemoryBatchWarmSummariesResponse,
+  ProjectMemoryResponse,
+} from '../../types/api'
 import { formatProjectMemoryUpdatedAt } from '../projects/projectMemoryTime'
 
 type MemoryFilter = 'all' | 'ready' | 'stale' | 'missing'
@@ -50,6 +55,7 @@ export function ProjectMemorySettings() {
   const isZh = i18n.language.startsWith('zh')
   const navigate = useNavigate()
   const toast = useToast()
+  const autoGenerateMissingTriggeredRef = useRef(false)
 
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,11 +63,8 @@ export function ProjectMemorySettings() {
   const [filter, setFilter] = useState<MemoryFilter>('all')
   const [isRefreshingStale, setIsRefreshingStale] = useState(false)
   const [isGeneratingMissing, setIsGeneratingMissing] = useState(false)
+  const [isWarmingSummaries, setIsWarmingSummaries] = useState(false)
   const [refreshingProjectId, setRefreshingProjectId] = useState<number | null>(null)
-
-  useEffect(() => {
-    void fetchProjects()
-  }, [])
 
   const fetchProjects = async () => {
     try {
@@ -76,6 +79,20 @@ export function ProjectMemorySettings() {
     }
   }
 
+  useEffect(() => {
+    void fetchProjects()
+  }, [])
+
+  const counts = useMemo(
+    () => ({
+      all: projects.length,
+      ready: projects.filter((project) => getMemoryStatus(project) === 'ready').length,
+      stale: projects.filter((project) => getMemoryStatus(project) === 'stale').length,
+      missing: projects.filter((project) => getMemoryStatus(project) === 'missing').length,
+    }),
+    [projects],
+  )
+
   const filteredProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return projects.filter((project) => {
@@ -88,16 +105,6 @@ export function ProjectMemorySettings() {
       return matchesFilter && matchesQuery
     })
   }, [filter, projects, searchQuery])
-
-  const counts = useMemo(
-    () => ({
-      all: projects.length,
-      ready: projects.filter((project) => getMemoryStatus(project) === 'ready').length,
-      stale: projects.filter((project) => getMemoryStatus(project) === 'stale').length,
-      missing: projects.filter((project) => getMemoryStatus(project) === 'missing').length,
-    }),
-    [projects],
-  )
 
   const applyProjectMemoryUpdate = (
     projectId: number,
@@ -139,6 +146,7 @@ export function ProjectMemorySettings() {
         memory_rebuild_status: data.memory_rebuild_status,
         memory_rebuild_failed_at: data.memory_rebuild_failed_at,
       })
+      await warmSummaries([project.id], { silent: true })
       toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
     } catch (error) {
       console.error('Failed to rebuild project memory:', error)
@@ -148,7 +156,51 @@ export function ProjectMemorySettings() {
     }
   }
 
-  const runBatch = async (mode: 'stale' | 'missing') => {
+  const warmSummaries = async (
+    projectIds: number[],
+    options?: {
+      silent?: boolean
+      forceRefresh?: boolean
+    },
+  ) => {
+    if (projectIds.length === 0) return
+
+    try {
+      setIsWarmingSummaries(true)
+      const result = await api.post<ProjectMemoryBatchWarmSummariesResponse>(
+        '/projects/memory/warm-summaries-batch',
+        {
+          project_ids: projectIds,
+          summary_types: ['overview', 'risk', 'stakeholder'],
+          language: i18n.language,
+          force_refresh: options?.forceRefresh ?? false,
+        },
+        { timeout: 120000 },
+      )
+
+      if (!options?.silent) {
+        toast.success(
+          isZh
+            ? `已为 ${result.processed_count} 个项目预生成常用 AI 摘要`
+            : `Warmed common AI summaries for ${result.processed_count} projects`,
+        )
+      }
+    } catch (error) {
+      console.error('Failed to warm project memory summaries:', error)
+      toast.error(
+        isZh ? '批量预生成项目 AI 摘要失败' : 'Failed to warm project AI summaries',
+      )
+    } finally {
+      setIsWarmingSummaries(false)
+    }
+  }
+
+  const runBatch = async (
+    mode: 'stale' | 'missing',
+    options?: {
+      silent?: boolean
+    },
+  ) => {
     const targetProjects = projects.filter((project) =>
       mode === 'stale' ? getMemoryStatus(project) === 'stale' : getMemoryStatus(project) === 'missing',
     )
@@ -178,15 +230,24 @@ export function ProjectMemorySettings() {
         })
       })
 
-      toast.success(
-        isZh
-          ? mode === 'stale'
-            ? `已更新 ${result.rebuilt_count} 个待刷新的项目记忆`
-            : `已补齐 ${result.rebuilt_count} 个项目记忆`
-          : mode === 'stale'
-            ? `Refreshed ${result.rebuilt_count} stale project memories`
-            : `Generated ${result.rebuilt_count} missing project memories`,
-      )
+      if (!options?.silent) {
+        toast.success(
+          isZh
+            ? mode === 'stale'
+              ? `已更新 ${result.rebuilt_count} 个待刷新的项目记忆`
+              : `已补齐 ${result.rebuilt_count} 个项目记忆`
+            : mode === 'stale'
+              ? `Refreshed ${result.rebuilt_count} stale project memories`
+              : `Generated ${result.rebuilt_count} missing project memories`,
+        )
+      }
+
+      if (result.rebuilt.length > 0) {
+        await warmSummaries(
+          result.rebuilt.map((item) => item.project_id),
+          { silent: true },
+        )
+      }
     } catch (error) {
       console.error('Failed to batch rebuild project memories:', error)
       toast.error(
@@ -203,6 +264,20 @@ export function ProjectMemorySettings() {
       else setIsGeneratingMissing(false)
     }
   }
+
+  useEffect(() => {
+    if (loading || isGeneratingMissing || autoGenerateMissingTriggeredRef.current || counts.missing === 0) {
+      return
+    }
+
+    autoGenerateMissingTriggeredRef.current = true
+    toast.info(
+      isZh
+        ? `系统正在自动补齐 ${counts.missing} 个尚未整理的项目记忆`
+        : `Automatically preparing ${counts.missing} missing project memories`,
+    )
+    void runBatch('missing', { silent: true })
+  }, [counts.missing, isGeneratingMissing, isZh, loading])
 
   const filterOptions: Array<{ key: MemoryFilter; label: string; count: number }> = [
     { key: 'all', label: isZh ? '全部项目' : 'All', count: counts.all },
@@ -233,8 +308,8 @@ export function ProjectMemorySettings() {
               </h2>
               <p className="mt-1 text-sm text-on-surface-muted">
                 {isZh
-                  ? '集中查看所有项目记忆状态，并观察排队、重建中和失败等异步进度。'
-                  : 'Track project memory health and async rebuild progress in one place.'}
+                  ? '集中查看所有项目记忆状态，也可以在这里统一更新待刷新和未整理项目。'
+                  : 'Track project memory health and update stale or missing memories in one place.'}
               </p>
             </div>
           </div>
@@ -261,10 +336,42 @@ export function ProjectMemorySettings() {
             className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
           >
             {isGeneratingMissing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isZh ? '批量补齐项目记忆' : 'Generate Missing Memories'}
+            {isZh ? '补齐未整理记忆' : 'Generate Missing Memories'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void warmSummaries(
+                projects
+                  .filter((project) => (project.memory_version || 0) > 0)
+                  .map((project) => project.id),
+                { forceRefresh: false },
+              )
+            }}
+            disabled={isWarmingSummaries || projects.every((project) => (project.memory_version || 0) === 0)}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
+          >
+            {isWarmingSummaries ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+            {isZh ? '预生成常用 AI 摘要' : 'Warm AI Summaries'}
           </button>
         </div>
       </div>
+
+      {isGeneratingMissing && autoGenerateMissingTriggeredRef.current ? (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          {isZh
+            ? '系统正在自动补齐尚未整理的项目记忆。你可以先浏览页面，结果会自动更新。'
+            : 'Missing project memories are being prepared automatically. The list will update as results come back.'}
+        </div>
+      ) : null}
+
+      {isWarmingSummaries ? (
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+          {isZh
+            ? '系统正在预生成项目里的常用 AI 摘要，项目概览、风险和干系人摘要会优先走缓存。'
+            : 'Common AI summaries are being warmed now. Overview, risk, and stakeholder views will prefer cache afterward.'}
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {filterOptions.map((option) => (

@@ -1694,6 +1694,66 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIsNotNone(cached)
         self.assertEqual(cached.content, "- fresh risk summary")
 
+    def test_memory_warm_summaries_batch_generates_common_cached_views(self):
+        async def fake_complete(messages, max_tokens=4000):
+            prompt = messages[0]["content"]
+            if "Summary type: overview" in prompt:
+                return "- overview summary"
+            if "Summary type: risk" in prompt:
+                return "- risk summary"
+            if "Summary type: stakeholder" in prompt:
+                return "- stakeholder summary"
+            return "- fallback summary"
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="Warm Summary Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                        "stakeholder_notes": ["Finance sponsor engaged"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=5,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=fake_complete):
+            resp = self.client.post(
+                "/projects/memory/warm-summaries-batch",
+                json={
+                    "project_ids": [project_id],
+                    "summary_types": ["overview", "risk", "stakeholder"],
+                    "language": "en-US",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["processed_count"], 1)
+        self.assertEqual(body["warmed_count"], 3)
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ProjectMemorySummary).where(
+                    ProjectMemorySummary.project_id == project_id,
+                    ProjectMemorySummary.language == "en",
+                    ProjectMemorySummary.memory_version == 5,
+                )
+            ).all()
+
+        self.assertEqual(len(cached), 3)
+        self.assertEqual(sorted(item.summary_type for item in cached), ["overview", "risk", "stakeholder"])
+
     def test_memory_rebuild_persists_rebuild_log_and_coverage(self):
         async def fake_complete(messages, max_tokens=4000):
             return json.dumps(

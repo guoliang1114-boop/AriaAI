@@ -111,7 +111,7 @@ export function ProjectOverviewMemoryCard({
             {memory?.project_brief
               ? memory.project_brief
               : isZh
-                ? '项目记忆已经可用，可供概览、聊天和执行页复用。'
+                ? '项目记忆已经可用，可供概览、聊天和执行页面复用。'
                 : 'Project memory is ready for summaries, chat, and execution views.'}
           </div>
         ) : (

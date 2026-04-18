@@ -151,6 +151,55 @@ async def _generate_memory_summary_cache(
     )
 
 
+async def _warm_project_memory_summary_caches(
+    session: Session,
+    project: Project,
+    memory_payload: dict,
+    summary_types: list[str] | None = None,
+    language: str | None = None,
+    force_refresh: bool = False,
+) -> list[str]:
+    requested_types = summary_types or ["overview", "risk", "stakeholder"]
+    normalized_language = normalize_summary_language(language)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
+    warmed: list[str] = []
+
+    for summary_type in requested_types:
+        if summary_type not in {
+            "overview",
+            "risk",
+            "stakeholder",
+            "delivery",
+            "client-facing",
+            "financial",
+            "documents",
+        }:
+            continue
+
+        if not force_refresh and memory_version > 0:
+            cached = get_project_memory_summary_cache(
+                session,
+                project_id=project.id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=memory_version,
+            )
+            if cached:
+                warmed.append(summary_type)
+                continue
+
+        await _generate_memory_summary_cache(
+            session,
+            project,
+            memory_payload,
+            summary_type,
+            language=normalized_language,
+        )
+        warmed.append(summary_type)
+
+    return warmed
+
+
 async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debounced") -> None:
     with Session(engine) as session:
         project = get_project_or_404(session, project_id)
@@ -167,8 +216,12 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 trigger=trigger,
             )
             project = get_project_or_404(session, project_id)
-            await _generate_memory_summary_cache(session, project, memory_payload, "overview")
-            await _generate_memory_summary_cache(session, project, memory_payload, "risk")
+            await _warm_project_memory_summary_caches(
+                session,
+                project,
+                memory_payload,
+                summary_types=["overview", "risk", "stakeholder"],
+            )
             _bust_project(project_id)
         except Exception:
             project = get_project_or_404(session, project_id)
@@ -849,6 +902,13 @@ class ProjectMemoryBatchRebuildRequest(BaseModel):
     stale_only: bool = False
 
 
+class ProjectMemoryBatchWarmSummariesRequest(BaseModel):
+    project_ids: list[int] = []
+    summary_types: list[str] = ["overview", "risk", "stakeholder"]
+    language: Optional[str] = None
+    force_refresh: bool = False
+
+
 @router.post("/ai-suggest", response_model=list[ProjectAISuggestion])
 async def ai_suggest_project(body: ProjectAISuggestQuery):
     """Ask Claude to propose 1-3 consulting project names + descriptions."""
@@ -995,6 +1055,13 @@ async def rebuild_project_memory_batch(
 
         scheduler_service.remove_job(_memory_rebuild_job_id(project.id))
         saved_memory = await _rebuild_project_memory(session, project.id, project, trigger="batch")
+        refreshed_project = get_project_or_404(session, project.id)
+        await _warm_project_memory_summary_caches(
+            session,
+            refreshed_project,
+            saved_memory,
+            summary_types=["overview", "risk", "stakeholder"],
+        )
         _bust_project(project.id)
         rebuilt.append(
             {
@@ -1020,6 +1087,13 @@ async def rebuild_project_memory_batch(
 async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
     scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
     saved_memory = await _rebuild_project_memory(session, project_id, trigger="manual")
+    project = get_project_or_404(session, project_id)
+    await _warm_project_memory_summary_caches(
+        session,
+        project,
+        saved_memory,
+        summary_types=["overview", "risk", "stakeholder"],
+    )
     _bust_project(project_id)
     return {
         "ok": True,
@@ -1028,6 +1102,69 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
         "memory_version": saved_memory.get("memory_version", 0),
         "memory_updated_at": saved_memory.get("last_updated_at", ""),
         "memory_rebuild_status": "idle",
+    }
+
+
+@router.post("/memory/warm-summaries-batch")
+async def warm_project_memory_summaries_batch(
+    body: ProjectMemoryBatchWarmSummariesRequest,
+    session: Session = Depends(get_session),
+):
+    requested_ids = [int(project_id) for project_id in body.project_ids if int(project_id) > 0]
+    if not requested_ids:
+        return {
+            "ok": True,
+            "requested_count": 0,
+            "processed_count": 0,
+            "warmed_count": 0,
+            "processed": [],
+            "skipped": [],
+        }
+
+    candidate_projects = session.exec(
+        select(Project).where(Project.id.in_(requested_ids))
+    ).all()
+    project_lookup = {project.id: project for project in candidate_projects}
+    projects_to_process = [project_lookup[project_id] for project_id in requested_ids if project_id in project_lookup]
+
+    processed: list[dict] = []
+    skipped: list[dict] = []
+    warmed_count = 0
+
+    for project_id in requested_ids:
+        if project_id not in project_lookup:
+            skipped.append({"project_id": project_id, "reason": "not_found"})
+
+    for project in projects_to_process:
+        memory_payload = get_project_memory_payload(project)
+        if int(memory_payload.get("memory_version", 0) or 0) <= 0:
+            skipped.append({"project_id": project.id, "reason": "memory_missing"})
+            continue
+
+        warmed_types = await _warm_project_memory_summary_caches(
+            session,
+            project,
+            memory_payload,
+            summary_types=body.summary_types,
+            language=body.language,
+            force_refresh=body.force_refresh,
+        )
+        warmed_count += len(warmed_types)
+        processed.append(
+            {
+                "project_id": project.id,
+                "summary_types": warmed_types,
+                "memory_version": int(memory_payload.get("memory_version", 0) or 0),
+            }
+        )
+
+    return {
+        "ok": True,
+        "requested_count": len(requested_ids),
+        "processed_count": len(processed),
+        "warmed_count": warmed_count,
+        "processed": processed,
+        "skipped": skipped,
     }
 
 
