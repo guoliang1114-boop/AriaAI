@@ -13,9 +13,15 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 import json
-from app.config import MEMORY_REBUILD_DEBOUNCE_SECONDS, UPLOADS_DIR
+from app.config import (
+    MEMORY_REBUILD_DEBOUNCE_SECONDS,
+    MEMORY_SUMMARY_WARM_DAILY_LIMIT,
+    MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
+    MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
+    UPLOADS_DIR,
+)
 from app.database import engine, get_session
-from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, User
+from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySummary, User
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.services import scheduler as scheduler_service
 from app.models.db import Setting as _Setting
@@ -124,6 +130,24 @@ def _memory_rebuild_job_id(project_id: int) -> str:
     return f"project_memory_rebuild_{project_id}"
 
 
+def _memory_summary_warm_job_id(project_id: int, language: str | None = None) -> str:
+    normalized_language = normalize_summary_language(language)
+    return f"project_memory_summary_warm_{project_id}_{normalized_language}"
+
+
+def _is_retryable_summary_warm_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in message or "rate limit" in message or "timeout" in message
+
+
+def _count_summary_warm_budget_used_today(session: Session) -> int:
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    warmed = session.exec(
+        select(ProjectMemorySummary).where(ProjectMemorySummary.created_at >= start_of_day)
+    ).all()
+    return len(warmed)
+
+
 async def _generate_memory_summary_cache(
     session: Session,
     project: Project,
@@ -200,6 +224,60 @@ async def _warm_project_memory_summary_caches(
     return warmed
 
 
+async def _run_project_memory_summary_warm_job(
+    project_id: int,
+    language: str | None = None,
+    summary_types: list[str] | None = None,
+    force_refresh: bool = False,
+    trigger: str = "background",
+) -> None:
+    del trigger
+    with Session(engine) as session:
+        project = get_project_or_404(session, project_id)
+        memory_payload = get_project_memory_payload(project)
+        if int(memory_payload.get("memory_version", 0) or 0) <= 0 or project.memory_stale:
+            return
+
+        for attempt in range(MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS):
+            try:
+                await _warm_project_memory_summary_caches(
+                    session,
+                    project,
+                    memory_payload,
+                    summary_types=summary_types,
+                    language=language,
+                    force_refresh=force_refresh,
+                )
+                return
+            except Exception as exc:
+                if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
+                    raise
+                wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
+                await asyncio.sleep(wait_seconds)
+
+
+def _schedule_project_memory_summary_warm(
+    project_id: int,
+    language: str | None = None,
+    summary_types: list[str] | None = None,
+    force_refresh: bool = False,
+    delay_seconds: int = 0,
+    trigger: str = "background",
+) -> bool:
+    if not scheduler_service.is_running():
+        return False
+
+    job_id = _memory_summary_warm_job_id(project_id, language)
+    run_at = datetime.utcnow() + timedelta(seconds=max(0, delay_seconds))
+    scheduler_service.add_or_replace_date_job(
+        job_id,
+        run_at,
+        _run_project_memory_summary_warm_job,
+        args=[project_id, language, summary_types or ["overview", "risk", "stakeholder"], force_refresh, trigger],
+    )
+    return True
+
+
 async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debounced") -> None:
     with Session(engine) as session:
         project = get_project_or_404(session, project_id)
@@ -215,12 +293,10 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 project=project,
                 trigger=trigger,
             )
-            project = get_project_or_404(session, project_id)
-            await _warm_project_memory_summary_caches(
-                session,
-                project,
-                memory_payload,
+            _schedule_project_memory_summary_warm(
+                project_id,
                 summary_types=["overview", "risk", "stakeholder"],
+                trigger="rebuild_completed",
             )
             _bust_project(project_id)
         except Exception:
@@ -1055,12 +1131,10 @@ async def rebuild_project_memory_batch(
 
         scheduler_service.remove_job(_memory_rebuild_job_id(project.id))
         saved_memory = await _rebuild_project_memory(session, project.id, project, trigger="batch")
-        refreshed_project = get_project_or_404(session, project.id)
-        await _warm_project_memory_summary_caches(
-            session,
-            refreshed_project,
-            saved_memory,
+        _schedule_project_memory_summary_warm(
+            project.id,
             summary_types=["overview", "risk", "stakeholder"],
+            trigger="batch_rebuild_completed",
         )
         _bust_project(project.id)
         rebuilt.append(
@@ -1087,12 +1161,10 @@ async def rebuild_project_memory_batch(
 async def rebuild_project_memory(project_id: int, session: Session = Depends(get_session)):
     scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
     saved_memory = await _rebuild_project_memory(session, project_id, trigger="manual")
-    project = get_project_or_404(session, project_id)
-    await _warm_project_memory_summary_caches(
-        session,
-        project,
-        saved_memory,
+    _schedule_project_memory_summary_warm(
+        project_id,
         summary_types=["overview", "risk", "stakeholder"],
+        trigger="manual_rebuild_completed",
     )
     _bust_project(project_id)
     return {
@@ -1130,6 +1202,14 @@ async def warm_project_memory_summaries_batch(
     processed: list[dict] = []
     skipped: list[dict] = []
     warmed_count = 0
+    queued_count = 0
+    normalized_summary_types = [
+        summary_type
+        for summary_type in (body.summary_types or ["overview", "risk", "stakeholder"])
+        if summary_type in {"overview", "risk", "stakeholder", "delivery", "client-facing", "financial", "documents"}
+    ] or ["overview", "risk", "stakeholder"]
+    scheduler_running = scheduler_service.is_running()
+    budget_used_today = _count_summary_warm_budget_used_today(session) if scheduler_running else 0
 
     for project_id in requested_ids:
         if project_id not in project_lookup:
@@ -1141,11 +1221,57 @@ async def warm_project_memory_summaries_batch(
             skipped.append({"project_id": project.id, "reason": "memory_missing"})
             continue
 
+        memory_version = int(memory_payload.get("memory_version", 0) or 0)
+        normalized_language = normalize_summary_language(body.language)
+        already_cached = all(
+            get_project_memory_summary_cache(
+                session,
+                project_id=project.id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=memory_version,
+            )
+            for summary_type in normalized_summary_types
+        )
+        if already_cached and not body.force_refresh:
+            skipped.append({"project_id": project.id, "reason": "already_cached"})
+            continue
+
+        if scheduler_running:
+            if budget_used_today + queued_count >= MEMORY_SUMMARY_WARM_DAILY_LIMIT:
+                skipped.append({"project_id": project.id, "reason": "daily_limit_reached"})
+                continue
+
+            job_id = _memory_summary_warm_job_id(project.id, body.language)
+            if scheduler_service.get_job(job_id):
+                skipped.append({"project_id": project.id, "reason": "already_queued"})
+                continue
+
+            queued = _schedule_project_memory_summary_warm(
+                project.id,
+                language=body.language,
+                summary_types=normalized_summary_types,
+                force_refresh=body.force_refresh,
+                delay_seconds=queued_count * MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
+                trigger="batch_warm",
+            )
+            if queued:
+                queued_count += 1
+                processed.append(
+                    {
+                        "project_id": project.id,
+                        "summary_types": normalized_summary_types,
+                        "memory_version": memory_version,
+                        "mode": "queued",
+                    }
+                )
+                continue
+
         warmed_types = await _warm_project_memory_summary_caches(
             session,
             project,
             memory_payload,
-            summary_types=body.summary_types,
+            summary_types=normalized_summary_types,
             language=body.language,
             force_refresh=body.force_refresh,
         )
@@ -1154,7 +1280,8 @@ async def warm_project_memory_summaries_batch(
             {
                 "project_id": project.id,
                 "summary_types": warmed_types,
-                "memory_version": int(memory_payload.get("memory_version", 0) or 0),
+                "memory_version": memory_version,
+                "mode": "inline",
             }
         )
 
@@ -1163,6 +1290,7 @@ async def warm_project_memory_summaries_batch(
         "requested_count": len(requested_ids),
         "processed_count": len(processed),
         "warmed_count": warmed_count,
+        "queued_count": queued_count,
         "processed": processed,
         "skipped": skipped,
     }

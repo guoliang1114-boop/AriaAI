@@ -96,10 +96,12 @@ export interface ProjectMemoryBatchWarmSummariesResponse {
   requested_count: number
   processed_count: number
   warmed_count: number
+  queued_count?: number
   processed: Array<{
     project_id: number
     summary_types: string[]
     memory_version: number
+    mode?: 'queued' | 'inline'
   }>
   skipped: Array<{ project_id: number; reason: string }>
 }
