@@ -22,49 +22,11 @@ import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { SkillSummary } from '../../types/api'
 
-const getCategories = (t: any) => [
-  { id: 'all', label: t('skills.categories.all') },
-  { id: '鎴樼暐涓庡闀?', label: t('skills.categories.strategy') },
-  { id: '甯傚満涓庡鎴?', label: t('skills.categories.market') },
-  { id: '骞惰喘涓庝氦鏄?', label: t('skills.categories.manda') },
-  { id: '璐㈠姟鍜ㄨ', label: t('skills.categories.finance') },
-  { id: '鏁板瓧鍖栦笌鎶€鏈?', label: t('skills.categories.digital') },
-  { id: '缁勭粐涓庝汉鎵?', label: t('skills.categories.org') },
-  { id: '杩愯惀涓庢晥鑳?', label: t('skills.categories.operations') },
-  { id: '椋庨櫓涓庡悎瑙?', label: t('skills.categories.risk') },
-  { id: '鎻愭涓庨」鐩氦浠?', label: t('skills.categories.proposals') },
-]
-
 const getSkillTypes = (t: any) => [
   { id: 'all', label: t('skills.types.all') },
   { id: 'quick', label: t('skills.types.quick') },
   { id: 'deep', label: t('skills.types.deep') },
 ]
-
-const getSkillIcon = (category: string) => {
-  switch (category) {
-    case '鎴樼暐涓庡闀?':
-      return TrendingUp
-    case '甯傚満涓庡鎴?':
-      return Target
-    case '骞惰喘涓庝氦鏄?':
-      return DollarSign
-    case '璐㈠姟鍜ㄨ':
-      return BarChart3
-    case '鏁板瓧鍖栦笌鎶€鏈?':
-      return Cpu
-    case '缁勭粐涓庝汉鎵?':
-      return Users
-    case '杩愯惀涓庢晥鑳?':
-      return Briefcase
-    case '椋庨櫓涓庡悎瑙?':
-      return Shield
-    case '鎻愭涓庨」鐩氦浠?':
-      return FileText
-    default:
-      return Brain
-  }
-}
 
 const extractMinutes = (estimatedTime?: string): number => {
   if (!estimatedTime) return 0
@@ -72,25 +34,96 @@ const extractMinutes = (estimatedTime?: string): number => {
   return match ? parseInt(match[1], 10) : 0
 }
 
+const normalizeCategory = (value: string) => value.replace(/\?/g, '').trim()
+
+const getCategoryKey = (category: string) => {
+  const normalized = normalizeCategory(category)
+
+  const knownKeys = [
+    { key: 'strategy', values: ['閹存鏆愭稉搴☆杻闂€'] },
+    { key: 'market', values: ['鐢倸婧€娑撳骸顓归幋'] },
+    { key: 'manda', values: ['楠炴儼鍠樻稉搴濇唉閺'] },
+    { key: 'finance', values: ['鐠愩垹濮熼崪銊嚄'] },
+    { key: 'digital', values: ['閺佹澘鐡ч崠鏍︾瑢閹垛偓閺'] },
+    { key: 'org', values: ['缂佸嫮绮愭稉搴濇眽閹'] },
+    { key: 'operations', values: ['鏉╂劘鎯€娑撳孩鏅ラ懗'] },
+    { key: 'risk', values: ['妞嬪酣娅撴稉搴℃値鐟'] },
+    { key: 'proposals', values: ['閹绘劖顢嶆稉搴ㄣ€嶉惄顔绘唉娴'] },
+  ]
+
+  const matched = knownKeys.find((item) => item.values.some((value) => normalized === value))
+  return matched?.key ?? normalized
+}
+
+const getCategoryLabel = (category: string, t: any) => {
+  switch (getCategoryKey(category)) {
+    case 'strategy':
+      return t('skills.categories.strategy')
+    case 'market':
+      return t('skills.categories.market')
+    case 'manda':
+      return t('skills.categories.manda')
+    case 'finance':
+      return t('skills.categories.finance')
+    case 'digital':
+      return t('skills.categories.digital')
+    case 'org':
+      return t('skills.categories.org')
+    case 'operations':
+      return t('skills.categories.operations')
+    case 'risk':
+      return t('skills.categories.risk')
+    case 'proposals':
+      return t('skills.categories.proposals')
+    default:
+      return category
+  }
+}
+
+const getSkillIcon = (category: string) => {
+  switch (getCategoryKey(category)) {
+    case 'strategy':
+      return TrendingUp
+    case 'market':
+      return Target
+    case 'manda':
+      return DollarSign
+    case 'finance':
+      return BarChart3
+    case 'digital':
+      return Cpu
+    case 'org':
+      return Users
+    case 'operations':
+      return Briefcase
+    case 'risk':
+      return Shield
+    case 'proposals':
+      return FileText
+    default:
+      return Brain
+  }
+}
+
 const getCategoryColor = (category: string) => {
-  switch (category) {
-    case '鎴樼暐涓庡闀?':
+  switch (getCategoryKey(category)) {
+    case 'strategy':
       return 'bg-primary/10 text-primary'
-    case '甯傚満涓庡鎴?':
+    case 'market':
       return 'bg-tertiary/10 text-tertiary'
-    case '骞惰喘涓庝氦鏄?':
+    case 'manda':
       return 'bg-error/10 text-error'
-    case '璐㈠姟鍜ㄨ':
+    case 'finance':
       return 'bg-green-500/10 text-green-600'
-    case '鏁板瓧鍖栦笌鎶€鏈?':
+    case 'digital':
       return 'bg-blue-500/10 text-blue-600'
-    case '缁勭粐涓庝汉鎵?':
+    case 'org':
       return 'bg-purple-500/10 text-purple-600'
-    case '杩愯惀涓庢晥鑳?':
+    case 'operations':
       return 'bg-active/10 text-active'
-    case '椋庨櫓涓庡悎瑙?':
+    case 'risk':
       return 'bg-orange-500/10 text-orange-600'
-    case '鎻愭涓庨」鐩氦浠?':
+    case 'proposals':
       return 'bg-secondary-container text-on-secondary-container'
     default:
       return 'bg-surface-container-high text-on-surface-muted'
@@ -100,7 +133,6 @@ const getCategoryColor = (category: string) => {
 export function Skills() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const categories = getCategories(t)
   const skillTypes = getSkillTypes(t)
   const [loading, setLoading] = useState(true)
   const [skills, setSkills] = useState<SkillSummary[]>([])
@@ -127,10 +159,22 @@ export function Skills() {
     }
   }
 
+  const categories = useMemo(
+    () => [
+      { id: 'all', label: t('skills.categories.all') },
+      ...Array.from(new Map(skills.map((skill) => [normalizeCategory(skill.category), skill.category])).values()).map((category) => ({
+        id: category,
+        label: getCategoryLabel(category, t),
+      })),
+    ],
+    [skills, t],
+  )
+
   const filteredSkills = useMemo(
     () =>
       skills.filter((skill) => {
-        const categoryMatch = activeCategory === 'all' || skill.category === activeCategory
+        const categoryMatch =
+          activeCategory === 'all' || normalizeCategory(skill.category) === normalizeCategory(activeCategory)
         const estimatedMinutes = extractMinutes(skill.estimated_time)
         const isQuick = estimatedMinutes <= 10
         const typeMatch =
@@ -213,7 +257,7 @@ export function Skills() {
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                  activeCategory === cat.id
+                  normalizeCategory(activeCategory) === normalizeCategory(cat.id)
                     ? 'bg-primary text-white shadow-lg shadow-primary/25 scale-105'
                     : 'bg-white text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface border border-outline/20 hover:border-outline/40'
                 }`}
@@ -228,9 +272,7 @@ export function Skills() {
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
                   className={`px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
-                    activeType === type.id
-                      ? 'bg-white text-on-surface shadow-sm'
-                      : 'text-on-surface-muted hover:text-on-surface'
+                    activeType === type.id ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-muted hover:text-on-surface'
                   }`}
                 >
                   {type.label}
@@ -262,7 +304,7 @@ export function Skills() {
                         })()}
                       </div>
                       <span className="px-4 py-1.5 rounded-full bg-surface-container-low text-label-sm text-on-surface-muted font-medium border border-outline/10">
-                        {featuredSkill.category}
+                        {getCategoryLabel(featuredSkill.category, t)}
                       </span>
                     </div>
 
@@ -319,7 +361,7 @@ export function Skills() {
                           <SkillIcon className="w-5 h-5" />
                         </div>
                         <span className="px-2.5 py-1 rounded-lg bg-surface-container-low text-label-sm text-on-surface-muted font-medium border border-outline/10">
-                          {skill.category}
+                          {getCategoryLabel(skill.category, t)}
                         </span>
                       </div>
 
