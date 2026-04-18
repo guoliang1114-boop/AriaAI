@@ -20,6 +20,8 @@ export const loadProjectMemorySettings = () => import('./pages/settings/ProjectM
 export const loadClientMemorySettings = () => import('./pages/settings/ClientMemorySettings')
 export const loadMemoryOperationsSettings = () => import('./pages/settings/MemoryOperationsSettings')
 export const loadMessageSettings = () => import('./pages/settings/MessageSettings')
+export const loadForbidden = () => import('./pages/Forbidden')
+export const loadNotFound = () => import('./pages/NotFound')
 
 export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {
   '/': loadWelcome,
