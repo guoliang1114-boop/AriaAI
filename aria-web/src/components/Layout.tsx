@@ -50,7 +50,7 @@ export function Layout() {
     return () => {
       window.removeEventListener('messages:updated', handleMessagesUpdated)
     }
-  }, [location.pathname])
+  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem('authToken')
@@ -134,7 +134,7 @@ export function Layout() {
                     className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
                     <Bell className="h-4 w-4" />
-                    {location.pathname.startsWith('/messages') ? 'Messages' : 'Messages'}
+                    Messages
                   </NavLink>
                   <NavLink
                     to="/settings"

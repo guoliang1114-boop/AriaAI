@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -29,10 +29,7 @@ interface ClientSummary {
   id: number
   name: string
   industry: string
-  contact: string
-  notes: string
   created_at: string
-  document_count: number
   project_names: string[]
   client_memory_version?: number
   client_memory_stale?: boolean
@@ -42,12 +39,21 @@ interface ClientSummary {
 const cardBase =
   'rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_60px_-30px_rgba(15,23,42,0.28)]'
 
+function readCachedUser() {
+  try {
+    const raw = localStorage.getItem('user')
+    return raw ? (JSON.parse(raw) as User) : null
+  } catch {
+    return null
+  }
+}
+
 function formatCurrency(value: number, isZh: boolean) {
-  if (!value) return isZh ? '¥0' : '$0'
+  if (!value) return isZh ? '￥0' : '$0'
   if (isZh) {
-    if (value >= 1_000_000) return `¥${(value / 1_000_000).toFixed(1)}M`
-    if (value >= 10_000) return `¥${(value / 10_000).toFixed(1)}万`
-    return `¥${value.toLocaleString('zh-CN')}`
+    if (value >= 1_000_000) return `￥${(value / 1_000_000).toFixed(1)}M`
+    if (value >= 10_000) return `￥${(value / 10_000).toFixed(1)}万`
+    return `￥${value.toLocaleString('zh-CN')}`
   }
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -86,14 +92,26 @@ function getStageLabel(status: Project['status'], isZh: boolean) {
   }
 }
 
+function LoadingBlock({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-on-surface-muted">
+      <div className="inline-flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {label}
+      </div>
+    </div>
+  )
+}
+
 export function Welcome() {
   const navigate = useNavigate()
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
 
   const [loading, setLoading] = useState(true)
+  const [secondaryLoading, setSecondaryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [user, setUser] = useState<User | null>(null)
+  const [user] = useState<User | null>(() => readCachedUser())
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
@@ -107,24 +125,35 @@ export function Welcome() {
   const loadData = async () => {
     try {
       setLoading(true)
+      setSecondaryLoading(true)
       setError(null)
-      const [currentUser, allProjects, allClients, allSkills, allConversations, todos] = await Promise.all([
-        api.get<User>('/auth/me'),
+
+      const [allProjects, todos] = await Promise.all([
         api.get<Project[]>('/projects'),
+        api.get<MyProjectTodo[]>('/projects/todos/my'),
+      ])
+
+      setProjects(allProjects)
+      setMyTodos(todos)
+      setLoading(false)
+
+      void Promise.all([
         api.get<ClientSummary[]>('/clients'),
         api.get<Skill[]>('/skills'),
         api.get<Conversation[]>('/chat/conversations'),
-        api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
-      setUser(currentUser)
-      setProjects(allProjects)
-      setClients(allClients)
-      setSkills(allSkills)
-      setConversations(allConversations)
-      setMyTodos(todos)
+        .then(([allClients, allSkills, allConversations]) => {
+          setClients(allClients)
+          setSkills(allSkills)
+          setConversations(allConversations)
+        })
+        .catch(() => {})
+        .finally(() => setSecondaryLoading(false))
     } catch (err) {
       const apiError = err as AxiosError<ErrorResponsePayload>
       if (apiError.response?.status === 401) throw apiError
+      setSecondaryLoading(false)
+      setLoading(false)
       setError(
         !apiError.response
           ? isZh
@@ -134,8 +163,6 @@ export function Welcome() {
             ? `加载工作台失败：${apiError.response?.data?.detail || apiError.message}`
             : `Failed to load workspace: ${apiError.response?.data?.detail || apiError.message}`,
       )
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -149,26 +176,14 @@ export function Welcome() {
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== 'archived'), [projects])
   const activeClients = useMemo(() => clients.filter((client) => client.project_names.length > 0), [clients])
   const contractValue = useMemo(() => activeProjects.reduce((sum, project) => sum + (project.contract_amount || 0), 0), [activeProjects])
-  const recentProjects = useMemo(
-    () => [...projects].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 4),
-    [projects],
-  )
-  const recentConversations = useMemo(
-    () => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 3),
-    [conversations],
-  )
-  const topProjects = useMemo(
-    () => [...activeProjects].filter((project) => (project.contract_amount || 0) > 0).sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0)).slice(0, 4),
-    [activeProjects],
-  )
+  const recentProjects = useMemo(() => [...projects].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 4), [projects])
+  const recentConversations = useMemo(() => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 3), [conversations])
+  const topProjects = useMemo(() => [...activeProjects].filter((project) => (project.contract_amount || 0) > 0).sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0)).slice(0, 4), [activeProjects])
   const maxProjectValue = useMemo(() => Math.max(...topProjects.map((project) => project.contract_amount || 0), 1), [topProjects])
-  const memoryHealth = useMemo(
-    () => ({
-      projectNeedWork: projects.filter((project) => project.memory_stale || (project.memory_version || 0) === 0).length,
-      clientNeedWork: clients.filter((client) => client.client_memory_stale || (client.client_memory_version || 0) === 0).length,
-    }),
-    [clients, projects],
-  )
+  const memoryHealth = useMemo(() => ({
+    projectNeedWork: projects.filter((project) => project.memory_stale || (project.memory_version || 0) === 0).length,
+    clientNeedWork: clients.filter((client) => client.client_memory_stale || (client.client_memory_version || 0) === 0).length,
+  }), [clients, projects])
   const overdueTodos = useMemo(() => {
     const now = new Date()
     return myTodos.filter((todo) => todo.due_date && new Date(todo.due_date) < now)
@@ -182,14 +197,12 @@ export function Welcome() {
       return due >= now && due <= inThreeDays
     })
   }, [myTodos])
-  const stageSummary = useMemo(
-    () =>
-      (['lead', 'opportunity', 'won', 'delivering', 'archived'] as Project['status'][]).map((status) => ({
-        status,
-        count: projects.filter((project) => project.status === status).length,
-      })),
-    [projects],
-  )
+  const stageSummary = useMemo(() => (
+    (['lead', 'opportunity', 'won', 'delivering', 'archived'] as Project['status'][]).map((status) => ({
+      status,
+      count: projects.filter((project) => project.status === status).length,
+    }))
+  ), [projects])
 
   if (loading) {
     return (
@@ -230,7 +243,6 @@ export function Welcome() {
         <div className="space-y-6 px-8 py-8">
           <section className="relative overflow-hidden rounded-[32px] bg-slate-950 p-8 text-white shadow-[0_24px_80px_-32px_rgba(15,23,42,0.75)]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.32),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_24%)]" />
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
             <div className="relative grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
               <div className="space-y-6">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
@@ -249,17 +261,11 @@ export function Welcome() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={() => navigate('/chat')}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90"
-                  >
+                  <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90">
                     {isZh ? '开始新对话' : 'Start a chat'}
                     <ArrowRight className="h-4 w-4" />
                   </button>
-                  <button
-                    onClick={() => navigate('/projects/new')}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-                  >
+                  <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10">
                     <FolderKanban className="h-4 w-4" />
                     {isZh ? '新建项目' : 'Create project'}
                   </button>
@@ -268,7 +274,7 @@ export function Welcome() {
                   {[
                     { label: isZh ? '逾期待办' : 'Overdue', value: overdueTodos.length },
                     { label: isZh ? '记忆待处理' : 'Memory work', value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
-                    { label: isZh ? '活跃客户' : 'Active clients', value: activeClients.length },
+                    { label: isZh ? '活跃项目' : 'Active projects', value: activeProjects.length },
                   ].map((item) => (
                     <div key={item.label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80">
                       {item.label}: <span className="font-semibold text-white">{item.value}</span>
@@ -280,21 +286,15 @@ export function Welcome() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   { title: isZh ? '项目记忆' : 'Project memory', sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries', icon: Brain, path: '/settings/memory', style: 'from-indigo-500/20 to-indigo-400/5 text-white' },
-                  { title: isZh ? '客户记忆' : 'Client memory', sub: isZh ? '查看客户长期经验沉淀' : 'Review client-level knowledge', icon: Users, path: '/settings/client-memory', style: 'from-emerald-500/20 to-emerald-400/5 text-white' },
+                  { title: isZh ? '客户记忆' : 'Client memory', sub: isZh ? '查看客户级长期经验沉淀' : 'Review client-level knowledge', icon: Users, path: '/settings/client-memory', style: 'from-emerald-500/20 to-emerald-400/5 text-white' },
                   { title: isZh ? '客户列表' : 'Clients', sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients', style: 'from-sky-500/20 to-sky-400/5 text-white' },
                   { title: isZh ? '项目列表' : 'Projects', sub: isZh ? '回到核心业务看板' : 'Return to the delivery board', icon: FolderKanban, path: '/projects', style: 'from-white/95 to-white/80 text-slate-900' },
                 ].map((item) => (
-                  <button
-                    key={item.title}
-                    onClick={() => navigate(item.path)}
-                    className={`group rounded-3xl border border-white/10 bg-gradient-to-br ${item.style} p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]`}
-                  >
+                  <button key={item.title} onClick={() => navigate(item.path)} className={`group rounded-3xl border border-white/10 bg-gradient-to-br ${item.style} p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-2">
                         <div className="text-sm font-semibold">{item.title}</div>
-                        <div className={`text-xs leading-5 ${item.style.includes('white/95') ? 'text-slate-600' : 'text-white/70'}`}>
-                          {item.sub}
-                        </div>
+                        <div className={`text-xs leading-5 ${item.style.includes('white/95') ? 'text-slate-600' : 'text-white/70'}`}>{item.sub}</div>
                       </div>
                       <item.icon className="h-4 w-4 opacity-80 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                     </div>
@@ -307,16 +307,14 @@ export function Welcome() {
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {[
               { label: isZh ? '活跃项目' : 'Active projects', value: activeProjects.length, sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total projects`, icon: FolderKanban, tone: 'to-indigo-50/80' },
-              { label: isZh ? '活跃客户' : 'Active clients', value: activeClients.length, sub: isZh ? `总计 ${clients.length} 个客户` : `${clients.length} total clients`, icon: Building2, tone: 'to-sky-50/80' },
+              { label: isZh ? '活跃客户' : 'Active clients', value: secondaryLoading ? '...' : activeClients.length, sub: isZh ? `总计 ${clients.length} 个客户` : `${clients.length} total clients`, icon: Building2, tone: 'to-sky-50/80' },
               { label: isZh ? '合同总额' : 'Contract value', value: formatCurrency(contractValue, isZh), sub: isZh ? '按未归档项目统计' : 'Across non-archived projects', icon: Wallet, tone: 'to-emerald-50/80' },
-              { label: isZh ? '技能数量' : 'Available skills', value: skills.length, sub: isZh ? '可复用的工作流和技能' : 'Reusable skills and workflows', icon: Sparkles, tone: 'to-amber-50/80' },
+              { label: isZh ? '技能数量' : 'Available skills', value: secondaryLoading ? '...' : skills.length, sub: isZh ? '可复用的工作流和技能' : 'Reusable skills and workflows', icon: Sparkles, tone: 'to-amber-50/80' },
             ].map((card) => (
               <div key={card.label} className={`rounded-3xl border border-slate-200/70 bg-gradient-to-br from-white ${card.tone} p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.4)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-28px_rgba(15,23,42,0.35)]`}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm text-on-surface-muted">{card.label}</div>
-                  <div className="rounded-xl bg-white/70 p-2 text-primary shadow-sm">
-                    <card.icon className="h-4 w-4" />
-                  </div>
+                  <div className="rounded-xl bg-white/70 p-2 text-primary shadow-sm"><card.icon className="h-4 w-4" /></div>
                 </div>
                 <div className="text-3xl font-semibold text-on-surface">{card.value}</div>
                 <div className="mt-2 text-sm text-on-surface-muted">{card.sub}</div>
@@ -343,7 +341,7 @@ export function Welcome() {
                 {[
                   { label: isZh ? '逾期待办' : 'Overdue todos', value: overdueTodos.length, icon: AlertCircle },
                   { label: isZh ? '三天内到期' : 'Due in 3 days', value: dueSoonTodos.length, icon: ListTodo },
-                  { label: isZh ? '近期对话' : 'Recent chats', value: recentConversations.length, icon: MessageSquare },
+                  { label: isZh ? '近期对话' : 'Recent chats', value: secondaryLoading ? '...' : recentConversations.length, icon: MessageSquare },
                 ].map((item) => (
                   <div key={item.label} className="rounded-2xl bg-slate-50 px-4 py-4">
                     <div className="mb-2 flex items-center justify-between text-sm text-on-surface-muted">
@@ -358,15 +356,10 @@ export function Welcome() {
               <div className="mt-5 space-y-3">
                 {myTodos.slice(0, 4).map((todo) => (
                   <button key={todo.id} onClick={() => navigate(`/projects/${todo.project_id}/todos`)} className="flex w-full items-start gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
-                    <div className="mt-0.5 rounded-full bg-primary/10 p-1 text-primary">
-                      <ListTodo className="h-3.5 w-3.5" />
-                    </div>
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1 text-primary"><ListTodo className="h-3.5 w-3.5" /></div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-on-surface">{todo.content}</div>
-                      <div className="mt-1 text-xs text-on-surface-muted">
-                        {todo.project_name}
-                        {todo.due_date ? ` · ${todo.due_date}` : ''}
-                      </div>
+                      <div className="mt-1 text-xs text-on-surface-muted">{todo.project_name}{todo.due_date ? ` · ${todo.due_date}` : ''}</div>
                     </div>
                     <ChevronRight className="h-4 w-4 text-on-surface-muted" />
                   </button>
@@ -390,7 +383,7 @@ export function Welcome() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   { label: isZh ? '项目待处理' : 'Projects to review', value: memoryHealth.projectNeedWork, path: '/settings/memory', tone: 'from-amber-50' },
-                  { label: isZh ? '客户待处理' : 'Clients to review', value: memoryHealth.clientNeedWork, path: '/settings/client-memory', tone: 'from-emerald-50' },
+                  { label: isZh ? '客户待处理' : 'Clients to review', value: secondaryLoading ? '...' : memoryHealth.clientNeedWork, path: '/settings/client-memory', tone: 'from-emerald-50' },
                   { label: isZh ? '项目记忆入口' : 'Project memory', value: '→', path: '/settings/memory', tone: 'from-indigo-50' },
                   { label: isZh ? '客户记忆入口' : 'Client memory', value: '→', path: '/settings/client-memory', tone: 'from-sky-50' },
                 ].map((item) => (
@@ -428,9 +421,7 @@ export function Welcome() {
                   <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
-                      <div className="mt-1 text-xs text-on-surface-muted">
-                        {project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}
-                      </div>
+                      <div className="mt-1 text-xs text-on-surface-muted">{project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}</div>
                     </div>
                     <div className="ml-3 text-xs text-on-surface-muted">{formatRelativeTime(project.updated_at, isZh)}</div>
                   </button>
@@ -444,7 +435,7 @@ export function Welcome() {
                 <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{isZh ? '客户' : 'Clients'}</div>
                   <div className="space-y-2">
-                    {clients.slice(0, 3).map((client) => (
+                    {secondaryLoading ? <LoadingBlock label={isZh ? '正在加载客户' : 'Loading clients'} /> : clients.slice(0, 3).map((client) => (
                       <button key={client.id} onClick={() => navigate(`/clients/${client.id}`)} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-on-surface">{client.name}</div>
@@ -459,13 +450,11 @@ export function Welcome() {
                 <div>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{isZh ? '对话' : 'Chats'}</div>
                   <div className="space-y-2">
-                    {recentConversations.map((conversation) => (
+                    {secondaryLoading ? <LoadingBlock label={isZh ? '正在加载对话' : 'Loading chats'} /> : recentConversations.map((conversation) => (
                       <button key={conversation.id} onClick={() => navigate('/chat')} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-on-surface">{conversation.title || (isZh ? '未命名对话' : 'Untitled conversation')}</div>
-                          <div className="mt-1 text-xs text-on-surface-muted">
-                            {conversation.project_id ? `${isZh ? '关联项目' : 'Project'} #${conversation.project_id}` : isZh ? '通用工作台' : 'General workspace'}
-                          </div>
+                          <div className="mt-1 text-xs text-on-surface-muted">{conversation.project_id ? `${isZh ? '关联项目' : 'Project'} #${conversation.project_id}` : isZh ? '通用工作台' : 'General workspace'}</div>
                         </div>
                         <div className="ml-3 text-xs text-on-surface-muted">{formatRelativeTime(conversation.updated_at, isZh)}</div>
                       </button>
@@ -502,9 +491,7 @@ export function Welcome() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
-                          <div className="mt-1 text-xs text-on-surface-muted">
-                            {project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}
-                          </div>
+                          <div className="mt-1 text-xs text-on-surface-muted">{project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}</div>
                         </div>
                         <div className="text-sm font-semibold text-on-surface">{formatCurrency(project.contract_amount || 0, isZh)}</div>
                       </div>
@@ -533,9 +520,7 @@ export function Welcome() {
                   { title: isZh ? '客户列表' : 'Clients', subtitle: isZh ? '维护客户档案与项目关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients' },
                 ].map((item) => (
                   <button key={item.title} onClick={() => navigate(item.path)} className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-4 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-primary">
-                      <item.icon className="h-5 w-5" />
-                    </div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-primary"><item.icon className="h-5 w-5" /></div>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-on-surface">{item.title}</div>
                       <div className="mt-1 text-xs text-on-surface-muted">{item.subtitle}</div>
@@ -551,3 +536,4 @@ export function Welcome() {
     </>
   )
 }
+
