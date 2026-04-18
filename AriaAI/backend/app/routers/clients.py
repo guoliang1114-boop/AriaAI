@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.database import get_session
-from app.models.db import ClientRecord, KnowledgeDocument, Project
+from app.config import (
+    MEMORY_REBUILD_DEBOUNCE_SECONDS,
+    MEMORY_SUMMARY_WARM_DAILY_LIMIT,
+    MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
+    MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
+)
+from app.database import engine, get_session
+from app.models.db import ClientMemorySummary, ClientRecord, KnowledgeDocument, Project
 from app.services.cache import clients_cache
 from app.services.claude import complete
+from app.services import scheduler as scheduler_service
 from app.services.client_contexts import (
     build_client_memory_data,
     build_client_memory_prompt,
@@ -71,6 +80,8 @@ class ClientOut(BaseModel):
     client_memory_version: int = 0
     client_memory_stale: bool = True
     client_memory_updated_at: Optional[str] = None
+    client_memory_rebuild_status: str = "idle"
+    client_memory_rebuild_failed_at: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -82,6 +93,8 @@ class ClientMemoryResponse(BaseModel):
     memory_version: int
     memory_stale: bool
     memory_updated_at: Optional[str] = None
+    memory_rebuild_status: str = "idle"
+    memory_rebuild_failed_at: Optional[str] = None
 
 
 class ClientMemoryStatusResponse(BaseModel):
@@ -90,6 +103,8 @@ class ClientMemoryStatusResponse(BaseModel):
     memory_version: int
     memory_stale: bool
     memory_updated_at: Optional[str] = None
+    memory_rebuild_status: str = "idle"
+    memory_rebuild_failed_at: Optional[str] = None
 
 
 class ClientMemoryBatchRebuildRequest(BaseModel):
@@ -103,6 +118,8 @@ class ClientMemoryBatchRebuildItem(BaseModel):
     memory_version: int
     memory_stale: bool
     memory_updated_at: Optional[str] = None
+    memory_rebuild_status: str = "idle"
+    memory_rebuild_failed_at: Optional[str] = None
 
 
 class ClientMemoryBatchRebuildResponse(BaseModel):
@@ -113,6 +130,23 @@ class ClientMemoryBatchRebuildResponse(BaseModel):
     skipped: list[dict]
 
 
+class ClientMemoryJob(BaseModel):
+    client_id: int
+    client_name: str
+    industry: str = ""
+    job_type: str
+    language: Optional[str] = None
+    job_id: str
+    next_run_at: Optional[str] = None
+    memory_stale: bool
+    memory_version: int
+
+
+class ClientMemoryJobsResponse(BaseModel):
+    jobs: list[ClientMemoryJob]
+    count: int
+
+
 class PromoteProjectMemoryRequest(BaseModel):
     project_id: int
 
@@ -121,6 +155,23 @@ class ClientMemorySummaryRequest(BaseModel):
     language: Optional[str] = None
     summary_type: Optional[str] = "overview"
     force_refresh: bool = False
+
+
+class ClientMemoryBatchWarmSummariesRequest(BaseModel):
+    client_ids: list[int] = []
+    summary_types: list[str] = ["overview", "stakeholder", "lessons"]
+    language: Optional[str] = None
+    force_refresh: bool = False
+
+
+class ClientMemoryBatchWarmSummariesResponse(BaseModel):
+    ok: bool
+    requested_count: int
+    processed_count: int
+    warmed_count: int
+    queued_count: int = 0
+    processed: list[dict]
+    skipped: list[dict]
 
 
 def _normalized_name(value: Optional[str]) -> str:
@@ -146,6 +197,8 @@ def _build_client_out(
         client_memory_version=client.client_memory_version,
         client_memory_stale=client.client_memory_stale,
         client_memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+        client_memory_rebuild_status=client.client_memory_rebuild_status,
+        client_memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
     )
 
 
@@ -166,7 +219,275 @@ def _client_out(client: ClientRecord, session: Session) -> ClientOut:
         client_memory_version=client.client_memory_version,
         client_memory_stale=client.client_memory_stale,
         client_memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+        client_memory_rebuild_status=client.client_memory_rebuild_status,
+        client_memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
     )
+
+
+def _client_memory_rebuild_job_id(client_id: int) -> str:
+    return f"client_memory_rebuild_{client_id}"
+
+
+def _client_memory_summary_warm_job_id(client_id: int, language: str | None = None) -> str:
+    normalized_language = normalize_summary_language(language)
+    return f"client_memory_summary_warm_{client_id}_{normalized_language}"
+
+
+def _parse_client_memory_job(job) -> dict | None:
+    if not job or not getattr(job, "id", None):
+        return None
+    if job.id.startswith("client_memory_rebuild_"):
+        try:
+            client_id = int(job.id.removeprefix("client_memory_rebuild_"))
+        except ValueError:
+            return None
+        return {
+            "client_id": client_id,
+            "job_type": "rebuild",
+            "job_id": job.id,
+            "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+        }
+
+    if job.id.startswith("client_memory_summary_warm_"):
+        raw = job.id.removeprefix("client_memory_summary_warm_")
+        client_id_raw, _, language = raw.partition("_")
+        try:
+            client_id = int(client_id_raw)
+        except ValueError:
+            return None
+        return {
+            "client_id": client_id,
+            "job_type": "summary_warm",
+            "job_id": job.id,
+            "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+            "language": language or None,
+        }
+
+    return None
+
+
+async def _rebuild_client_memory(
+    session: Session,
+    client_id: int,
+    *,
+    trigger: str = "manual",
+) -> dict:
+    client, client_data, source_project_ids = build_client_memory_data(session, client_id)
+    raw_memory = await complete_with_selected_model(
+        messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
+        max_tokens=2200,
+    )
+    parsed_memory = parse_client_memory(raw_memory, client)
+    return save_client_memory(
+        session,
+        client_id,
+        parsed_memory,
+        trigger=trigger,
+        source_project_ids=source_project_ids,
+    )
+
+
+def _is_retryable_summary_warm_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in message or "rate limit" in message or "timeout" in message
+
+
+def _count_client_summary_warm_budget_used_today(session: Session) -> int:
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    warmed = session.exec(
+        select(ClientMemorySummary).where(ClientMemorySummary.created_at >= start_of_day)
+    ).all()
+    return len(warmed)
+
+
+async def _generate_client_memory_summary_cache(
+    session: Session,
+    client: ClientRecord,
+    memory_payload: dict,
+    summary_type: str,
+    language: str | None = None,
+    force_refresh: bool = False,
+) -> str:
+    if not force_refresh:
+        cached = get_client_memory_summary_cache(
+            session,
+            client_id=client.id,
+            summary_type=summary_type,
+            language=language,
+            memory_version=int(memory_payload.get("memory_version", 0) or 0),
+        )
+        if cached:
+            return cached.content
+
+    content = await complete_with_selected_model(
+        messages=[
+            {
+                "role": "user",
+                "content": build_client_memory_summary_prompt(
+                    memory_payload,
+                    client.name,
+                    summary_type=summary_type,
+                    language=language,
+                ),
+            }
+        ],
+        max_tokens=900,
+    )
+    save_client_memory_summary_cache(
+        session,
+        client_id=client.id,
+        summary_type=summary_type,
+        language=language,
+        memory_version=int(memory_payload.get("memory_version", 0) or 0),
+        content=content.strip(),
+    )
+    return content.strip()
+
+
+async def _warm_client_memory_summary_caches(
+    session: Session,
+    client: ClientRecord,
+    memory_payload: dict,
+    summary_types: list[str] | None = None,
+    language: str | None = None,
+    force_refresh: bool = False,
+) -> list[str]:
+    requested_types = summary_types or ["overview", "stakeholder", "lessons"]
+    normalized_language = normalize_summary_language(language)
+    warmed: list[str] = []
+
+    for summary_type in requested_types:
+        if summary_type not in {"overview", "stakeholder", "lessons", "client-facing"}:
+            continue
+        if not force_refresh:
+            cached = get_client_memory_summary_cache(
+                session,
+                client_id=client.id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=int(memory_payload.get("memory_version", 0) or 0),
+            )
+            if cached:
+                warmed.append(summary_type)
+                continue
+
+        await _generate_client_memory_summary_cache(
+            session,
+            client,
+            memory_payload,
+            summary_type,
+            language=language,
+            force_refresh=force_refresh,
+        )
+        warmed.append(summary_type)
+
+    return warmed
+
+
+async def _run_client_memory_summary_warm_job(
+    client_id: int,
+    language: str | None = None,
+    summary_types: list[str] | None = None,
+    force_refresh: bool = False,
+    trigger: str = "background",
+) -> None:
+    del trigger
+    with Session(engine) as session:
+        client = session.get(ClientRecord, client_id)
+        if not client:
+            return
+        memory_payload = get_client_memory_payload(client)
+        if int(memory_payload.get("memory_version", 0) or 0) <= 0:
+            return
+
+        for attempt in range(MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS):
+            try:
+                await _warm_client_memory_summary_caches(
+                    session,
+                    client,
+                    memory_payload,
+                    summary_types=summary_types,
+                    language=language,
+                    force_refresh=force_refresh,
+                )
+                return
+            except Exception as exc:
+                if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
+                    raise
+                wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
+                await asyncio.sleep(wait_seconds)
+
+
+def _schedule_client_memory_summary_warm(
+    client_id: int,
+    language: str | None = None,
+    summary_types: list[str] | None = None,
+    force_refresh: bool = False,
+    delay_seconds: int = 0,
+    trigger: str = "background",
+) -> bool:
+    if not scheduler_service.is_running():
+        return False
+    job_id = _client_memory_summary_warm_job_id(client_id, language)
+    run_at = datetime.utcnow() + timedelta(seconds=max(0, delay_seconds))
+    scheduler_service.add_or_replace_date_job(
+        job_id,
+        run_at,
+        _run_client_memory_summary_warm_job,
+        args=[client_id, language, summary_types or ["overview", "stakeholder", "lessons"], force_refresh, trigger],
+    )
+    return True
+
+
+async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounced") -> None:
+    with Session(engine) as session:
+        client = session.get(ClientRecord, client_id)
+        if not client:
+            return
+
+        client.client_memory_rebuild_status = "rebuilding"
+        client.client_memory_rebuild_failed_at = None
+        session.add(client)
+        session.commit()
+
+        try:
+            await _rebuild_client_memory(session, client_id, trigger=trigger)
+            _schedule_client_memory_summary_warm(
+                client_id,
+                summary_types=["overview", "stakeholder", "lessons"],
+                trigger="rebuild_completed",
+            )
+            clients_cache.delete(_CLIENTS_KEY)
+        except Exception:
+            client = session.get(ClientRecord, client_id)
+            if client:
+                client.client_memory_rebuild_status = "failed"
+                client.client_memory_rebuild_failed_at = datetime.utcnow()
+                session.add(client)
+                session.commit()
+            raise
+
+
+def _schedule_client_memory_rebuild(client_id: int, trigger: str = "data_changed") -> None:
+    if not scheduler_service.is_running():
+        return
+    run_at = datetime.utcnow() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
+    scheduler_service.add_or_replace_date_job(
+        _client_memory_rebuild_job_id(client_id),
+        run_at,
+        _run_client_memory_rebuild_job,
+        args=[client_id, trigger],
+    )
+
+
+def _mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
+    mark_client_memory_stale(session, client_id, trigger=trigger)
+    client = session.get(ClientRecord, client_id)
+    _schedule_client_memory_rebuild(client_id, trigger=trigger)
+    if client and client.client_memory_rebuild_status != "rebuilding":
+        client.client_memory_rebuild_status = "queued" if scheduler_service.is_running() else "idle"
+        session.add(client)
+        session.commit()
 
 
 @router.get("", response_model=list[ClientOut])
@@ -201,8 +522,70 @@ def create_client(body: ClientCreate, session: Session = Depends(get_session)):
     session.add(client)
     session.commit()
     session.refresh(client)
+    _mark_client_memory_stale(session, client.id, trigger="client_created")
     clients_cache.delete(_CLIENTS_KEY)
     return _client_out(client, session)
+
+
+@router.get("/memory/jobs", response_model=ClientMemoryJobsResponse)
+def list_client_memory_jobs(session: Session = Depends(get_session)):
+    client_lookup = {
+        client.id: client
+        for client in session.exec(select(ClientRecord)).all()
+    }
+
+    jobs: list[ClientMemoryJob] = []
+    for job in scheduler_service.get_jobs():
+        parsed = _parse_client_memory_job(job)
+        if not parsed:
+            continue
+        client = client_lookup.get(parsed["client_id"])
+        jobs.append(
+            ClientMemoryJob(
+                **parsed,
+                client_name=client.name if client else f"Client #{parsed['client_id']}",
+                industry=client.industry if client else "",
+                memory_stale=client.client_memory_stale if client else True,
+                memory_version=client.client_memory_version if client else 0,
+            )
+        )
+
+    jobs.sort(key=lambda item: ((item.next_run_at or ""), item.client_id, item.job_type))
+    return ClientMemoryJobsResponse(jobs=jobs, count=len(jobs))
+
+
+@router.post("/memory/jobs/{client_id}/cancel")
+def cancel_client_memory_jobs(client_id: int):
+    scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
+    for language in ("zh", "en", "default"):
+        scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
+    return {"ok": True, "client_id": client_id}
+
+
+@router.post("/memory/jobs/{client_id}/run-now")
+async def run_client_memory_jobs_now(
+    client_id: int,
+    session: Session = Depends(get_session),
+):
+    scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
+    for language in ("zh", "en", "default"):
+        scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
+    payload = await _rebuild_client_memory(session, client_id, trigger="manual_queue_run")
+    clients_cache.delete(_CLIENTS_KEY)
+    refreshed = session.get(ClientRecord, client_id)
+    return {
+        "ok": True,
+        "action": "rebuild",
+        "client_id": client_id,
+        "memory_version": refreshed.client_memory_version if refreshed else 0,
+        "memory_stale": refreshed.client_memory_stale if refreshed else True,
+        "memory_updated_at": refreshed.client_memory_updated_at.isoformat() if refreshed and refreshed.client_memory_updated_at else None,
+        "memory_rebuild_status": refreshed.client_memory_rebuild_status if refreshed else "idle",
+        "memory_rebuild_failed_at": refreshed.client_memory_rebuild_failed_at.isoformat()
+        if refreshed and refreshed.client_memory_rebuild_failed_at
+        else None,
+        "memory": payload,
+    }
 
 
 @router.get("/{client_id}", response_model=ClientOut)
@@ -224,7 +607,7 @@ def update_client(client_id: int, body: ClientUpdate, session: Session = Depends
     session.add(client)
     session.commit()
     session.refresh(client)
-    mark_client_memory_stale(session, client_id, trigger="client_updated")
+    _mark_client_memory_stale(session, client_id, trigger="client_updated")
     clients_cache.delete(_CLIENTS_KEY)
     return _client_out(client, session)
 
@@ -289,7 +672,7 @@ def link_document(client_id: int, doc_id: int, session: Session = Depends(get_se
     document.client_id = client_id
     session.add(document)
     session.commit()
-    mark_client_memory_stale(session, client_id, trigger="document_linked")
+    _mark_client_memory_stale(session, client_id, trigger="document_linked")
     return {"ok": True}
 
 
@@ -304,7 +687,7 @@ def unlink_document(client_id: int, doc_id: int, session: Session = Depends(get_
     session.add(document)
     session.commit()
     if original_client_id:
-        mark_client_memory_stale(session, original_client_id, trigger="document_unlinked")
+        _mark_client_memory_stale(session, original_client_id, trigger="document_unlinked")
     return {"ok": True}
 
 
@@ -319,6 +702,8 @@ def get_client_memory(client_id: int, session: Session = Depends(get_session)):
         memory_version=client.client_memory_version,
         memory_stale=client.client_memory_stale,
         memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+        memory_rebuild_status=client.client_memory_rebuild_status,
+        memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
     )
 
 
@@ -333,6 +718,8 @@ def get_client_memory_status(client_id: int, session: Session = Depends(get_sess
         memory_version=client.client_memory_version,
         memory_stale=client.client_memory_stale,
         memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+        memory_rebuild_status=client.client_memory_rebuild_status,
+        memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
     )
 
 
@@ -353,19 +740,7 @@ async def rebuild_client_memory_batch(
             skipped.append({"client_id": client_id, "reason": "not_stale"})
             continue
 
-        client, client_data, source_project_ids = build_client_memory_data(session, client_id)
-        raw_memory = await complete_with_selected_model(
-            messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
-            max_tokens=2200,
-        )
-        parsed_memory = parse_client_memory(raw_memory, client)
-        payload = save_client_memory(
-            session,
-            client_id,
-            parsed_memory,
-            trigger="batch_rebuild",
-            source_project_ids=source_project_ids,
-        )
+        payload = await _rebuild_client_memory(session, client_id, trigger="batch_rebuild")
         refreshed = session.get(ClientRecord, client_id)
         rebuilt.append(
             ClientMemoryBatchRebuildItem(
@@ -376,7 +751,16 @@ async def rebuild_client_memory_batch(
                 memory_updated_at=refreshed.client_memory_updated_at.isoformat()
                 if refreshed and refreshed.client_memory_updated_at
                 else None,
+                memory_rebuild_status=refreshed.client_memory_rebuild_status if refreshed else "idle",
+                memory_rebuild_failed_at=refreshed.client_memory_rebuild_failed_at.isoformat()
+                if refreshed and refreshed.client_memory_rebuild_failed_at
+                else None,
             )
+        )
+        _schedule_client_memory_summary_warm(
+            client_id,
+            summary_types=["overview", "stakeholder", "lessons"],
+            trigger="batch_rebuild_completed",
         )
 
     clients_cache.delete(_CLIENTS_KEY)
@@ -389,20 +773,113 @@ async def rebuild_client_memory_batch(
     )
 
 
+@router.post("/memory/warm-summaries-batch", response_model=ClientMemoryBatchWarmSummariesResponse)
+async def warm_client_memory_summaries_batch(
+    body: ClientMemoryBatchWarmSummariesRequest,
+    session: Session = Depends(get_session),
+):
+    requested_ids = [int(client_id) for client_id in body.client_ids if int(client_id) > 0]
+    if not requested_ids:
+        return ClientMemoryBatchWarmSummariesResponse(
+            ok=True,
+            requested_count=0,
+            processed_count=0,
+            warmed_count=0,
+            processed=[],
+            skipped=[],
+        )
+
+    candidate_clients = session.exec(select(ClientRecord).where(ClientRecord.id.in_(requested_ids))).all()
+    client_lookup = {client.id: client for client in candidate_clients}
+    processed: list[dict] = []
+    skipped: list[dict] = []
+    warmed_count = 0
+    queued_count = 0
+    normalized_summary_types = [
+        summary_type
+        for summary_type in (body.summary_types or ["overview", "stakeholder", "lessons"])
+        if summary_type in {"overview", "stakeholder", "lessons", "client-facing"}
+    ] or ["overview", "stakeholder", "lessons"]
+    scheduler_running = scheduler_service.is_running()
+    budget_used_today = _count_client_summary_warm_budget_used_today(session) if scheduler_running else 0
+
+    for client_id in requested_ids:
+        if client_id not in client_lookup:
+            skipped.append({"client_id": client_id, "reason": "not_found"})
+
+    for client in [client_lookup[client_id] for client_id in requested_ids if client_id in client_lookup]:
+        memory_payload = get_client_memory_payload(client)
+        memory_version = int(memory_payload.get("memory_version", 0) or 0)
+        if memory_version <= 0:
+            skipped.append({"client_id": client.id, "reason": "memory_missing"})
+            continue
+
+        if scheduler_running:
+            if budget_used_today + queued_count >= MEMORY_SUMMARY_WARM_DAILY_LIMIT:
+                skipped.append({"client_id": client.id, "reason": "daily_limit_reached"})
+                continue
+
+            job_id = _client_memory_summary_warm_job_id(client.id, body.language)
+            if scheduler_service.get_job(job_id):
+                skipped.append({"client_id": client.id, "reason": "already_queued"})
+                continue
+
+            queued = _schedule_client_memory_summary_warm(
+                client.id,
+                language=body.language,
+                summary_types=normalized_summary_types,
+                force_refresh=body.force_refresh,
+                delay_seconds=queued_count * MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
+                trigger="batch_warm",
+            )
+            if queued:
+                queued_count += 1
+                processed.append(
+                    {
+                        "client_id": client.id,
+                        "summary_types": normalized_summary_types,
+                        "memory_version": memory_version,
+                        "mode": "queued",
+                    }
+                )
+                continue
+
+        warmed_types = await _warm_client_memory_summary_caches(
+            session,
+            client,
+            memory_payload,
+            summary_types=normalized_summary_types,
+            language=body.language,
+            force_refresh=body.force_refresh,
+        )
+        warmed_count += len(warmed_types)
+        processed.append(
+            {
+                "client_id": client.id,
+                "summary_types": warmed_types,
+                "memory_version": memory_version,
+                "mode": "inline",
+            }
+        )
+
+    return ClientMemoryBatchWarmSummariesResponse(
+        ok=True,
+        requested_count=len(requested_ids),
+        processed_count=len(processed),
+        warmed_count=warmed_count,
+        queued_count=queued_count,
+        processed=processed,
+        skipped=skipped,
+    )
+
+
 @router.post("/{client_id}/memory/rebuild", response_model=ClientMemoryResponse)
 async def rebuild_client_memory(client_id: int, session: Session = Depends(get_session)):
-    client, client_data, source_project_ids = build_client_memory_data(session, client_id)
-    raw_memory = await complete_with_selected_model(
-        messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
-        max_tokens=2200,
-    )
-    parsed_memory = parse_client_memory(raw_memory, client)
-    payload = save_client_memory(
-        session,
+    payload = await _rebuild_client_memory(session, client_id, trigger="manual")
+    _schedule_client_memory_summary_warm(
         client_id,
-        parsed_memory,
-        trigger="manual",
-        source_project_ids=source_project_ids,
+        summary_types=["overview", "stakeholder", "lessons"],
+        trigger="manual_rebuild_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
     refreshed = session.get(ClientRecord, client_id)
@@ -412,6 +889,10 @@ async def rebuild_client_memory(client_id: int, session: Session = Depends(get_s
         memory_version=refreshed.client_memory_version if refreshed else 0,
         memory_stale=refreshed.client_memory_stale if refreshed else True,
         memory_updated_at=refreshed.client_memory_updated_at.isoformat() if refreshed and refreshed.client_memory_updated_at else None,
+        memory_rebuild_status=refreshed.client_memory_rebuild_status if refreshed else "idle",
+        memory_rebuild_failed_at=refreshed.client_memory_rebuild_failed_at.isoformat()
+        if refreshed and refreshed.client_memory_rebuild_failed_at
+        else None,
     )
 
 
@@ -456,6 +937,11 @@ async def promote_project_memory_to_client(
         trigger="project_promoted",
         source_project_ids=[project.id],
     )
+    _schedule_client_memory_summary_warm(
+        client_id,
+        summary_types=["overview", "stakeholder", "lessons"],
+        trigger="project_promoted_completed",
+    )
     clients_cache.delete(_CLIENTS_KEY)
     refreshed = session.get(ClientRecord, client_id)
     return ClientMemoryResponse(
@@ -464,6 +950,10 @@ async def promote_project_memory_to_client(
         memory_version=refreshed.client_memory_version if refreshed else 0,
         memory_stale=refreshed.client_memory_stale if refreshed else True,
         memory_updated_at=refreshed.client_memory_updated_at.isoformat() if refreshed and refreshed.client_memory_updated_at else None,
+        memory_rebuild_status=refreshed.client_memory_rebuild_status if refreshed else "idle",
+        memory_rebuild_failed_at=refreshed.client_memory_rebuild_failed_at.isoformat()
+        if refreshed and refreshed.client_memory_rebuild_failed_at
+        else None,
     )
 
 
@@ -492,6 +982,11 @@ async def summarize_client_memory(
             trigger="on_demand",
             source_project_ids=source_project_ids,
         )
+        _schedule_client_memory_summary_warm(
+            client_id,
+            summary_types=["overview", "stakeholder", "lessons"],
+            trigger="on_demand_rebuild_completed",
+        )
 
     normalized_language = normalize_summary_language(body.language)
     normalized_summary_type = (body.summary_type or "overview").strip().lower() or "overview"
@@ -514,35 +1009,28 @@ async def summarize_client_memory(
                 "cached": True,
             }
 
-    content = await complete_with_selected_model(
-        messages=[
-            {
-                "role": "user",
-                "content": build_client_memory_summary_prompt(
-                    memory,
-                    client.name,
-                    summary_type=normalized_summary_type,
-                    language=body.language,
-                ),
-            }
-        ],
-        max_tokens=900,
+    content = await _generate_client_memory_summary_cache(
+        session,
+        client,
+        memory,
+        normalized_summary_type,
+        language=body.language,
+        force_refresh=True,
     )
-    cached = save_client_memory_summary_cache(
+    cached = get_client_memory_summary_cache(
         session,
         client_id=client_id,
         summary_type=normalized_summary_type,
         language=body.language,
         memory_version=int(memory.get("memory_version", 0) or 0),
-        content=content.strip(),
     )
     return {
         "client_id": client_id,
         "language": normalized_language,
         "summary_type": normalized_summary_type,
-        "content": content.strip(),
+        "content": content,
         "memory_version": int(memory.get("memory_version", 0) or 0),
-        "generated_at": cached.updated_at.isoformat(),
+        "generated_at": cached.updated_at.isoformat() if cached else datetime.utcnow().isoformat(),
         "cached": False,
     }
 

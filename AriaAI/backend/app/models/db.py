@@ -16,6 +16,8 @@ class ClientRecord(SQLModel, table=True):
     client_memory_stale: bool = True
     client_memory_version: int = 0
     client_memory_updated_at: Optional[datetime] = None
+    client_memory_rebuild_status: str = "idle"
+    client_memory_rebuild_failed_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     documents: list["KnowledgeDocument"] = Relationship(back_populates="client")

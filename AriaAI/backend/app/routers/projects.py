@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,12 +22,18 @@ from app.config import (
     UPLOADS_DIR,
 )
 from app.database import engine, get_session
-from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySummary, User
+from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySummary, User, ClientRecord
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.services import scheduler as scheduler_service
 from app.models.db import Setting as _Setting
-from app.services.cache import projects_cache
-from app.services.client_contexts import mark_client_memory_stale_by_name
+from app.services.cache import clients_cache, projects_cache
+from app.services.client_contexts import (
+    build_client_memory_promote_prompt,
+    get_client_memory_payload,
+    mark_client_memory_stale_by_name,
+    parse_client_memory,
+    save_client_memory,
+)
 from app.services.chat_exports import build_markdown_export_content
 from app.services.document_text import extract_text_from_file
 from app.services.project_ai import (
@@ -118,6 +125,8 @@ from app.services.project_todos import (
 from app.routers.auth import get_current_user
 
 _PROJECTS_TTL = 120.0
+_CLIENTS_KEY = "all"
+logger = logging.getLogger(__name__)
 
 
 def _bust_project(project_id: int) -> None:
@@ -133,6 +142,84 @@ def _memory_rebuild_job_id(project_id: int) -> str:
 def _memory_summary_warm_job_id(project_id: int, language: str | None = None) -> str:
     normalized_language = normalize_summary_language(language)
     return f"project_memory_summary_warm_{project_id}_{normalized_language}"
+
+
+def _normalize_name(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _find_client_record_by_name(session: Session, client_name: str | None) -> ClientRecord | None:
+    normalized = _normalize_name(client_name)
+    if not normalized:
+        return None
+
+    exact = session.exec(select(ClientRecord).where(ClientRecord.name == client_name)).first()
+    if exact is not None:
+        return exact
+
+    return next(
+        (
+            client
+            for client in session.exec(select(ClientRecord)).all()
+            if _normalize_name(client.name) == normalized
+        ),
+        None,
+    )
+
+
+async def _auto_promote_archived_project_to_client_memory(
+    session: Session,
+    project_id: int,
+    *,
+    previous_status: str | None,
+) -> bool:
+    project = session.get(Project, project_id)
+    if not project or previous_status == "archived" or project.status != "archived":
+        return False
+
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        return False
+
+    project_memory = get_project_memory_payload(project)
+    if (project.memory_version or 0) == 0 or project.memory_stale:
+        project_data = build_project_memory_data(session, project_id)
+        raw_project_memory = await complete_with_selected_model(
+            messages=[{"role": "user", "content": build_project_memory_prompt(project_data)}],
+            max_tokens=2200,
+        )
+        parsed_project_memory = parse_project_memory(raw_project_memory, project)
+        project_memory = save_project_memory(
+            session,
+            project_id,
+            parsed_project_memory,
+            trigger="archive_promotion_prepare",
+        )
+        project = session.get(Project, project_id) or project
+
+    raw_client_memory = await complete_with_selected_model(
+        messages=[
+            {
+                "role": "user",
+                "content": build_client_memory_promote_prompt(
+                    get_client_memory_payload(client),
+                    project.name,
+                    project_memory,
+                ),
+            }
+        ],
+        max_tokens=2200,
+    )
+    parsed_client_memory = parse_client_memory(raw_client_memory, client)
+    save_client_memory(
+        session,
+        client.id,
+        parsed_client_memory,
+        trigger="project_archived_auto_promoted",
+        source_project_ids=[project.id],
+    )
+    clients_cache.delete(_CLIENTS_KEY)
+    return True
 
 
 def _parse_project_memory_job(job) -> dict | None:
@@ -631,9 +718,19 @@ def list_projects_dashboard_summary(
 
 
 @router.patch("/{project_id}")
-def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
+async def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
+    existing = session.get(Project, project_id)
+    previous_status = existing.status if existing else None
     project = update_project_record(session, project_id, data.model_dump(exclude_none=True))
     _mark_project_memory_stale(session, project_id)
+    try:
+        await _auto_promote_archived_project_to_client_memory(
+            session,
+            project_id,
+            previous_status=previous_status,
+        )
+    except Exception:
+        logger.exception("Failed to auto-promote archived project %s into client memory", project_id)
     _bust_project(project_id)
     return project
 

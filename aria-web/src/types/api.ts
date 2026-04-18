@@ -172,6 +172,8 @@ export interface ClientMemoryResponse {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+  memory_rebuild_status?: 'idle' | 'queued' | 'rebuilding' | 'failed' | string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ClientMemoryStatusResponse {
@@ -180,6 +182,8 @@ export interface ClientMemoryStatusResponse {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+  memory_rebuild_status?: 'idle' | 'queued' | 'rebuilding' | 'failed' | string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ClientMemoryBatchRebuildItem {
@@ -188,6 +192,8 @@ export interface ClientMemoryBatchRebuildItem {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+  memory_rebuild_status?: 'idle' | 'queued' | 'rebuilding' | 'failed' | string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ClientMemoryBatchRebuildResponse {
@@ -195,6 +201,38 @@ export interface ClientMemoryBatchRebuildResponse {
   requested_count: number
   rebuilt_count: number
   rebuilt: ClientMemoryBatchRebuildItem[]
+  skipped: Array<{ client_id: number; reason: string }>
+}
+
+export interface ClientMemoryJob {
+  client_id: number
+  client_name: string
+  industry: string
+  job_type: 'rebuild' | 'summary_warm' | string
+  job_id: string
+  language?: string | null
+  next_run_at?: string | null
+  memory_stale: boolean
+  memory_version: number
+}
+
+export interface ClientMemoryJobsResponse {
+  jobs: ClientMemoryJob[]
+  count: number
+}
+
+export interface ClientMemoryBatchWarmSummariesResponse {
+  ok: boolean
+  requested_count: number
+  processed_count: number
+  warmed_count: number
+  queued_count?: number
+  processed: Array<{
+    client_id: number
+    summary_types: string[]
+    memory_version: number
+    mode?: 'queued' | 'inline'
+  }>
   skipped: Array<{ client_id: number; reason: string }>
 }
 

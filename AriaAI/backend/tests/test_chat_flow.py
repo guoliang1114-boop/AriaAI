@@ -1867,6 +1867,70 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNotNone(refreshed_client)
             self.assertTrue(refreshed_client.client_memory_stale)
 
+    def test_archiving_project_auto_promotes_memory_to_client(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme Corp", notes="Strategic account")
+            project = Project(
+                name="Acme Delivery",
+                client="Acme Corp",
+                status="delivering",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Delivered finance workflow redesign",
+                        "key_risks": ["Stakeholder alignment drift"],
+                        "stakeholder_notes": ["CFO prefers phased rollout"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=2,
+                memory_stale=False,
+            )
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(client)
+            session.refresh(project)
+            client_id = client.id
+            project_id = project.id
+
+        with patch.object(
+            projects_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "client_profile": "Strategic account with a finance modernization agenda",
+                        "decision_patterns": ["Executive sponsors prefer phased delivery"],
+                        "key_contacts": [{"name": "CFO", "role": "Executive Sponsor", "note": "Needs measurable wins"}],
+                        "lessons_learned": ["Show value in stages before broader rollout"],
+                        "project_history": [{"project_name": "Acme Delivery", "status": "archived", "outcome": "Delivered", "key_factor": "Phased wins"}],
+                        "sensitive_topics": ["Avoid overpromising automation speed"],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ) as mocked_complete:
+            resp = self.client.patch(
+                f"/projects/{project_id}",
+                json={"status": "archived"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mocked_complete.await_count, 2)
+
+        with Session(self.engine) as session:
+            refreshed_project = session.get(Project, project_id)
+            refreshed_client = session.get(ClientRecord, client_id)
+            self.assertIsNotNone(refreshed_project)
+            self.assertEqual(refreshed_project.status, "archived")
+            self.assertGreaterEqual(refreshed_project.memory_version, 3)
+            self.assertIsNotNone(refreshed_client)
+            self.assertEqual(refreshed_client.client_memory_version, 1)
+            self.assertFalse(refreshed_client.client_memory_stale)
+            payload = json.loads(refreshed_client.client_memory_json)
+            self.assertIn(project_id, payload["source_project_ids"])
+            self.assertEqual(payload["rebuild_log"][-1]["trigger"], "project_archived_auto_promoted")
+
     def test_save_conversation_markdown_merge_requires_file_id(self):
         with Session(self.engine) as session:
             project = Project(name="Merge Project", client="Client")
@@ -2860,6 +2924,159 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(body["skipped"][0]["client_id"], second_id)
         self.assertEqual(body["skipped"][0]["reason"], "not_stale")
         self.assertEqual(mocked_complete.await_count, 1)
+
+    def test_list_client_memory_jobs_returns_queued_rebuilds(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                industry="Manufacturing",
+                client_memory_version=2,
+                client_memory_stale=True,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        fake_job = SimpleNamespace(
+            id=f"client_memory_rebuild_{client_id}",
+            next_run_time=datetime.utcnow() + timedelta(minutes=5),
+        )
+
+        with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]):
+            resp = self.client.get("/clients/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["jobs"][0]["client_id"], client_id)
+        self.assertEqual(body["jobs"][0]["job_type"], "rebuild")
+        self.assertEqual(body["jobs"][0]["client_name"], "Acme Corp")
+        self.assertEqual(body["jobs"][0]["job_type"], "rebuild")
+
+    def test_list_client_memory_jobs_includes_summary_warm_tasks(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                industry="Manufacturing",
+                client_memory_version=2,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        fake_job = SimpleNamespace(
+            id=f"client_memory_summary_warm_{client_id}_zh",
+            next_run_time=datetime.utcnow() + timedelta(minutes=3),
+        )
+
+        with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]):
+            resp = self.client.get("/clients/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["jobs"][0]["job_type"], "summary_warm")
+        self.assertEqual(body["jobs"][0]["language"], "zh")
+
+    def test_cancel_client_memory_jobs_removes_rebuild_job(self):
+        removed: list[str] = []
+
+        with patch.object(
+            clients_router_module.scheduler_service,
+            "remove_job",
+            side_effect=lambda job_id: removed.append(job_id),
+        ):
+            resp = self.client.post("/clients/memory/jobs/42/cancel")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("client_memory_rebuild_42", removed)
+        self.assertIn("client_memory_summary_warm_42_zh", removed)
+        self.assertIn("client_memory_summary_warm_42_en", removed)
+        self.assertIn("client_memory_summary_warm_42_default", removed)
+
+    def test_run_client_memory_jobs_now_rebuilds_client(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme Corp", notes="Strategic account")
+            session.add(client)
+            session.add(Project(name="Alpha Delivery", client="Acme Corp", status="delivering"))
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "client_profile": "Strategic account with long buying cycles",
+                        "decision_patterns": ["Needs internal champion"],
+                        "key_contacts": [],
+                        "lessons_learned": ["Pilot success matters"],
+                        "project_history": [],
+                        "sensitive_topics": [],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ), patch.object(clients_router_module.scheduler_service, "remove_job") as mocked_remove_job:
+            resp = self.client.post(f"/clients/memory/jobs/{client_id}/run-now")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "rebuild")
+        self.assertGreaterEqual(body["memory_version"], 1)
+        removed_job_ids = [call.args[0] for call in mocked_remove_job.call_args_list]
+        self.assertIn(f"client_memory_rebuild_{client_id}", removed_job_ids)
+
+    def test_client_memory_warm_summaries_batch_generates_common_cached_views(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Strategic manufacturing account",
+                        "decision_patterns": ["Prefers phased rollout"],
+                        "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Executive sponsor"}],
+                        "lessons_learned": ["Value proof matters before scale"],
+                        "project_history": [],
+                        "sensitive_topics": ["Avoid promising fixed dates too early"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=3,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="- Cached summary"),
+        ) as mocked_complete:
+            resp = self.client.post(
+                "/clients/memory/warm-summaries-batch",
+                json={"client_ids": [client_id], "summary_types": ["overview", "stakeholder"], "language": "zh-CN"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["processed_count"], 1)
+        self.assertGreaterEqual(body["warmed_count"], 2)
+        self.assertEqual(mocked_complete.await_count, 2)
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
+            ).all()
+            self.assertEqual(len(cached), 2)
 
     def test_client_memory_summary_uses_cache_by_memory_version(self):
         with Session(self.engine) as session:

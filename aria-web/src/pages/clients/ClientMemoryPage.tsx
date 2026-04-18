@@ -32,6 +32,8 @@ interface ClientDetailRecord {
   client_memory_version?: number
   client_memory_stale?: boolean
   client_memory_updated_at?: string | null
+  client_memory_rebuild_status?: string
+  client_memory_rebuild_failed_at?: string | null
 }
 
 interface RelatedProject {
@@ -53,6 +55,19 @@ function formatDateTime(value?: string | null, isZh = true) {
   })
 }
 
+function getAsyncStatusLabel(status: string | undefined, isZh: boolean) {
+  switch (status) {
+    case 'queued':
+      return isZh ? '排队中' : 'Queued'
+    case 'rebuilding':
+      return isZh ? '重建中' : 'Rebuilding'
+    case 'failed':
+      return isZh ? '重建失败' : 'Failed'
+    default:
+      return isZh ? '空闲' : 'Idle'
+  }
+}
+
 export function ClientMemoryPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -71,6 +86,20 @@ export function ClientMemoryPage() {
       void loadClientMemoryPage()
     }
   }, [id])
+
+  useEffect(() => {
+    if (!id || !memoryStatus) return
+    if (!['queued', 'rebuilding'].includes(memoryStatus.memory_rebuild_status || '')) return
+
+    const timer = window.setInterval(() => {
+      void api
+        .get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`)
+        .then((statusData) => setMemoryStatus(statusData))
+        .catch((error) => console.error('Failed to refresh client memory status:', error))
+    }, 10000)
+
+    return () => window.clearInterval(timer)
+  }, [id, memoryStatus])
 
   const loadClientMemoryPage = async () => {
     try {
@@ -104,6 +133,8 @@ export function ClientMemoryPage() {
         memory_version: response.memory_version,
         memory_stale: response.memory_stale,
         memory_updated_at: response.memory_updated_at,
+        memory_rebuild_status: response.memory_rebuild_status,
+        memory_rebuild_failed_at: response.memory_rebuild_failed_at,
       })
     } catch (error) {
       console.error('Failed to rebuild client memory:', error)
@@ -294,6 +325,17 @@ export function ClientMemoryPage() {
                   <div className="mt-2 text-sm font-medium text-on-surface">
                     {formatDateTime(memoryStatus?.memory_updated_at, isZh)}
                   </div>
+                </div>
+                <div className="rounded-2xl bg-surface-container-low px-4 py-4">
+                  <div className="text-sm text-on-surface-muted">{isZh ? '异步状态' : 'Async status'}</div>
+                  <div className="mt-2 text-sm font-medium text-on-surface">
+                    {getAsyncStatusLabel(memoryStatus?.memory_rebuild_status, isZh)}
+                  </div>
+                  {memoryStatus?.memory_rebuild_failed_at ? (
+                    <div className="mt-2 text-xs text-error">
+                      {formatDateTime(memoryStatus.memory_rebuild_failed_at, isZh)}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="rounded-2xl bg-surface-container-low px-4 py-4">
                   <div className="text-sm text-on-surface-muted">{isZh ? '来源项目数' : 'Source projects'}</div>

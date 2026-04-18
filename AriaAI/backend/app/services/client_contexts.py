@@ -217,6 +217,8 @@ def save_client_memory(
 
     client.client_memory_json = json.dumps(memory, ensure_ascii=False)
     client.client_memory_stale = False
+    client.client_memory_rebuild_status = "idle"
+    client.client_memory_rebuild_failed_at = None
     session.add(client)
     session.commit()
     session.refresh(client)
