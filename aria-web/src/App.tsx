@@ -1,28 +1,71 @@
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { Login } from './pages/Login'
-import { Welcome } from './pages/Welcome'
-import { Chat } from './pages/chat/Chat'
-import { Skills } from './pages/skills/Skills'
-import { Projects } from './pages/projects/Projects'
-import { ProjectDetail } from './pages/projects/ProjectDetail'
-import { NewProject } from './pages/projects/NewProject'
-import { Knowledge } from './pages/knowledge/Knowledge'
-import { Clients } from './pages/clients/Clients'
-import { ClientDetail } from './pages/clients/ClientDetail'
-import { ClientMemoryPage } from './pages/clients/ClientMemoryPage'
-import { MessagesPage } from './pages/messages/MessagesPage'
-import { SettingsLayout } from './pages/settings/SettingsLayout'
-import { ProfileSettings } from './pages/settings/ProfileSettings'
-import { AISettings } from './pages/settings/AISettings'
-import { UsersSettings } from './pages/settings/UsersSettings'
-import { ServerSettings } from './pages/settings/ServerSettings'
-import { LanguageSettings } from './pages/settings/LanguageSettings'
-import { AboutSettings } from './pages/settings/AboutSettings'
-import { ProjectMemorySettings } from './pages/settings/ProjectMemorySettings'
-import { ClientMemorySettings } from './pages/settings/ClientMemorySettings'
-import { MessageSettings } from './pages/settings/MessageSettings'
+
+const Welcome = lazy(() => import('./pages/Welcome').then((module) => ({ default: module.Welcome })))
+const Chat = lazy(() => import('./pages/chat/Chat').then((module) => ({ default: module.Chat })))
+const Skills = lazy(() => import('./pages/skills/Skills').then((module) => ({ default: module.Skills })))
+const Projects = lazy(() => import('./pages/projects/Projects').then((module) => ({ default: module.Projects })))
+const ProjectDetail = lazy(() =>
+  import('./pages/projects/ProjectDetail').then((module) => ({ default: module.ProjectDetail })),
+)
+const NewProject = lazy(() => import('./pages/projects/NewProject').then((module) => ({ default: module.NewProject })))
+const Knowledge = lazy(() => import('./pages/knowledge/Knowledge').then((module) => ({ default: module.Knowledge })))
+const Clients = lazy(() => import('./pages/clients/Clients').then((module) => ({ default: module.Clients })))
+const ClientDetail = lazy(() =>
+  import('./pages/clients/ClientDetail').then((module) => ({ default: module.ClientDetail })),
+)
+const ClientMemoryPage = lazy(() =>
+  import('./pages/clients/ClientMemoryPage').then((module) => ({ default: module.ClientMemoryPage })),
+)
+const MessagesPage = lazy(() =>
+  import('./pages/messages/MessagesPage').then((module) => ({ default: module.MessagesPage })),
+)
+const SettingsLayout = lazy(() =>
+  import('./pages/settings/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
+)
+const ProfileSettings = lazy(() =>
+  import('./pages/settings/ProfileSettings').then((module) => ({ default: module.ProfileSettings })),
+)
+const AISettings = lazy(() =>
+  import('./pages/settings/AISettings').then((module) => ({ default: module.AISettings })),
+)
+const UsersSettings = lazy(() =>
+  import('./pages/settings/UsersSettings').then((module) => ({ default: module.UsersSettings })),
+)
+const ServerSettings = lazy(() =>
+  import('./pages/settings/ServerSettings').then((module) => ({ default: module.ServerSettings })),
+)
+const LanguageSettings = lazy(() =>
+  import('./pages/settings/LanguageSettings').then((module) => ({ default: module.LanguageSettings })),
+)
+const AboutSettings = lazy(() =>
+  import('./pages/settings/AboutSettings').then((module) => ({ default: module.AboutSettings })),
+)
+const ProjectMemorySettings = lazy(() =>
+  import('./pages/settings/ProjectMemorySettings').then((module) => ({ default: module.ProjectMemorySettings })),
+)
+const ClientMemorySettings = lazy(() =>
+  import('./pages/settings/ClientMemorySettings').then((module) => ({ default: module.ClientMemorySettings })),
+)
+const MessageSettings = lazy(() =>
+  import('./pages/settings/MessageSettings').then((module) => ({ default: module.MessageSettings })),
+)
+
+function RouteFallback() {
+  return (
+    <div className="flex h-full min-h-[240px] items-center justify-center bg-surface">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  )
+}
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+}
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -44,27 +87,174 @@ function AppRoutes() {
           </AuthGuard>
         }
       >
-        <Route index element={<Welcome />} />
-        <Route path="chat" element={<Chat />} />
-        <Route path="skills" element={<Skills />} />
-        <Route path="projects" element={<Projects />} />
-        <Route path="projects/new" element={<NewProject />} />
-        <Route path="projects/:id/*" element={<ProjectDetail />} />
-        <Route path="knowledge" element={<Knowledge />} />
-        <Route path="messages" element={<MessagesPage />} />
-        <Route path="clients" element={<Clients />} />
-        <Route path="clients/:id" element={<ClientDetail />} />
-        <Route path="clients/:id/memory" element={<ClientMemoryPage />} />
-        <Route path="settings" element={<SettingsLayout />}>
-          <Route index element={<ProfileSettings />} />
-          <Route path="ai" element={<AISettings />} />
-          <Route path="memory" element={<ProjectMemorySettings />} />
-          <Route path="client-memory" element={<ClientMemorySettings />} />
-          <Route path="users" element={<UsersSettings />} />
-          <Route path="messages" element={<MessageSettings />} />
-          <Route path="server" element={<ServerSettings />} />
-          <Route path="language" element={<LanguageSettings />} />
-          <Route path="about" element={<AboutSettings />} />
+        <Route
+          index
+          element={
+            <LazyPage>
+              <Welcome />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="chat"
+          element={
+            <LazyPage>
+              <Chat />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="skills"
+          element={
+            <LazyPage>
+              <Skills />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="projects"
+          element={
+            <LazyPage>
+              <Projects />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="projects/new"
+          element={
+            <LazyPage>
+              <NewProject />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="projects/:id/*"
+          element={
+            <LazyPage>
+              <ProjectDetail />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="knowledge"
+          element={
+            <LazyPage>
+              <Knowledge />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="messages"
+          element={
+            <LazyPage>
+              <MessagesPage />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="clients"
+          element={
+            <LazyPage>
+              <Clients />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="clients/:id"
+          element={
+            <LazyPage>
+              <ClientDetail />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="clients/:id/memory"
+          element={
+            <LazyPage>
+              <ClientMemoryPage />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <LazyPage>
+              <SettingsLayout />
+            </LazyPage>
+          }
+        >
+          <Route
+            index
+            element={
+              <LazyPage>
+                <ProfileSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="ai"
+            element={
+              <LazyPage>
+                <AISettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="memory"
+            element={
+              <LazyPage>
+                <ProjectMemorySettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="client-memory"
+            element={
+              <LazyPage>
+                <ClientMemorySettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <LazyPage>
+                <UsersSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="messages"
+            element={
+              <LazyPage>
+                <MessageSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="server"
+            element={
+              <LazyPage>
+                <ServerSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="language"
+            element={
+              <LazyPage>
+                <LanguageSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="about"
+            element={
+              <LazyPage>
+                <AboutSettings />
+              </LazyPage>
+            }
+          />
         </Route>
       </Route>
     </Routes>

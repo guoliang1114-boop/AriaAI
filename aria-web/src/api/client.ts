@@ -9,6 +9,7 @@ interface ErrorResponsePayload {
 class ApiClient {
   private client: AxiosInstance
   private isRedirecting = false
+  private isDev = import.meta.env.DEV
 
   constructor() {
     this.client = axios.create({
@@ -23,7 +24,9 @@ class ApiClient {
     this.client.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('authToken')
-        console.log('[API] Request:', config.method?.toUpperCase(), config.url, 'Token:', token ? 'present' : 'missing')
+        if (this.isDev) {
+          console.log('[API] Request:', config.method?.toUpperCase(), config.url, 'Token:', token ? 'present' : 'missing')
+        }
         if (token) {
           config.headers = config.headers || {}
           config.headers['X-Auth-Token'] = token
@@ -38,7 +41,9 @@ class ApiClient {
     // Response interceptor - handle errors
     this.client.interceptors.response.use(
       (response) => {
-        console.log('[API] Response:', response.config.method?.toUpperCase(), response.config.url, response.status)
+        if (this.isDev) {
+          console.log('[API] Response:', response.config.method?.toUpperCase(), response.config.url, response.status)
+        }
         return response
       },
       (error: AxiosError) => {
@@ -49,7 +54,9 @@ class ApiClient {
   }
 
   private handleError(error: AxiosError) {
-    console.log('[API] handleError called:', error.message)
+    if (this.isDev) {
+      console.log('[API] handleError called:', error.message)
+    }
 
     // Handle timeout
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
@@ -70,9 +77,13 @@ class ApiClient {
 
     // Handle 401 Unauthorized
     if (status === 401) {
-      console.log('[API] 401 detected, checking redirect...')
+      if (this.isDev) {
+        console.log('[API] 401 detected, checking redirect...')
+      }
       const currentPath = window.location.pathname
-      console.log('[API] Current path:', currentPath)
+      if (this.isDev) {
+        console.log('[API] Current path:', currentPath)
+      }
       
       if (!currentPath.includes('/login') && !this.isRedirecting) {
         this.isRedirecting = true
