@@ -14,6 +14,7 @@ import {
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 import type { User } from '../types/api'
+import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 
 export function Layout() {
   const { t } = useTranslation()
@@ -34,6 +35,20 @@ export function Layout() {
 
   useEffect(() => {
     api.get<User>('/auth/me').then(setUser).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const scheduleWarmup = () => {
+      void warmPrimaryRoutes()
+    }
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(scheduleWarmup, { timeout: 1200 })
+      return () => window.cancelIdleCallback(idleId)
+    }
+
+    const timer = setTimeout(scheduleWarmup, 400)
+    return () => clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -80,11 +95,17 @@ export function Layout() {
                 const isActive =
                   location.pathname === item.path ||
                   (item.path !== '/' && location.pathname.startsWith(item.path))
+                const preloadRoute = () => {
+                  const loader = primaryRouteLoaders[item.path]
+                  if (loader) void loader()
+                }
 
                 return (
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    onMouseEnter={preloadRoute}
+                    onFocus={preloadRoute}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                       isActive
                         ? 'bg-secondary-container/50 text-primary'

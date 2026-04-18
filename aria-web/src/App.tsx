@@ -4,56 +4,55 @@ import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { Login } from './pages/Login'
+import {
+  loadWelcome,
+  loadChat,
+  loadSkills,
+  loadProjects,
+  loadProjectDetail,
+  loadNewProject,
+  loadKnowledge,
+  loadClients,
+  loadClientDetail,
+  loadClientMemoryPage,
+  loadMessagesPage,
+  loadSettingsLayout,
+  loadProfileSettings,
+  loadAISettings,
+  loadUsersSettings,
+  loadServerSettings,
+  loadLanguageSettings,
+  loadAboutSettings,
+  loadProjectMemorySettings,
+  loadClientMemorySettings,
+  loadMessageSettings,
+} from './routeLoaders'
 
-const Welcome = lazy(() => import('./pages/Welcome').then((module) => ({ default: module.Welcome })))
-const Chat = lazy(() => import('./pages/chat/Chat').then((module) => ({ default: module.Chat })))
-const Skills = lazy(() => import('./pages/skills/Skills').then((module) => ({ default: module.Skills })))
-const Projects = lazy(() => import('./pages/projects/Projects').then((module) => ({ default: module.Projects })))
-const ProjectDetail = lazy(() =>
-  import('./pages/projects/ProjectDetail').then((module) => ({ default: module.ProjectDetail })),
-)
-const NewProject = lazy(() => import('./pages/projects/NewProject').then((module) => ({ default: module.NewProject })))
-const Knowledge = lazy(() => import('./pages/knowledge/Knowledge').then((module) => ({ default: module.Knowledge })))
-const Clients = lazy(() => import('./pages/clients/Clients').then((module) => ({ default: module.Clients })))
-const ClientDetail = lazy(() =>
-  import('./pages/clients/ClientDetail').then((module) => ({ default: module.ClientDetail })),
-)
-const ClientMemoryPage = lazy(() =>
-  import('./pages/clients/ClientMemoryPage').then((module) => ({ default: module.ClientMemoryPage })),
-)
-const MessagesPage = lazy(() =>
-  import('./pages/messages/MessagesPage').then((module) => ({ default: module.MessagesPage })),
-)
-const SettingsLayout = lazy(() =>
-  import('./pages/settings/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
-)
-const ProfileSettings = lazy(() =>
-  import('./pages/settings/ProfileSettings').then((module) => ({ default: module.ProfileSettings })),
-)
-const AISettings = lazy(() =>
-  import('./pages/settings/AISettings').then((module) => ({ default: module.AISettings })),
-)
-const UsersSettings = lazy(() =>
-  import('./pages/settings/UsersSettings').then((module) => ({ default: module.UsersSettings })),
-)
-const ServerSettings = lazy(() =>
-  import('./pages/settings/ServerSettings').then((module) => ({ default: module.ServerSettings })),
-)
-const LanguageSettings = lazy(() =>
-  import('./pages/settings/LanguageSettings').then((module) => ({ default: module.LanguageSettings })),
-)
-const AboutSettings = lazy(() =>
-  import('./pages/settings/AboutSettings').then((module) => ({ default: module.AboutSettings })),
-)
+const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
+const Chat = lazy(() => loadChat().then((module) => ({ default: module.Chat })))
+const Skills = lazy(() => loadSkills().then((module) => ({ default: module.Skills })))
+const Projects = lazy(() => loadProjects().then((module) => ({ default: module.Projects })))
+const ProjectDetail = lazy(() => loadProjectDetail().then((module) => ({ default: module.ProjectDetail })))
+const NewProject = lazy(() => loadNewProject().then((module) => ({ default: module.NewProject })))
+const Knowledge = lazy(() => loadKnowledge().then((module) => ({ default: module.Knowledge })))
+const Clients = lazy(() => loadClients().then((module) => ({ default: module.Clients })))
+const ClientDetail = lazy(() => loadClientDetail().then((module) => ({ default: module.ClientDetail })))
+const ClientMemoryPage = lazy(() => loadClientMemoryPage().then((module) => ({ default: module.ClientMemoryPage })))
+const MessagesPage = lazy(() => loadMessagesPage().then((module) => ({ default: module.MessagesPage })))
+const SettingsLayout = lazy(() => loadSettingsLayout().then((module) => ({ default: module.SettingsLayout })))
+const ProfileSettings = lazy(() => loadProfileSettings().then((module) => ({ default: module.ProfileSettings })))
+const AISettings = lazy(() => loadAISettings().then((module) => ({ default: module.AISettings })))
+const UsersSettings = lazy(() => loadUsersSettings().then((module) => ({ default: module.UsersSettings })))
+const ServerSettings = lazy(() => loadServerSettings().then((module) => ({ default: module.ServerSettings })))
+const LanguageSettings = lazy(() => loadLanguageSettings().then((module) => ({ default: module.LanguageSettings })))
+const AboutSettings = lazy(() => loadAboutSettings().then((module) => ({ default: module.AboutSettings })))
 const ProjectMemorySettings = lazy(() =>
-  import('./pages/settings/ProjectMemorySettings').then((module) => ({ default: module.ProjectMemorySettings })),
+  loadProjectMemorySettings().then((module) => ({ default: module.ProjectMemorySettings })),
 )
 const ClientMemorySettings = lazy(() =>
-  import('./pages/settings/ClientMemorySettings').then((module) => ({ default: module.ClientMemorySettings })),
+  loadClientMemorySettings().then((module) => ({ default: module.ClientMemorySettings })),
 )
-const MessageSettings = lazy(() =>
-  import('./pages/settings/MessageSettings').then((module) => ({ default: module.MessageSettings })),
-)
+const MessageSettings = lazy(() => loadMessageSettings().then((module) => ({ default: module.MessageSettings })))
 
 function RouteFallback() {
   return (
