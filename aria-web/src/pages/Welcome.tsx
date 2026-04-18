@@ -1,583 +1,588 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  ArrowRight,
-  Zap,
-  Loader2,
   AlertCircle,
-  RefreshCw,
+  ArrowRight,
+  Brain,
+  Building2,
   FolderKanban,
+  Loader2,
   MessageSquare,
+  RefreshCw,
   Sparkles,
-  Clock,
-  Calendar,
-  TrendingUp,
-  DollarSign,
-  Target,
-  ChevronRight,
+  Users,
+  Wallet,
   ListTodo,
+  Clock3,
+  ChevronRight,
   Circle,
 } from 'lucide-react'
+import type { AxiosError } from 'axios'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
-import type { Project, Skill, Conversation, User, MyProjectTodo } from '../types/api'
-import type { AxiosError } from 'axios'
-
-// ── Chart primitives ──────────────────────────────────────────────────────
-
-interface DonutSegment { value: number; color: string; label: string }
+import type { Conversation, MyProjectTodo, Project, Skill, User } from '../types/api'
 
 interface ErrorResponsePayload {
   detail?: string
 }
 
-function DonutChart({ segments, size = 80, sw = 10 }: {
-  segments: DonutSegment[]; size?: number; sw?: number
-}) {
-  const total = segments.reduce((s, g) => s + g.value, 0)
-  if (total === 0) return null
-  const r = (size - sw) / 2
-  const cx = size / 2, cy = size / 2
-  const circ = 2 * Math.PI * r
-  const segmentGeometry = segments.reduce<Array<DonutSegment & {
-    dash: number
-    offset: number
-  }>>((acc, seg) => {
-    const previousTotal = acc.reduce((sum, item) => sum + item.value, 0)
-    const dash = (seg.value / total) * circ
-    const offset = -(previousTotal / total) * circ
-    acc.push({ ...seg, dash, offset })
-    return acc
-  }, [])
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
-      style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={sw} />
-      {segmentGeometry.map((seg, i) => {
-        return (
-          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
-            stroke={seg.color} strokeWidth={sw}
-            strokeDasharray={`${seg.dash} ${circ - seg.dash}`}
-            strokeDashoffset={seg.offset} strokeLinecap="round" />
-        )
-      })}
-    </svg>
-  )
+function formatCurrency(value: number) {
+  if (!value) return '¥0'
+  if (value >= 1_000_000) return `¥${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 10_000) return `¥${(value / 10_000).toFixed(1)}万`
+  return `¥${value.toLocaleString()}`
 }
 
-function ActivityBars({ data, color = '#6366f1' }: { data: number[]; color?: string }) {
-  const max = Math.max(...data, 1)
-  return (
-    <div className="flex items-end gap-[3px] h-full w-full">
-      {data.map((v, i) => (
-        <div key={i} className="flex-1 rounded-sm"
-          style={{
-            height: `${v > 0 ? Math.max((v / max) * 100, 10) : 0}%`,
-            minHeight: v === 0 ? '3px' : undefined,
-            backgroundColor: v > 0 ? color : '#e5e7eb',
-            opacity: v > 0 ? 0.5 + (i / data.length) * 0.5 : 1,
-          }} />
-      ))}
-    </div>
-  )
+function formatRelativeTime(value?: string | null, isZh = true) {
+  if (!value) return isZh ? '暂无记录' : 'No activity yet'
+  const diffMinutes = Math.floor((Date.now() - new Date(value).getTime()) / 60000)
+  if (diffMinutes < 1) return isZh ? '刚刚' : 'Just now'
+  if (diffMinutes < 60) return isZh ? `${diffMinutes} 分钟前` : `${diffMinutes} min ago`
+  if (diffMinutes < 1440) return isZh ? `${Math.floor(diffMinutes / 60)} 小时前` : `${Math.floor(diffMinutes / 60)} h ago`
+  if (diffMinutes < 2880) return isZh ? '昨天' : 'Yesterday'
+  return new Date(value).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' })
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function formatCurrency(n: number) {
-  if (!n) return '—'
-  if (n >= 1_000_000) return `¥${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 10_000) return `¥${(n / 10_000).toFixed(0)}万`
-  return `¥${n.toLocaleString()}`
+function getStageLabel(status: Project['status'], isZh: boolean) {
+  switch (status) {
+    case 'lead':
+      return isZh ? '线索阶段' : 'Lead'
+    case 'opportunity':
+      return isZh ? '商机阶段' : 'Opportunity'
+    case 'won':
+      return isZh ? '已签约' : 'Won'
+    case 'delivering':
+      return isZh ? '交付中' : 'Delivering'
+    case 'archived':
+      return isZh ? '已归档' : 'Archived'
+    default:
+      return status
+  }
 }
-
-function formatRelative(dateStr: string) {
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
-  if (diff < 1) return '刚刚'
-  if (diff < 60) return `${diff}分钟前`
-  if (diff < 1440) return `${Math.floor(diff / 60)}小时前`
-  if (diff < 2880) return '昨天'
-  return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-}
-
-const STAGE_GROUPS = [
-  { label: '线索发现', key: 'lead',      statuses: ['lead', 'lead_discovery'],                                          color: '#94a3b8' },
-  { label: '提案谈判', key: 'proposal',  statuses: ['opportunity_qualified', 'proposal', 'negotiation', 'contracting'], color: '#6366f1' },
-  { label: '执行交付', key: 'execution', statuses: ['kickoff', 'execution', 'delivery', 'active'],                      color: '#3b82f6' },
-  { label: '支持收尾', key: 'support',   statuses: ['support'],                                                          color: '#8b5cf6' },
-  { label: '已完成',   key: 'completed', statuses: ['completed'],                                                         color: '#10b981' },
-]
-
-const STAGE_COLOR: Record<string, string> = {
-  lead: '#94a3b8', lead_discovery: '#94a3b8',
-  opportunity_qualified: '#6366f1', proposal: '#6366f1', negotiation: '#6366f1', contracting: '#6366f1',
-  kickoff: '#3b82f6', execution: '#3b82f6', delivery: '#3b82f6', active: '#3b82f6',
-  support: '#8b5cf6',
-  completed: '#10b981',
-  archived: '#d1d5db',
-}
-
-// ── Component ─────────────────────────────────────────────────────────────
 
 export function Welcome() {
   const navigate = useNavigate()
-  const { t } = useTranslation()
-  const [loading, setLoading]             = useState(true)
-  const [error, setError]                 = useState<string | null>(null)
-  const [user, setUser]                   = useState<User | null>(null)
-  const [projects, setProjects]           = useState<Project[]>([])
-  const [skills, setSkills]               = useState<Skill[]>([])
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [myTodos, setMyTodos]             = useState<MyProjectTodo[]>([])
+  const { i18n, t } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
 
-  useEffect(() => { loadData() }, [])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [myTodos, setMyTodos] = useState<MyProjectTodo[]>([])
+
+  useEffect(() => {
+    void loadData()
+  }, [])
 
   const loadData = async () => {
     try {
-      setLoading(true); setError(null)
-      const [u, p, s, c, t] = await Promise.all([
+      setLoading(true)
+      setError(null)
+
+      const [currentUser, allProjects, allSkills, allConversations, todos] = await Promise.all([
         api.get<User>('/auth/me'),
         api.get<Project[]>('/projects'),
         api.get<Skill[]>('/skills'),
         api.get<Conversation[]>('/chat/conversations'),
         api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
-      setUser(u); setProjects(p); setSkills(s); setConversations(c); setMyTodos(t)
+
+      setUser(currentUser)
+      setProjects(allProjects)
+      setSkills(allSkills)
+      setConversations(allConversations)
+      setMyTodos(todos)
     } catch (err) {
-      const error = err as AxiosError<ErrorResponsePayload>
-      if (error.response?.status === 401) throw error
-      setError(!error.response
-        ? '无法连接到服务器，请确认后端服务正在运行。'
-        : `加载失败：${error.response?.data?.detail || error.message}`)
+      const apiError = err as AxiosError<ErrorResponsePayload>
+      if (apiError.response?.status === 401) throw apiError
+      setError(
+        !apiError.response
+          ? isZh
+            ? '无法连接到服务器，请确认后端服务正在运行。'
+            : 'Unable to reach the server. Please make sure the backend is running.'
+          : isZh
+            ? `加载失败：${apiError.response?.data?.detail || apiError.message}`
+            : `Failed to load dashboard: ${apiError.response?.data?.detail || apiError.message}`,
+      )
     } finally {
       setLoading(false)
     }
   }
 
-  // ── Derived ──────────────────────────────────────────────────────────────
-  const nonArchived = useMemo(() => projects.filter(p => p.status !== 'archived'), [projects])
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.status !== 'archived'),
+    [projects],
+  )
 
-  const stageGroups = useMemo(() =>
-    STAGE_GROUPS.map(g => ({
-      ...g,
-      count: projects.filter(p => g.statuses.includes(p.status)).length,
-    })), [projects])
+  const contractValue = useMemo(
+    () => activeProjects.reduce((sum, project) => sum + (project.contract_amount || 0), 0),
+    [activeProjects],
+  )
 
-  const donutSegments = useMemo(() =>
-    stageGroups.filter(g => g.count > 0).map(g => ({ value: g.count, color: g.color, label: g.label })),
-    [stageGroups])
+  const stageSummary = useMemo(() => {
+    const groups = [
+      { key: 'lead', label: isZh ? '线索阶段' : 'Lead', statuses: ['lead'] },
+      { key: 'opportunity', label: isZh ? '商机阶段' : 'Opportunity', statuses: ['opportunity'] },
+      { key: 'won', label: isZh ? '已签约' : 'Won', statuses: ['won'] },
+      { key: 'delivering', label: isZh ? '交付中' : 'Delivering', statuses: ['delivering'] },
+      { key: 'archived', label: isZh ? '已归档' : 'Archived', statuses: ['archived'] },
+    ]
+    return groups.map((group) => ({
+      ...group,
+      count: projects.filter((project) => group.statuses.includes(project.status)).length,
+    }))
+  }, [projects, isZh])
 
-  const totalPipeline = useMemo(() =>
-    nonArchived.reduce((s, p) => s + (p.contract_amount || 0), 0), [nonArchived])
+  const recentProjects = useMemo(
+    () =>
+      [...projects]
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 6),
+    [projects],
+  )
 
-  const topProjects = useMemo(() =>
-    [...nonArchived]
-      .filter(p => (p.contract_amount || 0) > 0)
-      .sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0))
-      .slice(0, 6),
-    [nonArchived])
-  const maxContract = topProjects[0]?.contract_amount || 1
+  const recentConversations = useMemo(
+    () =>
+      [...conversations]
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 5),
+    [conversations],
+  )
 
-  const recentProjects = useMemo(() =>
-    [...projects]
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-      .slice(0, 6),
-    [projects])
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return isZh ? '早上好' : t('dashboard.greeting.morning')
+    if (hour < 18) return isZh ? '下午好' : t('dashboard.greeting.afternoon')
+    return isZh ? '晚上好' : t('dashboard.greeting.evening')
+  }, [isZh, t])
 
-  const activityData = useMemo(() => {
-    const counts = Array(14).fill(0)
-    const now = Date.now()
-    conversations.forEach(c => {
-      const diff = Math.floor((now - new Date(c.updated_at).getTime()) / 86400000)
-      if (diff < 14) counts[13 - diff]++
-    })
-    return counts
-  }, [conversations])
-
-  const greeting = () => {
-    const h = new Date().getHours()
-    if (h < 12) return t('dashboard.greeting.morning')
-    if (h < 17) return t('dashboard.greeting.afternoon')
-    return t('dashboard.greeting.evening')
+  if (loading) {
+    return (
+      <>
+        <PageTitle title={t('dashboard.title')} />
+        <div className="flex h-full items-center justify-center bg-surface">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      </>
+    )
   }
 
-  // ── States ────────────────────────────────────────────────────────────────
-  if (loading) return (
-    <>
-      <PageTitle title={t('dashboard.title')} />
-      <div className="h-full bg-[#f5f6f8] flex items-center justify-center">
-        <Loader2 className="w-6 h-6 text-primary animate-spin" />
-      </div>
-    </>
-  )
-
-  if (error) return (
-    <>
-      <PageTitle title="Dashboard" />
-      <div className="h-full bg-[#f5f6f8] flex items-center justify-center">
-        <div className="text-center max-w-md p-8">
-          <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-4" />
-          <p className="text-gray-700 mb-4">{error}</p>
-          <button onClick={loadData}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
-            <RefreshCw className="w-4 h-4" />重试
-          </button>
+  if (error) {
+    return (
+      <>
+        <PageTitle title={t('dashboard.title')} />
+        <div className="flex h-full items-center justify-center bg-surface">
+          <div className="max-w-md rounded-2xl border border-outline bg-surface p-8 text-center shadow-sm">
+            <AlertCircle className="mx-auto mb-4 h-10 w-10 text-error" />
+            <p className="mb-4 text-sm text-on-surface">{error}</p>
+            <button
+              onClick={() => void loadData()}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {isZh ? '重试' : 'Retry'}
+            </button>
+          </div>
         </div>
-      </div>
-    </>
-  )
+      </>
+    )
+  }
 
   return (
     <>
-      <PageTitle title="Dashboard" />
-      <div className="h-full overflow-auto bg-[#f5f6f8]">
-        <div className="px-8 py-8 space-y-6">
-
-          {/* ── Hero ── */}
-          <div className="rounded-2xl bg-gradient-to-br from-primary via-indigo-600 to-indigo-700 p-7 relative overflow-hidden">
-            <div className="absolute -top-16 right-24 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute bottom-0 left-1/3 w-48 h-48 bg-indigo-400/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="relative z-10 flex items-center gap-10">
-
-              {/* Greeting */}
-              <div className="min-w-0">
-                <p className="text-white/80 text-sm mb-0.5">{greeting()},</p>
-                <h1 className="text-[22px] font-bold text-white mb-5 tracking-tight">
-                  {user?.display_name || '欢迎回来'}
+      <PageTitle title={t('dashboard.title')} />
+      <div className="h-full overflow-auto bg-surface">
+        <div className="space-y-6 px-8 py-8">
+          <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-indigo-600 to-indigo-700 p-8 text-white shadow-sm">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-2xl">
+                <p className="mb-2 text-sm text-white/80">{greeting}</p>
+                <h1 className="mb-3 text-3xl font-bold tracking-tight">
+                  {user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
                 </h1>
-                <div className="flex items-center gap-2.5">
-                  <button onClick={() => navigate('/chat')}
-                    className="flex items-center gap-2 px-4 py-2 bg-white text-primary rounded-xl text-sm font-semibold hover:bg-white/92 active:scale-[0.98] transition-all shadow-sm">
-                    <Sparkles className="w-4 h-4" />新对话
-                  </button>
-                  <button onClick={() => navigate('/projects/new')}
-                    className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl text-sm font-medium hover:bg-white/20 transition-colors border border-white/15">
-                    <FolderKanban className="w-4 h-4" />新建项目
-                  </button>
-                </div>
+                <p className="max-w-xl text-sm leading-6 text-white/85">
+                  {isZh
+                    ? '这里是你今天的项目工作台：先看待办、项目节奏和最近对话，再决定要推进哪个项目、更新哪份记忆。'
+                    : 'This is your workspace for today: review todos, project momentum, and recent conversations before deciding what to move next.'}
+                </p>
               </div>
 
-              {/* Divider */}
-              <div className="w-px h-16 bg-white/15 flex-shrink-0" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  onClick={() => navigate('/chat')}
+                  className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-left text-primary transition hover:bg-white/95"
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? '开始新对话' : 'Start a chat'}</div>
+                    <div className="mt-1 text-xs text-primary/70">{isZh ? '进入 AI 工作台' : 'Open the AI workspace'}</div>
+                  </div>
+                  <Sparkles className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => navigate('/projects/new')}
+                  className="flex items-center justify-between rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-left transition hover:bg-white/15"
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? '新建项目' : 'Create project'}</div>
+                    <div className="mt-1 text-xs text-white/70">{isZh ? '建立新的交付空间' : 'Open a new delivery workspace'}</div>
+                  </div>
+                  <FolderKanban className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => navigate('/settings/memory')}
+                  className="flex items-center justify-between rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-left transition hover:bg-white/15"
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? '项目记忆管理' : 'Project memory'}</div>
+                    <div className="mt-1 text-xs text-white/70">{isZh ? '检查项目记忆和摘要缓存' : 'Review project memory and summary cache'}</div>
+                  </div>
+                  <Brain className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => navigate('/settings/client-memory')}
+                  className="flex items-center justify-between rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-left transition hover:bg-white/15"
+                >
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? '客户记忆管理' : 'Client memory'}</div>
+                    <div className="mt-1 text-xs text-white/70">{isZh ? '集中查看跨项目客户经验' : 'Review cross-project client memory'}</div>
+                  </div>
+                  <Users className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </section>
 
-              {/* Inline KPIs — 4 in a row */}
-              <div className="flex-1 grid grid-cols-4 gap-4">
-                {[
-                  { label: '活跃项目', value: nonArchived.length, icon: FolderKanban, sub: `共 ${projects.length} 个` },
-                  { label: '合同总价值', value: formatCurrency(totalPipeline), icon: DollarSign, sub: `${topProjects.length} 个已报价` },
-                  { label: 'AI 对话', value: conversations.length, icon: MessageSquare, sub: `近14天 ${activityData.reduce((s,v)=>s+v,0)} 次` },
-                  { label: '技能库', value: skills.length, icon: Zap, sub: `${new Set(skills.map(s => s.category)).size} 个分类` },
-                ].map(kpi => (
-                  <div key={kpi.label} className="bg-white/10 rounded-xl px-4 py-3 backdrop-blur-sm border border-white/10">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <kpi.icon className="w-3.5 h-3.5 text-white/75" />
-                      <span className="text-xs text-white/80 font-medium">{kpi.label}</span>
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: isZh ? '活跃项目' : 'Active projects',
+                value: activeProjects.length,
+                sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total projects`,
+                icon: FolderKanban,
+              },
+              {
+                label: isZh ? '合同总额' : 'Contract value',
+                value: formatCurrency(contractValue),
+                sub: isZh ? '按未归档项目统计' : 'Across non-archived projects',
+                icon: Wallet,
+              },
+              {
+                label: isZh ? '我的待办' : 'My todos',
+                value: myTodos.length,
+                sub: isZh ? '优先看今天要推进的事情' : 'Focus on what to move today',
+                icon: ListTodo,
+              },
+              {
+                label: isZh ? '近期对话' : 'Recent chats',
+                value: conversations.length,
+                sub: recentConversations[0]
+                  ? isZh
+                    ? `最近更新 ${formatRelativeTime(recentConversations[0].updated_at, true)}`
+                    : `Last updated ${formatRelativeTime(recentConversations[0].updated_at, false)}`
+                  : isZh
+                    ? '还没有历史对话'
+                    : 'No recent chats',
+                icon: MessageSquare,
+              },
+            ].map((card) => (
+              <div key={card.label} className="rounded-2xl border border-outline bg-surface p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-sm text-on-surface-muted">{card.label}</div>
+                  <card.icon className="h-4 w-4 text-primary" />
+                </div>
+                <div className="text-3xl font-semibold text-on-surface">{card.value}</div>
+                <div className="mt-2 text-sm text-on-surface-muted">{card.sub}</div>
+              </div>
+            ))}
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[1.1fr_1fr_1fr]">
+            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-on-surface">{isZh ? '我的待办' : 'My todos'}</h2>
+                  <p className="mt-1 text-sm text-on-surface-muted">
+                    {isZh ? '先把今天真正要推进的动作拉出来。' : 'Pull forward the actions that matter today.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate('/projects')}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                >
+                  {isZh ? '查看项目' : 'Open projects'}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {myTodos.length === 0 ? (
+                  <div className="rounded-2xl bg-surface-container-low px-4 py-6 text-center text-sm text-on-surface-muted">
+                    {isZh ? '目前没有分配给你的项目待办。' : 'No project todos are assigned to you right now.'}
+                  </div>
+                ) : (
+                  myTodos.slice(0, 6).map((todo) => (
+                    <button
+                      key={todo.id}
+                      onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
+                      className="flex w-full items-start gap-3 rounded-2xl border border-outline px-4 py-3 text-left transition hover:bg-surface-container-low"
+                    >
+                      <Circle className="mt-1 h-3 w-3 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-on-surface">{todo.content}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-on-surface-muted">
+                          <span>{todo.project_name}</span>
+                          {todo.due_date ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Clock3 className="h-3 w-3" />
+                              {todo.due_date}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 flex-shrink-0 text-on-surface-muted" />
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-on-surface">{isZh ? '项目阶段分布' : 'Pipeline overview'}</h2>
+                <p className="mt-1 text-sm text-on-surface-muted">
+                  {isZh ? '快速判断当前团队的项目节奏。' : 'A quick look at the current project mix.'}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {stageSummary.map((item) => (
+                  <div key={item.key} className="rounded-2xl bg-surface-container-low px-4 py-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-on-surface">{item.label}</span>
+                      <span className="text-on-surface-muted">{item.count}</span>
                     </div>
-                    <p className="text-[22px] font-bold text-white leading-none mb-0.5">{kpi.value}</p>
-                    <p className="text-xs text-white/70">{kpi.sub}</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-container-high">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${projects.length > 0 ? (item.count / projects.length) * 100 : 0}%` }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {/* Divider */}
-              <div className="w-px h-16 bg-white/15 flex-shrink-0" />
-
-              {/* Donut + legend */}
-              {projects.length > 0 && (
-                <div className="flex items-center gap-6 flex-shrink-0">
-                  <div className="relative w-[84px] h-[84px]">
-                    <DonutChart segments={donutSegments} size={84} sw={9} />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-[20px] font-bold text-white leading-none">{projects.length}</span>
-                      <span className="text-white/70 text-xs mt-0.5">项目</span>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    {stageGroups.filter(g => g.count > 0).map(g => (
-                      <div key={g.key} className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: g.color }} />
-                        <span className="text-white/85 text-xs flex-1 whitespace-nowrap">{g.label}</span>
-                        <span className="text-white font-semibold text-xs pl-2">{g.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="mt-5 rounded-2xl border border-dashed border-outline px-4 py-4 text-sm text-on-surface-muted">
+                {isZh
+                  ? `当前共有 ${projects.length} 个项目，活跃项目 ${activeProjects.length} 个。`
+                  : `${projects.length} total projects, ${activeProjects.length} active.`}
+              </div>
             </div>
-          </div>
 
-          {/* ── 3-column grid ── */}
-          <div className="grid grid-cols-12 gap-6 items-start">
-
-            {/* ── COL 1: My Todos + Pipeline ── */}
-            <div className="col-span-4 space-y-6">
-
-              {/* My Todos */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <ListTodo className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-700">我的待办</h2>
-                  </div>
-                  <span className="text-xs font-medium text-primary bg-primary/8 px-2 py-0.5 rounded-full">
-                    {myTodos.length} 待办
-                  </span>
-                </div>
-                {myTodos.length === 0 ? (
-                  <div className="text-center py-6">
-                    <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-3">
-                      <Circle className="w-5 h-5 text-gray-300" />
-                    </div>
-                    <p className="text-sm text-gray-500">暂无跨项目待办</p>
-                    <p className="text-xs text-gray-400 mt-1">在项目页指派待办给自己，会在这里提醒</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {myTodos.slice(0, 6).map(todo => (
-                      <button
-                        key={todo.id}
-                        onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
-                        className="w-full flex items-start gap-3 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left group"
-                      >
-                        <Circle className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0 group-hover:text-primary transition-colors" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700 truncate group-hover:text-primary transition-colors">{todo.content}</p>
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <p className="truncate">{todo.project_name}</p>
-                            {todo.due_date && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 flex-shrink-0">
-                                <Calendar className="w-3 h-3" />
-                                {new Date(todo.due_date).toLocaleDateString()}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 mt-0.5" />
-                      </button>
-                    ))}
-                    {myTodos.length > 6 && (
-                      <button
-                        onClick={() => navigate('/projects')}
-                        className="w-full text-center text-xs text-primary hover:underline pt-1"
-                      >
-                        查看全部 {myTodos.length} 条待办
-                      </button>
-                    )}
-                  </div>
-                )}
+            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-on-surface">{isZh ? '最近更新' : 'Recently active'}</h2>
+                <p className="mt-1 text-sm text-on-surface-muted">
+                  {isZh ? '从最近的项目和对话里恢复上下文。' : 'Recover context from the latest project activity.'}
+                </p>
               </div>
 
-              {/* Stage pipeline */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2">
-                    <Target className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-700">项目阶段分布</h2>
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
+                    {isZh ? '项目' : 'Projects'}
                   </div>
-                  <button onClick={() => navigate('/projects')}
-                    className="text-xs text-primary hover:underline flex items-center gap-1">
-                    全部项目 <ArrowRight className="w-3 h-3" />
-                  </button>
-                </div>
-
-                {projects.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-6">
-                    暂无项目 —{' '}
-                    <button onClick={() => navigate('/projects/new')} className="text-primary hover:underline">立即新建</button>
-                  </p>
-                ) : (
-                  <>
-                    <div className="space-y-3">
-                      {stageGroups.map(g => {
-                        const maxCount = Math.max(...stageGroups.map(x => x.count), 1)
-                        const pct = (g.count / maxCount) * 100
-                        return (
-                          <div key={g.key} className="flex items-center gap-3">
-                            <span className="text-sm text-gray-600 w-[4.5rem] flex-shrink-0 text-right">{g.label}</span>
-                            <div className="flex-1 bg-gray-50 rounded-full h-6 overflow-hidden relative">
-                              {g.count > 0 ? (
-                                <div className="h-full rounded-full flex items-center justify-end pr-2.5 transition-all duration-700"
-                                  style={{ width: `${Math.max(pct, 8)}%`, backgroundColor: g.color }}>
-                                  <span className="text-xs font-semibold text-white">{g.count}</span>
-                                </div>
-                              ) : (
-                                <div className="absolute left-1 top-1/2 -translate-y-1/2 w-4 h-1.5 rounded-full bg-gray-200" />
-                              )}
+                  <div className="space-y-2">
+                    {recentProjects.length === 0 ? (
+                      <div className="rounded-2xl bg-surface-container-low px-4 py-4 text-sm text-on-surface-muted">
+                        {isZh ? '还没有项目。' : 'No projects yet.'}
+                      </div>
+                    ) : (
+                      recentProjects.slice(0, 4).map((project) => (
+                        <button
+                          key={project.id}
+                          onClick={() => navigate(`/projects/${project.id}`)}
+                          className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-container-low"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
+                            <div className="mt-1 text-xs text-on-surface-muted">
+                              {project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Summary row */}
-                    <div className="flex items-center gap-3 mt-5 pt-4 border-t border-gray-100">
-                      {[
-                        { label: '全部', value: projects.length, color: 'text-gray-700' },
-                        { label: '进行中', value: nonArchived.filter(p => ['execution','delivery','kickoff','active'].includes(p.status)).length, color: 'text-blue-600' },
-                        { label: '已交付', value: projects.filter(p => p.status === 'delivering' || p.status === 'won').length, color: 'text-emerald-600' },
-                        { label: '已归档', value: projects.filter(p => p.status === 'archived').length, color: 'text-gray-500' },
-                      ].map(s => (
-                        <div key={s.label} className="flex-1 text-center">
-                          <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
-                          <p className="text-xs text-gray-600 mt-0.5">{s.label}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-            </div>
-
-            {/* ── COL 2: Contract ranking + Recent projects ── */}
-            <div className="col-span-5 space-y-6">
-
-              {/* Contract ranking */}
-              {topProjects.length > 0 ? (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                  <div className="flex items-center justify-between mb-5">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-primary" />
-                      <h2 className="text-sm font-semibold text-gray-700">合同金额排名</h2>
-                    </div>
-                    <span className="text-xs text-gray-500">总计 {formatCurrency(totalPipeline)}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {topProjects.map((p, i) => {
-                      const pct = ((p.contract_amount || 0) / maxContract) * 100
-                      const color = STAGE_COLOR[p.status] || '#3b82f6'
-                      return (
-                        <button key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
-                          className="w-full flex items-center gap-3 group">
-                          <span className="text-xs font-medium text-gray-500 w-4 flex-shrink-0 text-right">{i + 1}</span>
-                          <div className="w-32 flex-shrink-0 text-left min-w-0">
-                            <p className="text-sm font-medium text-gray-700 truncate group-hover:text-primary transition-colors">{p.name}</p>
-                            <p className="text-xs text-gray-500 truncate">{p.client}</p>
+                          <div className="ml-3 text-xs text-on-surface-muted">
+                            {formatRelativeTime(project.updated_at, isZh)}
                           </div>
-                          <div className="flex-1 bg-gray-50 rounded-full h-5 overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: 0.75 }} />
-                          </div>
-                          <span className="text-sm font-semibold text-gray-600 w-16 text-right flex-shrink-0">
-                            {formatCurrency(p.contract_amount || 0)}
-                          </span>
                         </button>
-                      )
-                    })}
+                      ))
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                  <div className="flex items-center gap-2 mb-4">
-                    <TrendingUp className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-700">合同金额</h2>
-                  </div>
-                  <p className="text-sm text-gray-500 text-center py-6">暂无合同金额数据</p>
-                </div>
-              )}
 
-              {/* Recently updated projects */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-700">最近更新的项目</h2>
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
+                    {isZh ? '对话' : 'Chats'}
                   </div>
-                  <button onClick={() => navigate('/projects')}
-                    className="text-xs text-primary hover:underline flex items-center gap-1">
-                    全部 <ArrowRight className="w-3 h-3" />
-                  </button>
+                  <div className="space-y-2">
+                    {recentConversations.length === 0 ? (
+                      <div className="rounded-2xl bg-surface-container-low px-4 py-4 text-sm text-on-surface-muted">
+                        {isZh ? '还没有对话。' : 'No conversations yet.'}
+                      </div>
+                    ) : (
+                      recentConversations.map((conversation) => (
+                        <button
+                          key={conversation.id}
+                          onClick={() => navigate('/chat')}
+                          className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-container-low"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-on-surface">
+                              {conversation.title || (isZh ? '未命名对话' : 'Untitled conversation')}
+                            </div>
+                            <div className="mt-1 text-xs text-on-surface-muted">
+                              {conversation.project_id
+                                ? isZh
+                                  ? `关联项目 #${conversation.project_id}`
+                                  : `Project #${conversation.project_id}`
+                                : isZh
+                                  ? '通用工作台'
+                                  : 'General workspace'}
+                            </div>
+                          </div>
+                          <div className="ml-3 text-xs text-on-surface-muted">
+                            {formatRelativeTime(conversation.updated_at, isZh)}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>
-                {recentProjects.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-6">
-                    暂无项目 —{' '}
-                    <button onClick={() => navigate('/projects/new')} className="text-primary hover:underline">立即新建</button>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-on-surface">{isZh ? '重点项目' : 'Top projects'}</h2>
+                  <p className="mt-1 text-sm text-on-surface-muted">
+                    {isZh ? '按合同金额快速看到当前最值得关注的项目。' : 'Surface the projects with the largest contract value.'}
                   </p>
-                ) : (
-                  <div className="space-y-1">
-                    {recentProjects.map(p => (
-                      <button key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
-                        className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-gray-50 transition-colors group text-left">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5"
-                          style={{ backgroundColor: STAGE_COLOR[p.status] || '#94a3b8' }} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-700 truncate group-hover:text-primary transition-colors">{p.name}</p>
-                          <p className="text-xs text-gray-500 truncate">{p.client || '—'}</p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-gray-500">{formatRelative(p.updated_at)}</span>
-                          <ChevronRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-all" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                </div>
+                <button
+                  onClick={() => navigate('/projects')}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                >
+                  {isZh ? '查看全部' : 'View all'}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
 
+              <div className="space-y-3">
+                {activeProjects
+                  .filter((project) => (project.contract_amount || 0) > 0)
+                  .sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0))
+                  .slice(0, 5)
+                  .map((project) => {
+                    const maxValue = activeProjects.reduce((max, item) => Math.max(max, item.contract_amount || 0), 1)
+                    return (
+                      <button
+                        key={project.id}
+                        onClick={() => navigate(`/projects/${project.id}`)}
+                        className="w-full rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
+                            <div className="mt-1 text-xs text-on-surface-muted">
+                              {project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}
+                            </div>
+                          </div>
+                          <div className="text-sm font-semibold text-on-surface">
+                            {formatCurrency(project.contract_amount || 0)}
+                          </div>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container-high">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${((project.contract_amount || 0) / maxValue) * 100}%` }}
+                          />
+                        </div>
+                      </button>
+                    )
+                  })}
+              </div>
             </div>
 
-            {/* ── COL 3: Activity + Conversations ── */}
-            <div className="col-span-3 space-y-6">
+            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-on-surface">{isZh ? '工作台入口' : 'Workspace shortcuts'}</h2>
+                <p className="mt-1 text-sm text-on-surface-muted">
+                  {isZh ? '把最常打开的管理页放到首页。' : 'Keep the most-used management views close at hand.'}
+                </p>
+              </div>
 
-              {/* 14-day activity */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <MessageSquare className="w-4 h-4 text-primary" />
-                      <h2 className="text-sm font-semibold text-gray-700">对话活跃度</h2>
+              <div className="space-y-3">
+                {[
+                  {
+                    title: isZh ? '项目列表' : 'Projects',
+                    subtitle: isZh ? '查看项目节奏、阶段和合同分布' : 'Review active work and pipeline stages',
+                    icon: FolderKanban,
+                    onClick: () => navigate('/projects'),
+                  },
+                  {
+                    title: isZh ? '项目记忆管理' : 'Project Memory Manager',
+                    subtitle: isZh ? '统一刷新项目记忆、摘要缓存和后台任务' : 'Refresh project memory, caches, and queued jobs',
+                    icon: Brain,
+                    onClick: () => navigate('/settings/memory'),
+                  },
+                  {
+                    title: isZh ? '客户记忆管理' : 'Client Memory Manager',
+                    subtitle: isZh ? '查看客户长期经验和跨项目沉淀' : 'Manage long-term client knowledge across projects',
+                    icon: Users,
+                    onClick: () => navigate('/settings/client-memory'),
+                  },
+                  {
+                    title: isZh ? '技能库' : 'Skills',
+                    subtitle: isZh ? '查看可用技能和工作流模板' : 'Browse reusable skills and workflows',
+                    icon: Sparkles,
+                    onClick: () => navigate('/skills'),
+                  },
+                  {
+                    title: isZh ? '客户列表' : 'Clients',
+                    subtitle: isZh ? '维护客户档案与项目关系' : 'Maintain client records and relationships',
+                    icon: Building2,
+                    onClick: () => navigate('/clients'),
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.title}
+                    onClick={item.onClick}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <item.icon className="h-5 w-5" />
                     </div>
-                    <p className="text-xs text-gray-500 ml-6">近 14 天</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[22px] font-bold text-gray-900 leading-none">{conversations.length}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">累计对话</p>
-                  </div>
-                </div>
-                <div className="h-14 w-full">
-                  <ActivityBars data={activityData} color="#6366f1" />
-                </div>
-                <div className="flex justify-between mt-2">
-                  <span className="text-xs text-gray-500">14天前</span>
-                  <span className="text-xs text-gray-500">今天</span>
-                </div>
-              </div>
-
-              {/* Recent conversations */}
-              <div className="bg-white rounded-2xl p-6 border border-gray-100/80">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-gray-700">最近对话</h2>
-                  <button onClick={() => navigate('/chat')}
-                    className="text-xs text-primary hover:underline flex items-center gap-1">
-                    全部 <ArrowRight className="w-3 h-3" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-on-surface">{item.title}</div>
+                      <div className="mt-1 text-xs text-on-surface-muted">{item.subtitle}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-on-surface-muted" />
                   </button>
-                </div>
-                {conversations.length === 0 ? (
-                  <div className="py-4 text-center">
-                    <p className="text-sm text-gray-500 mb-2">暂无对话记录</p>
-                    <button onClick={() => navigate('/chat')}
-                      className="text-xs text-primary hover:underline">开始第一次对话</button>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {conversations.slice(0, 6).map(c => (
-                      <button key={c.id} onClick={() => navigate(`/chat?conversation=${c.id}`)}
-                        className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left group">
-                        <div className="w-6 h-6 rounded-md bg-primary/8 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
-                          <MessageSquare className="w-3 h-3 text-primary" />
-                        </div>
-                        <p className="flex-1 text-sm text-gray-700 truncate">{c.title || '新对话'}</p>
-                        <span className="text-xs text-gray-500 flex-shrink-0">{formatRelative(c.updated_at)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
 
+              <div className="mt-5 rounded-2xl bg-surface-container-low px-4 py-4 text-sm text-on-surface-muted">
+                {isZh
+                  ? `当前共有 ${skills.length} 个技能可用，最近 ${conversations.length} 条对话可以继续。`
+                  : `${skills.length} skills are available and ${conversations.length} chats can be continued.`}
+              </div>
             </div>
-          </div>
-
+          </section>
         </div>
       </div>
     </>
