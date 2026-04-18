@@ -19,7 +19,7 @@ import {
 import type { AxiosError } from 'axios'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
-import type { Conversation, MyProjectTodo, Project, Skill, User } from '../types/api'
+import type { Conversation, MyProjectTodo, Project, SkillSummary, User } from '../types/api'
 
 interface ErrorResponsePayload {
   detail?: string
@@ -126,7 +126,7 @@ export function Welcome() {
   const [user] = useState<User | null>(() => readCachedUser())
   const [projects, setProjects] = useState<DashboardProjectSummary[]>([])
   const [clients, setClients] = useState<ClientSummary[]>([])
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [skills, setSkills] = useState<SkillSummary[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [myTodos, setMyTodos] = useState<MyProjectTodo[]>([])
 
@@ -164,7 +164,7 @@ export function Welcome() {
 
       void Promise.all([
         api.get<ClientSummary[]>('/clients'),
-        api.get<Skill[]>('/skills'),
+        api.get<SkillSummary[]>('/skills/meta/summary'),
         api.get<Conversation[]>('/chat/conversations'),
       ])
         .then(([allClients, allSkills, allConversations]) => {

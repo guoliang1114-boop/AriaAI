@@ -353,6 +353,16 @@ export interface Skill {
   updated_at?: string
 }
 
+export interface SkillSummary {
+  id: number
+  name: string
+  category: string
+  description: string
+  estimated_time: string
+  created_at?: string
+  updated_at?: string
+}
+
 // Chat
 export interface Conversation {
   id: number

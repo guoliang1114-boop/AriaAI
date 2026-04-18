@@ -42,6 +42,16 @@ class SkillUpdate(BaseModel):
     tools_definition_json: Optional[str] = None
 
 
+class SkillSummary(BaseModel):
+    id: int
+    name: str
+    category: str
+    description: str
+    estimated_time: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 @router.get("")
 def list_skills(category: Optional[str] = None, session: Session = Depends(get_session)):
     cache_key = f"list:{category or ''}"
@@ -52,6 +62,42 @@ def list_skills(category: Optional[str] = None, session: Session = Depends(get_s
     if category:
         stmt = stmt.where(Skill.category == category)
     result = session.exec(stmt).all()
+    _skills_cache.set(cache_key, result, _SKILLS_TTL)
+    return result
+
+
+@router.get("/meta/summary", response_model=List[SkillSummary])
+def list_skill_summaries(category: Optional[str] = None, session: Session = Depends(get_session)):
+    cache_key = f"summary:{category or ''}"
+    cached = _skills_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    stmt = select(
+        Skill.id,
+        Skill.name,
+        Skill.category,
+        Skill.description,
+        Skill.estimated_time,
+        Skill.created_at,
+        Skill.updated_at,
+    )
+    if category:
+        stmt = stmt.where(Skill.category == category)
+
+    rows = session.exec(stmt).all()
+    result = [
+        SkillSummary(
+            id=row[0],
+            name=row[1],
+            category=row[2],
+            description=row[3],
+            estimated_time=row[4],
+            created_at=row[5].isoformat() if row[5] else None,
+            updated_at=row[6].isoformat() if row[6] else None,
+        )
+        for row in rows
+    ]
     _skills_cache.set(cache_key, result, _SKILLS_TTL)
     return result
 
