@@ -274,6 +274,40 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("Summary type: documents", documents_prompt)
         self.assertIn("focused on project documents and knowledge signals", documents_prompt)
 
+    def test_build_client_memory_summary_prompt_supports_relationship_and_delivery(self):
+        relationship_prompt = clients_router_module.build_client_memory_summary_prompt(
+            {
+                "client_profile": "Global account with strong executive sponsorship",
+                "decision_patterns": ["Prefers weekly steering rhythm"],
+                "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Final approver"}],
+                "lessons_learned": ["Bring finance and IT together early"],
+                "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                "sensitive_topics": ["Avoid overpromising delivery dates"],
+            },
+            "Acme",
+            "relationship",
+            "zh-CN",
+        )
+        delivery_prompt = clients_router_module.build_client_memory_summary_prompt(
+            {
+                "client_profile": "Global account with strong executive sponsorship",
+                "decision_patterns": ["Prefers weekly steering rhythm"],
+                "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Final approver"}],
+                "lessons_learned": ["Bring finance and IT together early"],
+                "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                "sensitive_topics": ["Avoid overpromising delivery dates"],
+            },
+            "Acme",
+            "delivery",
+            "en-US",
+        )
+
+        self.assertIn("Summary type: relationship", relationship_prompt)
+        self.assertIn("trust level", relationship_prompt)
+        self.assertIn("Write the answer in Chinese", relationship_prompt)
+        self.assertIn("Summary type: delivery", delivery_prompt)
+        self.assertIn("delivery readiness", delivery_prompt)
+
     def test_database_migration_governance_detects_lightweight_mode(self):
         governance = database_module.get_database_migration_governance(
             tables=["project", "clientrecord"],
@@ -3206,6 +3240,55 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
             ).all()
             self.assertEqual(len(cached), 2)
+
+    def test_client_memory_warm_summaries_batch_supports_relationship_and_delivery(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Strategic manufacturing account",
+                        "decision_patterns": ["Prefers phased rollout"],
+                        "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Executive sponsor"}],
+                        "lessons_learned": ["Value proof matters before scale"],
+                        "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                        "sensitive_topics": ["Avoid promising fixed dates too early"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=3,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="- Cached summary"),
+        ) as mocked_complete:
+            resp = self.client.post(
+                "/clients/memory/warm-summaries-batch",
+                json={
+                    "client_ids": [client_id],
+                    "summary_types": ["relationship", "delivery"],
+                    "language": "en-US",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["processed_count"], 1)
+        self.assertGreaterEqual(body["warmed_count"], 2)
+        self.assertEqual(mocked_complete.await_count, 2)
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
+            ).all()
+            self.assertEqual(sorted(item.summary_type for item in cached), ["delivery", "relationship"])
 
     def test_client_memory_summary_uses_cache_by_memory_version(self):
         with Session(self.engine) as session:

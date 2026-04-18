@@ -175,6 +175,16 @@ export function ClientMemoryPage() {
         label: isZh ? 'AI 机会摘要' : 'AI opportunity summary',
         desc: isZh ? '提炼扩展合作、追加项目和信任加深的机会。' : 'Highlight growth opportunities and expansion signals.',
       },
+      {
+        key: 'relationship',
+        label: isZh ? 'AI 关系摘要' : 'AI relationship summary',
+        desc: isZh ? '聚焦信任程度、沟通节奏和关键关系信号。' : 'Focus on trust level, communication rhythm, and relationship signals.',
+      },
+      {
+        key: 'delivery',
+        label: isZh ? 'AI 交付准备摘要' : 'AI delivery readiness',
+        desc: isZh ? '提炼客户的交付偏好、执行摩擦和启动前准备重点。' : 'Highlight delivery preferences, execution friction, and readiness signals.',
+      },
     ],
     [isZh],
   )
@@ -220,7 +230,7 @@ export function ClientMemoryPage() {
 
   return (
     <>
-      <PageTitle title={`${client.name} · ${isZh ? '客户记忆' : 'Client Memory'}`} />
+      <PageTitle title={`${client.name} / ${isZh ? '客户记忆' : 'Client Memory'}`} />
       <div className="min-h-full bg-surface">
         <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
           <div className="flex items-center justify-between gap-4">
@@ -239,7 +249,7 @@ export function ClientMemoryPage() {
                 <div>
                   <h1 className="text-2xl font-semibold text-on-surface">{client.name}</h1>
                   <p className="mt-1 text-sm text-on-surface-muted">
-                    {client.industry || (isZh ? '未填写行业' : 'No industry')} · {projects.length}{' '}
+                    {client.industry || (isZh ? '未填写行业' : 'No industry')} / {projects.length}{' '}
                     {isZh ? '个相关项目' : 'related projects'}
                   </p>
                 </div>
@@ -247,7 +257,7 @@ export function ClientMemoryPage() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate(`/settings/client-memory`)}
+                onClick={() => navigate('/settings/client-memory')}
                 className="inline-flex items-center gap-2 rounded-xl border border-outline px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low"
               >
                 <Users className="h-4 w-4" />
@@ -270,7 +280,9 @@ export function ClientMemoryPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <Brain className="h-4 w-4 text-primary" />
-                    <h2 className="text-lg font-semibold text-on-surface">{summaryTabs.find((item) => item.key === activeSummary)?.label}</h2>
+                    <h2 className="text-lg font-semibold text-on-surface">
+                      {summaryTabs.find((item) => item.key === activeSummary)?.label}
+                    </h2>
                   </div>
                   <p className="mt-1 text-sm text-on-surface-muted">
                     {summaryTabs.find((item) => item.key === activeSummary)?.desc}
@@ -311,7 +323,9 @@ export function ClientMemoryPage() {
                   <div className="whitespace-pre-wrap text-sm leading-7 text-on-surface">{summaryContent}</div>
                 ) : (
                   <div className="text-sm text-on-surface-muted">
-                    {isZh ? '客户记忆准备好后，这里会显示 AI 生成的客户摘要。' : 'AI-generated client summaries will appear here once the memory is ready.'}
+                    {isZh
+                      ? '客户记忆准备好后，这里会显示 AI 生成的客户摘要。'
+                      : 'AI-generated client summaries will appear here once the memory is ready.'}
                   </div>
                 )}
               </div>
@@ -325,9 +339,15 @@ export function ClientMemoryPage() {
                   <div className="mt-2 text-lg font-semibold text-on-surface">
                     {memoryStatus?.has_memory
                       ? memoryStatus.memory_stale
-                        ? isZh ? '建议更新' : 'Needs refresh'
-                        : isZh ? '可直接使用' : 'Ready'
-                      : isZh ? '尚未整理' : 'Not prepared'}
+                        ? isZh
+                          ? '建议更新'
+                          : 'Needs refresh'
+                        : isZh
+                          ? '可直接使用'
+                          : 'Ready'
+                      : isZh
+                        ? '尚未整理'
+                        : 'Not prepared'}
                   </div>
                 </div>
                 <div className="rounded-2xl bg-surface-container-low px-4 py-4">
@@ -375,14 +395,18 @@ export function ClientMemoryPage() {
                   <h3 className="text-base font-semibold text-on-surface">{isZh ? '决策模式' : 'Decision patterns'}</h3>
                   <ul className="mt-4 space-y-3 text-sm text-on-surface">
                     {(memory?.decision_patterns || []).map((item) => <li key={item}>• {item}</li>)}
-                    {!memory?.decision_patterns?.length ? <li className="text-on-surface-muted">{isZh ? '暂未沉淀。' : 'Not captured yet.'}</li> : null}
+                    {!memory?.decision_patterns?.length ? (
+                      <li className="text-on-surface-muted">{isZh ? '暂未沉淀。' : 'Not captured yet.'}</li>
+                    ) : null}
                   </ul>
                 </div>
                 <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
                   <h3 className="text-base font-semibold text-on-surface">{isZh ? '敏感议题' : 'Sensitive topics'}</h3>
                   <ul className="mt-4 space-y-3 text-sm text-on-surface">
                     {(memory?.sensitive_topics || []).map((item) => <li key={item}>• {item}</li>)}
-                    {!memory?.sensitive_topics?.length ? <li className="text-on-surface-muted">{isZh ? '暂未沉淀。' : 'Not captured yet.'}</li> : null}
+                    {!memory?.sensitive_topics?.length ? (
+                      <li className="text-on-surface-muted">{isZh ? '暂未沉淀。' : 'Not captured yet.'}</li>
+                    ) : null}
                   </ul>
                 </div>
               </div>
@@ -392,9 +416,15 @@ export function ClientMemoryPage() {
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {(memory?.key_contacts || []).map((contact) => (
                     <div key={`${contact.name}-${contact.role}`} className="rounded-2xl bg-surface-container-low px-4 py-4">
-                      <div className="text-sm font-medium text-on-surface">{contact.name || (isZh ? '未命名联系人' : 'Unnamed contact')}</div>
-                      <div className="mt-1 text-xs text-on-surface-muted">{contact.role || (isZh ? '角色待补充' : 'Role missing')}</div>
-                      <div className="mt-2 text-sm text-on-surface">{contact.note || (isZh ? '暂无备注' : 'No note yet')}</div>
+                      <div className="text-sm font-medium text-on-surface">
+                        {contact.name || (isZh ? '未命名联系人' : 'Unnamed contact')}
+                      </div>
+                      <div className="mt-1 text-xs text-on-surface-muted">
+                        {contact.role || (isZh ? '角色待补充' : 'Role missing')}
+                      </div>
+                      <div className="mt-2 text-sm text-on-surface">
+                        {contact.note || (isZh ? '暂无备注' : 'No note yet')}
+                      </div>
                     </div>
                   ))}
                   {!memory?.key_contacts?.length ? (
@@ -409,7 +439,11 @@ export function ClientMemoryPage() {
                 <h3 className="text-base font-semibold text-on-surface">{isZh ? '经验沉淀' : 'Lessons learned'}</h3>
                 <ul className="mt-4 space-y-3 text-sm text-on-surface">
                   {(memory?.lessons_learned || []).map((item) => <li key={item}>• {item}</li>)}
-                  {!memory?.lessons_learned?.length ? <li className="text-on-surface-muted">{isZh ? '当前还没有沉淀经验。' : 'No lessons learned have been captured yet.'}</li> : null}
+                  {!memory?.lessons_learned?.length ? (
+                    <li className="text-on-surface-muted">
+                      {isZh ? '当前还没有沉淀经验。' : 'No lessons learned have been captured yet.'}
+                    </li>
+                  ) : null}
                 </ul>
               </div>
             </div>
@@ -459,7 +493,7 @@ export function ClientMemoryPage() {
                       <div>
                         <div className="text-sm font-medium text-on-surface">{project.name}</div>
                         <div className="mt-1 text-xs text-on-surface-muted">
-                          {project.status} · {project.contract_amount ? `${project.contract_amount}` : isZh ? '未填写金额' : 'No amount'}
+                          {project.status} / {project.contract_amount ? `${project.contract_amount}` : isZh ? '未填写金额' : 'No amount'}
                         </div>
                       </div>
                       <ExternalLink className="h-4 w-4 text-on-surface-muted" />

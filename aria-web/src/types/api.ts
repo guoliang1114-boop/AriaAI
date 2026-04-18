@@ -296,6 +296,8 @@ export type ClientMemorySummaryType =
   | 'client-facing'
   | 'risk'
   | 'opportunity'
+  | 'relationship'
+  | 'delivery'
 
 export interface ClientMemorySummaryResponse {
   client_id: number

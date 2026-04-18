@@ -17,7 +17,23 @@ SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "client-facing",
     "risk",
     "opportunity",
+    "relationship",
+    "delivery",
 }
+
+CORE_CLIENT_MEMORY_SUMMARY_TYPES = [
+    "overview",
+    "stakeholder",
+    "lessons",
+]
+
+EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES = [
+    "risk",
+    "opportunity",
+    "relationship",
+    "delivery",
+    "client-facing",
+]
 
 
 def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
@@ -261,6 +277,14 @@ def build_client_memory_summary_prompt(
             "Write exactly 3 concise bullet points focused on growth opportunity. Highlight reusable trust signals, "
             "potential next projects, expansion whitespace, and the strongest momentum hints."
         ),
+        "relationship": (
+            "Write exactly 3 concise bullet points focused on the client relationship. Highlight trust level, "
+            "communication rhythm, sponsor alignment, and what will strengthen the relationship next."
+        ),
+        "delivery": (
+            "Write exactly 3 concise bullet points focused on delivery readiness. Highlight execution preferences, "
+            "ways of working, delivery friction, and what future teams should prepare before kickoff."
+        ),
     }
     return (
         "You are an AI consultant assistant. "
@@ -375,6 +399,22 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "key_contacts": base["key_contacts"],
             "lessons_learned": base["lessons_learned"],
             "project_history": base["project_history"],
+        }
+    if summary_type == "relationship":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "key_contacts": base["key_contacts"],
+            "project_history": base["project_history"],
+            "sensitive_topics": base["sensitive_topics"],
+        }
+    if summary_type == "delivery":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "lessons_learned": base["lessons_learned"],
+            "project_history": base["project_history"],
+            "sensitive_topics": base["sensitive_topics"],
         }
     return base
 

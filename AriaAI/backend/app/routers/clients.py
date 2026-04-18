@@ -25,6 +25,8 @@ from app.services.cache import clients_cache
 from app.services.claude import complete
 from app.services import scheduler as scheduler_service
 from app.services.client_contexts import (
+    CORE_CLIENT_MEMORY_SUMMARY_TYPES,
+    EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
     build_client_memory_data,
     build_client_memory_prompt,
     build_client_memory_promote_prompt,
@@ -41,6 +43,10 @@ from app.services.project_llm import complete_with_selected_model
 
 _CLIENTS_KEY = "all"
 _CLIENTS_TTL = 120.0
+_ALL_CLIENT_MEMORY_SUMMARY_TYPES = [
+    *CORE_CLIENT_MEMORY_SUMMARY_TYPES,
+    *EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
+]
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -167,7 +173,7 @@ class ClientMemorySummaryRequest(BaseModel):
 
 class ClientMemoryBatchWarmSummariesRequest(BaseModel):
     client_ids: list[int] = []
-    summary_types: list[str] = ["overview", "stakeholder", "lessons", "risk", "opportunity"]
+    summary_types: list[str] = CORE_CLIENT_MEMORY_SUMMARY_TYPES.copy()
     language: Optional[str] = None
     force_refresh: bool = False
 
@@ -184,6 +190,16 @@ class ClientMemoryBatchWarmSummariesResponse(BaseModel):
 
 def _normalized_name(value: Optional[str]) -> str:
     return (value or "").strip().lower()
+
+
+def _normalize_client_summary_types(values: list[str] | None) -> list[str]:
+    requested = values or CORE_CLIENT_MEMORY_SUMMARY_TYPES
+    normalized: list[str] = []
+    for summary_type in requested:
+        candidate = (summary_type or "").strip().lower()
+        if candidate in _ALL_CLIENT_MEMORY_SUMMARY_TYPES and candidate not in normalized:
+            normalized.append(candidate)
+    return normalized or CORE_CLIENT_MEMORY_SUMMARY_TYPES.copy()
 
 
 def _get_raw_client_memory(client: ClientRecord) -> dict:
@@ -412,13 +428,11 @@ async def _warm_client_memory_summary_caches(
     language: str | None = None,
     force_refresh: bool = False,
 ) -> list[str]:
-    requested_types = summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"]
+    requested_types = _normalize_client_summary_types(summary_types)
     normalized_language = normalize_summary_language(language)
     warmed: list[str] = []
 
     for summary_type in requested_types:
-        if summary_type not in {"overview", "stakeholder", "lessons", "client-facing", "risk", "opportunity"}:
-            continue
         if not force_refresh:
             cached = get_client_memory_summary_cache(
                 session,
@@ -504,13 +518,13 @@ def _schedule_client_memory_summary_warm(
         args=[
             client_id,
             language,
-            summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            _normalize_client_summary_types(summary_types),
             force_refresh,
             trigger,
         ],
         metadata={
             "trigger": trigger,
-            "summary_types": summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            "summary_types": _normalize_client_summary_types(summary_types),
             "retry_count": 0,
             "max_retries": MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
         },
@@ -533,7 +547,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
             await _rebuild_client_memory(session, client_id, trigger=trigger)
             _schedule_client_memory_summary_warm(
                 client_id,
-                summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
+                summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
                 trigger="rebuild_completed",
             )
             clients_cache.delete(_CLIENTS_KEY)
@@ -897,7 +911,7 @@ async def rebuild_client_memory_batch(
         )
         _schedule_client_memory_summary_warm(
             client_id,
-            summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
             trigger="batch_rebuild_completed",
         )
 
@@ -933,11 +947,7 @@ async def warm_client_memory_summaries_batch(
     skipped: list[dict] = []
     warmed_count = 0
     queued_count = 0
-    normalized_summary_types = [
-        summary_type
-        for summary_type in (body.summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"])
-        if summary_type in {"overview", "stakeholder", "lessons", "client-facing", "risk", "opportunity"}
-    ] or ["overview", "stakeholder", "lessons", "risk", "opportunity"]
+    normalized_summary_types = _normalize_client_summary_types(body.summary_types)
     scheduler_running = scheduler_service.is_running()
     budget_used_today = _count_client_summary_warm_budget_used_today(session) if scheduler_running else 0
 
@@ -1016,7 +1026,7 @@ async def rebuild_client_memory(client_id: int, session: Session = Depends(get_s
     payload = await _rebuild_client_memory(session, client_id, trigger="manual")
     _schedule_client_memory_summary_warm(
         client_id,
-        summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
+        summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
         trigger="manual_rebuild_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
@@ -1077,7 +1087,7 @@ async def promote_project_memory_to_client(
     )
     _schedule_client_memory_summary_warm(
         client_id,
-        summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
+        summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
         trigger="project_promoted_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
@@ -1122,7 +1132,7 @@ async def summarize_client_memory(
         )
         _schedule_client_memory_summary_warm(
             client_id,
-            summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            summary_types=CORE_CLIENT_MEMORY_SUMMARY_TYPES,
             trigger="on_demand_rebuild_completed",
         )
 
