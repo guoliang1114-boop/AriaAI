@@ -62,6 +62,17 @@ class ProjectMemorySummary(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ClientMemorySummary(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(foreign_key="clientrecord.id", index=True)
+    summary_type: str = Field(index=True)
+    language: str = Field(index=True)
+    memory_version: int = Field(index=True)
+    content: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Milestone(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
@@ -350,3 +361,22 @@ class UserToken(SQLModel, table=True):
     last_used_at: datetime = Field(default_factory=datetime.utcnow)
     
     user: Optional[User] = Relationship()
+
+
+class SystemMessage(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    content: str
+    level: str = "info"  # info | success | warning | error
+    link: str = ""
+    is_published: bool = True
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SystemMessageRead(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_id: int = Field(foreign_key="systemmessage.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    read_at: datetime = Field(default_factory=datetime.utcnow)

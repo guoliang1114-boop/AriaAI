@@ -1,14 +1,15 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard,
   MessageSquare,
+  Bell,
   Wrench,
   FolderKanban,
   Building2,
   BookOpen,
   LogOut,
-  Settings
+  Settings,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
@@ -17,8 +18,10 @@ import type { User } from '../types/api'
 export function Layout() {
   const { t } = useTranslation()
   const location = useLocation()
+  const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [user, setUser] = useState<User | null>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
 
   const navItems = [
     { path: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
@@ -33,41 +36,62 @@ export function Layout() {
     api.get<User>('/auth/me').then(setUser).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    const loadUnreadCount = () => {
+      api
+        .get<{ unread_count: number }>('/messages/unread-count')
+        .then((result) => setUnreadCount(result.unread_count || 0))
+        .catch(() => {})
+    }
+
+    loadUnreadCount()
+    const handleMessagesUpdated = () => loadUnreadCount()
+    window.addEventListener('messages:updated', handleMessagesUpdated)
+    return () => {
+      window.removeEventListener('messages:updated', handleMessagesUpdated)
+    }
+  }, [location.pathname])
+
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     window.location.href = '/login'
   }
 
   const initials = user?.display_name
-    ? user.display_name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    ? user.display_name
+        .split(' ')
+        .map((word) => word[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
     : 'A'
 
   return (
-    <div className="h-full flex flex-col bg-surface">
-      {/* Top Navigation */}
+    <div className="flex h-full flex-col bg-surface">
       <header className="glass sticky top-0 z-50 border-b border-outline/10">
-        <div className="flex items-center justify-between px-6 h-14">
-          {/* Logo + Nav */}
+        <div className="flex h-14 items-center justify-between px-6">
           <div className="flex items-center gap-6">
-            <NavLink to="/" className="flex items-center gap-2 flex-shrink-0">
+            <NavLink to="/" className="flex flex-shrink-0 items-center gap-2">
               <span className="font-manrope text-lg font-bold text-primary">Aria AI</span>
             </NavLink>
 
-            <nav className="hidden md:flex items-center gap-0.5">
+            <nav className="hidden items-center gap-0.5 md:flex">
               {navItems.map((item) => {
-                const isActive = location.pathname === item.path ||
+                const isActive =
+                  location.pathname === item.path ||
                   (item.path !== '/' && location.pathname.startsWith(item.path))
+
                 return (
                   <NavLink
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                       isActive
-                        ? 'text-primary bg-secondary-container/50'
-                        : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
+                        ? 'bg-secondary-container/50 text-primary'
+                        : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
                     }`}
                   >
-                    <item.icon className="w-4 h-4" />
+                    <item.icon className="h-4 w-4" />
                     {item.label}
                   </NavLink>
                 )
@@ -75,37 +99,56 @@ export function Layout() {
             </nav>
           </div>
 
-          {/* Right */}
           <div className="flex items-center gap-2">
-            {/* User menu */}
+            <button
+              onClick={() => navigate('/messages')}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-low hover:text-on-surface"
+              title="Messages"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-error px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              ) : null}
+            </button>
+
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center text-white font-semibold text-xs"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-primary text-xs font-semibold text-white"
                 title={user?.display_name || 'User'}
               >
                 {initials}
               </button>
 
               {showUserMenu && (
-                <div className="absolute right-0 top-full mt-2 w-52 bg-surface-container-lowest rounded-xl shadow-lg border border-outline/10 py-1.5 animate-fade-in z-50">
-                  <div className="px-4 py-2.5 border-b border-outline/10">
+                <div className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-outline/10 bg-surface-container-lowest py-1.5 shadow-lg">
+                  <div className="border-b border-outline/10 px-4 py-2.5">
                     <p className="text-sm font-medium text-on-surface">{user?.display_name || 'User'}</p>
-                    <p className="text-xs text-on-surface-muted truncate">{user?.email || ''}</p>
+                    <p className="truncate text-xs text-on-surface-muted">{user?.email || ''}</p>
                   </div>
+                  <NavLink
+                    to="/messages"
+                    onClick={() => setShowUserMenu(false)}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                  >
+                    <Bell className="h-4 w-4" />
+                    {location.pathname.startsWith('/messages') ? 'Messages' : 'Messages'}
+                  </NavLink>
                   <NavLink
                     to="/settings"
                     onClick={() => setShowUserMenu(false)}
-                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
-                    <Settings className="w-4 h-4" />
+                    <Settings className="h-4 w-4" />
                     {t('settings.title')}
                   </NavLink>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="h-4 w-4" />
                     {t('settings.signOut')}
                   </button>
                 </div>

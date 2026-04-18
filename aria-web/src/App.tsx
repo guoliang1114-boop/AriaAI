@@ -11,6 +11,8 @@ import { NewProject } from './pages/projects/NewProject'
 import { Knowledge } from './pages/knowledge/Knowledge'
 import { Clients } from './pages/clients/Clients'
 import { ClientDetail } from './pages/clients/ClientDetail'
+import { ClientMemoryPage } from './pages/clients/ClientMemoryPage'
+import { MessagesPage } from './pages/messages/MessagesPage'
 import { SettingsLayout } from './pages/settings/SettingsLayout'
 import { ProfileSettings } from './pages/settings/ProfileSettings'
 import { AISettings } from './pages/settings/AISettings'
@@ -20,6 +22,7 @@ import { LanguageSettings } from './pages/settings/LanguageSettings'
 import { AboutSettings } from './pages/settings/AboutSettings'
 import { ProjectMemorySettings } from './pages/settings/ProjectMemorySettings'
 import { ClientMemorySettings } from './pages/settings/ClientMemorySettings'
+import { MessageSettings } from './pages/settings/MessageSettings'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -48,14 +51,17 @@ function AppRoutes() {
         <Route path="projects/new" element={<NewProject />} />
         <Route path="projects/:id/*" element={<ProjectDetail />} />
         <Route path="knowledge" element={<Knowledge />} />
+        <Route path="messages" element={<MessagesPage />} />
         <Route path="clients" element={<Clients />} />
         <Route path="clients/:id" element={<ClientDetail />} />
+        <Route path="clients/:id/memory" element={<ClientMemoryPage />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<ProfileSettings />} />
           <Route path="ai" element={<AISettings />} />
           <Route path="memory" element={<ProjectMemorySettings />} />
           <Route path="client-memory" element={<ClientMemorySettings />} />
           <Route path="users" element={<UsersSettings />} />
+          <Route path="messages" element={<MessageSettings />} />
           <Route path="server" element={<ServerSettings />} />
           <Route path="language" element={<LanguageSettings />} />
           <Route path="about" element={<AboutSettings />} />

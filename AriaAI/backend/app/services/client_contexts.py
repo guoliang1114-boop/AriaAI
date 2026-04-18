@@ -7,8 +7,15 @@ import json
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.models.db import ClientRecord, Project
+from app.models.db import ClientMemorySummary, ClientRecord, Project
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
+
+SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
+    "overview",
+    "stakeholder",
+    "lessons",
+    "client-facing",
+}
 
 
 def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
@@ -219,15 +226,184 @@ def save_client_memory(
 def build_client_memory_summary_prompt(
     memory: dict[str, Any],
     client_name: str,
+    summary_type: str = "overview",
     language: str | None = None,
 ) -> str:
     output_language = _resolve_output_language(language)
+    normalized_type = summary_type if summary_type in SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES else "overview"
+    compact_memory = build_client_memory_summary_payload(memory, normalized_type)
+    instructions = {
+        "overview": (
+            "Write exactly 3 concise bullet points. Focus on who this client is, how they decide, "
+            "the most reusable lessons learned, and what future teams should remember."
+        ),
+        "stakeholder": (
+            "Write exactly 3 concise bullet points focused on stakeholders. Highlight key contacts, "
+            "decision style, alignment expectations, and relationship signals future teams should remember."
+        ),
+        "lessons": (
+            "Write exactly 3 concise bullet points focused on reusable lessons learned. Highlight what worked, "
+            "what caused friction, and what future teams should repeat or avoid."
+        ),
+        "client-facing": (
+            "Write exactly 3 concise bullet points that are safe to share with a client-facing team. "
+            "Focus on current relationship context, collaboration style, and helpful next-step guidance."
+        ),
+    }
     return (
         "You are an AI consultant assistant. "
-        "Based on the structured client memory below, write exactly 3 concise bullet points. "
-        "Focus on who this client is, how they decide, the most reusable lessons learned, and what future teams should remember. "
+        f"{instructions[normalized_type]} "
         f"Return ONLY bullet points, one per line, starting with '- '. Write the answer in {output_language}.\n\n"
         f"Client: {client_name}\n"
-        f"Structured client memory JSON:\n{json.dumps(memory, ensure_ascii=False)}"
+        f"Summary type: {normalized_type}\n"
+        f"Structured client memory JSON:\n{json.dumps(compact_memory, ensure_ascii=False)}"
     )
 
+
+def _trim_text(value: Any, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _trim_list(values: Any, limit: int = 5, text_limit: int = 120) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    trimmed: list[str] = []
+    for item in values:
+        text = _trim_text(item, text_limit)
+        if text:
+            trimmed.append(text)
+        if len(trimmed) >= limit:
+            break
+    return trimmed
+
+
+def _trim_contacts(values: Any, limit: int = 4) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    contacts: list[dict[str, str]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        contact = {
+            "name": _trim_text(item.get("name", ""), 40),
+            "role": _trim_text(item.get("role", ""), 40),
+            "note": _trim_text(item.get("note", ""), 100),
+        }
+        if contact["name"] or contact["role"] or contact["note"]:
+            contacts.append(contact)
+        if len(contacts) >= limit:
+            break
+    return contacts
+
+
+def _trim_project_history(values: Any, limit: int = 4) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    history: list[dict[str, str]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        row = {
+            "project_name": _trim_text(item.get("project_name", ""), 80),
+            "status": _trim_text(item.get("status", ""), 40),
+            "outcome": _trim_text(item.get("outcome", ""), 100),
+            "key_factor": _trim_text(item.get("key_factor", ""), 100),
+        }
+        if any(row.values()):
+            history.append(row)
+        if len(history) >= limit:
+            break
+    return history
+
+
+def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: str) -> dict[str, Any]:
+    base = {
+        "client_profile": _trim_text(memory.get("client_profile", ""), 320),
+        "decision_patterns": _trim_list(memory.get("decision_patterns", [])),
+        "key_contacts": _trim_contacts(memory.get("key_contacts", [])),
+        "lessons_learned": _trim_list(memory.get("lessons_learned", [])),
+        "project_history": _trim_project_history(memory.get("project_history", [])),
+        "sensitive_topics": _trim_list(memory.get("sensitive_topics", [])),
+    }
+    if summary_type == "stakeholder":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "key_contacts": base["key_contacts"],
+            "sensitive_topics": base["sensitive_topics"],
+        }
+    if summary_type == "lessons":
+        return {
+            "client_profile": base["client_profile"],
+            "lessons_learned": base["lessons_learned"],
+            "project_history": base["project_history"],
+            "sensitive_topics": base["sensitive_topics"],
+        }
+    if summary_type == "client-facing":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "key_contacts": base["key_contacts"],
+        }
+    return base
+
+
+def get_client_memory_summary_cache(
+    session: Session,
+    client_id: int,
+    summary_type: str,
+    language: str | None,
+    memory_version: int,
+) -> ClientMemorySummary | None:
+    normalized_language = normalize_summary_language(language)
+    return session.exec(
+        select(ClientMemorySummary)
+        .where(ClientMemorySummary.client_id == client_id)
+        .where(ClientMemorySummary.summary_type == summary_type)
+        .where(ClientMemorySummary.language == normalized_language)
+        .where(ClientMemorySummary.memory_version == memory_version)
+        .order_by(ClientMemorySummary.updated_at.desc())
+    ).first()
+
+
+def save_client_memory_summary_cache(
+    session: Session,
+    client_id: int,
+    summary_type: str,
+    language: str | None,
+    memory_version: int,
+    content: str,
+) -> ClientMemorySummary:
+    normalized_language = normalize_summary_language(language)
+    cached = get_client_memory_summary_cache(
+        session,
+        client_id=client_id,
+        summary_type=summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+    )
+    now = datetime.utcnow()
+    if cached:
+        cached.content = content
+        cached.updated_at = now
+        session.add(cached)
+        session.commit()
+        session.refresh(cached)
+        return cached
+
+    cached = ClientMemorySummary(
+        client_id=client_id,
+        summary_type=summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+        content=content,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(cached)
+    session.commit()
+    session.refresh(cached)
+    return cached

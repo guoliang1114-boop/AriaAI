@@ -198,6 +198,56 @@ export interface ClientMemoryBatchRebuildResponse {
   skipped: Array<{ client_id: number; reason: string }>
 }
 
+export type ClientMemorySummaryType =
+  | 'overview'
+  | 'stakeholder'
+  | 'lessons'
+  | 'client-facing'
+
+export interface ClientMemorySummaryResponse {
+  client_id: number
+  language: string
+  summary_type: ClientMemorySummaryType | string
+  content: string
+  memory_version: number
+  generated_at: string
+  cached?: boolean
+}
+
+export interface SystemMessage {
+  id: number
+  title: string
+  content: string
+  level: 'info' | 'success' | 'warning' | 'error'
+  link: string
+  is_published: boolean
+  created_at: string
+  updated_at: string
+  created_by_user_id?: number | null
+  created_by_display_name?: string
+  is_read: boolean
+  read_at?: string | null
+}
+
+export interface SystemMessageListResponse {
+  items: SystemMessage[]
+  unread_count: number
+}
+
+export interface SystemMessageAdminItem {
+  id: number
+  title: string
+  content: string
+  level: 'info' | 'success' | 'warning' | 'error'
+  link: string
+  is_published: boolean
+  created_at: string
+  updated_at: string
+  created_by_user_id?: number | null
+  created_by_display_name?: string
+  read_count: number
+}
+
 export interface Milestone {
   id: number
   project_id: number

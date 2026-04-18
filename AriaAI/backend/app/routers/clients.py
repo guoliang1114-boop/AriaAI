@@ -18,9 +18,11 @@ from app.services.client_contexts import (
     build_client_memory_prompt,
     build_client_memory_promote_prompt,
     build_client_memory_summary_prompt,
+    get_client_memory_summary_cache,
     get_client_memory_payload,
     mark_client_memory_stale,
     parse_client_memory,
+    save_client_memory_summary_cache,
     save_client_memory,
 )
 from app.services.project_contexts import normalize_summary_language
@@ -117,6 +119,8 @@ class PromoteProjectMemoryRequest(BaseModel):
 
 class ClientMemorySummaryRequest(BaseModel):
     language: Optional[str] = None
+    summary_type: Optional[str] = "overview"
+    force_refresh: bool = False
 
 
 def _normalized_name(value: Optional[str]) -> str:
@@ -490,15 +494,56 @@ async def summarize_client_memory(
         )
 
     normalized_language = normalize_summary_language(body.language)
+    normalized_summary_type = (body.summary_type or "overview").strip().lower() or "overview"
+    if not body.force_refresh:
+        cached = get_client_memory_summary_cache(
+            session,
+            client_id=client_id,
+            summary_type=normalized_summary_type,
+            language=body.language,
+            memory_version=int(memory.get("memory_version", 0) or 0),
+        )
+        if cached:
+            return {
+                "client_id": client_id,
+                "language": normalized_language,
+                "summary_type": normalized_summary_type,
+                "content": cached.content,
+                "memory_version": int(memory.get("memory_version", 0) or 0),
+                "generated_at": cached.updated_at.isoformat(),
+                "cached": True,
+            }
+
     content = await complete_with_selected_model(
-        messages=[{"role": "user", "content": build_client_memory_summary_prompt(memory, client.name, body.language)}],
+        messages=[
+            {
+                "role": "user",
+                "content": build_client_memory_summary_prompt(
+                    memory,
+                    client.name,
+                    summary_type=normalized_summary_type,
+                    language=body.language,
+                ),
+            }
+        ],
         max_tokens=900,
+    )
+    cached = save_client_memory_summary_cache(
+        session,
+        client_id=client_id,
+        summary_type=normalized_summary_type,
+        language=body.language,
+        memory_version=int(memory.get("memory_version", 0) or 0),
+        content=content.strip(),
     )
     return {
         "client_id": client_id,
         "language": normalized_language,
+        "summary_type": normalized_summary_type,
         "content": content.strip(),
         "memory_version": int(memory.get("memory_version", 0) or 0),
+        "generated_at": cached.updated_at.isoformat(),
+        "cached": False,
     }
 
 

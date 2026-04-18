@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
+    ClientMemorySummary,
     ClientRecord,
     Conversation,
     Message,
@@ -29,12 +30,15 @@ from app.models.db import (
     ProjectMember,
     ProjectPayment,
     ProjectTodo,
+    SystemMessage,
+    SystemMessageRead,
     User,
 )
 from app import config as app_config
 from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
 from app.routers import clients as clients_router_module
+from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
@@ -2856,6 +2860,154 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(body["skipped"][0]["client_id"], second_id)
         self.assertEqual(body["skipped"][0]["reason"], "not_stale")
         self.assertEqual(mocked_complete.await_count, 1)
+
+    def test_client_memory_summary_uses_cache_by_memory_version(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Strategic manufacturing account",
+                        "decision_patterns": ["Prefers phased rollout"],
+                        "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Executive sponsor"}],
+                        "lessons_learned": ["Value proof matters before scale"],
+                        "project_history": [],
+                        "sensitive_topics": ["Avoid promising fixed dates too early"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=3,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(
+                ClientMemorySummary(
+                    client_id=client.id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=3,
+                    content="- 已缓存客户摘要",
+                )
+            )
+            session.commit()
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="- 新摘要"),
+        ) as mocked_complete:
+            cached_resp = self.client.post(
+                f"/clients/{client_id}/memory/summarize",
+                json={"language": "zh-CN", "summary_type": "overview"},
+            )
+
+        self.assertEqual(cached_resp.status_code, 200)
+        self.assertTrue(cached_resp.json()["cached"])
+        self.assertEqual(cached_resp.json()["content"], "- 已缓存客户摘要")
+        self.assertEqual(mocked_complete.await_count, 0)
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="- 新摘要"),
+        ) as mocked_complete:
+            fresh_resp = self.client.post(
+                f"/clients/{client_id}/memory/summarize",
+                json={"language": "zh-CN", "summary_type": "lessons", "force_refresh": True},
+            )
+
+        self.assertEqual(fresh_resp.status_code, 200)
+        self.assertFalse(fresh_resp.json()["cached"])
+        self.assertEqual(fresh_resp.json()["summary_type"], "lessons")
+        self.assertEqual(mocked_complete.await_count, 1)
+
+
+class MessageRouterTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.db_path = db_path
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app = FastAPI()
+        app.include_router(auth_router_module.router)
+        app.include_router(messages_router_module.router)
+        app.dependency_overrides[auth_router_module.get_session] = override_session
+        app.dependency_overrides[messages_router_module.get_session] = override_session
+        self.client = TestClient(app)
+
+        with Session(self.engine) as session:
+            admin = User(
+                email="admin@example.com",
+                display_name="Admin",
+                password_hash=auth_router_module._hash("password123"),
+                is_admin=True,
+                is_active=True,
+            )
+            member = User(
+                email="user@example.com",
+                display_name="Member",
+                password_hash=auth_router_module._hash("password123"),
+                is_admin=False,
+                is_active=True,
+            )
+            session.add(admin)
+            session.add(member)
+            session.commit()
+
+        admin_login = self.client.post(
+            "/auth/login",
+            json={"email": "admin@example.com", "password": "password123"},
+        )
+        user_login = self.client.post(
+            "/auth/login",
+            json={"email": "user@example.com", "password": "password123"},
+        )
+        self.admin_headers = {"X-Auth-Token": admin_login.json()["token"]}
+        self.user_headers = {"X-Auth-Token": user_login.json()["token"]}
+
+    def tearDown(self):
+        self.client.close()
+        self.engine.dispose()
+        Path(self.db_path).unlink(missing_ok=True)
+
+    def test_admin_can_publish_and_user_can_mark_read(self):
+        create_resp = self.client.post(
+            "/messages/admin",
+            headers=self.admin_headers,
+            json={
+                "title": "System maintenance",
+                "content": "We will update the server tonight.",
+                "level": "warning",
+                "link": "/settings/server",
+                "is_published": True,
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        message_id = create_resp.json()["id"]
+
+        list_resp = self.client.get("/messages", headers=self.user_headers)
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(list_resp.json()["unread_count"], 1)
+        self.assertEqual(list_resp.json()["items"][0]["title"], "System maintenance")
+
+        mark_resp = self.client.post(f"/messages/{message_id}/read", headers=self.user_headers)
+        self.assertEqual(mark_resp.status_code, 200)
+
+        count_resp = self.client.get("/messages/unread-count", headers=self.user_headers)
+        self.assertEqual(count_resp.status_code, 200)
+        self.assertEqual(count_resp.json()["unread_count"], 0)
 
 
 if __name__ == "__main__":

@@ -356,7 +356,7 @@ export function ClientMemorySettings() {
                       {isZh ? '更新' : 'Refresh'}
                     </button>
                     <button
-                      onClick={() => navigate(`/clients/${client.id}`)}
+                      onClick={() => navigate(`/clients/${client.id}/memory`)}
                       className="inline-flex items-center gap-1 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface transition hover:bg-surface-container-high"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
