@@ -165,6 +165,16 @@ export function ClientMemoryPage() {
         label: isZh ? 'AI 客户沟通摘要' : 'AI client-facing summary',
         desc: isZh ? '适合面向客户团队的表达方式。' : 'Safer language for client-facing teams.',
       },
+      {
+        key: 'risk',
+        label: isZh ? 'AI 客户风险摘要' : 'AI client risk summary',
+        desc: isZh ? '聚焦关系风险、决策摩擦和需要谨慎处理的话题。' : 'Focus on relationship risks and decision friction.',
+      },
+      {
+        key: 'opportunity',
+        label: isZh ? 'AI 机会摘要' : 'AI opportunity summary',
+        desc: isZh ? '提炼扩展合作、追加项目和信任加深的机会。' : 'Highlight growth opportunities and expansion signals.',
+      },
     ],
     [isZh],
   )

@@ -14,6 +14,23 @@ type CodeRendererProps = ComponentPropsWithoutRef<'code'> & {
   children?: ReactNode
 }
 
+function sanitizeHref(href?: string | null) {
+  const trimmed = (href || '').trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed
+
+  try {
+    const parsed = new URL(trimmed, window.location.origin)
+    if (['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol)) {
+      return parsed.toString()
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
 function CodeBlock({ language, children }: { language: string; children: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -120,8 +137,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
           return <td className="md-table-cell">{children}</td>
         },
         a({ children, href }) {
+          const safeHref = sanitizeHref(href)
+          if (!safeHref) {
+            return <span className="md-link text-slate-500 no-underline">{children}</span>
+          }
           return (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="md-link">
+            <a href={safeHref} target="_blank" rel="noopener noreferrer" className="md-link">
               {children}
             </a>
           )

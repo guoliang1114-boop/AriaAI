@@ -188,7 +188,7 @@ export function ClientMemorySettings() {
         '/clients/memory/warm-summaries-batch',
         {
           client_ids: clientIds,
-          summary_types: ['overview', 'stakeholder', 'lessons'],
+          summary_types: ['overview', 'stakeholder', 'lessons', 'risk', 'opportunity'],
           language: i18n.language,
           force_refresh: options?.forceRefresh ?? false,
         },

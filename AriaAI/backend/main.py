@@ -12,7 +12,7 @@ from app.config import (
     LOG_LEVEL, LOG_FORMAT, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS,
     JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
-from app.database import create_db, migrate_db, engine
+from app.database import create_db, get_database_health, migrate_db, engine
 from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, artifacts, messages
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
@@ -137,7 +137,7 @@ def invalidate_token_cache(token: str):
 
 
 # Auth middleware — protects all routes except /health and /auth/*
-_PUBLIC_PATHS = {"/health", "/auth/login"}
+_PUBLIC_PATHS = {"/health", "/health/db", "/auth/login"}
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -206,3 +206,8 @@ app.include_router(messages.router)
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "AriaAI"}
+
+
+@app.get("/health/db")
+def health_db():
+    return get_database_health()

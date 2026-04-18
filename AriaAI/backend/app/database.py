@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel, Session, create_engine
 
@@ -86,3 +88,37 @@ def migrate_db():
 def get_session():
     with Session(engine) as session:
         yield session
+
+
+def get_database_health() -> dict:
+    latest_revision = None
+    alembic_dir = Path(__file__).resolve().parent.parent / "alembic" / "versions"
+    if alembic_dir.exists():
+        revision_files = sorted(
+            [item for item in alembic_dir.iterdir() if item.is_file() and item.suffix == ".py"]
+        )
+        if revision_files:
+            latest_revision = revision_files[-1].name.split("_", 1)[0]
+
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        current_revision = None
+        if "alembic_version" in tables:
+            try:
+                current_revision = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+            except Exception:
+                current_revision = None
+
+    return {
+        "status": "ok",
+        "database_url": str(engine.url).split("@")[-1] if "@" in str(engine.url) else str(engine.url),
+        "table_count": len(tables),
+        "tables": tables,
+        "alembic": {
+            "current_revision": current_revision,
+            "latest_revision": latest_revision,
+            "up_to_date": (current_revision == latest_revision) if latest_revision else None,
+        },
+    }

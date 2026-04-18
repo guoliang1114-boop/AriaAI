@@ -49,6 +49,9 @@ from app.services.project_core import (
     update_project_record,
 )
 from app.services.project_contexts import (
+    EDITABLE_MEMORY_SLOTS,
+    _get_existing_raw_memory,
+    _normalize_editable_slot,
     build_project_context_data,
     build_project_context_prompt,
     build_project_memory_data,
@@ -218,6 +221,19 @@ async def _auto_promote_archived_project_to_client_memory(
         trigger="project_archived_auto_promoted",
         source_project_ids=[project.id],
     )
+    project = session.get(Project, project_id)
+    if project:
+        raw_project_memory = _get_existing_raw_memory(project)
+        raw_project_memory["_client_promotion"] = {
+            "client_id": client.id,
+            "client_name": client.name,
+            "promoted_at": datetime.utcnow().isoformat(),
+            "trigger": "project_archived_auto_promoted",
+        }
+        project.context_memory_json = json.dumps(raw_project_memory, ensure_ascii=False)
+        project.updated_at = datetime.utcnow()
+        session.add(project)
+        session.commit()
     clients_cache.delete(_CLIENTS_KEY)
     return True
 
@@ -1153,6 +1169,10 @@ class ProjectMemorySummarizeRequest(BaseModel):
     force_refresh: bool = False
 
 
+class ProjectMemorySlotUpdateRequest(BaseModel):
+    pinned: list[str] = []
+
+
 class ProjectMemoryBatchRebuildRequest(BaseModel):
     project_ids: list[int] = []
     stale_only: bool = False
@@ -1275,6 +1295,50 @@ def get_project_memory_status(project_id: int, session: Session = Depends(get_se
         "memory_updated_at": project.memory_updated_at,
         "memory_rebuild_status": project.memory_rebuild_status,
         "memory_rebuild_failed_at": project.memory_rebuild_failed_at,
+    }
+
+
+@router.patch("/{project_id}/memory/slots/{slot_name}")
+async def update_project_memory_slot(
+    project_id: int,
+    slot_name: str,
+    body: ProjectMemorySlotUpdateRequest,
+    session: Session = Depends(get_session),
+):
+    if slot_name not in EDITABLE_MEMORY_SLOTS:
+        raise HTTPException(status_code=400, detail="Unsupported memory slot")
+
+    project, _ = await _ensure_project_memory(session, project_id)
+    raw_memory = _get_existing_raw_memory(project)
+    coverage = raw_memory.get("_coverage", {}) if isinstance(raw_memory.get("_coverage"), dict) else {}
+    raw_memory[slot_name] = _normalize_editable_slot(raw_memory.get(slot_name), pinned=body.pinned)
+    saved_memory = save_project_memory(
+        session,
+        project_id,
+        raw_memory,
+        trigger=f"slot_update:{slot_name}",
+        coverage=coverage,
+    )
+    _schedule_project_memory_summary_warm(
+        project_id,
+        summary_types=["overview", "risk", "stakeholder"],
+        force_refresh=True,
+        trigger=f"slot_update:{slot_name}",
+    )
+    _bust_project(project_id)
+    refreshed_project = get_project_or_404(session, project_id)
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "slot_name": slot_name,
+        "memory": saved_memory,
+        "memory_version": refreshed_project.memory_version,
+        "memory_stale": refreshed_project.memory_stale,
+        "memory_updated_at": refreshed_project.memory_updated_at.isoformat() if refreshed_project.memory_updated_at else None,
+        "memory_rebuild_status": refreshed_project.memory_rebuild_status,
+        "memory_rebuild_failed_at": refreshed_project.memory_rebuild_failed_at.isoformat()
+        if refreshed_project.memory_rebuild_failed_at
+        else None,
     }
 
 

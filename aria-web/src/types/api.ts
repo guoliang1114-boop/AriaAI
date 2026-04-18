@@ -46,6 +46,18 @@ export interface ProjectMemoryDocument {
   reason: string
 }
 
+export interface ProjectMemoryEditableSlot {
+  ai: string[]
+  pinned: string[]
+}
+
+export interface ProjectMemoryClientPromotion {
+  client_id: number
+  client_name: string
+  promoted_at: string
+  trigger: string
+}
+
 export interface ProjectMemory {
   project_brief: string
   current_stage: string
@@ -58,11 +70,15 @@ export interface ProjectMemory {
   financial_status: string
   delivery_signals: string[]
   stakeholder_notes: string[]
+  key_risks_detail?: ProjectMemoryEditableSlot
+  open_questions_detail?: ProjectMemoryEditableSlot
+  stakeholder_notes_detail?: ProjectMemoryEditableSlot
   memory_version: number
   last_updated_at: string
   stale: boolean
   rebuild_log?: Array<{ at: string; trigger: string; version: number }>
   _coverage?: Record<string, number | string>
+  _client_promotion?: ProjectMemoryClientPromotion
 }
 
 export interface ProjectMemoryResponse {
@@ -241,6 +257,8 @@ export type ClientMemorySummaryType =
   | 'stakeholder'
   | 'lessons'
   | 'client-facing'
+  | 'risk'
+  | 'opportunity'
 
 export interface ClientMemorySummaryResponse {
   client_id: number

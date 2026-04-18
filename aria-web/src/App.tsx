@@ -25,6 +25,7 @@ import {
   loadAboutSettings,
   loadProjectMemorySettings,
   loadClientMemorySettings,
+  loadMemoryOperationsSettings,
   loadMessageSettings,
 } from './routeLoaders'
 
@@ -51,6 +52,9 @@ const ProjectMemorySettings = lazy(() =>
 )
 const ClientMemorySettings = lazy(() =>
   loadClientMemorySettings().then((module) => ({ default: module.ClientMemorySettings })),
+)
+const MemoryOperationsSettings = lazy(() =>
+  loadMemoryOperationsSettings().then((module) => ({ default: module.MemoryOperationsSettings })),
 )
 const MessageSettings = lazy(() => loadMessageSettings().then((module) => ({ default: module.MessageSettings })))
 
@@ -211,6 +215,14 @@ function AppRoutes() {
             element={
               <LazyPage>
                 <ClientMemorySettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="memory-ops"
+            element={
+              <LazyPage>
+                <MemoryOperationsSettings />
               </LazyPage>
             }
           />

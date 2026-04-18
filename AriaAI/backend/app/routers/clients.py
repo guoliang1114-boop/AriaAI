@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.config import (
+    CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+    CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
     MEMORY_REBUILD_DEBOUNCE_SECONDS,
     MEMORY_SUMMARY_WARM_DAILY_LIMIT,
     MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
@@ -159,7 +161,7 @@ class ClientMemorySummaryRequest(BaseModel):
 
 class ClientMemoryBatchWarmSummariesRequest(BaseModel):
     client_ids: list[int] = []
-    summary_types: list[str] = ["overview", "stakeholder", "lessons"]
+    summary_types: list[str] = ["overview", "stakeholder", "lessons", "risk", "opportunity"]
     language: Optional[str] = None
     force_refresh: bool = False
 
@@ -292,6 +294,16 @@ def _is_retryable_summary_warm_error(exc: Exception) -> bool:
     return "429" in message or "rate limit" in message or "timeout" in message
 
 
+def _is_retryable_client_memory_rebuild_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "429" in message
+        or "rate limit" in message
+        or "timeout" in message
+        or "temporarily unavailable" in message
+    )
+
+
 def _count_client_summary_warm_budget_used_today(session: Session) -> int:
     start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     warmed = session.exec(
@@ -352,12 +364,12 @@ async def _warm_client_memory_summary_caches(
     language: str | None = None,
     force_refresh: bool = False,
 ) -> list[str]:
-    requested_types = summary_types or ["overview", "stakeholder", "lessons"]
+    requested_types = summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"]
     normalized_language = normalize_summary_language(language)
     warmed: list[str] = []
 
     for summary_type in requested_types:
-        if summary_type not in {"overview", "stakeholder", "lessons", "client-facing"}:
+        if summary_type not in {"overview", "stakeholder", "lessons", "client-facing", "risk", "opportunity"}:
             continue
         if not force_refresh:
             cached = get_client_memory_summary_cache(
@@ -434,7 +446,13 @@ def _schedule_client_memory_summary_warm(
         job_id,
         run_at,
         _run_client_memory_summary_warm_job,
-        args=[client_id, language, summary_types or ["overview", "stakeholder", "lessons"], force_refresh, trigger],
+        args=[
+            client_id,
+            language,
+            summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            force_refresh,
+            trigger,
+        ],
     )
     return True
 
@@ -454,13 +472,33 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
             await _rebuild_client_memory(session, client_id, trigger=trigger)
             _schedule_client_memory_summary_warm(
                 client_id,
-                summary_types=["overview", "stakeholder", "lessons"],
+                summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
                 trigger="rebuild_completed",
             )
             clients_cache.delete(_CLIENTS_KEY)
-        except Exception:
+        except Exception as exc:
             client = session.get(ClientRecord, client_id)
             if client:
+                if _is_retryable_client_memory_rebuild_error(exc):
+                    retry_count = 0
+                    if trigger.startswith("retry:"):
+                        try:
+                            retry_count = int(trigger.split(":", 1)[1])
+                        except ValueError:
+                            retry_count = 0
+                    if retry_count < CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS - 1 and scheduler_service.is_running():
+                        delay_seconds = CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS * (2 ** retry_count)
+                        scheduler_service.add_or_replace_date_job(
+                            _client_memory_rebuild_job_id(client_id),
+                            datetime.utcnow() + timedelta(seconds=delay_seconds),
+                            _run_client_memory_rebuild_job,
+                            args=[client_id, f"retry:{retry_count + 1}"],
+                        )
+                        client.client_memory_rebuild_status = "queued"
+                        client.client_memory_rebuild_failed_at = None
+                        session.add(client)
+                        session.commit()
+                        return
                 client.client_memory_rebuild_status = "failed"
                 client.client_memory_rebuild_failed_at = datetime.utcnow()
                 session.add(client)
@@ -759,7 +797,7 @@ async def rebuild_client_memory_batch(
         )
         _schedule_client_memory_summary_warm(
             client_id,
-            summary_types=["overview", "stakeholder", "lessons"],
+            summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
             trigger="batch_rebuild_completed",
         )
 
@@ -797,9 +835,9 @@ async def warm_client_memory_summaries_batch(
     queued_count = 0
     normalized_summary_types = [
         summary_type
-        for summary_type in (body.summary_types or ["overview", "stakeholder", "lessons"])
-        if summary_type in {"overview", "stakeholder", "lessons", "client-facing"}
-    ] or ["overview", "stakeholder", "lessons"]
+        for summary_type in (body.summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"])
+        if summary_type in {"overview", "stakeholder", "lessons", "client-facing", "risk", "opportunity"}
+    ] or ["overview", "stakeholder", "lessons", "risk", "opportunity"]
     scheduler_running = scheduler_service.is_running()
     budget_used_today = _count_client_summary_warm_budget_used_today(session) if scheduler_running else 0
 
@@ -878,7 +916,7 @@ async def rebuild_client_memory(client_id: int, session: Session = Depends(get_s
     payload = await _rebuild_client_memory(session, client_id, trigger="manual")
     _schedule_client_memory_summary_warm(
         client_id,
-        summary_types=["overview", "stakeholder", "lessons"],
+        summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
         trigger="manual_rebuild_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
@@ -939,7 +977,7 @@ async def promote_project_memory_to_client(
     )
     _schedule_client_memory_summary_warm(
         client_id,
-        summary_types=["overview", "stakeholder", "lessons"],
+        summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
         trigger="project_promoted_completed",
     )
     clients_cache.delete(_CLIENTS_KEY)
@@ -984,7 +1022,7 @@ async def summarize_client_memory(
         )
         _schedule_client_memory_summary_warm(
             client_id,
-            summary_types=["overview", "stakeholder", "lessons"],
+            summary_types=["overview", "stakeholder", "lessons", "risk", "opportunity"],
             trigger="on_demand_rebuild_completed",
         )
 

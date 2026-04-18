@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Bell, Brain, Database, Globe, Info, Server, User, Users } from 'lucide-react'
+import { Bell, Brain, Database, Globe, Info, ListChecks, Server, User, Users } from 'lucide-react'
 import { PageTitle } from '../../components/PageTitle'
 
 export function SettingsLayout() {
@@ -12,6 +12,7 @@ export function SettingsLayout() {
     { path: 'ai', icon: Brain, label: t('settings.aiModel') },
     { path: 'memory', icon: Database, label: isZh ? '项目记忆' : 'Project Memory' },
     { path: 'client-memory', icon: Users, label: isZh ? '客户记忆' : 'Client Memory' },
+    { path: 'memory-ops', icon: ListChecks, label: isZh ? '记忆任务中心' : 'Memory Operations' },
     { path: 'messages', icon: Bell, label: isZh ? '消息管理' : 'Message Manager' },
     { path: 'server', icon: Server, label: t('settings.server.title') },
     { path: 'language', icon: Globe, label: t('settings.language') },

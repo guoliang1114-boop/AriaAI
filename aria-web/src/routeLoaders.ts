@@ -18,6 +18,7 @@ export const loadLanguageSettings = () => import('./pages/settings/LanguageSetti
 export const loadAboutSettings = () => import('./pages/settings/AboutSettings')
 export const loadProjectMemorySettings = () => import('./pages/settings/ProjectMemorySettings')
 export const loadClientMemorySettings = () => import('./pages/settings/ClientMemorySettings')
+export const loadMemoryOperationsSettings = () => import('./pages/settings/MemoryOperationsSettings')
 export const loadMessageSettings = () => import('./pages/settings/MessageSettings')
 
 export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {

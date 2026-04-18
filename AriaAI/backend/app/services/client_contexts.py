@@ -15,6 +15,8 @@ SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "stakeholder",
     "lessons",
     "client-facing",
+    "risk",
+    "opportunity",
 }
 
 
@@ -251,6 +253,14 @@ def build_client_memory_summary_prompt(
             "Write exactly 3 concise bullet points that are safe to share with a client-facing team. "
             "Focus on current relationship context, collaboration style, and helpful next-step guidance."
         ),
+        "risk": (
+            "Write exactly 3 concise bullet points focused on client relationship risk. Highlight sensitive topics, "
+            "decision friction, stakeholder gaps, and what future teams should handle carefully."
+        ),
+        "opportunity": (
+            "Write exactly 3 concise bullet points focused on growth opportunity. Highlight reusable trust signals, "
+            "potential next projects, expansion whitespace, and the strongest momentum hints."
+        ),
     }
     return (
         "You are an AI consultant assistant. "
@@ -349,6 +359,22 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+        }
+    if summary_type == "risk":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "key_contacts": base["key_contacts"],
+            "sensitive_topics": base["sensitive_topics"],
+            "lessons_learned": base["lessons_learned"],
+        }
+    if summary_type == "opportunity":
+        return {
+            "client_profile": base["client_profile"],
+            "decision_patterns": base["decision_patterns"],
+            "key_contacts": base["key_contacts"],
+            "lessons_learned": base["lessons_learned"],
+            "project_history": base["project_history"],
         }
     return base
 

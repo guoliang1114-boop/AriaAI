@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   TrendingUp,
   DollarSign,
@@ -133,6 +133,7 @@ const getCategoryColor = (category: string) => {
 export function Skills() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const skillTypes = getSkillTypes(t)
   const [loading, setLoading] = useState(true)
   const [skills, setSkills] = useState<SkillSummary[]>([])
@@ -140,7 +141,12 @@ export function Skills() {
   const [activeType, setActiveType] = useState('all')
 
   const handleUseSkill = (skillId: number) => {
-    navigate(`/chat?skill=${skillId}`)
+    const projectId = searchParams.get('project')
+    const nextParams = new URLSearchParams({ skill: String(skillId) })
+    if (projectId) {
+      nextParams.set('project', projectId)
+    }
+    navigate(`/chat?${nextParams.toString()}`)
   }
 
   useEffect(() => {
