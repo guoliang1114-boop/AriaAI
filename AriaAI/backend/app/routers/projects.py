@@ -135,6 +135,41 @@ def _memory_summary_warm_job_id(project_id: int, language: str | None = None) ->
     return f"project_memory_summary_warm_{project_id}_{normalized_language}"
 
 
+def _parse_project_memory_job(job) -> dict | None:
+    if not job or not getattr(job, "id", None):
+        return None
+
+    if job.id.startswith("project_memory_rebuild_"):
+        try:
+            project_id = int(job.id.removeprefix("project_memory_rebuild_"))
+        except ValueError:
+            return None
+        return {
+            "project_id": project_id,
+            "job_type": "rebuild",
+            "language": None,
+            "job_id": job.id,
+            "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+        }
+
+    if job.id.startswith("project_memory_summary_warm_"):
+        raw = job.id.removeprefix("project_memory_summary_warm_")
+        project_id_raw, _, language = raw.partition("_")
+        try:
+            project_id = int(project_id_raw)
+        except ValueError:
+            return None
+        return {
+            "project_id": project_id,
+            "job_type": "summary_warm",
+            "language": language or None,
+            "job_id": job.id,
+            "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+        }
+
+    return None
+
+
 def _is_retryable_summary_warm_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "429" in message or "rate limit" in message or "timeout" in message
@@ -1293,6 +1328,82 @@ async def warm_project_memory_summaries_batch(
         "queued_count": queued_count,
         "processed": processed,
         "skipped": skipped,
+    }
+
+
+@router.get("/memory/jobs")
+def list_project_memory_jobs(session: Session = Depends(get_session)):
+    project_lookup = {
+        project.id: project
+        for project in session.exec(select(Project)).all()
+    }
+
+    jobs: list[dict] = []
+    for job in scheduler_service.get_jobs():
+        parsed = _parse_project_memory_job(job)
+        if not parsed:
+            continue
+        project = project_lookup.get(parsed["project_id"])
+        jobs.append(
+            {
+                **parsed,
+                "project_name": project.name if project else f"Project #{parsed['project_id']}",
+                "client": project.client if project else "",
+                "memory_stale": project.memory_stale if project else False,
+                "memory_version": project.memory_version if project else 0,
+            }
+        )
+
+    jobs.sort(key=lambda item: (item.get("next_run_at") or "", item["project_id"], item["job_type"]))
+    return {"jobs": jobs, "count": len(jobs)}
+
+
+@router.post("/memory/jobs/{project_id}/cancel")
+def cancel_project_memory_jobs(project_id: int):
+    scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
+    for language in ("zh", "en", "default"):
+        scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
+    return {"ok": True, "project_id": project_id}
+
+
+@router.post("/memory/jobs/{project_id}/run-now")
+async def run_project_memory_jobs_now(
+    project_id: int,
+    session: Session = Depends(get_session),
+):
+    scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
+    for language in ("zh", "en", "default"):
+        scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
+
+    project = get_project_or_404(session, project_id)
+    if project.memory_stale or (project.memory_version or 0) == 0:
+        saved_memory = await _rebuild_project_memory(session, project_id, project, trigger="manual_queue_run")
+        _schedule_project_memory_summary_warm(
+            project_id,
+            summary_types=["overview", "risk", "stakeholder"],
+            trigger="run_now_after_rebuild",
+        )
+        _bust_project(project_id)
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "action": "rebuild",
+            "memory_version": saved_memory.get("memory_version", 0),
+        }
+
+    memory_payload = get_project_memory_payload(project)
+    warmed = await _warm_project_memory_summary_caches(
+        session,
+        project,
+        memory_payload,
+        summary_types=["overview", "risk", "stakeholder"],
+        force_refresh=False,
+    )
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "action": "summary_warm",
+        "warmed": warmed,
     }
 
 

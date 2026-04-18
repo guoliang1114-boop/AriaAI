@@ -10,6 +10,7 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
@@ -1754,6 +1755,53 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(len(cached), 3)
         self.assertEqual(sorted(item.summary_type for item in cached), ["overview", "risk", "stakeholder"])
 
+    def test_memory_jobs_list_exposes_rebuild_and_summary_warm_queue(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Queued Project",
+                client="Client",
+                memory_version=2,
+                memory_stale=True,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        fake_jobs = [
+            SimpleNamespace(
+                id=f"project_memory_rebuild_{project_id}",
+                next_run_time=datetime.utcnow(),
+            ),
+            SimpleNamespace(
+                id=f"project_memory_summary_warm_{project_id}_zh",
+                next_run_time=datetime.utcnow(),
+            ),
+        ]
+
+        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=fake_jobs):
+            resp = self.client.get("/projects/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual({item["job_type"] for item in body["jobs"]}, {"rebuild", "summary_warm"})
+
+    def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
+        removed: list[str] = []
+
+        with patch.object(
+            projects_router_module.scheduler_service,
+            "remove_job",
+            side_effect=lambda job_id: removed.append(job_id),
+        ):
+            resp = self.client.post("/projects/memory/jobs/42/cancel")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("project_memory_rebuild_42", removed)
+        self.assertIn("project_memory_summary_warm_42_zh", removed)
+        self.assertIn("project_memory_summary_warm_42_en", removed)
+
     def test_memory_rebuild_persists_rebuild_log_and_coverage(self):
         async def fake_complete(messages, max_tokens=4000):
             return json.dumps(
@@ -2759,6 +2807,55 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["memory_version"], 2)
         self.assertIn(project_id, body["memory"]["source_project_ids"])
+
+    def test_client_memory_batch_rebuild_updates_requested_clients(self):
+        with Session(self.engine) as session:
+            first = ClientRecord(name="Acme Corp", notes="Manufacturing group")
+            second = ClientRecord(
+                name="Beta Labs",
+                client_memory_json=json.dumps({"client_profile": "Existing"}, ensure_ascii=False),
+                client_memory_version=1,
+                client_memory_stale=False,
+            )
+            session.add(first)
+            session.add(second)
+            session.add(Project(name="Alpha Delivery", client="Acme Corp", status="delivering"))
+            session.commit()
+            session.refresh(first)
+            session.refresh(second)
+            first_id = first.id
+            second_id = second.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "client_profile": "Manufacturing account",
+                        "decision_patterns": ["Needs phased rollout"],
+                        "key_contacts": [],
+                        "lessons_learned": ["Delivery proof matters"],
+                        "project_history": [],
+                        "sensitive_topics": [],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ) as mocked_complete:
+            resp = self.client.post(
+                "/clients/memory/rebuild-batch",
+                json={"client_ids": [first_id, second_id], "stale_only": True},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["requested_count"], 2)
+        self.assertEqual(body["rebuilt_count"], 1)
+        self.assertEqual(body["rebuilt"][0]["client_id"], first_id)
+        self.assertEqual(body["skipped"][0]["client_id"], second_id)
+        self.assertEqual(body["skipped"][0]["reason"], "not_stale")
+        self.assertEqual(mocked_complete.await_count, 1)
 
 
 if __name__ == "__main__":

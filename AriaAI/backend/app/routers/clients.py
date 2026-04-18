@@ -90,6 +90,27 @@ class ClientMemoryStatusResponse(BaseModel):
     memory_updated_at: Optional[str] = None
 
 
+class ClientMemoryBatchRebuildRequest(BaseModel):
+    client_ids: list[int]
+    stale_only: bool = True
+
+
+class ClientMemoryBatchRebuildItem(BaseModel):
+    client_id: int
+    memory: dict
+    memory_version: int
+    memory_stale: bool
+    memory_updated_at: Optional[str] = None
+
+
+class ClientMemoryBatchRebuildResponse(BaseModel):
+    ok: bool
+    requested_count: int
+    rebuilt_count: int
+    rebuilt: list[ClientMemoryBatchRebuildItem]
+    skipped: list[dict]
+
+
 class PromoteProjectMemoryRequest(BaseModel):
     project_id: int
 
@@ -308,6 +329,59 @@ def get_client_memory_status(client_id: int, session: Session = Depends(get_sess
         memory_version=client.client_memory_version,
         memory_stale=client.client_memory_stale,
         memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+    )
+
+
+@router.post("/memory/rebuild-batch", response_model=ClientMemoryBatchRebuildResponse)
+async def rebuild_client_memory_batch(
+    body: ClientMemoryBatchRebuildRequest,
+    session: Session = Depends(get_session),
+):
+    rebuilt: list[ClientMemoryBatchRebuildItem] = []
+    skipped: list[dict] = []
+
+    for client_id in body.client_ids:
+        client = session.get(ClientRecord, client_id)
+        if not client:
+            skipped.append({"client_id": client_id, "reason": "not_found"})
+            continue
+        if body.stale_only and not client.client_memory_stale:
+            skipped.append({"client_id": client_id, "reason": "not_stale"})
+            continue
+
+        client, client_data, source_project_ids = build_client_memory_data(session, client_id)
+        raw_memory = await complete_with_selected_model(
+            messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
+            max_tokens=2200,
+        )
+        parsed_memory = parse_client_memory(raw_memory, client)
+        payload = save_client_memory(
+            session,
+            client_id,
+            parsed_memory,
+            trigger="batch_rebuild",
+            source_project_ids=source_project_ids,
+        )
+        refreshed = session.get(ClientRecord, client_id)
+        rebuilt.append(
+            ClientMemoryBatchRebuildItem(
+                client_id=client_id,
+                memory=payload,
+                memory_version=refreshed.client_memory_version if refreshed else 0,
+                memory_stale=refreshed.client_memory_stale if refreshed else True,
+                memory_updated_at=refreshed.client_memory_updated_at.isoformat()
+                if refreshed and refreshed.client_memory_updated_at
+                else None,
+            )
+        )
+
+    clients_cache.delete(_CLIENTS_KEY)
+    return ClientMemoryBatchRebuildResponse(
+        ok=True,
+        requested_count=len(body.client_ids),
+        rebuilt_count=len(rebuilt),
+        rebuilt=rebuilt,
+        skipped=skipped,
     )
 
 

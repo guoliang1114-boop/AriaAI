@@ -106,6 +106,23 @@ export interface ProjectMemoryBatchWarmSummariesResponse {
   skipped: Array<{ project_id: number; reason: string }>
 }
 
+export interface ProjectMemoryJob {
+  project_id: number
+  project_name: string
+  client: string
+  job_type: 'rebuild' | 'summary_warm'
+  language?: string | null
+  job_id: string
+  next_run_at?: string | null
+  memory_stale: boolean
+  memory_version: number
+}
+
+export interface ProjectMemoryJobsResponse {
+  jobs: ProjectMemoryJob[]
+  count: number
+}
+
 export type ProjectMemorySummaryType =
   | 'overview'
   | 'risk'
@@ -163,6 +180,22 @@ export interface ClientMemoryStatusResponse {
   memory_version: number
   memory_stale: boolean
   memory_updated_at?: string | null
+}
+
+export interface ClientMemoryBatchRebuildItem {
+  client_id: number
+  memory: ClientMemory
+  memory_version: number
+  memory_stale: boolean
+  memory_updated_at?: string | null
+}
+
+export interface ClientMemoryBatchRebuildResponse {
+  ok: boolean
+  requested_count: number
+  rebuilt_count: number
+  rebuilt: ClientMemoryBatchRebuildItem[]
+  skipped: Array<{ client_id: number; reason: string }>
 }
 
 export interface Milestone {

@@ -6,6 +6,7 @@ import {
   Clock3,
   ExternalLink,
   Loader2,
+  Play,
   RefreshCw,
   Search,
   Sparkles,
@@ -18,6 +19,8 @@ import type {
   Project,
   ProjectMemoryBatchRebuildResponse,
   ProjectMemoryBatchWarmSummariesResponse,
+  ProjectMemoryJob,
+  ProjectMemoryJobsResponse,
   ProjectMemoryResponse,
 } from '../../types/api'
 import { formatProjectMemoryUpdatedAt } from '../projects/projectMemoryTime'
@@ -43,6 +46,13 @@ function getRebuildStatusText(status: string | undefined, isZh: boolean): string
   }
 }
 
+function getJobTypeText(jobType: ProjectMemoryJob['job_type'], isZh: boolean): string {
+  if (jobType === 'summary_warm') {
+    return isZh ? '摘要预热' : 'Summary Warm'
+  }
+  return isZh ? '记忆重建' : 'Memory Rebuild'
+}
+
 function RebuildStatusIcon({ status }: { status?: string }) {
   if (status === 'rebuilding') return <Loader2 className="h-3 w-3 animate-spin" />
   if (status === 'queued') return <Clock3 className="h-3 w-3" />
@@ -59,13 +69,16 @@ export function ProjectMemorySettings() {
   const autoWarmSummariesTriggeredRef = useRef(false)
 
   const [projects, setProjects] = useState<Project[]>([])
+  const [jobs, setJobs] = useState<ProjectMemoryJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingJobs, setLoadingJobs] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<MemoryFilter>('all')
   const [isRefreshingStale, setIsRefreshingStale] = useState(false)
   const [isGeneratingMissing, setIsGeneratingMissing] = useState(false)
   const [isWarmingSummaries, setIsWarmingSummaries] = useState(false)
   const [refreshingProjectId, setRefreshingProjectId] = useState<number | null>(null)
+  const [jobActionProjectId, setJobActionProjectId] = useState<number | null>(null)
 
   const fetchProjects = async () => {
     try {
@@ -80,8 +93,30 @@ export function ProjectMemorySettings() {
     }
   }
 
+  const fetchJobs = async (silent = false) => {
+    try {
+      if (!silent) setLoadingJobs(true)
+      const data = await api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs')
+      setJobs(data.jobs || [])
+    } catch (error) {
+      console.error('Failed to load memory jobs:', error)
+      if (!silent) {
+        toast.error(isZh ? '加载后台任务列表失败' : 'Failed to load memory jobs')
+      }
+    } finally {
+      if (!silent) setLoadingJobs(false)
+    }
+  }
+
   useEffect(() => {
-    void fetchProjects()
+    void Promise.all([fetchProjects(), fetchJobs()])
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchJobs(true)
+    }, 10000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const counts = useMemo(
@@ -165,6 +200,8 @@ export function ProjectMemorySettings() {
         { timeout: 120000 },
       )
 
+      void fetchJobs(true)
+
       if (!options?.silent) {
         if ((result.queued_count || 0) > 0) {
           toast.success(
@@ -200,6 +237,7 @@ export function ProjectMemorySettings() {
         memory_rebuild_status: data.memory_rebuild_status,
         memory_rebuild_failed_at: data.memory_rebuild_failed_at,
       })
+      void fetchJobs(true)
       toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
     } catch (error) {
       console.error('Failed to rebuild project memory:', error)
@@ -276,6 +314,43 @@ export function ProjectMemorySettings() {
     } finally {
       if (mode === 'stale') setIsRefreshingStale(false)
       else setIsGeneratingMissing(false)
+      void fetchJobs(true)
+    }
+  }
+
+  const cancelJob = async (projectId: number) => {
+    try {
+      setJobActionProjectId(projectId)
+      await api.post(`/projects/memory/jobs/${projectId}/cancel`, {})
+      setJobs((current) => current.filter((job) => job.project_id !== projectId))
+      toast.success(isZh ? '已取消该项目的排队任务' : 'Cancelled queued jobs for this project')
+    } catch (error) {
+      console.error('Failed to cancel memory jobs:', error)
+      toast.error(isZh ? '取消后台任务失败' : 'Failed to cancel memory jobs')
+    } finally {
+      setJobActionProjectId(null)
+    }
+  }
+
+  const runJobNow = async (projectId: number) => {
+    try {
+      setJobActionProjectId(projectId)
+      const result = await api.post<{ ok: boolean; action: string }>(`/projects/memory/jobs/${projectId}/run-now`, {})
+      void Promise.all([fetchProjects(), fetchJobs(true)])
+      toast.success(
+        isZh
+          ? result.action === 'rebuild'
+            ? '已立刻执行记忆重建'
+            : '已立刻执行摘要预热'
+          : result.action === 'rebuild'
+            ? 'Started memory rebuild now'
+            : 'Started summary warming now',
+      )
+    } catch (error) {
+      console.error('Failed to run memory job now:', error)
+      toast.error(isZh ? '立即执行后台任务失败' : 'Failed to run memory job now')
+    } finally {
+      setJobActionProjectId(null)
     }
   }
 
@@ -337,8 +412,8 @@ export function ProjectMemorySettings() {
               </h2>
               <p className="mt-1 text-sm text-on-surface-muted">
                 {isZh
-                  ? '集中查看所有项目记忆状态，系统会自动补齐缺失记忆并后台预生成常用 AI 摘要。'
-                  : 'Track project memory health. Missing memories and common AI summaries are prepared automatically in the background.'}
+                  ? '集中查看项目记忆状态、后台队列和常用 AI 摘要预热进度。'
+                  : 'Track project memory health, queued jobs, and common AI summary warming in one place.'}
               </p>
             </div>
           </div>
@@ -381,10 +456,115 @@ export function ProjectMemorySettings() {
       {isWarmingSummaries ? (
         <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
           {isZh
-            ? '系统正在后台预生成常用 AI 摘要，并按队列和预算控制节奏，避免集中触发限流。'
-            : 'Common AI summaries are being warmed in the background with queueing and budget controls to avoid rate-limit spikes.'}
+            ? '系统正在后台预热常用 AI 摘要，并按队列、预算和间隔节奏控制，避免集中触发限流。'
+            : 'Common AI summaries are being warmed in the background with queue, budget, and pacing controls to avoid rate-limit spikes.'}
         </div>
       ) : null}
+
+      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">
+              {isZh ? '后台任务队列' : 'Background Queue'}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              {isZh
+                ? '查看当前排队中的记忆重建和摘要预热任务。'
+                : 'See queued memory rebuild and summary warm jobs.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void fetchJobs()
+            }}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {loadingJobs ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {isZh ? '刷新队列' : 'Refresh Queue'}
+          </button>
+        </div>
+
+        {jobs.length === 0 ? (
+          <div className="rounded-xl bg-gray-50 px-4 py-4 text-sm text-gray-500">
+            {isZh ? '当前没有排队中的项目记忆任务。' : 'No queued project memory jobs right now.'}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {jobs.map((job) => (
+              <div key={job.job_id} className="rounded-xl border border-gray-200 px-4 py-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">{job.project_name}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                        {getJobTypeText(job.job_type, isZh)}
+                      </span>
+                      {job.language ? (
+                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+                          {job.language}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-500">{job.client}</div>
+                    <div className="mt-2 grid gap-2 text-xs text-gray-600 sm:grid-cols-3">
+                      <div>
+                        <span className="font-medium">{isZh ? '计划执行：' : 'Scheduled: '}</span>
+                        {formatProjectMemoryUpdatedAt(job.next_run_at ?? null, isZh)}
+                      </div>
+                      <div>
+                        <span className="font-medium">{isZh ? '记忆版本：' : 'Memory Version: '}</span>
+                        {job.memory_version}
+                      </div>
+                      <div>
+                        <span className="font-medium">{isZh ? '记忆状态：' : 'Memory State: '}</span>
+                        {job.memory_stale ? (isZh ? '待刷新' : 'Stale') : isZh ? '可用' : 'Ready'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runJobNow(job.project_id)
+                      }}
+                      disabled={jobActionProjectId === job.project_id}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      {jobActionProjectId === job.project_id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      {isZh ? '立即执行' : 'Run Now'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void cancelJob(job.project_id)
+                      }}
+                      disabled={jobActionProjectId === job.project_id}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      {isZh ? '取消' : 'Cancel'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/projects/${job.project_id}/memory`)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {isZh ? '打开项目' : 'Open'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {filterOptions.map((option) => (

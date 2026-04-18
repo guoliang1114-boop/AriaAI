@@ -83,6 +83,10 @@ def get_job(job_id: str):
     return _scheduler.get_job(job_id)
 
 
+def get_jobs():
+    return list(_scheduler.get_jobs())
+
+
 def add_or_replace_date_job(job_id: str, run_at: datetime, func, args: Optional[list] = None) -> None:
     if not _scheduler.running:
         return
