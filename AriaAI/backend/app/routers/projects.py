@@ -582,7 +582,7 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     return result
 
 
-@router.get("/dashboard-summary")
+@router.get("/meta/dashboard-summary")
 def list_projects_dashboard_summary(
     session: Session = Depends(get_session),
 ):

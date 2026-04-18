@@ -154,7 +154,7 @@ export function Welcome() {
       setError(null)
 
       const [allProjects, todos] = await Promise.all([
-        api.get<DashboardProjectSummary[]>('/projects/dashboard-summary'),
+        api.get<DashboardProjectSummary[]>('/projects/meta/dashboard-summary'),
         api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
 
