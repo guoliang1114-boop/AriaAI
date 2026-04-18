@@ -19,6 +19,8 @@ from app.config import (
     MEMORY_SUMMARY_WARM_DAILY_LIMIT,
     MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
     MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
+    PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+    PROJECT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
     UPLOADS_DIR,
 )
 from app.database import engine, get_session
@@ -241,6 +243,7 @@ async def _auto_promote_archived_project_to_client_memory(
 def _parse_project_memory_job(job) -> dict | None:
     if not job or not getattr(job, "id", None):
         return None
+    metadata = scheduler_service.get_job_metadata(job.id)
 
     if job.id.startswith("project_memory_rebuild_"):
         try:
@@ -253,6 +256,10 @@ def _parse_project_memory_job(job) -> dict | None:
             "language": None,
             "job_id": job.id,
             "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+            "retry_count": int(metadata.get("retry_count", 0) or 0),
+            "max_retries": int(metadata.get("max_retries", PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS) or 0),
+            "trigger": metadata.get("trigger"),
+            "summary_types": [],
         }
 
     if job.id.startswith("project_memory_summary_warm_"):
@@ -268,6 +275,10 @@ def _parse_project_memory_job(job) -> dict | None:
             "language": language or None,
             "job_id": job.id,
             "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+            "retry_count": int(metadata.get("retry_count", 0) or 0),
+            "max_retries": int(metadata.get("max_retries", MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS) or 0),
+            "trigger": metadata.get("trigger"),
+            "summary_types": list(metadata.get("summary_types", []) or []),
         }
 
     return None
@@ -278,12 +289,51 @@ def _is_retryable_summary_warm_error(exc: Exception) -> bool:
     return "429" in message or "rate limit" in message or "timeout" in message
 
 
+def _is_retryable_project_memory_rebuild_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "429" in message
+        or "rate limit" in message
+        or "timeout" in message
+        or "temporarily unavailable" in message
+    )
+
+
 def _count_summary_warm_budget_used_today(session: Session) -> int:
     start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     warmed = session.exec(
         select(ProjectMemorySummary).where(ProjectMemorySummary.created_at >= start_of_day)
     ).all()
     return len(warmed)
+
+
+def _get_raw_project_memory(project: Project) -> dict:
+    return _get_existing_raw_memory(project)
+
+
+def _set_project_memory_failure(
+    session: Session,
+    project: Project,
+    *,
+    stage: str,
+    message: str,
+    retry_count: int = 0,
+) -> None:
+    memory = _get_raw_project_memory(project)
+    memory["_last_failure"] = {
+        "stage": stage,
+        "message": message[:400],
+        "retry_count": retry_count,
+        "failed_at": datetime.utcnow().isoformat(),
+    }
+    project.context_memory_json = json.dumps(memory, ensure_ascii=False)
+    session.add(project)
+    session.commit()
+
+
+def _get_project_memory_failure(project: Project) -> dict | None:
+    failure = _get_raw_project_memory(project).get("_last_failure")
+    return failure if isinstance(failure, dict) else None
 
 
 async def _generate_memory_summary_cache(
@@ -389,6 +439,13 @@ async def _run_project_memory_summary_warm_job(
                 return
             except Exception as exc:
                 if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
+                    _set_project_memory_failure(
+                        session,
+                        project,
+                        stage="summary_warm",
+                        message=str(exc),
+                        retry_count=attempt,
+                    )
                     raise
                 wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
                 await asyncio.sleep(wait_seconds)
@@ -412,6 +469,12 @@ def _schedule_project_memory_summary_warm(
         run_at,
         _run_project_memory_summary_warm_job,
         args=[project_id, language, summary_types or ["overview", "risk", "stakeholder"], force_refresh, trigger],
+        metadata={
+            "trigger": trigger,
+            "summary_types": summary_types or ["overview", "risk", "stakeholder"],
+            "retry_count": 0,
+            "max_retries": MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
+        },
     )
     return True
 
@@ -437,8 +500,45 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 trigger="rebuild_completed",
             )
             _bust_project(project_id)
-        except Exception:
+        except Exception as exc:
             project = get_project_or_404(session, project_id)
+            retry_count = 0
+            if trigger.startswith("retry:"):
+                try:
+                    retry_count = int(trigger.split(":", 1)[1])
+                except ValueError:
+                    retry_count = 0
+
+            if (
+                _is_retryable_project_memory_rebuild_error(exc)
+                and retry_count < PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS - 1
+                and scheduler_service.is_running()
+            ):
+                delay_seconds = PROJECT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS * (2 ** retry_count)
+                scheduler_service.add_or_replace_date_job(
+                    _memory_rebuild_job_id(project_id),
+                    datetime.utcnow() + timedelta(seconds=delay_seconds),
+                    _run_project_memory_rebuild_job,
+                    args=[project_id, f"retry:{retry_count + 1}"],
+                    metadata={
+                        "trigger": trigger,
+                        "retry_count": retry_count + 1,
+                        "max_retries": PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+                    },
+                )
+                project.memory_rebuild_status = "queued"
+                project.memory_rebuild_failed_at = None
+                session.add(project)
+                session.commit()
+                return
+
+            _set_project_memory_failure(
+                session,
+                project,
+                stage="rebuild",
+                message=str(exc),
+                retry_count=retry_count,
+            )
             project.memory_rebuild_status = "failed"
             project.memory_rebuild_failed_at = datetime.utcnow()
             session.add(project)
@@ -455,6 +555,11 @@ def _schedule_project_memory_rebuild(project_id: int, trigger: str = "data_chang
         run_at,
         _run_project_memory_rebuild_job,
         args=[project_id, trigger],
+        metadata={
+            "trigger": trigger,
+            "retry_count": 0,
+            "max_retries": PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+        },
     )
 
 
@@ -1542,10 +1647,8 @@ async def warm_project_memory_summaries_batch(
 
 @router.get("/memory/jobs")
 def list_project_memory_jobs(session: Session = Depends(get_session)):
-    project_lookup = {
-        project.id: project
-        for project in session.exec(select(Project)).all()
-    }
+    all_projects = session.exec(select(Project)).all()
+    project_lookup = {project.id: project for project in all_projects}
 
     jobs: list[dict] = []
     for job in scheduler_service.get_jobs():
@@ -1564,7 +1667,32 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
         )
 
     jobs.sort(key=lambda item: (item.get("next_run_at") or "", item["project_id"], item["job_type"]))
-    return {"jobs": jobs, "count": len(jobs)}
+    used_today = _count_summary_warm_budget_used_today(session)
+    recent_failures = []
+    for project in all_projects:
+        failure = _get_project_memory_failure(project)
+        if not failure:
+            continue
+        recent_failures.append(
+            {
+                "scope": "project",
+                "project_id": project.id,
+                "project_name": project.name,
+                "client": project.client,
+                **failure,
+            }
+        )
+    recent_failures.sort(key=lambda item: item.get("failed_at", ""), reverse=True)
+    return {
+        "jobs": jobs,
+        "count": len(jobs),
+        "budget": {
+            "used": used_today,
+            "limit": MEMORY_SUMMARY_WARM_DAILY_LIMIT,
+            "remaining": max(MEMORY_SUMMARY_WARM_DAILY_LIMIT - used_today, 0),
+        },
+        "recent_failures": recent_failures[:8],
+    }
 
 
 @router.post("/memory/jobs/{project_id}/cancel")

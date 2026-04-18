@@ -16,6 +16,7 @@ from app.config import MEMORY_REBUILD_MAX_WORKERS
 _scheduler = BackgroundScheduler(
     executors={'default': ThreadPoolExecutor(max_workers=MEMORY_REBUILD_MAX_WORKERS)}
 )
+_job_metadata: dict[str, dict] = {}
 
 
 def start() -> None:
@@ -77,6 +78,7 @@ def remove_task(task_id: int) -> None:
 def remove_job(job_id: str) -> None:
     if _scheduler.get_job(job_id):
         _scheduler.remove_job(job_id)
+    _job_metadata.pop(job_id, None)
 
 
 def get_job(job_id: str):
@@ -87,11 +89,22 @@ def get_jobs():
     return list(_scheduler.get_jobs())
 
 
-def add_or_replace_date_job(job_id: str, run_at: datetime, func, args: Optional[list] = None) -> None:
+def get_job_metadata(job_id: str) -> dict:
+    return dict(_job_metadata.get(job_id, {}))
+
+
+def add_or_replace_date_job(
+    job_id: str,
+    run_at: datetime,
+    func,
+    args: Optional[list] = None,
+    metadata: Optional[dict] = None,
+) -> None:
     if not _scheduler.running:
         return
 
     args = args or []
+    _job_metadata[job_id] = dict(metadata or {})
 
     def _run_job():
         result = func(*args)

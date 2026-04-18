@@ -142,11 +142,17 @@ class ClientMemoryJob(BaseModel):
     next_run_at: Optional[str] = None
     memory_stale: bool
     memory_version: int
+    retry_count: int = 0
+    max_retries: int = 0
+    trigger: Optional[str] = None
+    summary_types: list[str] = []
 
 
 class ClientMemoryJobsResponse(BaseModel):
     jobs: list[ClientMemoryJob]
     count: int
+    budget: dict = {}
+    recent_failures: list[dict] = []
 
 
 class PromoteProjectMemoryRequest(BaseModel):
@@ -178,6 +184,39 @@ class ClientMemoryBatchWarmSummariesResponse(BaseModel):
 
 def _normalized_name(value: Optional[str]) -> str:
     return (value or "").strip().lower()
+
+
+def _get_raw_client_memory(client: ClientRecord) -> dict:
+    try:
+        parsed = json.loads(client.client_memory_json or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _set_client_memory_failure(
+    session: Session,
+    client: ClientRecord,
+    *,
+    stage: str,
+    message: str,
+    retry_count: int = 0,
+) -> None:
+    memory = _get_raw_client_memory(client)
+    memory["_last_failure"] = {
+        "stage": stage,
+        "message": message[:400],
+        "retry_count": retry_count,
+        "failed_at": datetime.utcnow().isoformat(),
+    }
+    client.client_memory_json = json.dumps(memory, ensure_ascii=False)
+    session.add(client)
+    session.commit()
+
+
+def _get_client_memory_failure(client: ClientRecord) -> dict | None:
+    failure = _get_raw_client_memory(client).get("_last_failure")
+    return failure if isinstance(failure, dict) else None
 
 
 def _build_client_out(
@@ -238,6 +277,7 @@ def _client_memory_summary_warm_job_id(client_id: int, language: str | None = No
 def _parse_client_memory_job(job) -> dict | None:
     if not job or not getattr(job, "id", None):
         return None
+    metadata = scheduler_service.get_job_metadata(job.id)
     if job.id.startswith("client_memory_rebuild_"):
         try:
             client_id = int(job.id.removeprefix("client_memory_rebuild_"))
@@ -248,6 +288,10 @@ def _parse_client_memory_job(job) -> dict | None:
             "job_type": "rebuild",
             "job_id": job.id,
             "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
+            "retry_count": int(metadata.get("retry_count", 0) or 0),
+            "max_retries": int(metadata.get("max_retries", CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS) or 0),
+            "trigger": metadata.get("trigger"),
+            "summary_types": [],
         }
 
     if job.id.startswith("client_memory_summary_warm_"):
@@ -263,6 +307,10 @@ def _parse_client_memory_job(job) -> dict | None:
             "job_id": job.id,
             "next_run_at": job.next_run_time.isoformat() if getattr(job, "next_run_time", None) else None,
             "language": language or None,
+            "retry_count": int(metadata.get("retry_count", 0) or 0),
+            "max_retries": int(metadata.get("max_retries", MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS) or 0),
+            "trigger": metadata.get("trigger"),
+            "summary_types": list(metadata.get("summary_types", []) or []),
         }
 
     return None
@@ -425,6 +473,13 @@ async def _run_client_memory_summary_warm_job(
                 return
             except Exception as exc:
                 if attempt >= MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS - 1 or not _is_retryable_summary_warm_error(exc):
+                    _set_client_memory_failure(
+                        session,
+                        client,
+                        stage="summary_warm",
+                        message=str(exc),
+                        retry_count=attempt,
+                    )
                     raise
                 wait_seconds = MEMORY_SUMMARY_WARM_INTERVAL_SECONDS * (2 ** attempt)
                 await asyncio.sleep(wait_seconds)
@@ -453,6 +508,12 @@ def _schedule_client_memory_summary_warm(
             force_refresh,
             trigger,
         ],
+        metadata={
+            "trigger": trigger,
+            "summary_types": summary_types or ["overview", "stakeholder", "lessons", "risk", "opportunity"],
+            "retry_count": 0,
+            "max_retries": MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
+        },
     )
     return True
 
@@ -493,12 +554,24 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                             datetime.utcnow() + timedelta(seconds=delay_seconds),
                             _run_client_memory_rebuild_job,
                             args=[client_id, f"retry:{retry_count + 1}"],
+                            metadata={
+                                "trigger": trigger,
+                                "retry_count": retry_count + 1,
+                                "max_retries": CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+                            },
                         )
                         client.client_memory_rebuild_status = "queued"
                         client.client_memory_rebuild_failed_at = None
                         session.add(client)
                         session.commit()
                         return
+                _set_client_memory_failure(
+                    session,
+                    client,
+                    stage="rebuild",
+                    message=str(exc),
+                    retry_count=retry_count if 'retry_count' in locals() else 0,
+                )
                 client.client_memory_rebuild_status = "failed"
                 client.client_memory_rebuild_failed_at = datetime.utcnow()
                 session.add(client)
@@ -515,6 +588,11 @@ def _schedule_client_memory_rebuild(client_id: int, trigger: str = "data_changed
         run_at,
         _run_client_memory_rebuild_job,
         args=[client_id, trigger],
+        metadata={
+            "trigger": trigger,
+            "retry_count": 0,
+            "max_retries": CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+        },
     )
 
 
@@ -567,10 +645,8 @@ def create_client(body: ClientCreate, session: Session = Depends(get_session)):
 
 @router.get("/memory/jobs", response_model=ClientMemoryJobsResponse)
 def list_client_memory_jobs(session: Session = Depends(get_session)):
-    client_lookup = {
-        client.id: client
-        for client in session.exec(select(ClientRecord)).all()
-    }
+    all_clients = session.exec(select(ClientRecord)).all()
+    client_lookup = {client.id: client for client in all_clients}
 
     jobs: list[ClientMemoryJob] = []
     for job in scheduler_service.get_jobs():
@@ -589,7 +665,31 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
         )
 
     jobs.sort(key=lambda item: ((item.next_run_at or ""), item.client_id, item.job_type))
-    return ClientMemoryJobsResponse(jobs=jobs, count=len(jobs))
+    used_today = _count_client_summary_warm_budget_used_today(session)
+    recent_failures = []
+    for client in all_clients:
+        failure = _get_client_memory_failure(client)
+        if not failure:
+            continue
+        recent_failures.append(
+            {
+                "scope": "client",
+                "client_id": client.id,
+                "client_name": client.name,
+                **failure,
+            }
+        )
+    recent_failures.sort(key=lambda item: item.get("failed_at", ""), reverse=True)
+    return ClientMemoryJobsResponse(
+        jobs=jobs,
+        count=len(jobs),
+        budget={
+            "used": used_today,
+            "limit": MEMORY_SUMMARY_WARM_DAILY_LIMIT,
+            "remaining": max(MEMORY_SUMMARY_WARM_DAILY_LIMIT - used_today, 0),
+        },
+        recent_failures=recent_failures[:8],
+    )
 
 
 @router.post("/memory/jobs/{client_id}/cancel")

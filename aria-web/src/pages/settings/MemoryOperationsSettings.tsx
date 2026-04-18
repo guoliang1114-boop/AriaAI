@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Clock3, ExternalLink, Loader2, Play, RefreshCw, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  Clock3,
+  ExternalLink,
+  Loader2,
+  Play,
+  RefreshCw,
+  Wallet,
+  XCircle,
+} from 'lucide-react'
 import { api } from '../../api/client'
 import { useToast } from '../../contexts/ToastContext'
 import type {
@@ -11,10 +20,34 @@ import type {
   ProjectMemoryJobsResponse,
 } from '../../types/api'
 
-type CombinedJob = (
-  | ({ scope: 'project' } & ProjectMemoryJob)
-  | ({ scope: 'client' } & ClientMemoryJob)
-)
+type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client' } & ClientMemoryJob)
+
+type BudgetInfo = {
+  used: number
+  limit: number
+  remaining: number
+}
+
+type FailureItem =
+  | {
+      scope: 'project'
+      project_id: number
+      project_name: string
+      client?: string
+      stage: string
+      message: string
+      retry_count?: number
+      failed_at: string
+    }
+  | {
+      scope: 'client'
+      client_id: number
+      client_name: string
+      stage: string
+      message: string
+      retry_count?: number
+      failed_at: string
+    }
 
 function formatDate(value?: string | null, isZh = true) {
   if (!value) return isZh ? '等待调度' : 'Waiting'
@@ -26,6 +59,24 @@ function formatDate(value?: string | null, isZh = true) {
   })
 }
 
+function SectionCard({
+  title,
+  value,
+  description,
+}: {
+  title: string
+  value: string | number
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl bg-surface-container-low p-4">
+      <div className="text-sm text-on-surface-muted">{title}</div>
+      <div className="mt-2 text-2xl font-semibold text-on-surface">{value}</div>
+      <div className="mt-1 text-xs text-on-surface-muted">{description}</div>
+    </div>
+  )
+}
+
 export function MemoryOperationsSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -34,6 +85,9 @@ export function MemoryOperationsSettings() {
   const [loading, setLoading] = useState(true)
   const [actionKey, setActionKey] = useState('')
   const [jobs, setJobs] = useState<CombinedJob[]>([])
+  const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
+  const [clientBudget, setClientBudget] = useState<BudgetInfo | null>(null)
+  const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
 
   const loadJobs = async (silent = false) => {
     try {
@@ -46,6 +100,12 @@ export function MemoryOperationsSettings() {
         ...(projectData.jobs || []).map((job) => ({ ...job, scope: 'project' as const })),
         ...(clientData.jobs || []).map((job) => ({ ...job, scope: 'client' as const })),
       ])
+      setProjectBudget(projectData.budget ?? null)
+      setClientBudget(clientData.budget ?? null)
+      setRecentFailures([
+        ...((projectData.recent_failures as FailureItem[] | undefined) ?? []),
+        ...((clientData.recent_failures as FailureItem[] | undefined) ?? []),
+      ].sort((a, b) => (b.failed_at || '').localeCompare(a.failed_at || '')))
     } catch (error) {
       console.error('Failed to load memory operations:', error)
       toast.error(isZh ? '加载记忆任务面板失败' : 'Failed to load memory operations')
@@ -66,6 +126,7 @@ export function MemoryOperationsSettings() {
     () => ({
       rebuilding: jobs.filter((job) => job.job_type === 'rebuild'),
       warming: jobs.filter((job) => job.job_type === 'summary_warm'),
+      retrying: jobs.filter((job) => (job.retry_count ?? 0) > 0),
     }),
     [jobs],
   )
@@ -155,6 +216,19 @@ export function MemoryOperationsSettings() {
               <span className="rounded-full bg-surface-container-low px-2.5 py-1">
                 {isZh ? '版本' : 'Version'} {job.memory_version}
               </span>
+              <span className="rounded-full bg-surface-container-low px-2.5 py-1">
+                {isZh ? '重试' : 'Retry'} {job.retry_count ?? 0}/{job.max_retries ?? 0}
+              </span>
+              {job.trigger ? (
+                <span className="rounded-full bg-surface-container-low px-2.5 py-1">
+                  {isZh ? '触发' : 'Trigger'}: {job.trigger}
+                </span>
+              ) : null}
+              {job.summary_types?.length ? (
+                <span className="rounded-full bg-surface-container-low px-2.5 py-1">
+                  {job.summary_types.join(', ')}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="text-right text-xs text-on-surface-muted">
@@ -185,7 +259,7 @@ export function MemoryOperationsSettings() {
             className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low"
           >
             <ExternalLink className="h-4 w-4" />
-            {isZh ? '查看详情' : 'Open'}
+            {isZh ? '打开详情' : 'Open'}
           </button>
         </div>
       </div>
@@ -209,8 +283,8 @@ export function MemoryOperationsSettings() {
           </h2>
           <p className="mt-1 text-sm text-on-surface-muted">
             {isZh
-              ? '统一查看项目记忆和客户记忆的重建、预热与排队任务。'
-              : 'Monitor project and client memory rebuild and summary warming jobs in one place.'}
+              ? '统一查看项目与客户记忆的重建、摘要预热、重试与失败情况。'
+              : 'Monitor rebuild, summary warming, retry progress, and failures for project and client memory.'}
           </p>
         </div>
         <button
@@ -223,29 +297,111 @@ export function MemoryOperationsSettings() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-surface-container-low p-4">
-          <div className="text-sm text-on-surface-muted">{isZh ? '总任务数' : 'Total jobs'}</div>
-          <div className="mt-2 text-2xl font-semibold text-on-surface">{jobs.length}</div>
-        </div>
-        <div className="rounded-2xl bg-surface-container-low p-4">
-          <div className="text-sm text-on-surface-muted">{isZh ? '记忆重建' : 'Rebuild jobs'}</div>
-          <div className="mt-2 text-2xl font-semibold text-on-surface">{grouped.rebuilding.length}</div>
-        </div>
-        <div className="rounded-2xl bg-surface-container-low p-4">
-          <div className="text-sm text-on-surface-muted">{isZh ? '摘要预热' : 'Summary warm jobs'}</div>
-          <div className="mt-2 text-2xl font-semibold text-on-surface">{grouped.warming.length}</div>
-        </div>
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <SectionCard
+          title={isZh ? '总任务数' : 'Total jobs'}
+          value={jobs.length}
+          description={isZh ? '当前排队中的后台任务' : 'Queued background jobs right now'}
+        />
+        <SectionCard
+          title={isZh ? '记忆重建' : 'Rebuild jobs'}
+          value={grouped.rebuilding.length}
+          description={isZh ? '项目或客户记忆重建队列' : 'Project and client rebuild queue'}
+        />
+        <SectionCard
+          title={isZh ? '摘要预热' : 'Summary warm jobs'}
+          value={grouped.warming.length}
+          description={isZh ? '常用摘要缓存预热任务' : 'Common summary cache warm jobs'}
+        />
+        <SectionCard
+          title={isZh ? '重试中的任务' : 'Retrying jobs'}
+          value={grouped.retrying.length}
+          description={isZh ? '已经触发过至少一次重试' : 'Jobs that already retried at least once'}
+        />
+        <SectionCard
+          title={isZh ? '项目预热预算' : 'Project warm budget'}
+          value={`${projectBudget?.used ?? 0}/${projectBudget?.limit ?? 0}`}
+          description={isZh ? `剩余 ${projectBudget?.remaining ?? 0}` : `${projectBudget?.remaining ?? 0} remaining`}
+        />
+        <SectionCard
+          title={isZh ? '客户预热预算' : 'Client warm budget'}
+          value={`${clientBudget?.used ?? 0}/${clientBudget?.limit ?? 0}`}
+          description={isZh ? `剩余 ${clientBudget?.remaining ?? 0}` : `${clientBudget?.remaining ?? 0} remaining`}
+        />
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-outline p-10 text-center text-sm text-on-surface-muted">
-          <Clock3 className="mx-auto mb-3 h-6 w-6" />
-          {isZh ? '当前没有排队中的记忆后台任务。' : 'No queued memory background jobs right now.'}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
+        <div className="space-y-4">
+          {jobs.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-outline p-10 text-center text-sm text-on-surface-muted">
+              <Clock3 className="mx-auto mb-3 h-6 w-6" />
+              {isZh ? '当前没有排队中的记忆后台任务。' : 'No queued memory background jobs right now.'}
+            </div>
+          ) : (
+            <div className="grid gap-4">{jobs.map(renderJobCard)}</div>
+          )}
         </div>
-      ) : (
-        <div className="grid gap-4">{jobs.map(renderJobCard)}</div>
-      )}
+
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
+              <Wallet className="h-4 w-4" />
+              {isZh ? '摘要预热预算' : 'Summary warm budgets'}
+            </div>
+            <div className="space-y-3 text-sm text-on-surface-muted">
+              <div className="rounded-xl bg-surface-container-low p-3">
+                <div className="font-medium text-on-surface">{isZh ? '项目记忆' : 'Project memory'}</div>
+                <div className="mt-1">
+                  {isZh
+                    ? `今日已使用 ${projectBudget?.used ?? 0} / ${projectBudget?.limit ?? 0}，剩余 ${projectBudget?.remaining ?? 0}`
+                    : `${projectBudget?.used ?? 0} / ${projectBudget?.limit ?? 0} used today, ${projectBudget?.remaining ?? 0} left`}
+                </div>
+              </div>
+              <div className="rounded-xl bg-surface-container-low p-3">
+                <div className="font-medium text-on-surface">{isZh ? '客户记忆' : 'Client memory'}</div>
+                <div className="mt-1">
+                  {isZh
+                    ? `今日已使用 ${clientBudget?.used ?? 0} / ${clientBudget?.limit ?? 0}，剩余 ${clientBudget?.remaining ?? 0}`
+                    : `${clientBudget?.used ?? 0} / ${clientBudget?.limit ?? 0} used today, ${clientBudget?.remaining ?? 0} left`}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
+              <AlertTriangle className="h-4 w-4" />
+              {isZh ? '最近失败记录' : 'Recent failures'}
+            </div>
+            {recentFailures.length === 0 ? (
+              <div className="rounded-xl bg-surface-container-low p-4 text-sm text-on-surface-muted">
+                {isZh ? '最近没有失败记录。' : 'No recent failure records.'}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentFailures.slice(0, 8).map((failure, index) => (
+                  <div key={`${failure.scope}-${index}`} className="rounded-xl bg-surface-container-low p-3">
+                    <div className="text-sm font-medium text-on-surface">
+                      {failure.scope === 'project'
+                        ? (isZh ? `项目 · ${failure.project_name}` : `Project · ${failure.project_name}`)
+                        : (isZh ? `客户 · ${failure.client_name}` : `Client · ${failure.client_name}`)}
+                    </div>
+                    <div className="mt-1 text-xs text-on-surface-muted">
+                      {isZh ? '阶段' : 'Stage'}: {failure.stage}
+                      {' · '}
+                      {isZh ? '重试' : 'Retry'}: {failure.retry_count ?? 0}
+                    </div>
+                    <div className="mt-2 line-clamp-3 text-sm text-on-surface">{failure.message}</div>
+                    <div className="mt-2 text-xs text-on-surface-muted">
+                      {formatDate(failure.failed_at, isZh)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

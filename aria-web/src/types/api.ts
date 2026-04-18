@@ -132,11 +132,30 @@ export interface ProjectMemoryJob {
   next_run_at?: string | null
   memory_stale: boolean
   memory_version: number
+  retry_count?: number
+  max_retries?: number
+  trigger?: string | null
+  summary_types?: string[]
 }
 
 export interface ProjectMemoryJobsResponse {
   jobs: ProjectMemoryJob[]
   count: number
+  budget?: {
+    used: number
+    limit: number
+    remaining: number
+  }
+  recent_failures?: Array<{
+    scope: 'project'
+    project_id: number
+    project_name: string
+    client?: string
+    stage: string
+    message: string
+    retry_count?: number
+    failed_at: string
+  }>
 }
 
 export type ProjectMemorySummaryType =
@@ -230,11 +249,29 @@ export interface ClientMemoryJob {
   next_run_at?: string | null
   memory_stale: boolean
   memory_version: number
+  retry_count?: number
+  max_retries?: number
+  trigger?: string | null
+  summary_types?: string[]
 }
 
 export interface ClientMemoryJobsResponse {
   jobs: ClientMemoryJob[]
   count: number
+  budget?: {
+    used: number
+    limit: number
+    remaining: number
+  }
+  recent_failures?: Array<{
+    scope: 'client'
+    client_id: number
+    client_name: string
+    stage: string
+    message: string
+    retry_count?: number
+    failed_at: string
+  }>
 }
 
 export interface ClientMemoryBatchWarmSummariesResponse {

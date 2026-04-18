@@ -35,6 +35,7 @@ from app.models.db import (
     User,
 )
 from app import config as app_config
+from app import database as database_module
 from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
 from app.routers import clients as clients_router_module
@@ -272,6 +273,27 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("focused on the project's financial picture", financial_prompt)
         self.assertIn("Summary type: documents", documents_prompt)
         self.assertIn("focused on project documents and knowledge signals", documents_prompt)
+
+    def test_database_migration_governance_detects_lightweight_mode(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "clientrecord"],
+            current_revision=None,
+            revisions=["001_init", "002_add_memory"],
+        )
+
+        self.assertEqual(governance["mode"], "lightweight")
+        self.assertEqual(governance["pending_count"], 2)
+        self.assertFalse(governance["up_to_date"])
+
+    def test_database_migration_governance_detects_alembic_mode(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="001_init",
+            revisions=["001_init", "002_add_memory"],
+        )
+
+        self.assertEqual(governance["mode"], "alembic")
+        self.assertEqual(governance["pending_revisions"], ["002_add_memory"])
 
     def test_get_project_memory_payload_flattens_pinned_slots(self):
         project = Project(
@@ -1791,6 +1813,57 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["count"], 2)
         self.assertEqual({item["job_type"] for item in body["jobs"]}, {"rebuild", "summary_warm"})
 
+    def test_memory_jobs_list_includes_budget_retry_and_recent_failures(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Queued Project",
+                client="Client",
+                memory_version=3,
+                memory_stale=True,
+                context_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "summary_warm",
+                            "message": "Rate limit exceeded",
+                            "retry_count": 2,
+                            "failed_at": "2026-04-19T10:00:00",
+                        }
+                    }
+                ),
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project_id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=3,
+                    content="cached",
+                )
+            )
+            session.commit()
+
+        fake_job = SimpleNamespace(
+            id=f"project_memory_rebuild_{project_id}",
+            next_run_time=datetime.utcnow(),
+        )
+        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
+            projects_router_module.scheduler_service,
+            "get_job_metadata",
+            return_value={"retry_count": 1, "max_retries": 3, "trigger": "project_updated"},
+        ):
+            resp = self.client.get("/projects/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["budget"]["used"], 1)
+        self.assertEqual(body["jobs"][0]["retry_count"], 1)
+        self.assertEqual(body["jobs"][0]["trigger"], "project_updated")
+        self.assertEqual(body["recent_failures"][0]["message"], "Rate limit exceeded")
+
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []
 
@@ -2980,6 +3053,62 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(body["count"], 1)
         self.assertEqual(body["jobs"][0]["job_type"], "summary_warm")
         self.assertEqual(body["jobs"][0]["language"], "zh")
+
+    def test_list_client_memory_jobs_includes_budget_retry_and_recent_failures(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                industry="Manufacturing",
+                client_memory_version=4,
+                client_memory_stale=False,
+                client_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "rebuild",
+                            "message": "Temporary model timeout",
+                            "retry_count": 1,
+                            "failed_at": "2026-04-19T11:00:00",
+                        }
+                    }
+                ),
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+            session.add(
+                ClientMemorySummary(
+                    client_id=client_id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=4,
+                    content="cached",
+                )
+            )
+            session.commit()
+
+        fake_job = SimpleNamespace(
+            id=f"client_memory_summary_warm_{client_id}_zh",
+            next_run_time=datetime.utcnow(),
+        )
+        with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
+            clients_router_module.scheduler_service,
+            "get_job_metadata",
+            return_value={
+                "retry_count": 2,
+                "max_retries": 3,
+                "trigger": "rebuild_completed",
+                "summary_types": ["overview", "risk"],
+            },
+        ):
+            resp = self.client.get("/clients/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["budget"]["used"], 1)
+        self.assertEqual(body["jobs"][0]["retry_count"], 2)
+        self.assertEqual(body["jobs"][0]["summary_types"], ["overview", "risk"])
+        self.assertEqual(body["recent_failures"][0]["stage"], "rebuild")
 
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []

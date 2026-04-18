@@ -23,6 +23,17 @@ else:
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 
+def _get_local_alembic_revisions() -> list[str]:
+    alembic_dir = Path(__file__).resolve().parent.parent / "alembic" / "versions"
+    if not alembic_dir.exists():
+        return []
+    return sorted(
+        item.name.split("_", 1)[0]
+        for item in alembic_dir.iterdir()
+        if item.is_file() and item.suffix == ".py" and "_" in item.name
+    )
+
+
 def create_db():
     """Create missing tables only."""
     SQLModel.metadata.create_all(engine)
@@ -91,14 +102,8 @@ def get_session():
 
 
 def get_database_health() -> dict:
-    latest_revision = None
-    alembic_dir = Path(__file__).resolve().parent.parent / "alembic" / "versions"
-    if alembic_dir.exists():
-        revision_files = sorted(
-            [item for item in alembic_dir.iterdir() if item.is_file() and item.suffix == ".py"]
-        )
-        if revision_files:
-            latest_revision = revision_files[-1].name.split("_", 1)[0]
+    revisions = _get_local_alembic_revisions()
+    latest_revision = revisions[-1] if revisions else None
 
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
@@ -111,14 +116,65 @@ def get_database_health() -> dict:
             except Exception:
                 current_revision = None
 
+    governance = get_database_migration_governance(
+        tables=tables,
+        current_revision=current_revision,
+        revisions=revisions,
+    )
+
     return {
         "status": "ok",
         "database_url": str(engine.url).split("@")[-1] if "@" in str(engine.url) else str(engine.url),
         "table_count": len(tables),
         "tables": tables,
-        "alembic": {
-            "current_revision": current_revision,
-            "latest_revision": latest_revision,
-            "up_to_date": (current_revision == latest_revision) if latest_revision else None,
+        "alembic": governance,
+    }
+
+
+def get_database_migration_governance(
+    *,
+    tables: list[str] | None = None,
+    current_revision: str | None = None,
+    revisions: list[str] | None = None,
+) -> dict:
+    local_revisions = revisions or _get_local_alembic_revisions()
+    latest_revision = local_revisions[-1] if local_revisions else None
+
+    if tables is None:
+        with engine.connect() as conn:
+            inspector = inspect(conn)
+            tables = inspector.get_table_names()
+            if "alembic_version" in tables:
+                try:
+                    current_revision = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+                except Exception:
+                    current_revision = None
+            else:
+                current_revision = None
+    elif current_revision is None and "alembic_version" not in tables:
+        current_revision = None
+
+    current_index = local_revisions.index(current_revision) if current_revision in local_revisions else -1
+    pending_revisions = local_revisions[current_index + 1 :] if current_index >= 0 else local_revisions
+
+    if "alembic_version" in tables and current_revision:
+        mode = "alembic"
+    elif tables:
+        mode = "lightweight"
+    else:
+        mode = "bootstrap"
+
+    return {
+        "mode": mode,
+        "current_revision": current_revision,
+        "latest_revision": latest_revision,
+        "known_revisions": local_revisions,
+        "pending_revisions": pending_revisions,
+        "pending_count": len(pending_revisions) if current_revision != latest_revision else 0,
+        "up_to_date": (current_revision == latest_revision) if latest_revision else None,
+        "idempotent_bootstrap": True,
+        "notes": {
+            "alembic": "Use alembic upgrade head when alembic_version exists.",
+            "lightweight": "Legacy/bootstrap databases still rely on additive startup migrations.",
         },
     }
