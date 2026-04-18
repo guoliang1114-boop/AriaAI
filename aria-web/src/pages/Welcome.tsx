@@ -7,7 +7,6 @@ import {
   Brain,
   Building2,
   ChevronRight,
-  Clock3,
   FolderKanban,
   ListTodo,
   Loader2,
@@ -40,6 +39,9 @@ interface ClientSummary {
   client_memory_updated_at?: string | null
 }
 
+const cardBase =
+  'rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_60px_-30px_rgba(15,23,42,0.28)]'
+
 function formatCurrency(value: number, isZh: boolean) {
   if (!value) return isZh ? '¥0' : '$0'
   if (isZh) {
@@ -61,7 +63,10 @@ function formatRelativeTime(value?: string | null, isZh = true) {
   if (diffMinutes < 60) return isZh ? `${diffMinutes} 分钟前` : `${diffMinutes} min ago`
   if (diffMinutes < 1440) return isZh ? `${Math.floor(diffMinutes / 60)} 小时前` : `${Math.floor(diffMinutes / 60)} h ago`
   if (diffMinutes < 2880) return isZh ? '昨天' : 'Yesterday'
-  return new Date(value).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' })
+  return new Date(value).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 function getStageLabel(status: Project['status'], isZh: boolean) {
@@ -103,7 +108,6 @@ export function Welcome() {
     try {
       setLoading(true)
       setError(null)
-
       const [currentUser, allProjects, allClients, allSkills, allConversations, todos] = await Promise.all([
         api.get<User>('/auth/me'),
         api.get<Project[]>('/projects'),
@@ -112,7 +116,6 @@ export function Welcome() {
         api.get<Conversation[]>('/chat/conversations'),
         api.get<MyProjectTodo[]>('/projects/todos/my'),
       ])
-
       setUser(currentUser)
       setProjects(allProjects)
       setClients(allClients)
@@ -128,7 +131,7 @@ export function Welcome() {
             ? '无法连接到服务器，请确认后端服务正在运行。'
             : 'Unable to reach the server. Please make sure the backend is running.'
           : isZh
-            ? `加载失败：${apiError.response?.data?.detail || apiError.message}`
+            ? `加载工作台失败：${apiError.response?.data?.detail || apiError.message}`
             : `Failed to load workspace: ${apiError.response?.data?.detail || apiError.message}`,
       )
     } finally {
@@ -136,57 +139,33 @@ export function Welcome() {
     }
   }
 
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return isZh ? '早上好' : t('dashboard.greeting.morning')
+    if (hour < 18) return isZh ? '下午好' : t('dashboard.greeting.afternoon')
+    return isZh ? '晚上好' : t('dashboard.greeting.evening')
+  }, [isZh, t])
+
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== 'archived'), [projects])
   const activeClients = useMemo(() => clients.filter((client) => client.project_names.length > 0), [clients])
-  const contractValue = useMemo(
-    () => activeProjects.reduce((sum, project) => sum + (project.contract_amount || 0), 0),
-    [activeProjects],
-  )
+  const contractValue = useMemo(() => activeProjects.reduce((sum, project) => sum + (project.contract_amount || 0), 0), [activeProjects])
   const recentProjects = useMemo(
-    () => [...projects].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 5),
+    () => [...projects].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 4),
     [projects],
   )
   const recentConversations = useMemo(
-    () => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 4),
+    () => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 3),
     [conversations],
   )
-  const recentClients = useMemo(
-    () =>
-      [...clients]
-        .sort(
-          (a, b) =>
-            new Date(b.client_memory_updated_at || b.created_at).getTime() -
-            new Date(a.client_memory_updated_at || a.created_at).getTime(),
-        )
-        .slice(0, 4),
-    [clients],
-  )
   const topProjects = useMemo(
-    () =>
-      [...activeProjects]
-        .filter((project) => (project.contract_amount || 0) > 0)
-        .sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0))
-        .slice(0, 5),
+    () => [...activeProjects].filter((project) => (project.contract_amount || 0) > 0).sort((a, b) => (b.contract_amount || 0) - (a.contract_amount || 0)).slice(0, 4),
     [activeProjects],
   )
-  const maxProjectValue = useMemo(
-    () => Math.max(...topProjects.map((project) => project.contract_amount || 0), 1),
-    [topProjects],
-  )
-  const stageSummary = useMemo(
-    () =>
-      ['lead', 'opportunity', 'won', 'delivering', 'archived'].map((status) => ({
-        status: status as Project['status'],
-        count: projects.filter((project) => project.status === status).length,
-      })),
-    [projects],
-  )
+  const maxProjectValue = useMemo(() => Math.max(...topProjects.map((project) => project.contract_amount || 0), 1), [topProjects])
   const memoryHealth = useMemo(
     () => ({
-      projectMissing: projects.filter((project) => (project.memory_version || 0) === 0).length,
-      projectStale: projects.filter((project) => (project.memory_version || 0) > 0 && project.memory_stale).length,
-      clientMissing: clients.filter((client) => (client.client_memory_version || 0) === 0).length,
-      clientStale: clients.filter((client) => (client.client_memory_version || 0) > 0 && client.client_memory_stale).length,
+      projectNeedWork: projects.filter((project) => project.memory_stale || (project.memory_version || 0) === 0).length,
+      clientNeedWork: clients.filter((client) => client.client_memory_stale || (client.client_memory_version || 0) === 0).length,
     }),
     [clients, projects],
   )
@@ -203,12 +182,14 @@ export function Welcome() {
       return due >= now && due <= inThreeDays
     })
   }, [myTodos])
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours()
-    if (hour < 12) return isZh ? '早上好' : t('dashboard.greeting.morning')
-    if (hour < 18) return isZh ? '下午好' : t('dashboard.greeting.afternoon')
-    return isZh ? '晚上好' : t('dashboard.greeting.evening')
-  }, [isZh, t])
+  const stageSummary = useMemo(
+    () =>
+      (['lead', 'opportunity', 'won', 'delivering', 'archived'] as Project['status'][]).map((status) => ({
+        status,
+        count: projects.filter((project) => project.status === status).length,
+      })),
+    [projects],
+  )
 
   if (loading) {
     return (
@@ -226,7 +207,7 @@ export function Welcome() {
       <>
         <PageTitle title={t('dashboard.title')} />
         <div className="flex h-full items-center justify-center bg-surface">
-          <div className="max-w-md rounded-2xl border border-outline bg-surface p-8 text-center shadow-sm">
+          <div className="max-w-md rounded-3xl border border-outline bg-surface p-8 text-center shadow-sm">
             <AlertCircle className="mx-auto mb-4 h-10 w-10 text-error" />
             <p className="mb-4 text-sm text-on-surface">{error}</p>
             <button
@@ -245,65 +226,78 @@ export function Welcome() {
   return (
     <>
       <PageTitle title={t('dashboard.title')} />
-      <div className="h-full overflow-auto bg-surface">
+      <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.08),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.06),_transparent_24%),linear-gradient(to_bottom,_rgba(248,250,252,1),_rgba(255,255,255,1))]">
         <div className="space-y-6 px-8 py-8">
-          <section className="rounded-3xl bg-gradient-to-br from-primary via-indigo-600 to-indigo-700 p-8 text-white shadow-sm">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-              <div className="max-w-2xl">
-                <p className="mb-2 text-sm text-white/80">{greeting}</p>
-                <h1 className="mb-3 text-3xl font-bold tracking-tight">
-                  {user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
-                </h1>
-                <p className="text-sm leading-6 text-white/85">
-                  {isZh
-                    ? '这里是今天的工作台。先看待办、项目节奏和记忆健康度，再决定优先推进哪件事。'
-                    : 'Use this workspace to review today’s priorities, project momentum, and memory health before you move work forward.'}
-                </p>
+          <section className="relative overflow-hidden rounded-[32px] bg-slate-950 p-8 text-white shadow-[0_24px_80px_-32px_rgba(15,23,42,0.75)]">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.32),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_24%)]" />
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+            <div className="relative grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="space-y-6">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {isZh ? '今日工作台' : 'Today workspace'}
+                </div>
+                <div>
+                  <p className="mb-2 text-sm text-white/70">{greeting}</p>
+                  <h1 className="max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl">
+                    {user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
+                  </h1>
+                  <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75">
+                    {isZh
+                      ? '先看待办优先级、项目节奏和记忆健康度，再决定今天最值得推进的动作。'
+                      : 'Start from priorities, project rhythm, and memory health before choosing what to move today.'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => navigate('/chat')}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90"
+                  >
+                    {isZh ? '开始新对话' : 'Start a chat'}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => navigate('/projects/new')}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <FolderKanban className="h-4 w-4" />
+                    {isZh ? '新建项目' : 'Create project'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: isZh ? '逾期待办' : 'Overdue', value: overdueTodos.length },
+                    { label: isZh ? '记忆待处理' : 'Memory work', value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
+                    { label: isZh ? '活跃客户' : 'Active clients', value: activeClients.length },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80">
+                      {item.label}: <span className="font-semibold text-white">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
-                  {
-                    title: isZh ? '开始新对话' : 'Start a chat',
-                    sub: isZh ? '进入 AI 工作台' : 'Open the AI workspace',
-                    icon: Sparkles,
-                    path: '/chat',
-                    primary: true,
-                  },
-                  {
-                    title: isZh ? '新建项目' : 'Create project',
-                    sub: isZh ? '建立新的交付空间' : 'Open a new delivery workspace',
-                    icon: FolderKanban,
-                    path: '/projects/new',
-                  },
-                  {
-                    title: isZh ? '项目记忆' : 'Project memory',
-                    sub: isZh ? '检查项目记忆和摘要缓存' : 'Review project memory and cached summaries',
-                    icon: Brain,
-                    path: '/settings/memory',
-                  },
-                  {
-                    title: isZh ? '客户记忆' : 'Client memory',
-                    sub: isZh ? '查看客户长期经验沉淀' : 'Review client-level knowledge',
-                    icon: Users,
-                    path: '/settings/client-memory',
-                  },
+                  { title: isZh ? '项目记忆' : 'Project memory', sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries', icon: Brain, path: '/settings/memory', style: 'from-indigo-500/20 to-indigo-400/5 text-white' },
+                  { title: isZh ? '客户记忆' : 'Client memory', sub: isZh ? '查看客户长期经验沉淀' : 'Review client-level knowledge', icon: Users, path: '/settings/client-memory', style: 'from-emerald-500/20 to-emerald-400/5 text-white' },
+                  { title: isZh ? '客户列表' : 'Clients', sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients', style: 'from-sky-500/20 to-sky-400/5 text-white' },
+                  { title: isZh ? '项目列表' : 'Projects', sub: isZh ? '回到核心业务看板' : 'Return to the delivery board', icon: FolderKanban, path: '/projects', style: 'from-white/95 to-white/80 text-slate-900' },
                 ].map((item) => (
                   <button
                     key={item.title}
                     onClick={() => navigate(item.path)}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
-                      item.primary
-                        ? 'bg-white text-primary hover:bg-white/95'
-                        : 'border border-white/20 bg-white/10 hover:bg-white/15'
-                    }`}
+                    className={`group rounded-3xl border border-white/10 bg-gradient-to-br ${item.style} p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]`}
                   >
-                    <div>
-                      <div className="text-sm font-semibold">{item.title}</div>
-                      <div className={`mt-1 text-xs ${item.primary ? 'text-primary/70' : 'text-white/70'}`}>
-                        {item.sub}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold">{item.title}</div>
+                        <div className={`text-xs leading-5 ${item.style.includes('white/95') ? 'text-slate-600' : 'text-white/70'}`}>
+                          {item.sub}
+                        </div>
                       </div>
+                      <item.icon className="h-4 w-4 opacity-80 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                     </div>
-                    <item.icon className="h-4 w-4" />
                   </button>
                 ))}
               </div>
@@ -312,35 +306,17 @@ export function Welcome() {
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {[
-              {
-                label: isZh ? '活跃项目' : 'Active projects',
-                value: activeProjects.length,
-                sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total projects`,
-                icon: FolderKanban,
-              },
-              {
-                label: isZh ? '活跃客户' : 'Active clients',
-                value: activeClients.length,
-                sub: isZh ? `总计 ${clients.length} 个客户` : `${clients.length} total clients`,
-                icon: Building2,
-              },
-              {
-                label: isZh ? '合同总额' : 'Contract value',
-                value: formatCurrency(contractValue, isZh),
-                sub: isZh ? '按未归档项目统计' : 'Across non-archived projects',
-                icon: Wallet,
-              },
-              {
-                label: isZh ? '技能数量' : 'Available skills',
-                value: skills.length,
-                sub: isZh ? '可复用的工作流和技能' : 'Reusable skills and workflows',
-                icon: Sparkles,
-              },
+              { label: isZh ? '活跃项目' : 'Active projects', value: activeProjects.length, sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total projects`, icon: FolderKanban, tone: 'to-indigo-50/80' },
+              { label: isZh ? '活跃客户' : 'Active clients', value: activeClients.length, sub: isZh ? `总计 ${clients.length} 个客户` : `${clients.length} total clients`, icon: Building2, tone: 'to-sky-50/80' },
+              { label: isZh ? '合同总额' : 'Contract value', value: formatCurrency(contractValue, isZh), sub: isZh ? '按未归档项目统计' : 'Across non-archived projects', icon: Wallet, tone: 'to-emerald-50/80' },
+              { label: isZh ? '技能数量' : 'Available skills', value: skills.length, sub: isZh ? '可复用的工作流和技能' : 'Reusable skills and workflows', icon: Sparkles, tone: 'to-amber-50/80' },
             ].map((card) => (
-              <div key={card.label} className="rounded-2xl border border-outline bg-surface p-5 shadow-sm">
+              <div key={card.label} className={`rounded-3xl border border-slate-200/70 bg-gradient-to-br from-white ${card.tone} p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.4)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-28px_rgba(15,23,42,0.35)]`}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm text-on-surface-muted">{card.label}</div>
-                  <card.icon className="h-4 w-4 text-primary" />
+                  <div className="rounded-xl bg-white/70 p-2 text-primary shadow-sm">
+                    <card.icon className="h-4 w-4" />
+                  </div>
                 </div>
                 <div className="text-3xl font-semibold text-on-surface">{card.value}</div>
                 <div className="mt-2 text-sm text-on-surface-muted">{card.sub}</div>
@@ -348,54 +324,43 @@ export function Welcome() {
             ))}
           </section>
 
-          <section className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
+          <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className={cardBase}>
+              <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold text-on-surface">{isZh ? '今日优先动作' : 'Priority for today'}</h2>
                   <p className="mt-1 text-sm text-on-surface-muted">
-                    {isZh ? '把真正需要你推进的动作拉到最前面。' : 'Pull the actions that need your attention to the top.'}
+                    {isZh ? '先看逾期、临近到期和最近对话，再决定今天先推进什么。' : 'Review overdue work, near-term tasks, and recent chats before deciding what to move first.'}
                   </p>
                 </div>
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                >
+                <button onClick={() => navigate('/projects')} className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
                   {isZh ? '查看项目' : 'Open projects'}
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
+
               <div className="grid gap-3 sm:grid-cols-3">
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                >
-                  <div className="text-sm text-on-surface-muted">{isZh ? '逾期待办' : 'Overdue todos'}</div>
-                  <div className="mt-2 text-2xl font-semibold text-on-surface">{overdueTodos.length}</div>
-                </button>
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                >
-                  <div className="text-sm text-on-surface-muted">{isZh ? '三天内到期' : 'Due in 3 days'}</div>
-                  <div className="mt-2 text-2xl font-semibold text-on-surface">{dueSoonTodos.length}</div>
-                </button>
-                <button
-                  onClick={() => navigate('/chat')}
-                  className="rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                >
-                  <div className="text-sm text-on-surface-muted">{isZh ? '近期对话' : 'Recent chats'}</div>
-                  <div className="mt-2 text-2xl font-semibold text-on-surface">{recentConversations.length}</div>
-                </button>
+                {[
+                  { label: isZh ? '逾期待办' : 'Overdue todos', value: overdueTodos.length, icon: AlertCircle },
+                  { label: isZh ? '三天内到期' : 'Due in 3 days', value: dueSoonTodos.length, icon: ListTodo },
+                  { label: isZh ? '近期对话' : 'Recent chats', value: recentConversations.length, icon: MessageSquare },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <div className="mb-2 flex items-center justify-between text-sm text-on-surface-muted">
+                      <span>{item.label}</span>
+                      <item.icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="text-2xl font-semibold text-on-surface">{item.value}</div>
+                  </div>
+                ))}
               </div>
-              <div className="mt-4 space-y-3">
+
+              <div className="mt-5 space-y-3">
                 {myTodos.slice(0, 4).map((todo) => (
-                  <button
-                    key={todo.id}
-                    onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
-                    className="flex w-full items-start gap-3 rounded-2xl border border-outline px-4 py-3 text-left transition hover:bg-surface-container-low"
-                  >
-                    <ListTodo className="mt-0.5 h-4 w-4 text-primary" />
+                  <button key={todo.id} onClick={() => navigate(`/projects/${todo.project_id}/todos`)} className="flex w-full items-start gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
+                    <div className="mt-0.5 rounded-full bg-primary/10 p-1 text-primary">
+                      <ListTodo className="h-3.5 w-3.5" />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-on-surface">{todo.content}</div>
                       <div className="mt-1 text-xs text-on-surface-muted">
@@ -407,34 +372,29 @@ export function Welcome() {
                   </button>
                 ))}
                 {myTodos.length === 0 ? (
-                  <div className="rounded-2xl bg-surface-container-low px-4 py-6 text-center text-sm text-on-surface-muted">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-on-surface-muted">
                     {isZh ? '目前没有分配给你的项目待办。' : 'No project todos are assigned to you right now.'}
                   </div>
                 ) : null}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
-              <div className="mb-4">
+            <div className={cardBase}>
+              <div className="mb-5">
                 <h2 className="text-lg font-semibold text-on-surface">{isZh ? '记忆健康度' : 'Memory health'}</h2>
                 <p className="mt-1 text-sm text-on-surface-muted">
-                  {isZh
-                    ? '首页只展示健康概览，具体管理统一进设置。'
-                    : 'Use the dashboard for health signals and settings for full management.'}
+                  {isZh ? '首页只做信号提示，详细管理统一进入设置。' : 'Use this as a signal layer and settings for full management.'}
                 </p>
               </div>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
-                  { label: isZh ? '项目待刷新' : 'Project stale', value: memoryHealth.projectStale, path: '/settings/memory' },
-                  { label: isZh ? '项目未整理' : 'Project missing', value: memoryHealth.projectMissing, path: '/settings/memory' },
-                  { label: isZh ? '客户待刷新' : 'Client stale', value: memoryHealth.clientStale, path: '/settings/client-memory' },
-                  { label: isZh ? '客户未整理' : 'Client missing', value: memoryHealth.clientMissing, path: '/settings/client-memory' },
+                  { label: isZh ? '项目待处理' : 'Projects to review', value: memoryHealth.projectNeedWork, path: '/settings/memory', tone: 'from-amber-50' },
+                  { label: isZh ? '客户待处理' : 'Clients to review', value: memoryHealth.clientNeedWork, path: '/settings/client-memory', tone: 'from-emerald-50' },
+                  { label: isZh ? '项目记忆入口' : 'Project memory', value: '→', path: '/settings/memory', tone: 'from-indigo-50' },
+                  { label: isZh ? '客户记忆入口' : 'Client memory', value: '→', path: '/settings/client-memory', tone: 'from-sky-50' },
                 ].map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => navigate(item.path)}
-                    className="rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                  >
+                  <button key={item.label} onClick={() => navigate(item.path)} className={`rounded-2xl border border-slate-200 bg-gradient-to-br ${item.tone} to-white px-4 py-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm`}>
                     <div className="text-sm text-on-surface-muted">{item.label}</div>
                     <div className="mt-2 text-2xl font-semibold text-on-surface">{item.value}</div>
                   </button>
@@ -443,38 +403,29 @@ export function Welcome() {
             </div>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[1fr_1fr_1.1fr]">
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+          <section className="grid gap-6 xl:grid-cols-[1fr_1fr_1.05fr]">
+            <div className={cardBase}>
               <h2 className="text-lg font-semibold text-on-surface">{isZh ? '项目阶段分布' : 'Pipeline overview'}</h2>
               <div className="mt-4 space-y-3">
                 {stageSummary.map((item) => (
-                  <div key={item.status} className="rounded-2xl bg-surface-container-low px-4 py-3">
+                  <div key={item.status} className="rounded-2xl bg-slate-50 px-4 py-3">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium text-on-surface">{getStageLabel(item.status, isZh)}</span>
                       <span className="text-on-surface-muted">{item.count}</span>
                     </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-container-high">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${projects.length ? (item.count / projects.length) * 100 : 0}%` }}
-                      />
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                      <div className="h-full rounded-full bg-gradient-to-r from-primary to-indigo-400" style={{ width: `${projects.length ? (item.count / projects.length) * 100 : 0}%` }} />
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-on-surface">
-                {isZh ? '最近更新的项目' : 'Recently updated projects'}
-              </h2>
+            <div className={cardBase}>
+              <h2 className="text-lg font-semibold text-on-surface">{isZh ? '最近更新的项目' : 'Recently updated projects'}</h2>
               <div className="mt-4 space-y-2">
                 {recentProjects.map((project) => (
-                  <button
-                    key={project.id}
-                    onClick={() => navigate(`/projects/${project.id}`)}
-                    className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-container-low"
-                  >
+                  <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
                       <div className="mt-1 text-xs text-on-surface-muted">
@@ -487,60 +438,36 @@ export function Welcome() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+            <div className={cardBase}>
               <h2 className="text-lg font-semibold text-on-surface">{isZh ? '最近客户与对话' : 'Recent clients and chats'}</h2>
               <div className="mt-4 space-y-4">
                 <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
-                    {isZh ? '客户' : 'Clients'}
-                  </div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{isZh ? '客户' : 'Clients'}</div>
                   <div className="space-y-2">
-                    {recentClients.map((client) => (
-                      <button
-                        key={client.id}
-                        onClick={() => navigate(`/clients/${client.id}`)}
-                        className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-container-low"
-                      >
+                    {clients.slice(0, 3).map((client) => (
+                      <button key={client.id} onClick={() => navigate(`/clients/${client.id}`)} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-on-surface">{client.name}</div>
-                          <div className="mt-1 text-xs text-on-surface-muted">
-                            {client.industry || (isZh ? '未填写行业' : 'No industry')} · {client.project_names.length}{' '}
-                            {isZh ? '个项目' : 'projects'}
-                          </div>
+                          <div className="mt-1 text-xs text-on-surface-muted">{client.industry || (isZh ? '未填写行业' : 'No industry')}</div>
                         </div>
-                        <div className="ml-3 text-xs text-on-surface-muted">
-                          {formatRelativeTime(client.client_memory_updated_at || client.created_at, isZh)}
-                        </div>
+                        <div className="ml-3 text-xs text-on-surface-muted">{formatRelativeTime(client.client_memory_updated_at || client.created_at, isZh)}</div>
                       </button>
                     ))}
                   </div>
                 </div>
+
                 <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
-                    {isZh ? '对话' : 'Chats'}
-                  </div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{isZh ? '对话' : 'Chats'}</div>
                   <div className="space-y-2">
                     {recentConversations.map((conversation) => (
-                      <button
-                        key={conversation.id}
-                        onClick={() => navigate('/chat')}
-                        className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-container-low"
-                      >
+                      <button key={conversation.id} onClick={() => navigate('/chat')} className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-on-surface">
-                            {conversation.title || (isZh ? '未命名对话' : 'Untitled conversation')}
-                          </div>
+                          <div className="truncate text-sm font-medium text-on-surface">{conversation.title || (isZh ? '未命名对话' : 'Untitled conversation')}</div>
                           <div className="mt-1 text-xs text-on-surface-muted">
-                            {conversation.project_id
-                              ? `${isZh ? '关联项目' : 'Project'} #${conversation.project_id}`
-                              : isZh
-                                ? '通用工作台'
-                                : 'General workspace'}
+                            {conversation.project_id ? `${isZh ? '关联项目' : 'Project'} #${conversation.project_id}` : isZh ? '通用工作台' : 'General workspace'}
                           </div>
                         </div>
-                        <div className="ml-3 text-xs text-on-surface-muted">
-                          {formatRelativeTime(conversation.updated_at, isZh)}
-                        </div>
+                        <div className="ml-3 text-xs text-on-surface-muted">{formatRelativeTime(conversation.updated_at, isZh)}</div>
                       </button>
                     ))}
                   </div>
@@ -549,8 +476,8 @@ export function Welcome() {
             </div>
           </section>
 
-          <section className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+          <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className={cardBase}>
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-on-surface">{isZh ? '重点项目' : 'Top projects'}</h2>
@@ -558,26 +485,20 @@ export function Welcome() {
                     {isZh ? '按合同金额快速看到当前最值得关注的项目。' : 'Surface the projects with the largest contract value.'}
                   </p>
                 </div>
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                >
+                <button onClick={() => navigate('/projects')} className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
                   {isZh ? '查看全部' : 'View all'}
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
+
               <div className="space-y-3">
                 {topProjects.length === 0 ? (
-                  <div className="rounded-2xl bg-surface-container-low px-4 py-6 text-center text-sm text-on-surface-muted">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-on-surface-muted">
                     {isZh ? '当前还没有带合同金额的重点项目。' : 'No contract-backed top projects yet.'}
                   </div>
                 ) : (
                   topProjects.map((project) => (
-                    <button
-                      key={project.id}
-                      onClick={() => navigate(`/projects/${project.id}`)}
-                      className="w-full rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                    >
+                    <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)} className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-on-surface">{project.name}</div>
@@ -585,15 +506,10 @@ export function Welcome() {
                             {project.client || (isZh ? '未填写客户' : 'No client')} · {getStageLabel(project.status, isZh)}
                           </div>
                         </div>
-                        <div className="text-sm font-semibold text-on-surface">
-                          {formatCurrency(project.contract_amount || 0, isZh)}
-                        </div>
+                        <div className="text-sm font-semibold text-on-surface">{formatCurrency(project.contract_amount || 0, isZh)}</div>
                       </div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container-high">
-                        <div
-                          className="h-full rounded-full bg-primary"
-                          style={{ width: `${((project.contract_amount || 0) / maxProjectValue) * 100}%` }}
-                        />
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400" style={{ width: `${((project.contract_amount || 0) / maxProjectValue) * 100}%` }} />
                       </div>
                     </button>
                   ))
@@ -601,46 +517,23 @@ export function Welcome() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-outline bg-surface p-6 shadow-sm">
+            <div className={cardBase}>
               <div className="mb-4">
                 <h2 className="text-lg font-semibold text-on-surface">{isZh ? '常用入口' : 'Workspace shortcuts'}</h2>
                 <p className="mt-1 text-sm text-on-surface-muted">
                   {isZh ? '把最常打开的工作台入口放在首页。' : 'Keep the most-used workspaces one click away.'}
                 </p>
               </div>
+
               <div className="space-y-3">
                 {[
-                  {
-                    title: isZh ? '项目列表' : 'Projects',
-                    subtitle: isZh ? '查看项目节奏、阶段和合同分布' : 'Review active work and pipeline stages',
-                    icon: FolderKanban,
-                    path: '/projects',
-                  },
-                  {
-                    title: isZh ? '项目记忆管理' : 'Project memory manager',
-                    subtitle: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries',
-                    icon: Brain,
-                    path: '/settings/memory',
-                  },
-                  {
-                    title: isZh ? '客户记忆管理' : 'Client memory manager',
-                    subtitle: isZh ? '维护跨项目客户经验沉淀' : 'Maintain cross-project client knowledge',
-                    icon: Users,
-                    path: '/settings/client-memory',
-                  },
-                  {
-                    title: isZh ? '客户列表' : 'Clients',
-                    subtitle: isZh ? '维护客户档案与项目关系' : 'Maintain client records and relationships',
-                    icon: Building2,
-                    path: '/clients',
-                  },
+                  { title: isZh ? '项目列表' : 'Projects', subtitle: isZh ? '查看项目节奏和阶段分布' : 'Review active work and pipeline stages', icon: FolderKanban, path: '/projects' },
+                  { title: isZh ? '项目记忆管理' : 'Project memory manager', subtitle: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries', icon: Brain, path: '/settings/memory' },
+                  { title: isZh ? '客户记忆管理' : 'Client memory manager', subtitle: isZh ? '维护跨项目客户经验沉淀' : 'Maintain cross-project client knowledge', icon: Users, path: '/settings/client-memory' },
+                  { title: isZh ? '客户列表' : 'Clients', subtitle: isZh ? '维护客户档案与项目关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients' },
                 ].map((item) => (
-                  <button
-                    key={item.title}
-                    onClick={() => navigate(item.path)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-outline px-4 py-4 text-left transition hover:bg-surface-container-low"
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <button key={item.title} onClick={() => navigate(item.path)} className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-4 text-left transition duration-200 hover:-translate-y-0.5 hover:bg-slate-50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-primary">
                       <item.icon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
