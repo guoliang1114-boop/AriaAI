@@ -37,6 +37,8 @@ export interface Project {
   memory_stale?: boolean
   memory_version?: number
   memory_updated_at?: string | null
+  memory_rebuild_status?: string
+  memory_rebuild_failed_at?: string | null
 }
 
 export interface ProjectMemoryDocument {
@@ -59,6 +61,8 @@ export interface ProjectMemory {
   memory_version: number
   last_updated_at: string
   stale: boolean
+  rebuild_log?: Array<{ at: string; trigger: string; version: number }>
+  _coverage?: Record<string, number | string>
 }
 
 export interface ProjectMemoryResponse {

@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Brain, ExternalLink, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react'
+import {
+  AlertTriangle,
+  Brain,
+  Clock3,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Search,
+  Sparkles,
+  XCircle,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import { useToast } from '../../contexts/ToastContext'
@@ -13,6 +23,26 @@ function getMemoryStatus(project: Project): MemoryFilter {
   if ((project.memory_version || 0) === 0) return 'missing'
   if (project.memory_stale) return 'stale'
   return 'ready'
+}
+
+function getRebuildStatusText(status: string | undefined, isZh: boolean): string {
+  switch (status) {
+    case 'queued':
+      return isZh ? '排队中' : 'Queued'
+    case 'rebuilding':
+      return isZh ? '重建中' : 'Rebuilding'
+    case 'failed':
+      return isZh ? '重建失败' : 'Failed'
+    default:
+      return isZh ? '空闲' : 'Idle'
+  }
+}
+
+function RebuildStatusIcon({ status }: { status?: string }) {
+  if (status === 'rebuilding') return <Loader2 className="h-3 w-3 animate-spin" />
+  if (status === 'queued') return <Clock3 className="h-3 w-3" />
+  if (status === 'failed') return <XCircle className="h-3 w-3" />
+  return <RefreshCw className="h-3 w-3" />
 }
 
 export function ProjectMemorySettings() {
@@ -76,6 +106,8 @@ export function ProjectMemorySettings() {
       memory_updated_at?: string | null
       memory_version: number
       project_brief?: string
+      memory_rebuild_status?: string
+      memory_rebuild_failed_at?: string | null
     },
   ) => {
     setProjects((current) =>
@@ -86,6 +118,8 @@ export function ProjectMemorySettings() {
               memory_stale: update.memory_stale,
               memory_updated_at: update.memory_updated_at ?? project.memory_updated_at,
               memory_version: update.memory_version,
+              memory_rebuild_status: update.memory_rebuild_status ?? 'idle',
+              memory_rebuild_failed_at: update.memory_rebuild_failed_at ?? null,
               context_summary: update.project_brief?.trim() || project.context_summary,
             }
           : project,
@@ -102,6 +136,8 @@ export function ProjectMemorySettings() {
         memory_updated_at: data.memory_updated_at,
         memory_version: data.memory_version,
         project_brief: data.memory.project_brief,
+        memory_rebuild_status: data.memory_rebuild_status,
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at,
       })
       toast.success(isZh ? `已更新 ${project.name} 的项目记忆` : `Refreshed memory for ${project.name}`)
     } catch (error) {
@@ -137,6 +173,8 @@ export function ProjectMemorySettings() {
           memory_updated_at: item.memory_updated_at,
           memory_version: item.memory_version,
           project_brief: item.memory.project_brief,
+          memory_rebuild_status: 'idle',
+          memory_rebuild_failed_at: null,
         })
       })
 
@@ -195,8 +233,8 @@ export function ProjectMemorySettings() {
               </h2>
               <p className="mt-1 text-sm text-on-surface-muted">
                 {isZh
-                  ? '集中查看所有项目记忆状态，统一处理需要更新或尚未整理的项目。'
-                  : 'Manage project memory status across all projects from one place.'}
+                  ? '集中查看所有项目记忆状态，并观察排队、重建中和失败等异步进度。'
+                  : 'Track project memory health and async rebuild progress in one place.'}
               </p>
             </div>
           </div>
@@ -240,9 +278,7 @@ export function ProjectMemorySettings() {
                 : 'border-gray-200 bg-white hover:bg-gray-50'
             }`}
           >
-            <div className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
-              {option.label}
-            </div>
+            <div className="text-[11px] font-medium uppercase tracking-wider text-gray-500">{option.label}</div>
             <div className="mt-1 text-2xl font-bold text-gray-900">{option.count}</div>
           </button>
         ))}
@@ -292,6 +328,10 @@ export function ProjectMemorySettings() {
                       {statusText}
                     </span>
                     <span className="text-xs uppercase tracking-wider text-gray-400">{project.client}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                      <RebuildStatusIcon status={project.memory_rebuild_status} />
+                      {getRebuildStatusText(project.memory_rebuild_status, isZh)}
+                    </span>
                   </div>
 
                   <div className="text-base font-semibold text-gray-900">{project.name}</div>
@@ -299,6 +339,16 @@ export function ProjectMemorySettings() {
                     {isZh ? '最近同步：' : 'Last sync: '}
                     {formatProjectMemoryUpdatedAt(project.memory_updated_at, isZh)}
                   </div>
+
+                  {project.memory_rebuild_failed_at ? (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-red-600">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <span>
+                        {isZh ? '最近失败：' : 'Last failed: '}
+                        {formatProjectMemoryUpdatedAt(project.memory_rebuild_failed_at, isZh)}
+                      </span>
+                    </div>
+                  ) : null}
 
                   <div className="mt-3 text-sm leading-relaxed text-gray-600">
                     {project.context_summary?.trim()

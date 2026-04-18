@@ -75,6 +75,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
+  const [memoryMeta, setMemoryMeta] = useState<ProjectMemoryResponse | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
 
@@ -104,9 +105,11 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
     setIsLoadingMemory(true);
     try {
       const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
+      setMemoryMeta(data);
       setMemory(data.memory);
     } catch (error) {
       console.error("Failed to load project memory:", error);
+      setMemoryMeta(null);
       setMemory(null);
     } finally {
       setIsLoadingMemory(false);
@@ -121,6 +124,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         {},
         { timeout: 60000 },
       );
+      setMemoryMeta(data);
       setMemory(data.memory);
       await Promise.all([
         overviewInsight.refresh(true),
@@ -148,6 +152,27 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   );
 
   const memoryUpdatedText = formatProjectMemoryUpdatedAt(memory?.last_updated_at, isZh);
+  const rebuildStatusText =
+    memoryMeta?.memory_rebuild_status === "queued"
+      ? isZh
+        ? "排队中"
+        : "Queued"
+      : memoryMeta?.memory_rebuild_status === "rebuilding"
+        ? isZh
+          ? "重建中"
+          : "Rebuilding"
+        : memoryMeta?.memory_rebuild_status === "failed"
+          ? isZh
+            ? "重建失败"
+            : "Failed"
+          : isZh
+            ? "空闲"
+            : "Idle";
+  const lastTrigger = memory?.rebuild_log?.length
+    ? memory.rebuild_log[memory.rebuild_log.length - 1]?.trigger || (isZh ? "未知" : "Unknown")
+    : isZh
+      ? "暂无"
+      : "N/A";
 
   return (
     <div className="space-y-6">
@@ -158,6 +183,8 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             isRebuilding={isRebuildingMemory}
             isZh={isZh}
             memory={memory}
+            rebuildStatus={memoryMeta?.memory_rebuild_status}
+            rebuildFailedAt={memoryMeta?.memory_rebuild_failed_at}
             onRebuild={() => {
               void rebuildMemory();
             }}
@@ -277,6 +304,31 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           </div>
         </div>
       ) : null}
+
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              {isZh ? "异步状态" : "Async Status"}
+            </div>
+            <div className="mt-1 font-semibold text-gray-900">{rebuildStatusText}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              {isZh ? "最近触发" : "Last Trigger"}
+            </div>
+            <div className="mt-1 font-semibold text-gray-900">{lastTrigger}</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              {isZh ? "最近失败" : "Last Failed"}
+            </div>
+            <div className="mt-1 font-semibold text-gray-900">
+              {formatProjectMemoryUpdatedAt(memoryMeta?.memory_rebuild_failed_at, isZh)}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <DetailCard icon={Brain} title={isZh ? "项目概况" : "Project Brief"}>
