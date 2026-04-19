@@ -71,9 +71,10 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
 type UseProjectChatComposerParams = {
   projectId: number;
   activeConvId: number | null;
+  selectedSkillId: number | null;
   knowledgeScope: "project" | "client" | "global";
   setMessages: Dispatch<SetStateAction<Message[]>>;
-  createConversation: (firstMessage?: string) => Promise<number | null>;
+  createConversation: (firstMessage?: string, skillId?: number | null) => Promise<number | null>;
   fetchMessages: (conversationId: number) => Promise<void>;
   fetchConversations: () => Promise<void>;
   isNearBottomRef: MutableRefObject<boolean>;
@@ -84,6 +85,7 @@ type UseProjectChatComposerParams = {
 export function useProjectChatComposer({
   projectId,
   activeConvId,
+  selectedSkillId,
   knowledgeScope,
   setMessages,
   createConversation,
@@ -111,11 +113,12 @@ export function useProjectChatComposer({
     if (!trimmed) return false;
 
     let conversationId = activeConvId;
+    const skillId = selectedSkillId || undefined;
     setIsLoading(true);
     resetStreamingContent();
 
     if (!conversationId) {
-      conversationId = await createConversation(trimmed);
+      conversationId = await createConversation(trimmed, selectedSkillId);
       if (!conversationId) {
         setIsLoading(false);
         return false;
@@ -145,6 +148,7 @@ export function useProjectChatComposer({
           conversation_id: conversationId,
           content: trimmed,
           project_id: projectId,
+          skill_id: skillId,
           knowledge_scope: knowledgeScope,
         }),
       });
@@ -272,6 +276,7 @@ export function useProjectChatComposer({
     projectId,
     resetStreamingContent,
     scrollToBottom,
+    selectedSkillId,
     setMessages,
   ]);
 

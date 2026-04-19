@@ -79,11 +79,12 @@ export function useProjectChatConversations({
     }
   };
 
-  const createConversation = async (firstMessage?: string) => {
+  const createConversation = async (firstMessage?: string, skillId?: number | null) => {
     try {
       const title = buildDefaultChatTitle(firstMessage || "", isZh);
       const newConversation = await api.post<Conversation>("/chat/conversations", {
         project_id: projectId,
+        skill_id: skillId || undefined,
         title,
       });
       setConversations((prev) => [newConversation, ...prev]);

@@ -9,12 +9,17 @@ import type {
   ProjectFolder,
   ProjectMemoryResponse,
   ProjectMemoryStatusResponse,
+  Skill,
 } from "../../types/api";
 import { downloadArtifact } from "./downloadArtifact";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
 import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
+import {
+  extractSkillTemplateVariables,
+  ProjectChatSkillTemplateModal,
+} from "./ProjectChatSkillTemplateModal";
 import {
   getProjectChatCopy,
   getProjectMemoryQuickActions,
@@ -44,7 +49,16 @@ export function ProjectChatTab({
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [selectedSkillId, setSelectedSkillId] = useState<number | null>(null);
+  const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false);
+  const [skillTemplateData, setSkillTemplateData] = useState<{
+    skill: Skill;
+    variables: { name: string; value: string }[];
+  } | null>(null);
   const autoRefreshAttemptedRef = useRef("");
+  const processedSkillRef = useRef<string | null>(null);
 
   const {
     conversations,
@@ -91,6 +105,7 @@ export function ProjectChatTab({
   } = useProjectChatComposer({
     projectId: project.id,
     activeConvId,
+    selectedSkillId,
     knowledgeScope: panel.knowledgeScope,
     setMessages,
     createConversation,
@@ -100,6 +115,68 @@ export function ProjectChatTab({
     scrollToBottom: panel.scrollToBottom,
     onSendError: () => toast.error(copy.sendFailed),
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSkills = async () => {
+      setIsLoadingSkills(true);
+      try {
+        const data = await api.get<Skill[]>("/skills");
+        if (!cancelled) {
+          setSkills(data);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load skills:", error);
+          setSkills([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSkills(false);
+        }
+      }
+    };
+
+    void loadSkills();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeConvId && activeConversation) {
+      setSelectedSkillId(activeConversation.skill_id ?? null);
+      return;
+    }
+    if (!activeConvId) {
+      setSelectedSkillId(null);
+      processedSkillRef.current = null;
+    }
+  }, [activeConvId, activeConversation]);
+
+  useEffect(() => {
+    if (!selectedSkillId || showSkillTemplateModal || messages.length > 0) {
+      return;
+    }
+
+    const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
+    if (!selectedSkill?.user_template) {
+      return;
+    }
+
+    const skillKey = `${activeConvId ?? "new"}:${selectedSkillId}`;
+    if (processedSkillRef.current === skillKey) {
+      return;
+    }
+
+    setSkillTemplateData({
+      skill: selectedSkill,
+      variables: extractSkillTemplateVariables(selectedSkill.user_template),
+    });
+    setShowSkillTemplateModal(true);
+    processedSkillRef.current = skillKey;
+  }, [activeConvId, messages.length, selectedSkillId, showSkillTemplateModal, skills]);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,6 +285,17 @@ export function ProjectChatTab({
     }
   }, [panel.scrollToBottom, streamingContent]);
 
+  const handleApplySkillTemplate = async (filledTemplate: string) => {
+    setShowSkillTemplateModal(false);
+    setSkillTemplateData(null);
+    await sendMessage(filledTemplate);
+  };
+
+  const handleCancelSkillTemplate = () => {
+    setShowSkillTemplateModal(false);
+    setSkillTemplateData(null);
+  };
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white">
       <ProjectChatSidebar
@@ -254,9 +342,13 @@ export function ProjectChatTab({
         }}
         onSaveMessage={panel.openSaveModal}
         onSend={() => panel.handleSend(sendMessage)}
+        onSkillChange={setSelectedSkillId}
         onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
         projectId={project.id}
         quickPrompts={quickPrompts}
+        skills={skills}
+        selectedSkillId={selectedSkillId}
+        isLoadingSkills={isLoadingSkills}
         startConversationLabel={copy.startConversation}
         streamingArtifacts={streamingArtifacts}
         streamingContent={streamingContent}
@@ -297,6 +389,15 @@ export function ProjectChatTab({
           void deleteConversation(conversationPendingDelete.id);
         }}
       />
+
+      {showSkillTemplateModal && skillTemplateData ? (
+        <ProjectChatSkillTemplateModal
+          skill={skillTemplateData.skill}
+          variables={skillTemplateData.variables}
+          onApply={handleApplySkillTemplate}
+          onCancel={handleCancelSkillTemplate}
+        />
+      ) : null}
     </div>
   );
 }

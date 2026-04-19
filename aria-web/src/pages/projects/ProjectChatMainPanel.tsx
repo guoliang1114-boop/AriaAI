@@ -1,3 +1,4 @@
+import { BookOpen } from "lucide-react";
 import type { RefObject } from "react";
 import type {
   Conversation,
@@ -5,6 +6,7 @@ import type {
   Message,
   ProjectMemoryStatusResponse,
   Reference,
+  Skill,
   ToolCallEvent,
 } from "../../types/api";
 import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
@@ -49,6 +51,10 @@ interface ProjectChatMainPanelProps {
   title: string;
   choosePromptLabel: string;
   inputPlaceholder: string;
+  skills: Skill[];
+  selectedSkillId: number | null;
+  isLoadingSkills: boolean;
+  onSkillChange: (value: number | null) => void;
 }
 
 export function ProjectChatMainPanel({
@@ -86,6 +92,10 @@ export function ProjectChatMainPanel({
   subtitle,
   thinkingLabel,
   title,
+  skills,
+  selectedSkillId,
+  isLoadingSkills,
+  onSkillChange,
 }: ProjectChatMainPanelProps) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -103,6 +113,36 @@ export function ProjectChatMainPanel({
         onRebuildMemory={onRebuildMemory}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
+        skillControl={
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Skill</span>
+            <select
+              value={selectedSkillId ?? ""}
+              onChange={(event) => onSkillChange(event.target.value ? Number(event.target.value) : null)}
+              disabled={isLoadingSkills || skills.length === 0}
+              className="max-w-[220px] rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              <option value="">{isLoadingSkills ? "Loading skills..." : "No skill"}</option>
+              {skills.map((skill) => (
+                <option key={skill.id} value={skill.id}>
+                  {skill.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
+        skillSaveControl={
+          activeConversation?.id && selectedSkillId ? (
+            <button
+              type="button"
+              onClick={onOpenConversationSaveModal}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 transition-colors hover:bg-emerald-100"
+            >
+              <BookOpen className="h-4 w-4" />
+              <span>Save Skill Result</span>
+            </button>
+          ) : undefined
+        }
         exportControl={
           activeConversation?.id ? (
             <ProjectChatExportDropdown
