@@ -123,9 +123,6 @@ export function Projects() {
       <PageTitle title={t("projects.title")} />
       <div className="min-h-full bg-gradient-to-b from-gray-50 to-white">
         <ProjectsHeader
-          archivedCount={archivedProjects.length}
-          businessCount={businessProjects.length}
-          deliveryCount={deliveryProjects.length}
           isLoadingUsers={isLoadingUsers}
           isZh={isZh}
           onCreateProject={() => navigate("/projects/new")}
@@ -133,7 +130,6 @@ export function Projects() {
           onSelectedMemberChange={setSelectedMemberId}
           searchQuery={searchQuery}
           selectedMemberId={selectedMemberId}
-          totalCount={projects.length}
           users={users}
         />
 
