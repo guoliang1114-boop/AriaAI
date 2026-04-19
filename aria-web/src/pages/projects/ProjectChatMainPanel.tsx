@@ -1,5 +1,6 @@
 import { BookOpen } from "lucide-react";
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   Conversation,
   GeneratedArtifact,
@@ -14,7 +15,7 @@ import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMemoryQuickBar } from "./ProjectChatMemoryQuickBar";
 import { ProjectChatMessages } from "./ProjectChatMessages";
-import type { ProjectMemoryQuickAction, ProjectQuickPrompt } from "./projectChatCopy";
+import { getProjectChatCopy, type ProjectMemoryQuickAction, type ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatMainPanelProps {
   activeConversation?: Conversation | null;
@@ -97,6 +98,10 @@ export function ProjectChatMainPanel({
   isLoadingSkills,
   onSkillChange,
 }: ProjectChatMainPanelProps) {
+  const { i18n } = useTranslation();
+  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
+  const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <ProjectChatHeader
@@ -115,14 +120,14 @@ export function ProjectChatMainPanel({
         onKnowledgeScopeChange={onKnowledgeScopeChange}
         skillControl={
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">Skill</span>
+            <span className="text-xs text-gray-400">{copy.skillLabel}</span>
             <select
               value={selectedSkillId ?? ""}
               onChange={(event) => onSkillChange(event.target.value ? Number(event.target.value) : null)}
               disabled={isLoadingSkills || skills.length === 0}
               className="max-w-[220px] rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
             >
-              <option value="">{isLoadingSkills ? "Loading skills..." : "No skill"}</option>
+              <option value="">{isLoadingSkills ? copy.loadingSkills : copy.noSkill}</option>
               {skills.map((skill) => (
                 <option key={skill.id} value={skill.id}>
                   {skill.name}
@@ -133,14 +138,26 @@ export function ProjectChatMainPanel({
         }
         skillSaveControl={
           activeConversation?.id && selectedSkillId ? (
-            <button
-              type="button"
-              onClick={onOpenConversationSaveModal}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 transition-colors hover:bg-emerald-100"
-            >
-              <BookOpen className="h-4 w-4" />
-              <span>Save Skill Result</span>
-            </button>
+            <div className="inline-flex items-center gap-2">
+              {latestAssistantMessage ? (
+                <button
+                  type="button"
+                  onClick={() => onSaveMessage(latestAssistantMessage.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 transition-colors hover:bg-emerald-100"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span>{copy.saveSkillResult}</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onOpenConversationSaveModal}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 transition-colors hover:bg-blue-100"
+              >
+                <BookOpen className="h-4 w-4" />
+                <span>{copy.saveSkillConversation}</span>
+              </button>
+            </div>
           ) : undefined
         }
         exportControl={

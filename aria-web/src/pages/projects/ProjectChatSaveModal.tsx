@@ -119,6 +119,7 @@ export function ProjectChatSaveModal({
             folders={folders}
             loading={loading}
             onActionChange={setAction}
+            onCancel={onClose}
             onFileNameChange={setFileName}
             onSelectedFileChange={setSelectedFileId}
             onSelectedFolderChange={setSelectedFolderId}
