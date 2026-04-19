@@ -310,18 +310,54 @@ export function Welcome() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
-                  { title: isZh ? '项目记忆' : 'Project memory', sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries', icon: Brain, path: '/settings/memory', style: 'from-indigo-500/20 to-indigo-400/5 text-white' },
-                  { title: isZh ? '客户记忆' : 'Client memory', sub: isZh ? '查看客户级长期经验沉淀' : 'Review client-level knowledge', icon: Users, path: '/settings/client-memory', style: 'from-emerald-500/20 to-emerald-400/5 text-white' },
-                  { title: isZh ? '客户列表' : 'Clients', sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients', style: 'from-sky-500/20 to-sky-400/5 text-white' },
-                  { title: isZh ? '项目列表' : 'Projects', sub: isZh ? '回到核心业务看板' : 'Return to the delivery board', icon: FolderKanban, path: '/projects', style: 'from-white/95 to-white/80 text-slate-900' },
+                  {
+                    title: isZh ? '项目记忆' : 'Project memory',
+                    sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries',
+                    icon: Brain,
+                    path: '/settings/memory',
+                    cardClass: 'border-indigo-200/70 bg-gradient-to-br from-indigo-500/24 via-sky-500/12 to-white/72 text-slate-950',
+                    subClass: 'text-slate-700',
+                    iconClass: 'text-indigo-700',
+                  },
+                  {
+                    title: isZh ? '客户记忆' : 'Client memory',
+                    sub: isZh ? '查看客户级长期经验沉淀' : 'Review client-level knowledge',
+                    icon: Users,
+                    path: '/settings/client-memory',
+                    cardClass: 'border-emerald-200/80 bg-gradient-to-br from-emerald-400/24 via-teal-300/12 to-white/74 text-slate-950',
+                    subClass: 'text-slate-700',
+                    iconClass: 'text-emerald-700',
+                  },
+                  {
+                    title: isZh ? '客户列表' : 'Clients',
+                    sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships',
+                    icon: Building2,
+                    path: '/clients',
+                    cardClass: 'border-sky-200/85 bg-gradient-to-br from-sky-200/88 via-cyan-100/82 to-white/92 text-slate-900',
+                    subClass: 'text-slate-600',
+                    iconClass: 'text-sky-700',
+                  },
+                  {
+                    title: isZh ? '项目列表' : 'Projects',
+                    sub: isZh ? '回到核心业务看板' : 'Return to the delivery board',
+                    icon: FolderKanban,
+                    path: '/projects',
+                    cardClass: 'border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-slate-50/96 text-slate-900',
+                    subClass: 'text-slate-600',
+                    iconClass: 'text-amber-700',
+                  },
                 ].map((item) => (
-                  <button key={item.title} onClick={() => navigate(item.path)} className={`group rounded-3xl border border-white/60 bg-gradient-to-br ${item.style} p-4 text-left shadow-[0_16px_36px_-28px_rgba(59,130,246,0.22)] transition duration-200 hover:-translate-y-1 hover:border-white hover:shadow-[0_18px_40px_-24px_rgba(59,130,246,0.24)]`}>
+                  <button
+                    key={item.title}
+                    onClick={() => navigate(item.path)}
+                    className={`group rounded-3xl border ${item.cardClass} p-4 text-left shadow-[0_16px_36px_-28px_rgba(59,130,246,0.18)] backdrop-blur-sm transition duration-200 hover:-translate-y-1 hover:shadow-[0_18px_40px_-24px_rgba(59,130,246,0.22)]`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-2">
                         <div className="text-sm font-semibold">{item.title}</div>
-                        <div className={`text-xs leading-5 ${item.style.includes('white/95') ? 'text-slate-600' : 'text-white/70'}`}>{item.sub}</div>
+                        <div className={`text-xs leading-5 ${item.subClass}`}>{item.sub}</div>
                       </div>
-                      <item.icon className="h-4 w-4 opacity-80 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      <item.icon className={`h-4 w-4 ${item.iconClass} opacity-85 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5`} />
                     </div>
                   </button>
                 ))}
