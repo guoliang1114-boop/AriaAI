@@ -321,6 +321,23 @@ export function ProjectChatTab({
     onFullscreenChange?.(isFullscreen);
   }, [isFullscreen, onFullscreenChange]);
 
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
   const handleApplySkillTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false);
     setSkillTemplateData(null);
@@ -345,6 +362,7 @@ export function ProjectChatTab({
         conversations={conversations}
         editTitle={editTitle}
         editingConvId={editingConvId}
+        isFullscreen={isFullscreen}
         isLoadingConversations={isLoadingConversations}
         isOpen={panel.isSidebarOpen}
         onBeginRename={beginRenameConversation}

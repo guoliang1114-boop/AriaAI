@@ -25,7 +25,12 @@ export function ProjectDetailLayout({
   onRefresh: () => void;
   children: ReactNode;
 }) {
-  const [isChatFocusMode, setIsChatFocusMode] = useState(false);
+  const [isChatFocusMode, setIsChatFocusMode] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("aria-project-chat-fullscreen") === "true";
+  });
   const isPersistentTab =
     activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
 
