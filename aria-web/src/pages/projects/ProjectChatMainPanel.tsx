@@ -1,5 +1,5 @@
-import { ArrowDown, BookOpen, Radio } from "lucide-react";
-import type { RefObject } from "react";
+import { ArrowDown, BookOpen, ChevronDown, Info, Radio, Wrench } from "lucide-react";
+import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   Conversation,
@@ -113,6 +113,29 @@ export function ProjectChatMainPanel({
   const { i18n } = useTranslation();
   const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+  const selectedSkillData = useMemo(
+    () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
+    [selectedSkillId, skills],
+  );
+  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
+  const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
+  const skillDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (skillDropdownRef.current && !skillDropdownRef.current.contains(event.target as Node)) {
+        setShowSkillDropdown(false);
+      }
+    };
+
+    if (showSkillDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showSkillDropdown]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -132,24 +155,6 @@ export function ProjectChatMainPanel({
         onToggleFullscreen={onToggleFullscreen}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
-        skillControl={
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">{copy.skillLabel}</span>
-            <select
-              value={selectedSkillId ?? ""}
-              onChange={(event) => onSkillChange(event.target.value ? Number(event.target.value) : null)}
-              disabled={isLoadingSkills || skills.length === 0}
-              className="max-w-[220px] rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
-            >
-              <option value="">{isLoadingSkills ? copy.loadingSkills : copy.noSkill}</option>
-              {skills.map((skill) => (
-                <option key={skill.id} value={skill.id}>
-                  {skill.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        }
         skillSaveControl={
           activeConversation?.id && selectedSkillId ? (
             <div className="inline-flex items-center gap-2">
@@ -241,10 +246,169 @@ export function ProjectChatMainPanel({
         value={inputValue}
         isLoading={isLoading}
         isFullscreen={isFullscreen}
+        contextControls={
+          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-1.5">
+            <ContextPill
+              ref={skillDropdownRef}
+              icon={<Wrench className="h-3 w-3" />}
+              label={selectedSkillData ? selectedSkillData.name : "@ Skills"}
+              active={!!selectedSkillId}
+              secondary
+              open={showSkillDropdown}
+              onToggle={() => setShowSkillDropdown((value) => !value)}
+            >
+              {showSkillDropdown ? (
+                <DropdownMenu wide>
+                  <DropdownItem
+                    onClick={() => {
+                      onSkillChange(null);
+                      setSkillCategoryFilter("all");
+                      setShowSkillDropdown(false);
+                    }}
+                    muted
+                  >
+                    {copy.noSkill}
+                  </DropdownItem>
+                  <div className="border-b border-gray-100 px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {["all", ...Array.from(new Set(skills.map((skill) => skill.category)))].map((category) => (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSkillCategoryFilter(category);
+                          }}
+                          className={`rounded-md px-2 py-0.5 text-xs transition-colors ${
+                            skillCategoryFilter === category
+                              ? "bg-primary text-white"
+                              : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          }`}
+                        >
+                          {category === "all" ? "All" : category}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    {(skillCategoryFilter === "all"
+                      ? skills
+                      : skills.filter((skill) => skill.category === skillCategoryFilter)
+                    ).map((skill) => (
+                      <DropdownItem
+                        key={skill.id}
+                        onClick={() => {
+                          onSkillChange(skill.id);
+                          setShowSkillDropdown(false);
+                        }}
+                      >
+                        <div className="flex flex-col">
+                          <span>{skill.name}</span>
+                          {skill.estimated_time ? (
+                            <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+                          ) : null}
+                        </div>
+                      </DropdownItem>
+                    ))}
+                  </div>
+                </DropdownMenu>
+              ) : null}
+            </ContextPill>
+          </div>
+        }
+        selectedSkillPanel={
+          selectedSkillData ? <ProjectSkillReferencePanel skill={selectedSkillData} /> : null
+        }
         placeholder={inputPlaceholder}
         onChange={onInputChange}
         onSend={onSend}
       />
     </div>
+  );
+}
+
+function ProjectSkillReferencePanel({ skill }: { skill: Skill }) {
+  return (
+    <div className="mx-auto mb-3 max-w-5xl overflow-hidden rounded-xl border border-gray-200 bg-primary/5">
+      <div className="flex items-center gap-2 border-b border-gray-200/80 px-3 py-2">
+        <Info className="h-4 w-4 text-primary" />
+        <span className="text-sm font-medium text-gray-700">{skill.name}</span>
+        {skill.estimated_time ? (
+          <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+        ) : null}
+      </div>
+      <div className="space-y-2 px-3 py-3">
+        {skill.description ? (
+          <p className="text-sm text-gray-600">{skill.description}</p>
+        ) : null}
+        {skill.user_template ? (
+          <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
+            <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-gray-500">
+              {skill.user_template}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const ContextPill = forwardRef<HTMLDivElement, {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  secondary?: boolean;
+  open: boolean;
+  onToggle: () => void;
+  children?: React.ReactNode;
+}>(({ icon, label, active, secondary, open: _open, onToggle, children }, ref) => (
+  <div className="relative" ref={ref}>
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition-colors ${
+        active
+          ? secondary
+            ? "bg-gray-100/80 text-gray-600"
+            : "bg-primary/8 text-primary"
+          : "text-gray-400 hover:bg-gray-100/70 hover:text-gray-600"
+      }`}
+    >
+      {icon}
+      {label}
+      <ChevronDown className="h-3 w-3" />
+    </button>
+    {children}
+  </div>
+));
+ContextPill.displayName = "ContextPill";
+
+function DropdownMenu({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={`absolute bottom-full left-0 z-50 mb-2 rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg ${wide ? "w-80" : "w-60"}`}>
+      {children}
+    </div>
+  );
+}
+
+function DropdownItem({
+  onClick,
+  children,
+  muted,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-50 ${
+        muted ? "text-gray-400" : "text-gray-700"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
