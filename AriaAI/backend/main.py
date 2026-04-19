@@ -33,6 +33,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+APP_VERSION = "0.0.1"
+
 
 def _backfill_folders():
     """Create default folders for all existing projects that have none."""
@@ -103,7 +105,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AriaAI API",
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -205,7 +207,7 @@ app.include_router(messages.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "AriaAI"}
+    return {"status": "ok", "service": "AriaAI", "version": APP_VERSION}
 
 
 @app.get("/health/db")

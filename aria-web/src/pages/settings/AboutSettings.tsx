@@ -41,7 +41,7 @@ interface ChangelogEntry {
 export function AboutSettings() {
   const { t } = useTranslation()
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1',
     buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
@@ -54,24 +54,13 @@ export function AboutSettings() {
   // Changelog data
   const changelog: ChangelogEntry[] = [
     {
-      version: '1.0.0',
-      date: '2026-04-09',
+      version: '0.0.1',
+      date: '2026-04-19',
       changes: [
-        'Initial release of AriaAI',
-        'AI-powered consulting assistance',
-        'Project and knowledge management',
-        'Multi-user support with role-based access',
-        'Integration with Claude and Moonshot AI',
-      ],
-    },
-    {
-      version: '0.9.0',
-      date: '2026-03-15',
-      changes: [
-        'Beta release with core features',
-        'Skill system for specialized tasks',
-        'Document upload and vector search',
-        'Real-time chat interface',
+        'Established the first recorded public product version',
+        'Aligned the web About page version display with the packaged build version',
+        'Added API version reporting through the backend health endpoint',
+        'Recorded the current release baseline for future changelog entries',
       ],
     },
   ]
