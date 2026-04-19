@@ -353,7 +353,7 @@ export function ProjectChatTab({
     <div
       className={
         isFullscreen
-          ? "flex h-full min-h-0 overflow-hidden border-0 bg-white shadow-none"
+          ? "flex h-screen w-screen min-h-0 overflow-hidden border-0 bg-white shadow-none"
           : "flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white"
       }
     >

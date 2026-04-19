@@ -161,7 +161,7 @@ export function PersistentProjectPanels({
             isActive={activeTabId === panel.id}
             className={
               panel.id === "chat" && isChatFocusMode
-                ? "h-screen min-h-screen px-0 py-0"
+                ? "fixed inset-0 z-50 h-screen w-screen min-h-screen bg-white px-0 py-0"
                 : undefined
             }
             tabId={panel.id}

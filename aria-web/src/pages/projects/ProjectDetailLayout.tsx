@@ -35,7 +35,7 @@ export function ProjectDetailLayout({
     activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
 
   return (
-    <div className="min-h-full bg-gray-50">
+    <div className={activeTabId === "chat" && isChatFocusMode ? "h-screen overflow-hidden bg-gray-50" : "min-h-full bg-gray-50"}>
       {!(activeTabId === "chat" && isChatFocusMode) ? (
         <ProjectDetailHeader
           project={project}
