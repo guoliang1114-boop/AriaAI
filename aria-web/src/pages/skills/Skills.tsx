@@ -124,7 +124,6 @@ export function Skills() {
 
   const featuredSkills = filteredSkills.slice(0, 2);
   const regularSkills = filteredSkills.slice(2);
-  const quickCount = skills.filter((skill) => extractMinutes(skill.estimated_time) <= 10).length;
 
   if (loading) {
     return (
@@ -141,10 +140,10 @@ export function Skills() {
     <>
       <PageTitle title="Skills" />
       <div className="min-h-full bg-[linear-gradient(180deg,#f7f8fb_0%,#eef3f8_100%)]">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
           <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#dcecff_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
             <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-            <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+            <div className="relative">
               <div className="max-w-3xl">
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white/80 px-3 py-1.5 text-xs font-medium text-primary shadow-sm backdrop-blur">
                   <Brain className="h-3.5 w-3.5" />
@@ -156,12 +155,6 @@ export function Skills() {
                 <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
                   Pick a skill, understand what it is good at, and jump straight into a guided conversation flow.
                 </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <StatCard label={t("skills.activeSkills")} value={String(skills.length)} />
-                <StatCard label={t("skills.types.quick")} value={String(quickCount)} />
-                <StatCard label={t("skills.categories.all")} value={String(categories.length - 1)} />
               </div>
             </div>
           </section>
@@ -228,7 +221,7 @@ export function Skills() {
                 ))}
               </section>
 
-              <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
                 {regularSkills.map((skill) => (
                   <SkillCard key={skill.id} skill={skill} onUse={() => handleUseSkill(skill.id)} />
                 ))}
@@ -238,15 +231,6 @@ export function Skills() {
         </div>
       </div>
     </>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-center shadow-sm backdrop-blur">
-      <div className="text-2xl font-semibold text-slate-900">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{label}</div>
-    </div>
   );
 }
 
