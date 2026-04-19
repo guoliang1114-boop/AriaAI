@@ -52,6 +52,7 @@ export function ProjectChatTab({
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<number | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false);
   const [skillTemplateData, setSkillTemplateData] = useState<{
     skill: Skill;
@@ -285,6 +286,18 @@ export function ProjectChatTab({
     }
   }, [panel.scrollToBottom, streamingContent]);
 
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isFullscreen]);
+
   const handleApplySkillTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false);
     setSkillTemplateData(null);
@@ -297,7 +310,13 @@ export function ProjectChatTab({
   };
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-3 z-50 flex min-h-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl lg:inset-4"
+          : "flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white"
+      }
+    >
       <ProjectChatSidebar
         activeConvId={activeConvId}
         conversations={conversations}
@@ -321,6 +340,7 @@ export function ProjectChatTab({
         inputPlaceholder={copy.inputPlaceholder}
         inputValue={panel.inputValue}
         isLoading={isLoading}
+        isFullscreen={isFullscreen}
         isLoadingMemoryStatus={isLoadingMemoryStatus}
         isLoadingMessages={isLoadingMessages}
         isRebuildingMemory={isRebuildingMemory}
@@ -343,6 +363,7 @@ export function ProjectChatTab({
         onSaveMessage={panel.openSaveModal}
         onSend={() => panel.handleSend(sendMessage)}
         onSkillChange={setSelectedSkillId}
+        onToggleFullscreen={() => setIsFullscreen((current) => !current)}
         onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
         projectId={project.id}
         quickPrompts={quickPrompts}

@@ -23,6 +23,7 @@ interface ProjectChatMainPanelProps {
   inputValue: string;
   isLoading: boolean;
   isLoadingMessages: boolean;
+  isFullscreen: boolean;
   isSidebarOpen: boolean;
   knowledgeScope: "project" | "client" | "global";
   memoryStatus: ProjectMemoryStatusResponse | null;
@@ -38,6 +39,7 @@ interface ProjectChatMainPanelProps {
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  onToggleFullscreen: () => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
@@ -66,6 +68,7 @@ export function ProjectChatMainPanel({
   inputValue,
   isLoading,
   isLoadingMessages,
+  isFullscreen,
   isSidebarOpen,
   knowledgeScope,
   memoryStatus,
@@ -82,6 +85,7 @@ export function ProjectChatMainPanel({
   onSaveMessage,
   onSend,
   onDownloadArtifact,
+  onToggleFullscreen,
   onToggleSidebar,
   quickPrompts,
   projectId,
@@ -106,6 +110,7 @@ export function ProjectChatMainPanel({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <ProjectChatHeader
         hasMemory={memoryStatus?.has_memory ?? false}
+        isFullscreen={isFullscreen}
         isSidebarOpen={isSidebarOpen}
         isLoadingMemoryStatus={isLoadingMemoryStatus}
         isRebuildingMemory={isRebuildingMemory}
@@ -116,6 +121,7 @@ export function ProjectChatMainPanel({
         memoryUpdatedAt={memoryStatus?.memory_updated_at}
         memoryVersion={memoryStatus?.memory_version ?? 0}
         onRebuildMemory={onRebuildMemory}
+        onToggleFullscreen={onToggleFullscreen}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
         skillControl={
