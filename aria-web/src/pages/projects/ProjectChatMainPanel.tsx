@@ -1,4 +1,4 @@
-import { ArrowDown, BookOpen, ChevronDown, Info, Radio, Wrench } from "lucide-react";
+import { ArrowDown, BookOpen, ChevronDown, Clock3, Info, Radio, Wrench } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -291,25 +291,14 @@ export function ProjectChatMainPanel({
                     </div>
                   </div>
                   <div className="max-h-60 overflow-y-auto">
-                    {(skillCategoryFilter === "all"
-                      ? skills
-                      : skills.filter((skill) => skill.category === skillCategoryFilter)
-                    ).map((skill) => (
-                      <DropdownItem
-                        key={skill.id}
-                        onClick={() => {
-                          onSkillChange(skill.id);
-                          setShowSkillDropdown(false);
-                        }}
-                      >
-                        <div className="flex flex-col">
-                          <span>{skill.name}</span>
-                          {skill.estimated_time ? (
-                            <span className="text-xs text-gray-400">{skill.estimated_time}</span>
-                          ) : null}
-                        </div>
-                      </DropdownItem>
-                    ))}
+                    {renderSkillOptions({
+                      skills,
+                      skillCategoryFilter,
+                      onSelect: (skillId) => {
+                        onSkillChange(skillId);
+                        setShowSkillDropdown(false);
+                      },
+                    })}
                   </div>
                 </DropdownMenu>
               ) : null}
@@ -330,19 +319,28 @@ export function ProjectChatMainPanel({
 function ProjectSkillReferencePanel({ skill }: { skill: Skill }) {
   return (
     <div className="mx-auto mb-3 max-w-5xl overflow-hidden rounded-xl border border-gray-200 bg-primary/5">
-      <div className="flex items-center gap-2 border-b border-gray-200/80 px-3 py-2">
-        <Info className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium text-gray-700">{skill.name}</span>
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200/80 px-3 py-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+          <Info className="h-4 w-4 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-gray-700">{skill.name}</p>
+          <p className="truncate text-xs text-gray-400">{skill.category}</p>
+        </div>
         {skill.estimated_time ? (
-          <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-gray-500">
+            <Clock3 className="h-3 w-3" />
+            {skill.estimated_time}
+          </span>
         ) : null}
       </div>
       <div className="space-y-2 px-3 py-3">
         {skill.description ? (
-          <p className="text-sm text-gray-600">{skill.description}</p>
+          <p className="text-sm leading-6 text-gray-600">{skill.description}</p>
         ) : null}
         {skill.user_template ? (
           <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">Template</p>
             <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-gray-500">
               {skill.user_template}
             </p>
@@ -351,6 +349,53 @@ function ProjectSkillReferencePanel({ skill }: { skill: Skill }) {
       </div>
     </div>
   );
+}
+
+function renderSkillOptions({
+  skills,
+  skillCategoryFilter,
+  onSelect,
+}: {
+  skills: Skill[];
+  skillCategoryFilter: string;
+  onSelect: (skillId: number) => void;
+}) {
+  if (skillCategoryFilter === "all") {
+    const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => {
+      if (!acc[skill.category]) acc[skill.category] = [];
+      acc[skill.category].push(skill);
+      return acc;
+    }, {});
+
+    return Object.entries(grouped).map(([category, categorySkills]) => (
+      <div key={category}>
+        <div className="bg-gray-50 px-4 py-1.5 text-xs font-medium text-gray-400">{category}</div>
+        {categorySkills.map((skill) => (
+          <DropdownItem key={skill.id} onClick={() => onSelect(skill.id)}>
+            <div className="flex flex-col">
+              <span>{skill.name}</span>
+              {skill.estimated_time ? (
+                <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+              ) : null}
+            </div>
+          </DropdownItem>
+        ))}
+      </div>
+    ));
+  }
+
+  return skills
+    .filter((skill) => skill.category === skillCategoryFilter)
+    .map((skill) => (
+      <DropdownItem key={skill.id} onClick={() => onSelect(skill.id)}>
+        <div className="flex flex-col">
+          <span>{skill.name}</span>
+          {skill.estimated_time ? (
+            <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+          ) : null}
+        </div>
+      </DropdownItem>
+    ));
 }
 
 const ContextPill = forwardRef<HTMLDivElement, {
@@ -376,7 +421,7 @@ const ContextPill = forwardRef<HTMLDivElement, {
     >
       {icon}
       {label}
-      <ChevronDown className="h-3 w-3" />
+      <ChevronDown className={`h-3 w-3 transition-transform ${_open ? "rotate-180" : ""}`} />
     </button>
     {children}
   </div>
