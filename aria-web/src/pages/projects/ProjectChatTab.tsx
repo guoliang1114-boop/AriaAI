@@ -284,16 +284,16 @@ export function ProjectChatTab({
   }, [activeConvId, resetStreamingContent]);
 
   useEffect(() => {
-    if (messages.length > 0 && panel.isNearBottomRef.current) {
+    if (messages.length > 0 && panel.isAutoFollow) {
       panel.scrollToBottom(false);
     }
-  }, [messages.length, panel.scrollToBottom]);
+  }, [messages.length, panel.isAutoFollow, panel.scrollToBottom]);
 
   useEffect(() => {
-    if (streamingContent && panel.isNearBottomRef.current) {
+    if (streamingContent && panel.isAutoFollow) {
       panel.scrollToBottom(false);
     }
-  }, [panel.scrollToBottom, streamingContent]);
+  }, [panel.isAutoFollow, panel.scrollToBottom, streamingContent]);
 
   useEffect(() => {
     if (controlledFullscreen === undefined) {
@@ -382,8 +382,10 @@ export function ProjectChatTab({
         inputValue={panel.inputValue}
         isLoading={isLoading}
         isFullscreen={isFullscreen}
+        isAutoFollow={panel.isAutoFollow}
         isLoadingMemoryStatus={isLoadingMemoryStatus}
         isLoadingMessages={isLoadingMessages}
+        showScrollToBottom={panel.showScrollToBottom}
         isRebuildingMemory={isRebuildingMemory}
         isSidebarOpen={panel.isSidebarOpen}
         knowledgeScope={panel.knowledgeScope}
@@ -392,7 +394,9 @@ export function ProjectChatTab({
         messages={messages}
         messagesContainerRef={panel.messagesContainerRef}
         onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
+        onEnableAutoFollow={panel.enableAutoFollow}
         onInputChange={panel.setInputValue}
+        onJumpToBottom={() => panel.scrollToBottom(true)}
         onKnowledgeScopeChange={panel.setKnowledgeScope}
         onOpenConversationSaveModal={panel.openConversationSaveModal}
         onQuickPrompt={(content) => {

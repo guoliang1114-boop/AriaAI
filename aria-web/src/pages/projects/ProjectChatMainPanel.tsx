@@ -1,4 +1,4 @@
-import { BookOpen } from "lucide-react";
+import { ArrowDown, BookOpen, Radio } from "lucide-react";
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -24,6 +24,8 @@ interface ProjectChatMainPanelProps {
   isLoading: boolean;
   isLoadingMessages: boolean;
   isFullscreen: boolean;
+  isAutoFollow: boolean;
+  showScrollToBottom: boolean;
   isSidebarOpen: boolean;
   knowledgeScope: "project" | "client" | "global";
   memoryStatus: ProjectMemoryStatusResponse | null;
@@ -41,6 +43,8 @@ interface ProjectChatMainPanelProps {
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onToggleFullscreen: () => void;
   onToggleSidebar: () => void;
+  onEnableAutoFollow: () => void;
+  onJumpToBottom: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
   quickPrompts: ProjectQuickPrompt[];
@@ -69,6 +73,8 @@ export function ProjectChatMainPanel({
   isLoading,
   isLoadingMessages,
   isFullscreen,
+  isAutoFollow,
+  showScrollToBottom,
   isSidebarOpen,
   knowledgeScope,
   memoryStatus,
@@ -87,6 +93,8 @@ export function ProjectChatMainPanel({
   onDownloadArtifact,
   onToggleFullscreen,
   onToggleSidebar,
+  onEnableAutoFollow,
+  onJumpToBottom,
   quickPrompts,
   projectId,
   startConversationLabel,
@@ -185,7 +193,7 @@ export function ProjectChatMainPanel({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4"
+        className="relative flex-1 min-h-0 overflow-y-auto p-4 space-y-4"
       >
         <ProjectChatMessages
           messages={messages}
@@ -204,6 +212,29 @@ export function ProjectChatMainPanel({
           onQuickPrompt={onQuickPrompt}
           onSaveMessage={onSaveMessage}
         />
+
+        {showScrollToBottom && !isAutoFollow ? (
+          <div className="pointer-events-none sticky bottom-4 z-10 mx-auto flex max-w-5xl justify-end">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 p-1 shadow-lg backdrop-blur">
+              <button
+                type="button"
+                onClick={onEnableAutoFollow}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
+              >
+                <Radio className="h-3.5 w-3.5" />
+                <span>{copy.followToBottom}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onJumpToBottom}
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                <span>{copy.scrollToBottom}</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <ProjectChatInput
