@@ -75,7 +75,8 @@ jobs:
             source .venv/bin/activate
 
             # Install backend dependencies in case requirements changed.
-            pip install -r requirements.txt
+            python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
+            python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
             # Normalize historical migration state before applying the latest schema.
             python3 scripts/ensure_db.py
