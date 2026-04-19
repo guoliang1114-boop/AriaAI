@@ -172,24 +172,7 @@ export function Skills() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
-                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                  {(["all", "quick", "deep"] as const).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setActiveType(type)}
-                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                        activeType === type
-                          ? "bg-slate-900 text-white shadow-sm"
-                          : "text-slate-600 hover:bg-white hover:text-slate-900"
-                      }`}
-                    >
-                      {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative min-w-[180px]">
+                <div className="relative min-w-[220px] xl:min-w-[260px]">
                   <select
                     value={activeCategory}
                     onChange={(event) => setActiveCategory(event.target.value)}
@@ -206,6 +189,23 @@ export function Skills() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
+                </div>
+
+                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                  {(["all", "quick", "deep"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setActiveType(type)}
+                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+                        activeType === type
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-600 hover:bg-white hover:text-slate-900"
+                      }`}
+                    >
+                      {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
