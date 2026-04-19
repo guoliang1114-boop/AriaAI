@@ -3,6 +3,7 @@ import { Loader2, Send } from "lucide-react";
 type ProjectChatInputProps = {
   value: string;
   isLoading: boolean;
+  isFullscreen?: boolean;
   placeholder: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -11,13 +12,14 @@ type ProjectChatInputProps = {
 export function ProjectChatInput({
   value,
   isLoading,
+  isFullscreen = false,
   placeholder,
   onChange,
   onSend,
 }: ProjectChatInputProps) {
   return (
     <div className="border-t border-gray-100 bg-white p-4">
-      <div className="flex items-end gap-3">
+      <div className={`mx-auto flex items-end gap-3 ${isFullscreen ? "max-w-5xl" : "max-w-4xl"}`}>
         <div className="relative flex-1">
           <textarea
             value={value}

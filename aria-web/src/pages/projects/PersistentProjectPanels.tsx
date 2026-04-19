@@ -20,15 +20,17 @@ const PANEL_WRAPPER_CLASSNAMES: Record<ProjectPanelId, string> = {
 
 function PanelContainer({
   isActive,
+  className,
   tabId,
   children,
 }: {
   isActive: boolean;
+  className?: string;
   tabId: ProjectPanelId;
   children: ReactNode;
 }) {
   return (
-    <div className={isActive ? PANEL_WRAPPER_CLASSNAMES[tabId] : "hidden"}>
+    <div className={isActive ? className ?? PANEL_WRAPPER_CLASSNAMES[tabId] : "hidden"}>
       {children}
     </div>
   );
@@ -38,6 +40,8 @@ interface PersistentPanelConfigArgs {
   projectId: string;
   project: Project;
   projectDetail: ProjectDetailType;
+  isChatFocusMode: boolean;
+  onChatFocusModeChange: (value: boolean) => void;
   onRefresh: () => void;
 }
 
@@ -45,6 +49,8 @@ function buildPersistentPanelConfig({
   projectId,
   project,
   projectDetail,
+  isChatFocusMode,
+  onChatFocusModeChange,
   onRefresh,
 }: PersistentPanelConfigArgs): Array<{
   id: ProjectPanelId;
@@ -58,6 +64,8 @@ function buildPersistentPanelConfig({
           project={project}
           files={projectDetail.files}
           folders={projectDetail.folders}
+          isFullscreen={isChatFocusMode}
+          onFullscreenChange={onChatFocusModeChange}
           onProjectUpdate={onRefresh}
         />
       ),
@@ -94,12 +102,16 @@ export function PersistentProjectPanels({
   project,
   projectDetail,
   activeTabId,
+  isChatFocusMode,
+  onChatFocusModeChange,
   onRefresh,
 }: {
   projectId: string;
   project: Project;
   projectDetail: ProjectDetailType;
   activeTabId: ProjectDetailTabId;
+  isChatFocusMode: boolean;
+  onChatFocusModeChange: (value: boolean) => void;
   onRefresh: () => void;
 }) {
   const [mountedPersistentPanels, setMountedPersistentPanels] = useState<
@@ -126,6 +138,8 @@ export function PersistentProjectPanels({
     projectId,
     project,
     projectDetail,
+    isChatFocusMode,
+    onChatFocusModeChange,
     onRefresh,
   });
 
@@ -145,6 +159,11 @@ export function PersistentProjectPanels({
           <PanelContainer
             key={panel.id}
             isActive={activeTabId === panel.id}
+            className={
+              panel.id === "chat" && isChatFocusMode
+                ? "h-screen min-h-screen px-0 py-0"
+                : undefined
+            }
             tabId={panel.id}
           >
             {panel.element}

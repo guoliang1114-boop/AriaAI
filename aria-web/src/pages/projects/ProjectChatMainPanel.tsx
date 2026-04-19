@@ -209,6 +209,7 @@ export function ProjectChatMainPanel({
       <ProjectChatInput
         value={inputValue}
         isLoading={isLoading}
+        isFullscreen={isFullscreen}
         placeholder={inputPlaceholder}
         onChange={onInputChange}
         onSend={onSend}

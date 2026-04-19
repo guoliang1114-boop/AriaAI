@@ -33,11 +33,15 @@ export function ProjectChatTab({
   project,
   files,
   folders,
+  isFullscreen: controlledFullscreen,
+  onFullscreenChange,
   onProjectUpdate,
 }: {
   project: Project;
   files?: ProjectFile[];
   folders?: ProjectFolder[];
+  isFullscreen?: boolean;
+  onFullscreenChange?: (value: boolean) => void;
   onProjectUpdate: () => Promise<void> | void;
 }) {
   const { i18n } = useTranslation();
@@ -52,7 +56,12 @@ export function ProjectChatTab({
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<number | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("aria-project-chat-fullscreen") === "true";
+  });
   const [showSkillTemplateModal, setShowSkillTemplateModal] = useState(false);
   const [skillTemplateData, setSkillTemplateData] = useState<{
     skill: Skill;
@@ -287,6 +296,13 @@ export function ProjectChatTab({
   }, [panel.scrollToBottom, streamingContent]);
 
   useEffect(() => {
+    if (controlledFullscreen === undefined) {
+      return;
+    }
+    setIsFullscreen(controlledFullscreen);
+  }, [controlledFullscreen]);
+
+  useEffect(() => {
     if (!isFullscreen) {
       return;
     }
@@ -297,6 +313,13 @@ export function ProjectChatTab({
       document.body.style.overflow = originalOverflow;
     };
   }, [isFullscreen]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("aria-project-chat-fullscreen", String(isFullscreen));
+    }
+    onFullscreenChange?.(isFullscreen);
+  }, [isFullscreen, onFullscreenChange]);
 
   const handleApplySkillTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false);
@@ -313,7 +336,7 @@ export function ProjectChatTab({
     <div
       className={
         isFullscreen
-          ? "fixed inset-3 z-50 flex min-h-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl lg:inset-4"
+          ? "flex h-full min-h-0 overflow-hidden border-0 bg-white shadow-none"
           : "flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white"
       }
     >

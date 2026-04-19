@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   Project,
@@ -24,22 +25,27 @@ export function ProjectDetailLayout({
   onRefresh: () => void;
   children: ReactNode;
 }) {
+  const [isChatFocusMode, setIsChatFocusMode] = useState(false);
   const isPersistentTab =
     activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
 
   return (
     <div className="min-h-full bg-gray-50">
-      <ProjectDetailHeader
-        project={project}
-        onBack={onBack}
-        projectId={projectId}
-      />
+      {!(activeTabId === "chat" && isChatFocusMode) ? (
+        <ProjectDetailHeader
+          project={project}
+          onBack={onBack}
+          projectId={projectId}
+        />
+      ) : null}
 
       <PersistentProjectPanels
         projectId={projectId}
         project={project}
         projectDetail={projectDetail}
         activeTabId={activeTabId}
+        isChatFocusMode={isChatFocusMode}
+        onChatFocusModeChange={setIsChatFocusMode}
         onRefresh={onRefresh}
       />
 

@@ -30,7 +30,7 @@ const ChatStreamingMessage = memo<{
   };
 
   return (
-    <div className="flex items-start gap-3.5">
+    <div className="mx-auto flex max-w-5xl items-start gap-3.5">
       <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20">
         <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
@@ -123,7 +123,7 @@ export function ProjectChatMessages({
   return (
     <>
       {isLoadingMessages && (
-        <div className="space-y-4 animate-pulse">
+        <div className="mx-auto max-w-5xl space-y-4 animate-pulse">
           <div className="flex gap-3">
             <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
             <div className="flex-1 space-y-2">
@@ -142,12 +142,14 @@ export function ProjectChatMessages({
       )}
 
       {messages.length === 0 && !streamingContent && !isLoading && !isLoadingMessages && (
-        <ProjectChatEmptyState
-          choosePromptLabel={choosePromptLabel}
-          onQuickPrompt={onQuickPrompt}
-          quickPrompts={quickPrompts}
-          startConversationLabel={startConversationLabel}
-        />
+        <div className="mx-auto flex h-full max-w-5xl">
+          <ProjectChatEmptyState
+            choosePromptLabel={choosePromptLabel}
+            onQuickPrompt={onQuickPrompt}
+            quickPrompts={quickPrompts}
+            startConversationLabel={startConversationLabel}
+          />
+        </div>
       )}
 
       {!isLoadingMessages && (messages.length > 0 || streamingContent || isLoading) && (
@@ -173,7 +175,7 @@ export function ProjectChatMessages({
             />
           )}
           {isLoading && !streamingContent && (
-            <div className="flex gap-3">
+            <div className="mx-auto flex max-w-5xl gap-3">
               <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-white" />
               </div>
