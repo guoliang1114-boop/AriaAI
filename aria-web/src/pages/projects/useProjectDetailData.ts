@@ -3,6 +3,16 @@ import axios from "axios";
 import { api } from "../../api/client";
 import type { ProjectDetail as ProjectDetailType } from "../../types/api";
 
+const PROJECT_DETAIL_CACHE_TTL_MS = 60_000;
+
+type ProjectDetailCacheEntry = {
+  data: ProjectDetailType;
+  fetchedAt: number;
+};
+
+const projectDetailCache = new Map<number, ProjectDetailCacheEntry>();
+const projectDetailInFlight = new Map<number, Promise<ProjectDetailType>>();
+
 function getProjectDetailErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
     return error.response?.data?.detail || error.message;
@@ -15,6 +25,39 @@ function getProjectDetailErrorMessage(error: unknown) {
   return "Failed to fetch project detail";
 }
 
+function getCachedProjectDetail(projectId: number | null) {
+  if (!projectId) return null;
+  const entry = projectDetailCache.get(projectId);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > PROJECT_DETAIL_CACHE_TTL_MS) return null;
+  return entry.data;
+}
+
+function setCachedProjectDetail(projectId: number, data: ProjectDetailType) {
+  projectDetailCache.set(projectId, { data, fetchedAt: Date.now() });
+}
+
+export async function prefetchProjectDetailData(projectId: number) {
+  const cached = getCachedProjectDetail(projectId);
+  if (cached) return cached;
+
+  const existingPromise = projectDetailInFlight.get(projectId);
+  if (existingPromise) return existingPromise;
+
+  const request = api
+    .get<ProjectDetailType>(`/projects/${projectId}/detail`)
+    .then((data) => {
+      setCachedProjectDetail(projectId, data);
+      return data;
+    })
+    .finally(() => {
+      projectDetailInFlight.delete(projectId);
+    });
+
+  projectDetailInFlight.set(projectId, request);
+  return request;
+}
+
 export function useProjectDetailData(projectId?: string) {
   const numericProjectId = useMemo(() => {
     if (!projectId) {
@@ -24,12 +67,19 @@ export function useProjectDetailData(projectId?: string) {
     const parsedId = Number.parseInt(projectId, 10);
     return Number.isNaN(parsedId) ? null : parsedId;
   }, [projectId]);
+  const cachedDetail = useMemo(() => getCachedProjectDetail(numericProjectId), [numericProjectId]);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(!cachedDetail);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(null);
+  const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(cachedDetail);
+
+  useEffect(() => {
+    setProjectDetail(cachedDetail);
+    setInitialLoading(!cachedDetail);
+    setError(null);
+  }, [cachedDetail, numericProjectId]);
 
   const refreshProjectDetail = useCallback(async () => {
     if (!numericProjectId) {
@@ -47,7 +97,7 @@ export function useProjectDetailData(projectId?: string) {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const isFirstLoad = initialLoading;
+    const isFirstLoad = !projectDetail;
 
     setError(null);
     setIsRefreshing(!isFirstLoad);
@@ -62,6 +112,7 @@ export function useProjectDetailData(projectId?: string) {
         return;
       }
 
+      setCachedProjectDetail(numericProjectId, data);
       setProjectDetail(data);
     } catch (error) {
       if (controller.signal.aborted || requestIdRef.current !== requestId) {
@@ -77,7 +128,7 @@ export function useProjectDetailData(projectId?: string) {
         setIsRefreshing(false);
       }
     }
-  }, [initialLoading, numericProjectId, projectId]);
+  }, [numericProjectId, projectDetail, projectId]);
 
   useEffect(() => {
     void refreshProjectDetail();

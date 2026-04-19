@@ -45,11 +45,13 @@ function toCardSummary(rawText: string, isZh: boolean): string {
 
 interface ProjectKanbanCardProps {
   onClick: () => void;
+  onPointerEnter?: () => void;
+  onPointerDown?: () => void;
   project: Project;
   stage: ProjectStageConfig;
 }
 
-export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCardProps) {
+export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, project, stage }: ProjectKanbanCardProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const sourceText = project.context_summary?.trim() || project.description?.trim() || "";
@@ -58,6 +60,8 @@ export function ProjectKanbanCard({ onClick, project, stage }: ProjectKanbanCard
   return (
     <div
       onClick={onClick}
+      onMouseEnter={onPointerEnter}
+      onPointerDown={onPointerDown}
       className="group relative cursor-pointer overflow-hidden rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg"
     >
       <div className={`absolute bottom-0 left-0 top-0 w-1 ${stage.lightColor}`} />

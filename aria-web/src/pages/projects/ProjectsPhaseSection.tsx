@@ -79,6 +79,7 @@ export function getProjectPhase(project: Project): ProjectPhase {
 interface ProjectsPhaseSectionProps {
   isExpanded: boolean;
   onProjectClick: (id: number) => void;
+  onProjectPrefetch?: (id: number) => void;
   onToggle: () => void;
   phase: PhaseConfig;
   projects: Project[];
@@ -87,6 +88,7 @@ interface ProjectsPhaseSectionProps {
 export function ProjectsPhaseSection({
   isExpanded,
   onProjectClick,
+  onProjectPrefetch,
   onToggle,
   phase,
   projects,
@@ -120,6 +122,7 @@ export function ProjectsPhaseSection({
                   <div key={stage.id} className="min-w-0">
                     <ProjectKanbanStageColumn
                       onProjectClick={onProjectClick}
+                      onProjectPrefetch={onProjectPrefetch}
                       projects={projects.filter((project) => getProjectStage(project) === stage.id)}
                       stage={stage}
                     />

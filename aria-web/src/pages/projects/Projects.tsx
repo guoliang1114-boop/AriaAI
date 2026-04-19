@@ -4,10 +4,12 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { api } from "../../api/client";
 import { PageTitle } from "../../components/PageTitle";
+import { loadProjectDetail } from "../../routeLoaders";
 import type { ProjectPhase } from "../../types/enums";
 import type { Project } from "../../types/api";
 import { ProjectsHeader } from "./ProjectsHeader";
 import { PHASES, ProjectsPhaseSection, getProjectPhase } from "./ProjectsPhaseSection";
+import { prefetchProjectDetailData } from "./useProjectDetailData";
 
 const getTimestampValue = (value: string | null | undefined): number => {
   if (!value) return 0;
@@ -76,6 +78,16 @@ export function Projects() {
     }
   };
 
+  const prefetchProjectDetail = (projectId: number) => {
+    void loadProjectDetail();
+    void prefetchProjectDetailData(projectId);
+  };
+
+  const openProjectDetail = (projectId: number) => {
+    prefetchProjectDetail(projectId);
+    navigate(`/projects/${projectId}`);
+  };
+
   const filteredProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return projects
@@ -128,7 +140,8 @@ export function Projects() {
         <div className="mx-auto max-w-full px-6 py-8">
           <ProjectsPhaseSection
             isExpanded={expandedPhase === "business"}
-            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            onProjectClick={openProjectDetail}
+            onProjectPrefetch={prefetchProjectDetail}
             onToggle={() => setExpandedPhase(expandedPhase === "business" ? null : "business")}
             phase={PHASES.business}
             projects={businessProjects}
@@ -136,7 +149,8 @@ export function Projects() {
 
           <ProjectsPhaseSection
             isExpanded={expandedPhase === "delivery"}
-            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            onProjectClick={openProjectDetail}
+            onProjectPrefetch={prefetchProjectDetail}
             onToggle={() => setExpandedPhase(expandedPhase === "delivery" ? null : "delivery")}
             phase={PHASES.delivery}
             projects={deliveryProjects}
@@ -144,7 +158,8 @@ export function Projects() {
 
           <ProjectsPhaseSection
             isExpanded={expandedPhase === "archived"}
-            onProjectClick={(id) => navigate(`/projects/${id}`)}
+            onProjectClick={openProjectDetail}
+            onProjectPrefetch={prefetchProjectDetail}
             onToggle={() => setExpandedPhase(expandedPhase === "archived" ? null : "archived")}
             phase={PHASES.archived}
             projects={archivedProjects}
