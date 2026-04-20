@@ -85,7 +85,12 @@ jobs:
             python scripts/migration_governance.py check
 
             # Reload backend after code and schema changes.
-            pm2 reload ariaai-backend --update-env
+            if pm2 describe ariaai-backend >/dev/null 2>&1; then
+              pm2 reload ariaai-backend --update-env
+            else
+              pm2 start ecosystem.config.js --update-env
+            fi
+            pm2 save
 
             # Replace frontend build artifacts served by Nginx.
             rm -rf /www/wwwroot/aria.d2cgo.co/*
