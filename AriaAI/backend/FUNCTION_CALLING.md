@@ -6,8 +6,8 @@
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   SwiftUI App   │────▶│   FastAPI        │────▶│   Claude API    │
-│   (ChatView)    │◄────│   (chat.py)      │◄────│   (tool_use)    │
+│   Web Client    │────▶│   FastAPI        │────▶│   Claude API    │
+│   (Chat.tsx)    │◄────│   (chat.py)      │◄────│   (tool_use)    │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                │
                                ▼
@@ -259,7 +259,7 @@ data/uploads/
 
 ## 前端集成
 
-SwiftUI 前端需要：
+前端需要：
 
 1. 监听 `tool_executing` 事件显示进度
 2. 监听 `tool_results` 事件获取文件链接

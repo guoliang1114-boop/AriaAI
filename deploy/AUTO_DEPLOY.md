@@ -91,7 +91,7 @@ AriaAI/
 │   └── AUTO_DEPLOY.md          # 本文件
 ├── aria-web/                   # 前端代码
 │   └── dist/                   # 构建输出
-└── AriaAI/AriaAI/backend/      # 后端代码
+└── AriaAI/backend/             # 后端代码
 ```
 
 ---
@@ -124,7 +124,7 @@ AriaAI/
 source: "aria-web/dist/"
 
 # 只部署后端
-source: "AriaAI/AriaAI/backend/"
+source: "AriaAI/backend/"
 ```
 
 ### Q: 如何跳过某些步骤？
@@ -225,7 +225,7 @@ cat /etc/ssh/sshd_config | grep PasswordAuthentication
 - name: Run Tests
   run: |
     cd aria-web && npm test
-    cd ../AriaAI/AriaAI/backend && pytest
+    cd ../AriaAI/backend && pytest
 ```
 
 ---

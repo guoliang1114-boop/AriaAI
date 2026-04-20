@@ -41,16 +41,6 @@ yarn-error.log*
 # Logs
 *.log
 
-# Swift Package Manager / Build artifacts
-.build/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-DerivedData/
-*.xcodeproj/project.xcworkspace/xcshareddata/
-
-# macOS App bundles and DMG
-*.app/
-*.dmg
 
 # Backend Python environment
 backend/.venv/

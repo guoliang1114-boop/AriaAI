@@ -15,9 +15,8 @@ Three codebases live in this monorepo:
 
 | Directory | Role |
 |---|---|
-| `AriaAI/AriaAI/` | SwiftUI macOS client (macOS 14+) |
 | `aria-web/` | React + TypeScript web client |
-| `AriaAI/backend/` | Python FastAPI backend, shared by both clients |
+| `AriaAI/backend/` | Python FastAPI backend |
 
 ---
 
@@ -37,13 +36,6 @@ AP/
 │   ├── 06-当前架构图.md         ← architecture diagrams (Mermaid)
 │   └── 07-RAG演进方案.md        ← RAG evolution plan
 ├── AriaAI/
-│   ├── AriaAI/                 ← SwiftUI source
-│   │   ├── AriaAIApp.swift
-│   │   ├── Models/Models.swift
-│   │   ├── Services/APIClient.swift
-│   │   ├── Services/APIModels.swift
-│   │   ├── Services/DataStore.swift
-│   │   └── Design/DesignSystem.swift
 │   ├── backend/                ← Python backend
 │   │   ├── main.py             ← FastAPI entry point
 │   │   ├── app/
@@ -76,7 +68,6 @@ AP/
 
 | Layer | Technology |
 |---|---|
-| macOS client | SwiftUI, AppKit |
 | Web client | React 19, TypeScript 5.9, Vite 8, React Router 7, i18next |
 | Backend | FastAPI, Uvicorn, Python 3.9–3.12 |
 | ORM | SQLModel |
@@ -256,7 +247,7 @@ When multiple LLM agents work on this codebase simultaneously, follow these rule
 | Backend services | Backend agent |
 | Web pages & components | Frontend agent |
 | Web types & i18n | Frontend agent |
-| SwiftUI client | iOS/macOS agent |
+| Web client | Frontend agent |
 | Database migrations | Backend agent (coordinate with Frontend on type changes) |
 | Documentation in `docs/` | Any agent, but update after code changes |
 

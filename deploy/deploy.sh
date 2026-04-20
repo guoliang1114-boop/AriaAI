@@ -10,7 +10,7 @@ echo "========================================"
 
 # 配置
 PROJECT_DIR="/www/wwwroot/AriaAI"
-BACKEND_DIR="$PROJECT_DIR/AriaAI/AriaAI/backend"
+BACKEND_DIR="$PROJECT_DIR/AriaAI/backend"
 FRONTEND_DIR="$PROJECT_DIR/aria-web/dist"
 NGINX_ROOT="/www/wwwroot/aria.d2cgo.co"
 PM2_APP_NAME="ariaai-backend"
