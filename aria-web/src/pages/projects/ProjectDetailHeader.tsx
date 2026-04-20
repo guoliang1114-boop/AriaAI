@@ -36,7 +36,7 @@ export function ProjectDetailHeader({
 
       <div className="mx-auto max-w-full border-t border-gray-100 px-6">
         <div className="flex items-center gap-1">
-          {PROJECT_DETAIL_TABS.map((tab) => (
+          {PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav).map((tab) => (
             <NavLink
               key={tab.id}
               to={tab.getPath(projectId)}
@@ -50,7 +50,11 @@ export function ProjectDetailHeader({
               }
             >
               <tab.icon className="h-4 w-4" />
-              {tab.id === "memory" ? (isZh ? "项目记忆" : "Memory") : t(tab.labelKey)}
+              {tab.id === "memory"
+                ? isZh ? "项目记忆" : "Memory"
+                : tab.id === "stakeholders"
+                  ? isZh ? "干系人" : "Stakeholders"
+                  : t(tab.labelKey)}
             </NavLink>
           ))}
         </div>

@@ -215,7 +215,7 @@ export function ProjectChatMainPanel({
               clientName={projectClientName}
               isZh={isZh}
               memory={projectMemory}
-              onManage={() => window.open(`/projects/${projectId}/memory`, "_self")}
+              onManage={() => window.open(`/projects/${projectId}/anchors`, "_self")}
             />
           </div>
         </div>

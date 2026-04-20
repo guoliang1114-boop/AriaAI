@@ -8,6 +8,8 @@ import {
   ListTodo,
   MessageSquare,
   Settings,
+  SlidersHorizontal,
+  Users,
 } from "lucide-react";
 
 export type ProjectDetailTabId =
@@ -17,8 +19,10 @@ export type ProjectDetailTabId =
   | "notes"
   | "todos"
   | "chat"
+  | "stakeholders"
   | "financials"
   | "memory"
+  | "anchors"
   | "settings";
 
 interface ProjectDetailTabConfig {
@@ -27,6 +31,7 @@ interface ProjectDetailTabConfig {
   icon: typeof LayoutDashboard;
   path: string;
   getPath: (projectId: string) => string;
+  hiddenInNav?: boolean;
 }
 
 export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
@@ -66,11 +71,26 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     getPath: (projectId) => `/projects/${projectId}/chat`,
   },
   {
+    id: "stakeholders",
+    labelKey: "projects.projectDetail.stakeholders",
+    icon: Users,
+    path: "stakeholders",
+    getPath: (projectId) => `/projects/${projectId}/stakeholders`,
+  },
+  {
     id: "memory",
     labelKey: "projects.projectDetail.memory",
     icon: Brain,
     path: "memory",
     getPath: (projectId) => `/projects/${projectId}/memory`,
+  },
+  {
+    id: "anchors",
+    labelKey: "projects.projectDetail.anchors",
+    icon: SlidersHorizontal,
+    path: "anchors",
+    getPath: (projectId) => `/projects/${projectId}/anchors`,
+    hiddenInNav: true,
   },
   {
     id: "financials",

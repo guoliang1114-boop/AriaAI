@@ -122,7 +122,7 @@ export function ProjectOverviewTab({
           clientName={project.client}
           isZh={isZh}
           memory={memory}
-          onManage={() => navigate(`/projects/${projectId}/memory`)}
+          onManage={() => navigate(`/projects/${projectId}/anchors`)}
         />
 
         {overviewNotesText.length > 0 && (

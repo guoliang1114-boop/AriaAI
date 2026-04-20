@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { PageTitle } from "../../components/PageTitle";
+import { ProjectAnchorsTab } from "./ProjectAnchorsTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
@@ -9,6 +10,7 @@ import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
+import { ProjectStakeholdersTab } from "./ProjectStakeholdersTab";
 import { getActiveProjectDetailTabId, type ProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
 
@@ -46,6 +48,20 @@ function renderProjectDetailContent(
     case "memory":
       return (
         <ProjectMemoryTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+        />
+      );
+    case "anchors":
+      return (
+        <ProjectAnchorsTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+        />
+      );
+    case "stakeholders":
+      return (
+        <ProjectStakeholdersTab
           projectDetail={projectDetail}
           projectId={projectId}
         />
