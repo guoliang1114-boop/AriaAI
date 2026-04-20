@@ -6,9 +6,15 @@ import type {
   ProjectMemory,
   ProjectMemoryResponse,
   ProjectMemorySummariesResponse,
-  ProjectMemorySummaryResponse,
   ProjectMemorySummaryType,
 } from "../../types/api";
+import {
+  PROJECT_MEMORY_SUMMARY_TYPES,
+  dispatchProjectMemorySummariesUpdated,
+  normalizeProjectSummaryLanguage,
+  subscribeProjectMemorySummariesUpdated,
+  type ProjectMemorySummaryMap,
+} from "./projectMemorySummarySync";
 
 const formatAmount = (amount: number | undefined | null): string => {
   if (!amount || amount === 0) return "0";
@@ -38,16 +44,7 @@ interface UseProjectOverviewDataOptions {
   projectId: string;
 }
 
-type SummaryCache = Partial<Record<ProjectMemorySummaryType, string>>;
-const PROJECT_SUMMARY_TYPES: ProjectMemorySummaryType[] = [
-  "overview",
-  "risk",
-  "delivery",
-  "stakeholder",
-  "client-facing",
-  "financial",
-  "documents",
-];
+type SummaryCache = ProjectMemorySummaryMap;
 const API_LIMIT_COOLDOWN_MS = 90_000;
 
 function isApiLimitError(error: unknown) {
@@ -67,74 +64,6 @@ function getApiLimitSummaryError(isZh: boolean) {
   return isZh
     ? "Kimi 当前触发 API 限流，不是风险模块故障。系统已暂停本页重新生成 90 秒，并记录到 API 限流页；请稍后重试或先使用已有项目记忆。"
     : "Kimi hit an API rate limit. This is not a risk-module failure. Regeneration is paused on this page for 90 seconds and recorded in API Limits; please retry later or use existing project memory.";
-}
-
-async function streamSummaryRequest<TDone extends object>(options: {
-  body?: Record<string, unknown>;
-  errorMessage: string;
-  onChunk: (content: string) => void;
-  onDone?: (payload: TDone) => void;
-  url: string;
-}) {
-  const token = localStorage.getItem("authToken") || "";
-  const response = await fetch(options.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Auth-Token": token,
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    return "";
-  }
-
-  const decoder = new TextDecoder();
-  let fullText = "";
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-
-      const data = JSON.parse(line.slice(6)) as
-        | ({ type?: "text"; content?: string; message?: string } & TDone)
-        | ({ type?: "done"; content?: string; message?: string } & TDone)
-        | ({ type?: "error"; content?: string; message?: string } & TDone);
-
-      if (data.type === "text" && data.content) {
-        fullText += data.content;
-        options.onChunk(fullText);
-        continue;
-      }
-
-      if (data.type === "done") {
-        fullText = (data.content || fullText).trim();
-        options.onChunk(fullText);
-        options.onDone?.(data);
-        continue;
-      }
-
-      if (data.type === "error") {
-        throw new Error(data.message || options.errorMessage);
-      }
-    }
-  }
-
-  return fullText.trim();
 }
 
 export function useProjectOverviewData({
@@ -318,7 +247,7 @@ export function useProjectOverviewData({
         const nextCache: SummaryCache = {
           overview: project.context_summary || "",
         };
-        for (const type of PROJECT_SUMMARY_TYPES) {
+        for (const type of PROJECT_MEMORY_SUMMARY_TYPES) {
           const content = data.summaries[type]?.content?.trim();
           if (content) nextCache[type] = content;
         }
@@ -337,6 +266,24 @@ export function useProjectOverviewData({
       cancelled = true;
     };
   }, [language, project.context_summary, project.memory_version, projectId, summaryType]);
+
+  useEffect(() => {
+    return subscribeProjectMemorySummariesUpdated((detail) => {
+      const sameProject = detail.projectId === projectId;
+      const sameLanguage = normalizeProjectSummaryLanguage(detail.language) === normalizeProjectSummaryLanguage(language);
+      const sameVersion = !project.memory_version || !detail.memoryVersion || detail.memoryVersion === project.memory_version;
+      if (!sameProject || !sameLanguage || !sameVersion) return;
+
+      setSummaryCache((current) => ({
+        ...current,
+        ...detail.summaries,
+      }));
+      const nextContent = detail.summaries[summaryType]?.trim();
+      if (!nextContent) return;
+      setSummaryText(nextContent);
+      setSummaryError("");
+    });
+  }, [language, project.memory_version, projectId, summaryType]);
 
   const refreshMemory = async () => {
     try {
@@ -360,116 +307,6 @@ export function useProjectOverviewData({
       setMemory(data.memory);
     } finally {
       setIsRebuildingMemory(false);
-    }
-  };
-
-  const generateOverviewSummary = async () => {
-    if (isSummaryCoolingDown()) {
-      setSummaryError(getApiLimitSummaryError(isZh));
-      return;
-    }
-
-    setGeneratingSummary(true);
-    setSummaryText("");
-    setSummaryError("");
-
-    try {
-      const fullSummary = await streamSummaryRequest<{ context_summary?: string }>({
-        body: {
-          language,
-        },
-        errorMessage: isZh
-          ? "生成项目总结失败，请稍后重试"
-          : "Failed to generate project summary, please try again",
-        onChunk: setSummaryText,
-        onDone: (data) => {
-          if (data.context_summary) {
-            setSummaryText(data.context_summary);
-          }
-        },
-        url: `/api/projects/${projectId}/generate-context`,
-      });
-
-      setSummaryCache((current) => ({
-        ...current,
-        overview: fullSummary,
-      }));
-      await refreshMemory();
-    } catch (error) {
-      console.error("Failed to generate summary:", error);
-      if (isApiLimitError(error)) {
-        startSummaryCooldown();
-        setSummaryError(getApiLimitSummaryError(isZh));
-        return;
-      }
-      setSummaryError(
-        error instanceof Error && error.message
-          ? error.message
-          : isZh
-            ? "生成项目总结失败，请稍后重试"
-            : "Failed to generate summary, please try again",
-      );
-    } finally {
-      setGeneratingSummary(false);
-    }
-  };
-
-  const generateMemorySummary = async (
-    nextType: Exclude<ProjectMemorySummaryType, "overview">,
-    force = false,
-  ) => {
-    if (!force && summaryCache[nextType]) {
-      setSummaryText(summaryCache[nextType] || "");
-      setSummaryError("");
-      return;
-    }
-
-    if (isSummaryCoolingDown()) {
-      setSummaryError(getApiLimitSummaryError(isZh));
-      return;
-    }
-
-    setGeneratingSummary(true);
-    setSummaryError("");
-    setSummaryText("");
-
-    try {
-      const content = await streamSummaryRequest<ProjectMemorySummaryResponse>({
-        body: {
-          language,
-          summary_type: nextType,
-          rebuild_if_stale: true,
-          stream: true,
-        },
-        errorMessage: isZh
-          ? "生成项目摘要失败，请稍后重试"
-          : "Failed to generate project summary, please try again",
-        onChunk: setSummaryText,
-        url: `/api/projects/${projectId}/memory/summarize`,
-      });
-
-      setSummaryCache((current) => ({
-        ...current,
-        [nextType]: content,
-      }));
-      setSummaryText(content);
-      await refreshMemory();
-    } catch (error) {
-      console.error("Failed to generate memory summary:", error);
-      if (isApiLimitError(error)) {
-        startSummaryCooldown();
-        setSummaryError(getApiLimitSummaryError(isZh));
-        return;
-      }
-      setSummaryError(
-        error instanceof Error && error.message
-          ? error.message
-          : isZh
-            ? "生成项目摘要失败，请稍后重试"
-            : "Failed to generate project summary, please try again",
-      );
-    } finally {
-      setGeneratingSummary(false);
     }
   };
 
@@ -500,17 +337,23 @@ export function useProjectOverviewData({
           force_refresh: force,
           language,
           rebuild_if_stale: true,
-          summary_types: PROJECT_SUMMARY_TYPES,
+          summary_types: PROJECT_MEMORY_SUMMARY_TYPES,
         },
         { timeout: 90000 },
       );
       const nextCache: SummaryCache = {};
-      for (const type of PROJECT_SUMMARY_TYPES) {
+      for (const type of PROJECT_MEMORY_SUMMARY_TYPES) {
         const content = data.summaries[type]?.content?.trim();
         if (content) nextCache[type] = content;
       }
       setSummaryCache(nextCache);
       setSummaryText(nextCache[nextType] || "");
+      dispatchProjectMemorySummariesUpdated({
+        language,
+        memoryVersion: data.source_memory_version || project.memory_version,
+        projectId,
+        summaries: nextCache,
+      });
       await refreshMemory();
     } catch (error) {
       console.error("Failed to generate project summaries:", error);

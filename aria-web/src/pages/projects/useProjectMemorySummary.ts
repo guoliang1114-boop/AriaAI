@@ -4,6 +4,12 @@ import type {
   ProjectMemorySummaryResponse,
   ProjectMemorySummaryType,
 } from "../../types/api";
+import {
+  dispatchProjectMemorySummariesUpdated,
+  normalizeProjectSummaryLanguage,
+  subscribeProjectMemorySummariesUpdated,
+  type ProjectMemorySummaryMap,
+} from "./projectMemorySummarySync";
 
 interface UseProjectMemorySummaryOptions {
   enabled?: boolean;
@@ -17,10 +23,7 @@ interface UseProjectMemorySummaryOptions {
 const memorySummaryCache = new Map<string, string>();
 
 function normalizeSummaryLanguage(language: string) {
-  const normalized = language.trim().toLowerCase();
-  if (normalized.startsWith("zh")) return "zh";
-  if (normalized.startsWith("en")) return "en";
-  return normalized || "default";
+  return normalizeProjectSummaryLanguage(language);
 }
 
 function buildSummaryCacheKey(options: {
@@ -35,6 +38,27 @@ function buildSummaryCacheKey(options: {
     normalizeSummaryLanguage(options.language),
     options.memoryVersion ?? 0,
   ].join(":");
+}
+
+function cacheSummaryMap(options: {
+  language: string;
+  memoryVersion?: number;
+  projectId: string;
+  summaries: ProjectMemorySummaryMap;
+}) {
+  for (const [summaryType, content] of Object.entries(options.summaries)) {
+    const trimmed = content?.trim();
+    if (!trimmed) continue;
+    memorySummaryCache.set(
+      buildSummaryCacheKey({
+        language: options.language,
+        memoryVersion: options.memoryVersion,
+        projectId: options.projectId,
+        summaryType: summaryType as ProjectMemorySummaryType,
+      }),
+      trimmed,
+    );
+  }
 }
 
 async function streamMemorySummary(options: {
@@ -66,19 +90,24 @@ async function streamMemorySummary(options: {
     }
 
     const data = (await response.json()) as ProjectMemorySummariesResponse;
+    const summaries: ProjectMemorySummaryMap = {};
     for (const [summaryType, summary] of Object.entries(data.summaries)) {
       const content = summary?.content?.trim();
-      if (!content) continue;
-      memorySummaryCache.set(
-        buildSummaryCacheKey({
-          language: options.language,
-          memoryVersion: data.source_memory_version || options.memoryVersion,
-          projectId: options.projectId,
-          summaryType: summaryType as ProjectMemorySummaryType,
-        }),
-        content,
-      );
+      if (content) summaries[summaryType as ProjectMemorySummaryType] = content;
     }
+    const nextMemoryVersion = data.source_memory_version || options.memoryVersion;
+    cacheSummaryMap({
+      language: options.language,
+      memoryVersion: nextMemoryVersion,
+      projectId: options.projectId,
+      summaries,
+    });
+    dispatchProjectMemorySummariesUpdated({
+      language: options.language,
+      memoryVersion: nextMemoryVersion,
+      projectId: options.projectId,
+      summaries,
+    });
 
     const content = data.summaries[options.summaryType]?.content?.trim() || "";
     options.onChunk(content);
@@ -256,6 +285,28 @@ export function useProjectMemorySummary({
       cancelled = true;
     };
   }, [cacheKey, enabled, language, memoryVersion, projectId, summaryType]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    return subscribeProjectMemorySummariesUpdated((detail) => {
+      const sameProject = detail.projectId === projectId;
+      const sameLanguage = normalizeSummaryLanguage(detail.language) === normalizeSummaryLanguage(language);
+      const sameVersion = !memoryVersion || !detail.memoryVersion || detail.memoryVersion === memoryVersion;
+      if (!sameProject || !sameLanguage || !sameVersion) return;
+
+      cacheSummaryMap({
+        language,
+        memoryVersion: detail.memoryVersion || memoryVersion,
+        projectId,
+        summaries: detail.summaries,
+      });
+      const nextContent = detail.summaries[summaryType]?.trim();
+      if (!nextContent) return;
+      setContent(nextContent);
+      setError("");
+      setLoading(false);
+    });
+  }, [enabled, language, memoryVersion, projectId, summaryType]);
 
   return {
     content,

@@ -1203,6 +1203,44 @@ async def summarize_client_memory(
     }
 
 
+@router.get("/{client_id}/memory/summaries/{summary_type}")
+def get_client_memory_summary(
+    client_id: int,
+    summary_type: str,
+    language: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    memory_version = int(client.client_memory_version or 0)
+    if memory_version <= 0:
+        raise HTTPException(status_code=404, detail="No cached client memory summary")
+
+    normalized_language = normalize_summary_language(language)
+    normalized_summary_type = (summary_type or "overview").strip().lower() or "overview"
+    cached = get_client_memory_summary_cache(
+        session,
+        client_id=client_id,
+        summary_type=normalized_summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+    )
+    if not cached:
+        raise HTTPException(status_code=404, detail="No cached client memory summary")
+
+    return {
+        "client_id": client_id,
+        "language": normalized_language,
+        "summary_type": normalized_summary_type,
+        "content": cached.content,
+        "memory_version": memory_version,
+        "generated_at": cached.updated_at.isoformat(),
+        "cached": True,
+    }
+
+
 @router.post("/ai-suggest", response_model=list[AISuggestion])
 async def ai_suggest(body: AISuggestQuery):
     system = (

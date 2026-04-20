@@ -39,13 +39,34 @@ export function useClientMemorySummary({
   summaryType,
   language,
   memoryVersion,
-  enabled = false,
+  enabled = true,
   errorMessage,
 }: UseClientMemorySummaryOptions) {
   const [content, setContent] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const cacheKey = buildCacheKey({ clientId, summaryType, language, memoryVersion })
+
+  const loadCachedSummary = async () => {
+    try {
+      const response = await api.get<ClientMemorySummaryResponse>(
+        `/clients/${clientId}/memory/summaries/${summaryType}`,
+        { params: { language } },
+      )
+      const nextContent = response.content?.trim() || ''
+      if (!nextContent) return ''
+      clientMemorySummaryCache.set(cacheKey, nextContent)
+      setContent(nextContent)
+      setError('')
+      setLoading(false)
+      return nextContent
+    } catch (nextError: any) {
+      if (nextError?.response?.status !== 404) {
+        console.error('Failed to load cached client memory summary:', nextError)
+      }
+      return ''
+    }
+  }
 
   const refresh = async (forceRefresh = false) => {
     if (!forceRefresh) {
@@ -90,8 +111,11 @@ export function useClientMemorySummary({
       setContent(cached)
       setError('')
       setLoading(false)
+      return
     }
-  }, [cacheKey, enabled])
+    if (!memoryVersion) return
+    void loadCachedSummary()
+  }, [cacheKey, clientId, enabled, language, memoryVersion, summaryType])
 
   return {
     content,

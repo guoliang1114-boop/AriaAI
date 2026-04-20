@@ -3489,6 +3489,56 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(fresh_resp.json()["summary_type"], "lessons")
         self.assertEqual(mocked_complete.await_count, 1)
 
+    def test_client_memory_summary_cache_endpoint_does_not_generate(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Cached Client",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Strategic account",
+                        "decision_patterns": ["Needs executive proof"],
+                        "project_history": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=4,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(
+                ClientMemorySummary(
+                    client_id=client.id,
+                    summary_type="risk",
+                    language="en",
+                    memory_version=4,
+                    content="- cached client risk summary",
+                )
+            )
+            session.commit()
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(side_effect=AssertionError("should not call llm")),
+        ):
+            cached_resp = self.client.get(
+                f"/clients/{client_id}/memory/summaries/risk",
+                params={"language": "en-US"},
+            )
+
+        self.assertEqual(cached_resp.status_code, 200)
+        self.assertTrue(cached_resp.json()["cached"])
+        self.assertEqual(cached_resp.json()["content"], "- cached client risk summary")
+
+        missing_resp = self.client.get(
+            f"/clients/{client_id}/memory/summaries/opportunity",
+            params={"language": "en-US"},
+        )
+        self.assertEqual(missing_resp.status_code, 404)
+
 
 class MessageRouterTestCase(unittest.TestCase):
     def setUp(self):
