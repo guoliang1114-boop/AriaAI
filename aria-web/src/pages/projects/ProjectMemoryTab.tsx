@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  ArrowUpRight,
   Brain,
+  CheckCircle2,
   Clock3,
   FileText,
   Loader2,
@@ -13,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "../../api/client";
 import type {
+  ClientMemoryResponse,
   ProjectDetail as ProjectDetailType,
   ProjectMemoryEditableSlot,
   ProjectMemory,
@@ -26,6 +30,25 @@ import { useProjectMemorySummary } from "./useProjectMemorySummary";
 interface ProjectMemoryTabProps {
   projectDetail: ProjectDetailType;
   projectId: string;
+}
+
+interface ClientSummary {
+  id: number;
+  name: string;
+}
+
+function normalizeClientName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getApiErrorMessage(error: unknown) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string; message?: string } | string } }).response;
+    if (typeof response?.data === "string") return response.data;
+    return response?.data?.detail || response?.data?.message;
+  }
+  if (error instanceof Error) return error.message;
+  return undefined;
 }
 
 function SectionList({
@@ -166,11 +189,15 @@ function EditableSlotCard({
 export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabProps) {
   const { project, files, milestones, todos, members, financials } = projectDetail;
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [memoryMeta, setMemoryMeta] = useState<ProjectMemoryResponse | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const [isPromotingToClient, setIsPromotingToClient] = useState(false);
+  const [clientPromotionError, setClientPromotionError] = useState<string | null>(null);
+  const [clientPromotionMessage, setClientPromotionMessage] = useState<string | null>(null);
 
   const overviewInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目记忆摘要失败，请稍后重试" : "Failed to generate project memory summary",
@@ -229,6 +256,76 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
     }
   };
 
+  const promoteToClientMemory = async () => {
+    setClientPromotionError(null);
+    setClientPromotionMessage(null);
+
+    const clientName = project.client?.trim() || "";
+    const projectHasMemory = Boolean(memory) && (memory?.memory_version ?? project.memory_version ?? 0) > 0;
+    if (!clientName) {
+      setClientPromotionError(isZh ? "这个项目还没有填写客户，暂时不能沉淀到客户记忆。" : "This project has no client yet.");
+      return;
+    }
+    if (!projectHasMemory) {
+      setClientPromotionError(
+        isZh
+          ? "请先刷新项目记忆，再把稳定的项目经验沉淀到客户记忆。"
+          : "Rebuild project memory first, then promote it into client memory.",
+      );
+      return;
+    }
+
+    setIsPromotingToClient(true);
+    try {
+      const clients = await api.get<ClientSummary[]>("/clients");
+      const matchedClient = clients.find(
+        (client) => normalizeClientName(client.name) === normalizeClientName(clientName),
+      );
+      if (!matchedClient) {
+        throw new Error(
+          isZh
+            ? `没有找到同名客户「${clientName}」，请先在客户空间创建或修正客户名称。`
+            : `No matching client named "${clientName}" was found.`,
+        );
+      }
+
+      const promoted = await api.post<ClientMemoryResponse>(
+        `/clients/${matchedClient.id}/memory/promote-project`,
+        { project_id: Number(projectId) },
+        { timeout: 120000 },
+      );
+      const promotedAt = promoted.memory_updated_at || new Date().toISOString();
+      setMemory((currentMemory) =>
+        currentMemory
+          ? {
+              ...currentMemory,
+              _client_promotion: {
+                client_id: matchedClient.id,
+                client_name: matchedClient.name,
+                promoted_at: promotedAt,
+                trigger: "manual_project_memory_promote",
+              },
+            }
+          : currentMemory,
+      );
+      setClientPromotionMessage(
+        isZh
+          ? `已沉淀到「${matchedClient.name}」客户记忆，客户画像和经验库已更新。`
+          : `Promoted into ${matchedClient.name} client memory.`,
+      );
+    } catch (error) {
+      console.error("Failed to promote project memory into client memory:", error);
+      setClientPromotionError(
+        getApiErrorMessage(error) ||
+          (isZh
+            ? "沉淀到客户记忆失败，请稍后重试或先刷新项目记忆。"
+            : "Failed to promote project memory. Please try again later."),
+      );
+    } finally {
+      setIsPromotingToClient(false);
+    }
+  };
+
   useEffect(() => {
     void refreshMemory();
   }, [projectId]);
@@ -267,21 +364,76 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       ? "暂无"
       : "N/A";
   const promotionMeta = memory?._client_promotion
+  const clientName = project.client?.trim() || "";
+  const hasProjectMemory = Boolean(memory) && (memory?.memory_version ?? project.memory_version ?? 0) > 0;
 
   return (
     <div className="space-y-6">
       {promotionMeta ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <div className="font-medium">
-            {isZh ? "这个归档项目的经验已经沉淀到客户记忆" : "This archived project has already been promoted into client memory"}
-          </div>
-          <div className="mt-1 text-emerald-800">
-            {isZh
-              ? `客户：${promotionMeta.client_name} · 沉淀时间：${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`
-              : `Client: ${promotionMeta.client_name} · Promoted at ${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4" />
+                {isZh ? "这个项目的经验已经沉淀到客户记忆" : "This project has been promoted into client memory"}
+              </div>
+              <div className="mt-1 text-emerald-800">
+                {isZh
+                  ? `客户：${promotionMeta.client_name} · 沉淀时间：${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`
+                  : `Client: ${promotionMeta.client_name} · Promoted at ${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${promotionMeta.client_id}/memory`)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              {isZh ? "打开客户记忆" : "Open client memory"}
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 via-emerald-50 to-white p-4 text-sm text-teal-950">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-semibold">
+                <Users className="h-4 w-4 text-teal-700" />
+                {isZh ? "把项目经验提升到客户记忆" : "Promote project learning into client memory"}
+              </div>
+              <p className="mt-1 max-w-3xl text-teal-800">
+                {isZh
+                  ? clientName
+                    ? `将当前项目记忆沉淀到「${clientName}」客户空间，后续客户画像、决策偏好和经验复用会更连贯。`
+                    : "项目暂未填写客户。补齐客户后，就可以把项目沉淀为客户级长期经验。"
+                  : clientName
+                    ? `Promote this project memory into ${clientName}'s client workspace for reusable long-term context.`
+                    : "Add a client to this project before promoting memory."}
+              </p>
+              {!hasProjectMemory ? (
+                <p className="mt-2 text-xs font-medium text-amber-700">
+                  {isZh ? "建议先刷新项目记忆，再沉淀到客户记忆。" : "Rebuild project memory before promoting it."}
+                </p>
+              ) : null}
+              {clientPromotionError ? (
+                <p className="mt-2 text-xs font-medium text-red-700">{clientPromotionError}</p>
+              ) : null}
+              {clientPromotionMessage ? (
+                <p className="mt-2 text-xs font-medium text-emerald-700">{clientPromotionMessage}</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => void promoteToClientMemory()}
+              disabled={isPromotingToClient || !clientName || !hasProjectMemory}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-900/10 transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 disabled:shadow-none"
+            >
+              {isPromotingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+              {isZh ? "提升到客户记忆" : "Promote to client memory"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-1">
           <ProjectOverviewMemoryCard
