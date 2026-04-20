@@ -79,15 +79,18 @@ export function useProjectNotesAI({
             .find((item) => item.startsWith("data: "));
           if (!line) continue;
 
+          let payload: { type?: string; content?: string; message?: string };
           try {
-            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
-            if (payload.type === "text" && payload.content) {
-              setAiResult((current) => current + payload.content);
-            } else if (payload.type === "error") {
-              throw new Error(payload.message || "AI generation failed");
-            }
+            payload = JSON.parse(line.replace(/^data:\s*/, ""));
           } catch (error) {
             console.error("Failed to parse stream event:", error);
+            continue;
+          }
+
+          if (payload.type === "text" && payload.content) {
+            setAiResult((current) => current + payload.content);
+          } else if (payload.type === "error") {
+            throw new Error(payload.message || copy.aiGenerationFailed);
           }
         }
       }

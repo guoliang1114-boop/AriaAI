@@ -102,7 +102,7 @@ async function streamMemorySummary(options: {
 }
 
 export function useProjectMemorySummary({
-  enabled = true,
+  enabled = false,
   errorMessage,
   language,
   memoryVersion,
@@ -158,7 +158,12 @@ export function useProjectMemorySummary({
 
   useEffect(() => {
     if (!enabled) return;
-    void refresh();
+    const cached = memorySummaryCache.get(cacheKey);
+    if (cached) {
+      setContent(cached);
+      setError("");
+      setLoading(false);
+    }
   }, [cacheKey, enabled]);
 
   return {

@@ -179,54 +179,57 @@ export function useProjectChatComposer({
             .find((item) => item.startsWith("data: "));
           if (!line) continue;
 
+          let payload: StreamEvent;
           try {
-            const payload = JSON.parse(line.replace(/^data:\s*/, "")) as StreamEvent;
-            if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
-              fullContent += payload.content;
-              setStreamingContent(fullContent);
-            } else if (payload.type === "references") {
-              collectedReferences = payload.references || [];
-              setStreamingReferences(collectedReferences);
-            } else if (payload.type === "tool_executing" && payload.tool_name) {
-              const runningCall: ToolCallEvent = {
-                tool_name: payload.tool_name,
-                status: "running",
-                message: payload.message,
-              };
-              collectedToolCalls = [
-                ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
-                runningCall,
-              ];
-              setStreamingToolCalls(collectedToolCalls);
-            } else if (payload.type === "tool_result" && payload.result) {
-              const result = payload.result;
-              const toolName =
-                typeof result.tool_name === "string"
-                  ? result.tool_name
-                  : collectedToolCalls[collectedToolCalls.length - 1]?.tool_name || "tool";
-              const completedCall: ToolCallEvent = {
-                tool_name: toolName,
-                status:
-                  result.status === "error" || result.success === false ? "error" : "completed",
-                summary: summarizeToolResult(result),
-                error: typeof result.error === "string" ? result.error : undefined,
-              };
-              collectedToolCalls = [
-                ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
-                completedCall,
-              ];
-              setStreamingToolCalls(collectedToolCalls);
-
-              const artifact = artifactFromResult(result);
-              if (artifact && !collectedArtifacts.some((item) => item.path === artifact.path)) {
-                collectedArtifacts = [...collectedArtifacts, artifact];
-                setStreamingArtifacts(collectedArtifacts);
-              }
-            } else if (payload.type === "error") {
-              throw new Error(payload.message || payload.error || "Chat failed");
-            }
+            payload = JSON.parse(line.replace(/^data:\s*/, "")) as StreamEvent;
           } catch (error) {
             console.error("Failed to parse stream event:", error);
+            continue;
+          }
+
+          if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
+            fullContent += payload.content;
+            setStreamingContent(fullContent);
+          } else if (payload.type === "references") {
+            collectedReferences = payload.references || [];
+            setStreamingReferences(collectedReferences);
+          } else if (payload.type === "tool_executing" && payload.tool_name) {
+            const runningCall: ToolCallEvent = {
+              tool_name: payload.tool_name,
+              status: "running",
+              message: payload.message,
+            };
+            collectedToolCalls = [
+              ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
+              runningCall,
+            ];
+            setStreamingToolCalls(collectedToolCalls);
+          } else if (payload.type === "tool_result" && payload.result) {
+            const result = payload.result;
+            const toolName =
+              typeof result.tool_name === "string"
+                ? result.tool_name
+                : collectedToolCalls[collectedToolCalls.length - 1]?.tool_name || "tool";
+            const completedCall: ToolCallEvent = {
+              tool_name: toolName,
+              status:
+                result.status === "error" || result.success === false ? "error" : "completed",
+              summary: summarizeToolResult(result),
+              error: typeof result.error === "string" ? result.error : undefined,
+            };
+            collectedToolCalls = [
+              ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
+              completedCall,
+            ];
+            setStreamingToolCalls(collectedToolCalls);
+
+            const artifact = artifactFromResult(result);
+            if (artifact && !collectedArtifacts.some((item) => item.path === artifact.path)) {
+              collectedArtifacts = [...collectedArtifacts, artifact];
+              setStreamingArtifacts(collectedArtifacts);
+            }
+          } else if (payload.type === "error") {
+            throw new Error(payload.message || payload.error || "Chat failed");
           }
         }
       }

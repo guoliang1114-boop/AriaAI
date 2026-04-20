@@ -20,6 +20,8 @@ export function ProjectMemoryInsightCard({
   onRefresh,
   title,
 }: ProjectMemoryInsightCardProps) {
+  const actionLabel = content ? (isZh ? "重新生成" : "Regenerate") : isZh ? "生成摘要" : "Generate";
+
   return (
     <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-sky-50 p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -47,12 +49,8 @@ export function ProjectMemoryInsightCard({
           disabled={loading}
           className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
         >
-          {loading ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3 w-3" />
-          )}
-          {isZh ? "重新生成" : "Regenerate"}
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          {actionLabel}
         </button>
       </div>
 
@@ -80,8 +78,8 @@ export function ProjectMemoryInsightCard({
               ? "正在整理项目摘要..."
               : "Generating summary..."
             : isZh
-              ? "暂时还没有摘要内容。"
-              : "No summary available yet."}
+              ? "暂无摘要内容，点击生成摘要后再调用 AI。"
+              : "No summary yet. Click Generate to call AI."}
         </div>
       )}
     </div>

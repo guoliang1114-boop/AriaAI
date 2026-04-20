@@ -39,7 +39,7 @@ export function useClientMemorySummary({
   summaryType,
   language,
   memoryVersion,
-  enabled = true,
+  enabled = false,
   errorMessage,
 }: UseClientMemorySummaryOptions) {
   const [content, setContent] = useState('')
@@ -85,7 +85,12 @@ export function useClientMemorySummary({
 
   useEffect(() => {
     if (!enabled) return
-    void refresh()
+    const cached = clientMemorySummaryCache.get(cacheKey)
+    if (cached) {
+      setContent(cached)
+      setError('')
+      setLoading(false)
+    }
   }, [cacheKey, enabled])
 
   return {

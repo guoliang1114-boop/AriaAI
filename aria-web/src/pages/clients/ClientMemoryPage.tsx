@@ -290,10 +290,11 @@ export function ClientMemoryPage() {
                 </div>
                 <button
                   onClick={() => void refreshSummary(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low"
+                  disabled={summaryLoading}
+                  className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low disabled:opacity-60"
                 >
-                  <RefreshCw className="h-4 w-4" />
-                  {isZh ? '重新生成' : 'Regenerate'}
+                  {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {summaryContent ? (isZh ? '重新生成' : 'Regenerate') : isZh ? '生成摘要' : 'Generate'}
                 </button>
               </div>
               <div className="mb-4 flex flex-wrap gap-2">
@@ -324,8 +325,8 @@ export function ClientMemoryPage() {
                 ) : (
                   <div className="text-sm text-on-surface-muted">
                     {isZh
-                      ? '客户记忆准备好后，这里会显示 AI 生成的客户摘要。'
-                      : 'AI-generated client summaries will appear here once the memory is ready.'}
+                      ? '暂无摘要内容，点击生成摘要后再调用 AI。'
+                      : 'No summary yet. Click Generate to call AI.'}
                   </div>
                 )}
               </div>
