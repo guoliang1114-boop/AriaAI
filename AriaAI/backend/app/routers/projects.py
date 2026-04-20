@@ -356,6 +356,32 @@ def _get_project_memory_failure(project: Project) -> dict | None:
     return failure if isinstance(failure, dict) else None
 
 
+def _record_project_memory_failure_by_id(
+    project_id: int,
+    *,
+    stage: str,
+    message: str,
+    retry_count: int = 0,
+) -> None:
+    """Record ad-hoc LLM failures so operations pages can surface them."""
+    from app.database import engine as _engine
+    from sqlmodel import Session as _S
+
+    try:
+        with _S(_engine) as write_session:
+            project = write_session.get(Project, project_id)
+            if project:
+                _set_project_memory_failure(
+                    write_session,
+                    project,
+                    stage=stage,
+                    message=message,
+                    retry_count=retry_count,
+                )
+    except Exception:
+        logger.exception("Failed to record project memory failure for project_id=%s", project_id)
+
+
 async def _generate_memory_summary_cache(
     session: Session,
     project: Project,
@@ -609,10 +635,19 @@ async def _rebuild_project_memory(
 ) -> dict:
     project = project or get_project_or_404(session, project_id)
     _, project_memory_data, coverage = build_project_memory_data(session, project_id)
-    raw_memory = await complete_with_selected_model(
-        messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
-        max_tokens=2200,
-    )
+    try:
+        raw_memory = await complete_with_selected_model(
+            messages=[{"role": "user", "content": build_project_memory_prompt(project_memory_data)}],
+            max_tokens=2200,
+        )
+    except Exception as e:
+        _set_project_memory_failure(
+            session,
+            project,
+            stage=f"memory_rebuild:{trigger}",
+            message=str(e),
+        )
+        raise
     parsed_memory = parse_project_memory(raw_memory, project)
     return save_project_memory(session, project_id, parsed_memory, trigger=trigger, coverage=coverage)
 
@@ -1378,6 +1413,11 @@ async def generate_project_context(
                 accumulated.append(chunk)
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
         except Exception as e:
+            _record_project_memory_failure_by_id(
+                project_id,
+                stage="overview_summary",
+                message=str(e),
+            )
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
 
@@ -1855,6 +1895,11 @@ async def summarize_project_memory(
                     accumulated.append(chunk)
                     yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
             except Exception as e:
+                _record_project_memory_failure_by_id(
+                    project_id,
+                    stage=f"memory_summary:{summary_type}",
+                    message=str(e),
+                )
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
                 return
 
@@ -1887,10 +1932,19 @@ async def summarize_project_memory(
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    content = await complete_with_selected_model(
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1400,
-    )
+    try:
+        content = await complete_with_selected_model(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1400,
+        )
+    except Exception as e:
+        _set_project_memory_failure(
+            session,
+            project,
+            stage=f"memory_summary:{summary_type}",
+            message=str(e),
+        )
+        raise
     cached = save_project_memory_summary_cache(
         session,
         project_id=project_id,
