@@ -21,14 +21,46 @@ OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
 MAX_MEMORY_FILE_SUMMARY_CHARS = 200
 MAX_MEMORY_DESCRIPTION_CHARS = 1200
-SUPPORTED_MEMORY_SUMMARY_TYPES = {
+PROJECT_MEMORY_SUMMARY_TYPES = (
     "overview",
     "risk",
-    "stakeholder",
     "delivery",
+    "stakeholder",
     "client-facing",
     "financial",
     "documents",
+)
+SUPPORTED_MEMORY_SUMMARY_TYPES = set(PROJECT_MEMORY_SUMMARY_TYPES)
+
+PROJECT_MEMORY_SUMMARY_INSTRUCTIONS = {
+    "overview": (
+        "Write exactly 3-4 bullet points for an overview card. Focus on core objective, "
+        "current stage, major progress, key risks or open questions, and next actions."
+    ),
+    "risk": (
+        "Write exactly 3-4 bullet points focused on project risks. Highlight key risks, "
+        "blocked decisions, weak delivery signals, and what needs attention next."
+    ),
+    "delivery": (
+        "Write exactly 3-4 bullet points focused on delivery. Highlight current stage, progress, "
+        "important documents, delivery signals, and immediate execution next steps."
+    ),
+    "stakeholder": (
+        "Write exactly 3-4 bullet points focused on stakeholder alignment. Highlight who matters, "
+        "what each stakeholder cares about, open alignment issues, and suggested follow-ups."
+    ),
+    "client-facing": (
+        "Write exactly 3-4 bullet points that are safe to share with a client. Focus on progress, "
+        "current priorities, confirmed next steps, and avoid speculative internal wording."
+    ),
+    "financial": (
+        "Write exactly 3-4 bullet points focused on the project's financial picture. Highlight payment status, "
+        "collection risks, budget pressure, cash flow signals, and the next financial actions that matter."
+    ),
+    "documents": (
+        "Write exactly 3-4 bullet points focused on project documents and knowledge signals. Highlight important "
+        "documents, what each one supports, missing material, and the next documents worth reviewing or creating."
+    ),
 }
 
 MAX_SUMMARY_FIELD_CHARS = 320
@@ -319,39 +351,9 @@ def build_project_memory_view_prompt(
     normalized_type = summary_type if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES else "overview"
     output_language = _resolve_output_language(language)
     compact_memory = build_project_memory_summary_payload(memory, normalized_type)
-    instructions = {
-        "overview": (
-            "Write exactly 3-4 bullet points for an overview card. Focus on core objective, "
-            "current stage, major progress, key risks or open questions, and next actions."
-        ),
-        "risk": (
-            "Write exactly 3-4 bullet points focused on project risks. Highlight key risks, "
-            "blocked decisions, weak delivery signals, and what needs attention next."
-        ),
-        "stakeholder": (
-            "Write exactly 3-4 bullet points focused on stakeholder alignment. Highlight who matters, "
-            "what each stakeholder cares about, open alignment issues, and suggested follow-ups."
-        ),
-        "delivery": (
-            "Write exactly 3-4 bullet points focused on delivery. Highlight current stage, progress, "
-            "important documents, delivery signals, and immediate execution next steps."
-        ),
-        "client-facing": (
-            "Write exactly 3-4 bullet points that are safe to share with a client. Focus on progress, "
-            "current priorities, confirmed next steps, and avoid speculative internal wording."
-        ),
-        "financial": (
-            "Write exactly 3-4 bullet points focused on the project's financial picture. Highlight payment status, "
-            "collection risks, budget pressure, cash flow signals, and the next financial actions that matter."
-        ),
-        "documents": (
-            "Write exactly 3-4 bullet points focused on project documents and knowledge signals. Highlight important "
-            "documents, what each one supports, missing material, and the next documents worth reviewing or creating."
-        ),
-    }
     return (
         "You are an AI consultant assistant. "
-        f"{instructions[normalized_type]} "
+        f"{PROJECT_MEMORY_SUMMARY_INSTRUCTIONS[normalized_type]} "
         "Each bullet must be specific and concise. Use **bold** sparingly for key terms. "
         "Do not restate every field. Synthesize only the most decision-relevant points. "
         f"Return ONLY bullet points, one per line, starting with '- '. Keep the full answer under 90 words. Write the answer in {output_language}.\n\n"
@@ -359,6 +361,67 @@ def build_project_memory_view_prompt(
         f"Summary type: {normalized_type}\n"
         f"Structured memory JSON:\n{json.dumps(compact_memory, ensure_ascii=False)}"
     )
+
+
+def build_project_memory_multi_summary_prompt(
+    memory: dict[str, Any],
+    project_name: str,
+    summary_types: list[str] | tuple[str, ...] = PROJECT_MEMORY_SUMMARY_TYPES,
+    language: str | None = None,
+) -> str:
+    output_language = _resolve_output_language(language)
+    normalized_types = [item for item in summary_types if item in SUPPORTED_MEMORY_SUMMARY_TYPES]
+    if not normalized_types:
+        normalized_types = list(PROJECT_MEMORY_SUMMARY_TYPES)
+
+    sections = []
+    payload = {}
+    for summary_type in normalized_types:
+        sections.append(f"- {summary_type}: {PROJECT_MEMORY_SUMMARY_INSTRUCTIONS[summary_type]}")
+        payload[summary_type] = build_project_memory_summary_payload(memory, summary_type)
+
+    return (
+        "You are an AI consultant assistant. Generate all requested project summary views in one response. "
+        "Each view must be exactly 3-4 Markdown bullet points, specific, concise, and decision-relevant. "
+        "Use **bold** sparingly for key terms. Do not restate every field. "
+        f"Write all summaries in {output_language}.\n\n"
+        "Return ONLY a valid JSON object. The object keys must exactly match the requested summary types. "
+        "Each value must be a single string containing Markdown bullet points separated by newline characters. "
+        "Do not wrap the JSON in markdown fences.\n\n"
+        f"Project: {project_name}\n"
+        "Requested summary views:\n"
+        + "\n".join(sections)
+        + "\n\nStructured memory JSON by view:\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+
+
+def parse_project_memory_multi_summary(raw: str, summary_types: list[str] | tuple[str, ...]) -> dict[str, str]:
+    try:
+        parsed = json.loads(_extract_first_json_object(raw))
+    except Exception as exc:
+        raise ValueError("AI did not return valid summary JSON") from exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError("AI summary JSON must be an object")
+
+    summaries: dict[str, str] = {}
+    for summary_type in summary_types:
+        if summary_type not in SUPPORTED_MEMORY_SUMMARY_TYPES:
+            continue
+        value = parsed.get(summary_type)
+        if isinstance(value, list):
+            content = "\n".join(str(item).strip() for item in value if str(item).strip())
+        else:
+            content = str(value or "").strip()
+        if content:
+            summaries[summary_type] = content
+
+    missing = [summary_type for summary_type in summary_types if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES and not summaries.get(summary_type)]
+    if missing:
+        raise ValueError(f"AI summary JSON missing required views: {', '.join(missing)}")
+
+    return summaries
 
 
 def _trim_text(value: Any, max_chars: int = MAX_SUMMARY_FIELD_CHARS) -> str:

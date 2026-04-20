@@ -5,6 +5,7 @@ import type {
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
   ProjectMemoryResponse,
+  ProjectMemorySummariesResponse,
   ProjectMemorySummaryResponse,
   ProjectMemorySummaryType,
 } from "../../types/api";
@@ -38,6 +39,15 @@ interface UseProjectOverviewDataOptions {
 }
 
 type SummaryCache = Partial<Record<ProjectMemorySummaryType, string>>;
+const PROJECT_SUMMARY_TYPES: ProjectMemorySummaryType[] = [
+  "overview",
+  "risk",
+  "delivery",
+  "stakeholder",
+  "client-facing",
+  "financial",
+  "documents",
+];
 const API_LIMIT_COOLDOWN_MS = 90_000;
 
 function isApiLimitError(error: unknown) {
@@ -295,6 +305,39 @@ export function useProjectOverviewData({
     setSummaryCache({ overview: project.context_summary || "" });
   }, [project.context_summary, projectId]);
 
+  useEffect(() => {
+    if (!project.memory_version) return;
+
+    let cancelled = false;
+    void api
+      .get<ProjectMemorySummariesResponse>(`/projects/${projectId}/memory/summaries`, {
+        params: { language },
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const nextCache: SummaryCache = {
+          overview: project.context_summary || "",
+        };
+        for (const type of PROJECT_SUMMARY_TYPES) {
+          const content = data.summaries[type]?.content?.trim();
+          if (content) nextCache[type] = content;
+        }
+        setSummaryCache(nextCache);
+        const currentContent = nextCache[summaryType];
+        if (currentContent) {
+          setSummaryText(currentContent);
+          setSummaryError("");
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.error("Failed to load cached project summaries:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [language, project.context_summary, project.memory_version, projectId, summaryType]);
+
   const refreshMemory = async () => {
     try {
       const data = await api.get<ProjectMemoryResponse>(`/projects/${projectId}/memory`);
@@ -430,15 +473,69 @@ export function useProjectOverviewData({
     }
   };
 
+  const generateAllMemorySummaries = async (
+    nextType: ProjectMemorySummaryType = summaryType,
+    force = true,
+  ) => {
+    if (!force && summaryCache[nextType]) {
+      setSummaryType(nextType);
+      setSummaryText(summaryCache[nextType] || "");
+      setSummaryError("");
+      return;
+    }
+
+    if (isSummaryCoolingDown()) {
+      setSummaryError(getApiLimitSummaryError(isZh));
+      return;
+    }
+
+    setSummaryType(nextType);
+    setGeneratingSummary(true);
+    setSummaryError("");
+
+    try {
+      const data = await api.post<ProjectMemorySummariesResponse>(
+        `/projects/${projectId}/memory/summaries/generate`,
+        {
+          force_refresh: force,
+          language,
+          rebuild_if_stale: true,
+          summary_types: PROJECT_SUMMARY_TYPES,
+        },
+        { timeout: 90000 },
+      );
+      const nextCache: SummaryCache = {};
+      for (const type of PROJECT_SUMMARY_TYPES) {
+        const content = data.summaries[type]?.content?.trim();
+        if (content) nextCache[type] = content;
+      }
+      setSummaryCache(nextCache);
+      setSummaryText(nextCache[nextType] || "");
+      await refreshMemory();
+    } catch (error) {
+      console.error("Failed to generate project summaries:", error);
+      if (isApiLimitError(error)) {
+        startSummaryCooldown();
+        setSummaryError(getApiLimitSummaryError(isZh));
+        return;
+      }
+      setSummaryError(
+        error instanceof Error && error.message
+          ? error.message
+          : isZh
+            ? "生成项目总结失败，请稍后重试"
+            : "Failed to generate project summaries, please try again",
+      );
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
+
   const generateSummary = async (
     nextType: ProjectMemorySummaryType = summaryType,
     force = true,
   ) => {
-    if (nextType === "overview") {
-      await generateOverviewSummary();
-      return;
-    }
-    await generateMemorySummary(nextType, force);
+    await generateAllMemorySummaries(nextType, force);
   };
 
   const handleSummaryTypeChange = (nextType: ProjectMemorySummaryType) => {

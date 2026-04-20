@@ -52,11 +52,13 @@ from app.services.project_core import (
 )
 from app.services.project_contexts import (
     EDITABLE_MEMORY_SLOTS,
+    PROJECT_MEMORY_SUMMARY_TYPES,
     _get_existing_raw_memory,
     _normalize_editable_slot,
     build_project_context_data,
     build_project_context_prompt,
     build_project_memory_data,
+    build_project_memory_multi_summary_prompt,
     build_project_memory_prompt,
     build_project_memory_view_prompt,
     build_project_summary_from_memory_prompt,
@@ -64,6 +66,7 @@ from app.services.project_contexts import (
     get_project_memory_payload,
     mark_project_memory_stale,
     normalize_summary_language,
+    parse_project_memory_multi_summary,
     parse_project_memory,
     save_project_memory,
     save_project_context_summary,
@@ -1376,6 +1379,13 @@ class ProjectMemorySummarizeRequest(BaseModel):
     force_refresh: bool = False
 
 
+class ProjectMemoryGenerateSummariesRequest(BaseModel):
+    rebuild_if_stale: bool = True
+    language: Optional[str] = None
+    force_refresh: bool = True
+    summary_types: Optional[List[str]] = None
+
+
 class ProjectMemorySlotUpdateRequest(BaseModel):
     pinned: list[str] = []
 
@@ -2075,6 +2085,183 @@ async def summarize_project_memory(
             memory_version=memory_version,
             project_id=project_id,
             summary_type=summary_type,
+        )
+
+
+def _build_project_memory_summaries_response(
+    *,
+    cached: bool,
+    memory_payload: dict,
+    memory_version: int,
+    project_id: int,
+    summaries: dict[str, ProjectMemorySummary],
+) -> dict:
+    return {
+        "project_id": project_id,
+        "source_memory_version": memory_version,
+        "memory_stale": memory_payload.get("stale", False),
+        "cached": cached,
+        "summaries": {
+            summary_type: _build_project_memory_summary_response(
+                cached=cached,
+                content=summary.content,
+                generated_at=summary.updated_at,
+                memory_payload=memory_payload,
+                memory_version=memory_version,
+                project_id=project_id,
+                summary_type=summary_type,
+            )
+            for summary_type, summary in summaries.items()
+        },
+    }
+
+
+@router.get("/{project_id}/memory/summaries")
+def get_project_memory_summaries(
+    project_id: int,
+    language: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    memory_payload = get_project_memory_payload(project)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
+    normalized_language = normalize_summary_language(language)
+
+    if memory_version <= 0:
+        return {
+            "project_id": project_id,
+            "source_memory_version": memory_version,
+            "memory_stale": memory_payload.get("stale", False),
+            "cached": True,
+            "summaries": {},
+        }
+
+    cached_items = session.exec(
+        select(ProjectMemorySummary)
+        .where(ProjectMemorySummary.project_id == project_id)
+        .where(ProjectMemorySummary.language == normalized_language)
+        .where(ProjectMemorySummary.memory_version == memory_version)
+    ).all()
+    summaries = {
+        item.summary_type: item
+        for item in cached_items
+        if item.summary_type in PROJECT_MEMORY_SUMMARY_TYPES
+    }
+    return _build_project_memory_summaries_response(
+        cached=True,
+        memory_payload=memory_payload,
+        memory_version=memory_version,
+        project_id=project_id,
+        summaries=summaries,
+    )
+
+
+@router.post("/{project_id}/memory/summaries/generate")
+async def generate_project_memory_summaries(
+    project_id: int,
+    body: ProjectMemoryGenerateSummariesRequest,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    if body.rebuild_if_stale:
+        project, memory_payload = await _ensure_project_memory(session, project_id, project)
+    else:
+        memory_payload = get_project_memory_payload(project)
+
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
+    normalized_language = normalize_summary_language(body.language)
+    summary_types = [
+        item
+        for item in (body.summary_types or list(PROJECT_MEMORY_SUMMARY_TYPES))
+        if item in PROJECT_MEMORY_SUMMARY_TYPES
+    ]
+    if not summary_types:
+        summary_types = list(PROJECT_MEMORY_SUMMARY_TYPES)
+
+    if not body.force_refresh and memory_version > 0:
+        cached_items = {
+            summary_type: get_project_memory_summary_cache(
+                session,
+                project_id=project_id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=memory_version,
+            )
+            for summary_type in summary_types
+        }
+        if all(cached_items.values()):
+            return _build_project_memory_summaries_response(
+                cached=True,
+                memory_payload=memory_payload,
+                memory_version=memory_version,
+                project_id=project_id,
+                summaries={key: value for key, value in cached_items.items() if value},
+            )
+
+    lock_key = _project_summary_lock_key(project_id, "all", normalized_language, memory_version)
+    summary_lock = _get_project_summary_lock(lock_key)
+    async with summary_lock:
+        if not body.force_refresh and memory_version > 0:
+            fresh_cached_items = {
+                summary_type: get_project_memory_summary_cache(
+                    session,
+                    project_id=project_id,
+                    summary_type=summary_type,
+                    language=normalized_language,
+                    memory_version=memory_version,
+                )
+                for summary_type in summary_types
+            }
+            if all(fresh_cached_items.values()):
+                return _build_project_memory_summaries_response(
+                    cached=True,
+                    memory_payload=memory_payload,
+                    memory_version=memory_version,
+                    project_id=project_id,
+                    summaries={key: value for key, value in fresh_cached_items.items() if value},
+                )
+
+        prompt = build_project_memory_multi_summary_prompt(
+            memory_payload,
+            project.name,
+            summary_types=summary_types,
+            language=body.language,
+        )
+        try:
+            raw_content = await complete_with_selected_model(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=3200,
+            )
+            summary_contents = parse_project_memory_multi_summary(raw_content, summary_types)
+        except Exception as e:
+            _set_project_memory_failure(
+                session,
+                project,
+                stage="memory_summary:all",
+                message=str(e),
+            )
+            raise
+
+        saved_summaries: dict[str, ProjectMemorySummary] = {}
+        for summary_type, content in summary_contents.items():
+            saved_summaries[summary_type] = save_project_memory_summary_cache(
+                session,
+                project_id=project_id,
+                summary_type=summary_type,
+                language=normalized_language,
+                memory_version=memory_version,
+                content=content.strip(),
+            )
+
+        if summary_contents.get("overview"):
+            save_project_context_summary(session, project_id, summary_contents["overview"])
+
+        return _build_project_memory_summaries_response(
+            cached=False,
+            memory_payload=memory_payload,
+            memory_version=memory_version,
+            project_id=project_id,
+            summaries=saved_summaries,
         )
 
 

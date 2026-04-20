@@ -82,8 +82,8 @@ export function ProjectOverviewSummaryCard({
   summaryType,
 }: ProjectOverviewSummaryCardProps) {
   const title = isZh ? "AI 项目总结" : "AI Project Summary";
-  const generateLabel = isZh ? "生成总结" : "Generate Summary";
-  const regenerateLabel = isZh ? "重新生成" : "Regenerate";
+  const generateLabel = isZh ? "生成全部总结" : "Generate All";
+  const regenerateLabel = isZh ? "重新生成全部" : "Regenerate All";
 
   const isCoolingDown = !!summaryCooldownUntil && Date.now() < summaryCooldownUntil;
   const actionDisabled = generatingSummary || isCoolingDown;

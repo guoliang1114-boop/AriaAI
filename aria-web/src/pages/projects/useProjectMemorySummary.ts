@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { ProjectMemorySummaryResponse, ProjectMemorySummaryType } from "../../types/api";
+import type {
+  ProjectMemorySummariesResponse,
+  ProjectMemorySummaryResponse,
+  ProjectMemorySummaryType,
+} from "../../types/api";
 
 interface UseProjectMemorySummaryOptions {
   enabled?: boolean;
@@ -37,10 +41,50 @@ async function streamMemorySummary(options: {
   errorMessage: string;
   forceRefresh?: boolean;
   language: string;
+  memoryVersion?: number;
   projectId: string;
   summaryType: ProjectMemorySummaryType;
   onChunk: (value: string) => void;
 }) {
+  if (options.forceRefresh) {
+    const token = localStorage.getItem("authToken") || "";
+    const response = await fetch(`/api/projects/${options.projectId}/memory/summaries/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Auth-Token": token,
+      },
+      body: JSON.stringify({
+        force_refresh: true,
+        language: options.language,
+        rebuild_if_stale: true,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as ProjectMemorySummariesResponse;
+    for (const [summaryType, summary] of Object.entries(data.summaries)) {
+      const content = summary?.content?.trim();
+      if (!content) continue;
+      memorySummaryCache.set(
+        buildSummaryCacheKey({
+          language: options.language,
+          memoryVersion: data.source_memory_version || options.memoryVersion,
+          projectId: options.projectId,
+          summaryType: summaryType as ProjectMemorySummaryType,
+        }),
+        content,
+      );
+    }
+
+    const content = data.summaries[options.summaryType]?.content?.trim() || "";
+    options.onChunk(content);
+    return content;
+  }
+
   const token = localStorage.getItem("authToken") || "";
   const response = await fetch(`/api/projects/${options.projectId}/memory/summarize`, {
     method: "POST",
@@ -164,6 +208,7 @@ export function useProjectMemorySummary({
         errorMessage,
         forceRefresh,
         language,
+        memoryVersion,
         onChunk: setContent,
         projectId,
         summaryType,

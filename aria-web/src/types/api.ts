@@ -188,6 +188,14 @@ export interface ProjectMemorySummaryResponse {
   cached?: boolean
 }
 
+export interface ProjectMemorySummariesResponse {
+  project_id: number
+  source_memory_version: number
+  memory_stale: boolean
+  cached?: boolean
+  summaries: Partial<Record<ProjectMemorySummaryType, ProjectMemorySummaryResponse>>
+}
+
 export interface ClientMemory {
   client_profile: string
   decision_patterns: string[]

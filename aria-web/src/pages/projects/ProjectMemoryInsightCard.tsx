@@ -20,7 +20,7 @@ export function ProjectMemoryInsightCard({
   onRefresh,
   title,
 }: ProjectMemoryInsightCardProps) {
-  const actionLabel = content ? (isZh ? "重新生成" : "Regenerate") : isZh ? "生成摘要" : "Generate";
+  const actionLabel = content ? (isZh ? "重新生成全部" : "Regenerate All") : isZh ? "生成全部摘要" : "Generate All";
 
   return (
     <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-sky-50 p-5">

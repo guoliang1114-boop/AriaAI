@@ -1764,6 +1764,71 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(missing_resp.status_code, 404)
         missing_resp.close()
 
+    def test_memory_summaries_generate_creates_all_views_with_one_llm_call(self):
+        calls = []
+
+        async def fake_complete(messages, max_tokens=4000):
+            calls.append(messages[0]["content"])
+            return json.dumps(
+                {
+                    "overview": "- overview summary",
+                    "risk": "- risk summary",
+                    "delivery": "- delivery summary",
+                    "stakeholder": "- stakeholder summary",
+                    "client-facing": "- client-facing summary",
+                    "financial": "- financial summary",
+                    "documents": "- documents summary",
+                },
+                ensure_ascii=False,
+            )
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="All Views Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                        "delivery_signals": ["Milestone moving"],
+                        "financial_status": "Invoice pending",
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=8,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=fake_complete):
+            resp = self.client.post(
+                f"/projects/{project_id}/memory/summaries/generate",
+                json={"language": "en-US", "force_refresh": True},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertFalse(body["cached"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(body["summaries"]["risk"]["content"], "- risk summary")
+        self.assertEqual(body["summaries"]["documents"]["content"], "- documents summary")
+        resp.close()
+
+        with Session(self.engine) as session:
+            cached_count = len(
+                session.exec(
+                    select(ProjectMemorySummary).where(ProjectMemorySummary.project_id == project_id)
+                ).all()
+            )
+            refreshed_project = session.get(Project, project_id)
+
+        self.assertEqual(cached_count, 7)
+        self.assertEqual(refreshed_project.context_summary, "- overview summary")
+
     def test_memory_summarize_force_refresh_bypasses_cache_and_updates_it(self):
         async def fake_complete(messages, max_tokens=4000):
             return "- fresh risk summary"
