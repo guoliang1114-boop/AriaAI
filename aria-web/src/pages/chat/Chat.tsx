@@ -366,11 +366,6 @@ export function Chat() {
       setConversations(convsData)
       setProjects(projectsData)
       setSkills(skillsData)
-      // Auto-select first conversation if none is active
-      if (!searchParams.get('conversation') && convsData.length > 0) {
-        setConversation(convsData[0])
-        navigate(`/chat?conversation=${convsData[0].id}`, { replace: true })
-      }
     } catch (err) {
       console.error('Failed to fetch initial data:', err)
     } finally {
@@ -545,6 +540,7 @@ export function Chat() {
     setMessages([])
     setStreamingContent('')
     setSending(false)
+    setLoading(false)
     setHasMore(false)
     setErrorMsg(null)
     navigate('/chat', { replace: true })
@@ -854,8 +850,7 @@ export function Chat() {
     conversation?.id ??
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
   const activeConversationTitle = conversation?.title || t('chat.newConversation')
-  const shouldBootstrapConversation =
-    isLoadingConversations || (!conversationId && conversations.length > 0)
+  const shouldBootstrapConversation = isLoadingConversations
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
