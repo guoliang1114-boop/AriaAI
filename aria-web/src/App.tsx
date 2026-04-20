@@ -26,6 +26,7 @@ import {
   loadProjectMemorySettings,
   loadClientMemorySettings,
   loadMemoryOperationsSettings,
+  loadMigrationSettings,
   loadMessageSettings,
   loadForbidden,
   loadNotFound,
@@ -57,6 +58,9 @@ const ClientMemorySettings = lazy(() =>
 )
 const MemoryOperationsSettings = lazy(() =>
   loadMemoryOperationsSettings().then((module) => ({ default: module.MemoryOperationsSettings })),
+)
+const MigrationSettings = lazy(() =>
+  loadMigrationSettings().then((module) => ({ default: module.MigrationSettings })),
 )
 const MessageSettings = lazy(() => loadMessageSettings().then((module) => ({ default: module.MessageSettings })))
 const Forbidden = lazy(() => loadForbidden().then((module) => ({ default: module.Forbidden })))
@@ -254,6 +258,16 @@ function AppRoutes() {
               <AdminGuard>
                 <LazyPage>
                   <MemoryOperationsSettings />
+                </LazyPage>
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="migrations"
+            element={
+              <AdminGuard>
+                <LazyPage>
+                  <MigrationSettings />
                 </LazyPage>
               </AdminGuard>
             }

@@ -181,6 +181,21 @@ function getFailureCategoryAdvice(category: FailureCategory, isZh: boolean) {
   return isZh ? advice[category].zh : advice[category].en
 }
 
+function getSuggestedActionLabel(category: FailureCategory, isZh: boolean) {
+  const labels: Record<FailureCategory, { zh: string; en: string }> = {
+    all: { zh: '查看详情', en: 'Open details' },
+    budget: { zh: '查看预算', en: 'Review budget' },
+    rate_limit: { zh: '稍后重试', en: 'Retry later' },
+    timeout: { zh: '立即重试', en: 'Retry now' },
+    database: { zh: '查看迁移状态', en: 'Open migrations' },
+    data: { zh: '补齐数据', en: 'Fix data' },
+    scheduler: { zh: '刷新任务', en: 'Refresh jobs' },
+    llm: { zh: '检查 AI 设置', en: 'Check AI settings' },
+    unknown: { zh: '打开详情', en: 'Open details' },
+  }
+  return isZh ? labels[category].zh : labels[category].en
+}
+
 export function MemoryOperationsSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -371,6 +386,27 @@ export function MemoryOperationsSettings() {
       return
     }
     navigate(`/clients/${job.client_id}/memory`)
+  }
+
+  const runSuggestedAction = (failure: FailureItem) => {
+    const category = inferFailureCategory(failure)
+    if (category === 'database') {
+      navigate('/settings/migrations')
+      return
+    }
+    if (category === 'llm') {
+      navigate('/settings/ai')
+      return
+    }
+    if (category === 'scheduler' || category === 'budget') {
+      void loadJobs()
+      return
+    }
+    if (category === 'rate_limit' || category === 'timeout') {
+      void retryFailure(failure)
+      return
+    }
+    openEntity(failure)
   }
 
   const renderJobCard = (job: CombinedJob) => {
@@ -666,6 +702,13 @@ export function MemoryOperationsSettings() {
                         >
                           {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                           {isZh ? '立即重试' : 'Retry now'}
+                        </button>
+                        <button
+                          onClick={() => runSuggestedAction(failure)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          {getSuggestedActionLabel(inferFailureCategory(failure), isZh)}
                         </button>
                         <button
                           onClick={() => openEntity(failure)}
