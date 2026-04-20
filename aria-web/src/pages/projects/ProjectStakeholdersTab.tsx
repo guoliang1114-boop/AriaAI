@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Brain, Building2, ExternalLink, Loader2, MessageSquareText, RefreshCw, Users } from "lucide-react";
+import { Brain, Building2, ExternalLink, Loader2, MessageSquareText, RefreshCw, Save, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type {
   ClientMemory,
@@ -10,6 +10,7 @@ import type {
   ProjectMemory,
   ProjectMemoryResponse,
 } from "../../types/api";
+import { ProjectMemorySlotCard } from "./ProjectMemorySlotCard";
 import { useProjectMemorySummary } from "./useProjectMemorySummary";
 
 interface ClientSummary {
@@ -51,6 +52,13 @@ function BulletList({
   );
 }
 
+function splitContactLines(value?: string) {
+  return (value || "")
+    .split(/\r?\n|；|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStakeholdersTabProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
@@ -59,7 +67,9 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [client, setClient] = useState<ClientSummary | null>(null);
   const [clientMemory, setClientMemory] = useState<ClientMemory | null>(null);
+  const [contactDraft, setContactDraft] = useState("");
   const [loading, setLoading] = useState(true);
+  const [savingContact, setSavingContact] = useState(false);
 
   const stakeholderInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
@@ -89,6 +99,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
         if (cancelled) return;
         const matchedClient = clients.find((item) => normalizeClientName(item.name) === normalizeClientName(clientName));
         setClient(matchedClient || null);
+        setContactDraft(matchedClient?.contact || "");
 
         if (!matchedClient) {
           setClientMemory(null);
@@ -114,8 +125,23 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
   const pinnedNotes = memory?.stakeholder_notes_detail?.pinned || [];
   const aiNotes = memory?.stakeholder_notes_detail?.ai || memory?.stakeholder_notes || [];
   const keyContacts = clientMemory?.key_contacts || [];
+  const manualContactLines = splitContactLines(client?.contact);
+  const draftContactLines = splitContactLines(contactDraft);
   const sensitiveTopics = clientMemory?.sensitive_topics || [];
   const decisionPatterns = clientMemory?.decision_patterns || [];
+  const visualContacts = keyContacts.length
+    ? keyContacts.map((contact) => ({
+        name: contact.name || (isZh ? "未命名联系人" : "Unnamed contact"),
+        note: contact.note || "",
+        role: contact.role || (isZh ? "角色待补充" : "Role missing"),
+        source: isZh ? "客户记忆" : "Client memory",
+      }))
+    : draftContactLines.map((line, index) => ({
+        name: line.split(/[，,|｜]/)[0]?.trim() || `${isZh ? "联系人" : "Contact"} ${index + 1}`,
+        note: line,
+        role: isZh ? "手动维护" : "Manual",
+        source: isZh ? "客户资料" : "Client record",
+      }));
   const stakeholderScore = useMemo(() => {
     let score = 0;
     if (client) score += 1;
@@ -124,6 +150,21 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
     if (decisionPatterns.length || sensitiveTopics.length) score += 1;
     return score;
   }, [client, decisionPatterns.length, keyContacts.length, pinnedNotes.length, sensitiveTopics.length]);
+
+  const saveClientContact = async () => {
+    if (!client) return;
+    setSavingContact(true);
+    try {
+      const updated = await api.put<ClientSummary>(`/clients/${client.id}`, {
+        contact: contactDraft,
+      });
+      setClient((current) => current ? { ...current, contact: updated.contact ?? contactDraft } : current);
+    } catch (error) {
+      console.error("Failed to save client stakeholders:", error);
+    } finally {
+      setSavingContact(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -186,6 +227,119 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
         </div>
       ) : (
         <>
+          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-950">{isZh ? "维护客户干系人" : "Maintain client stakeholders"}</h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {isZh
+                      ? "在这里直接维护客户侧联系人线索。建议每行一个人，写清角色、影响点、联系方式或备注。"
+                      : "Maintain client-side contact signals here. One person per line with role, influence, contact, or notes."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void saveClientContact()}
+                  disabled={!client || savingContact}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-primary disabled:bg-gray-300"
+                >
+                  {savingContact ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {isZh ? "保存联系人" : "Save contacts"}
+                </button>
+              </div>
+              <textarea
+                value={contactDraft}
+                onChange={(event) => setContactDraft(event.target.value)}
+                rows={8}
+                disabled={!client}
+                className="mt-4 w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm leading-6 text-gray-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-gray-50 disabled:text-gray-400"
+                placeholder={
+                  isZh
+                    ? "示例：张总 / 业务决策人 / 关注上线周期和预算风险 / 微信 xxx"
+                    : "Example: Jane / Business decision maker / cares about launch timeline and budget risk / email..."
+                }
+              />
+              <div className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                {isZh
+                  ? "保存后客户记忆会被标记为待刷新；刷新客户记忆后，AI 会把这些线索沉淀成关键联系人、决策模式和敏感议题。"
+                  : "After saving, client memory is marked stale. Refresh client memory to turn these signals into contacts, decision patterns, and sensitivities."}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-100 bg-[radial-gradient(circle_at_center,#ecfdf5_0%,#ffffff_55%,#f8fafc_100%)] p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-950">{isZh ? "关系网络可视化" : "Relationship map"}</h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {isZh ? "中间是客户，周围是关键联系人或手动维护线索。" : "Client in the center, contacts and manual signals around it."}
+                  </p>
+                </div>
+                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-700">
+                  {visualContacts.length} {isZh ? "个节点" : "nodes"}
+                </span>
+              </div>
+              <div className="mt-5 grid gap-4 lg:grid-cols-[220px_1fr]">
+                <div className="flex min-h-[220px] items-center justify-center rounded-[2rem] border border-emerald-100 bg-white/90 p-5 text-center shadow-sm">
+                  <div>
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-600 text-white">
+                      <Building2 className="h-8 w-8" />
+                    </div>
+                    <div className="mt-4 font-semibold text-gray-950">{client?.name || project.client || (isZh ? "未关联客户" : "No linked client")}</div>
+                    <div className="mt-1 text-xs text-gray-500">{client?.industry || (isZh ? "行业待补充" : "Industry missing")}</div>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {visualContacts.length ? (
+                    visualContacts.slice(0, 6).map((contact, index) => (
+                      <div
+                        key={`${contact.name}-${index}`}
+                        className="relative rounded-2xl border border-gray-100 bg-white/90 p-4 shadow-sm"
+                      >
+                        <div className="absolute -left-2 top-6 hidden h-px w-4 bg-emerald-200 lg:block" />
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-gray-950">{contact.name}</div>
+                            <div className="mt-1 text-xs text-gray-500">{contact.role}</div>
+                          </div>
+                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+                            {contact.source}
+                          </span>
+                        </div>
+                        <div className="mt-3 line-clamp-3 text-sm leading-6 text-gray-600">{contact.note || (isZh ? "暂无备注" : "No note yet")}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/70 p-6 text-center text-sm text-gray-500 sm:col-span-2">
+                      {isZh ? "暂无可视化节点。先在左侧维护客户干系人。" : "No nodes yet. Add stakeholder contacts on the left first."}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <ProjectMemorySlotCard
+              description={isZh ? "固定客户侧关键人的偏好、敏感点、决策影响和沟通节奏。这里保存后会进入 AI 项目总结和聊天上下文。" : "Pin client-side preferences, sensitivities, influence, and cadence. These feed project summaries and chat context."}
+              isZh={isZh}
+              onSaved={setMemory}
+              projectId={projectId}
+              slotDetail={memory?.stakeholder_notes_detail}
+              slotKey="stakeholder_notes"
+              title={isZh ? "维护固定干系人提醒" : "Maintain pinned stakeholder reminders"}
+            />
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-950">{isZh ? "当前手动联系人线索" : "Current manual contact signals"}</h2>
+              <div className="mt-4">
+                <BulletList
+                  emptyText={isZh ? "还没有手动维护联系人。" : "No manual contacts yet."}
+                  items={manualContactLines}
+                />
+              </div>
+            </div>
+          </section>
+
           <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
