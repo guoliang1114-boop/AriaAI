@@ -42,6 +42,38 @@ bash deploy/deploy.sh --git-pull
 bash deploy/deploy.sh --migrate
 ```
 
+## 数据库迁移治理
+
+自动部署和手动 `--migrate` 都会优先使用：
+
+```bash
+cd AriaAI/backend
+python scripts/migration_governance.py report
+python scripts/migration_governance.py ensure
+python scripts/migration_governance.py upgrade
+python scripts/migration_governance.py check
+```
+
+动作含义：
+
+- `report`：输出当前数据库模式、当前 revision、最新 revision 和待执行 revision。
+- `ensure`：对历史轻量库执行幂等 additive schema guard，并在缺失 `alembic_version` 时安全 stamp。
+- `upgrade`：执行 `alembic upgrade head`，并输出前后状态。
+- `check`：作为发布保护；Alembic 库仍有 pending revision 或 legacy lightweight 状态会返回非零退出码。
+
+如果发布失败，先查看：
+
+```bash
+cd AriaAI/backend
+python scripts/migration_governance.py json
+```
+
+也可以访问公开健康检查：
+
+```bash
+curl https://aria.d2cgo.co/api/health/db/migrations
+```
+
 ## 配置 GitHub Secrets
 
 在 GitHub 仓库设置中添加以下 Secrets：

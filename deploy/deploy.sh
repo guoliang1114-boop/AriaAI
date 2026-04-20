@@ -111,15 +111,22 @@ deploy_backend() {
     log_info "后端部署完成"
 }
 
-# 4. 数据库迁移（可选）
+# 4. 数据库迁移治理（可选）
 migrate_database() {
     if [ "$1" == "--migrate" ]; then
-        log_info "执行数据库迁移..."
+        log_info "执行数据库迁移治理..."
         cd $BACKEND_DIR
         source .venv/bin/activate
-        
-        if [ -f "migrate_fix.py" ]; then
-            python migrate_fix.py
+
+        if [ -f "scripts/migration_governance.py" ]; then
+            python scripts/migration_governance.py report
+            python scripts/migration_governance.py ensure
+            python scripts/migration_governance.py upgrade
+            python scripts/migration_governance.py check
+        elif [ -f "scripts/ensure_db.py" ]; then
+            log_warn "migration_governance.py 不存在，回退到 ensure_db.py + alembic upgrade head"
+            python scripts/ensure_db.py
+            alembic upgrade head
         else
             log_warn "迁移脚本不存在，跳过"
         fi
@@ -209,7 +216,7 @@ show_help() {
     echo ""
     echo "选项:"
     echo "  --git-pull     部署前先从 Git 拉取最新代码"
-    echo "  --migrate      同时执行数据库迁移"
+    echo "  --migrate      同时执行数据库迁移治理"
     echo "  --help         显示此帮助"
     echo ""
     echo "示例:"

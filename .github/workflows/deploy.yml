@@ -78,9 +78,11 @@ jobs:
             python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
             python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
-            # Normalize historical migration state before applying the latest schema.
-            python3 scripts/ensure_db.py
-            alembic upgrade head
+            # Govern historical migration state before applying the latest schema.
+            python scripts/migration_governance.py report
+            python scripts/migration_governance.py ensure
+            python scripts/migration_governance.py upgrade
+            python scripts/migration_governance.py check
 
             # Reload backend after code and schema changes.
             pm2 reload ariaai-backend --update-env

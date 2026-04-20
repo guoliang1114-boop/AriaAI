@@ -138,6 +138,48 @@ function getFailureCategoryLabel(category: FailureCategory, isZh: boolean) {
   return isZh ? labels[category].zh : labels[category].en
 }
 
+function getFailureCategoryAdvice(category: FailureCategory, isZh: boolean) {
+  const advice: Record<FailureCategory, { zh: string; en: string }> = {
+    all: {
+      zh: '优先处理数量最多的失败类型；如果同时有预算告警和重试任务，先停批量预热再处理失败。',
+      en: 'Start with the most common failure type. If budgets and retries are both active, pause batch warming before clearing failures.',
+    },
+    budget: {
+      zh: '预算不足时先暂停批量预热，等待每日预算恢复，或只手动重试最高优先级的项目/客户。',
+      en: 'Pause batch warming when budgets are low. Wait for daily budget reset or retry only the highest-priority project/client.',
+    },
+    rate_limit: {
+      zh: '限流通常来自模型服务压力。建议减少并发、拉长预热间隔，稍后重试失败任务。',
+      en: 'Rate limits usually come from model pressure. Reduce concurrency, increase warm intervals, and retry later.',
+    },
+    timeout: {
+      zh: '超时多与上下文过大或模型响应慢有关。先重试一次；若重复出现，检查文档量和摘要视角范围。',
+      en: 'Timeouts often mean large context or slow model response. Retry once; if repeated, inspect document volume and summary scope.',
+    },
+    database: {
+      zh: '数据库类失败不要盲目重试。先检查 /health/db/migrations 和迁移治理脚本输出。',
+      en: 'Do not blindly retry database failures. Check /health/db/migrations and migration governance output first.',
+    },
+    data: {
+      zh: '数据缺失通常需要回到项目/客户详情补齐基础信息、文档或记忆源，再重新执行。',
+      en: 'Data failures usually need missing project/client basics, documents, or memory sources filled before retrying.',
+    },
+    scheduler: {
+      zh: '调度器异常优先检查后台进程、PM2 日志和任务队列状态，再取消或立即执行任务。',
+      en: 'For scheduler issues, check backend process, PM2 logs, and job queue state before cancelling or running jobs.',
+    },
+    llm: {
+      zh: '模型服务失败先检查 AI 设置、API Key、模型可用性和供应商状态，再重试。',
+      en: 'For LLM failures, check AI settings, API keys, model availability, and provider status before retrying.',
+    },
+    unknown: {
+      zh: '未知失败先打开详情查看上下文，再结合后端日志定位。重复出现时建议补充后端分类规则。',
+      en: 'For unknown failures, open the entity and check backend logs. Add backend classification rules if repeated.',
+    },
+  }
+  return isZh ? advice[category].zh : advice[category].en
+}
+
 export function MemoryOperationsSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -656,6 +698,26 @@ export function MemoryOperationsSettings() {
                   ? '如果预算接近上限，建议先处理失败记录和重试中的任务，再继续发起批量预热。'
                   : 'When budgets get tight, clear failures and retries first before starting more batch warming.'}
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
+              <AlertTriangle className="h-4 w-4" />
+              {isZh ? '失败处理建议' : 'Failure playbook'}
+            </div>
+            <div className="space-y-3 text-sm text-on-surface-muted">
+              {(failureCategoryFilter === 'all'
+                ? ([mostCommonFailureCategory.category, 'budget', 'rate_limit', 'database'] as FailureCategory[])
+                : ([failureCategoryFilter, 'all'] as FailureCategory[])
+              )
+                .filter((category, index, list) => list.indexOf(category) === index)
+                .map((category) => (
+                  <div key={category} className="rounded-xl bg-surface-container-low p-3">
+                    <div className="font-medium text-on-surface">{getFailureCategoryLabel(category, isZh)}</div>
+                    <div className="mt-1 leading-6">{getFailureCategoryAdvice(category, isZh)}</div>
+                  </div>
+                ))}
             </div>
           </div>
         </div>

@@ -104,6 +104,9 @@ export function ProjectChatSaveModal({
             <X className="w-4 h-4" />
           </button>
         </div>
+        <div className="border-b border-emerald-100 bg-emerald-50/70 px-5 py-3 text-sm leading-6 text-emerald-800">
+          {copy.saveToMemoryHint}
+        </div>
 
         <form
           onSubmit={(event) => {
