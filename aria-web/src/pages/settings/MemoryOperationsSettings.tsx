@@ -58,6 +58,11 @@ type FailureItem =
       failed_at: string
     }
 
+function getFailureKey(failure: FailureItem) {
+  const entityId = failure.scope === 'project' ? failure.project_id : failure.client_id
+  return `${failure.scope}-${entityId}-${failure.stage}-${failure.failed_at}`
+}
+
 function formatDate(value?: string | null, isZh = true) {
   if (!value) return isZh ? '等待调度' : 'Waiting'
   return new Date(value).toLocaleString(isZh ? 'zh-CN' : 'en-US', {
@@ -215,6 +220,7 @@ export function MemoryOperationsSettings() {
   const [failureCategoryFilter, setFailureCategoryFilter] = useState<FailureCategory>('all')
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all')
   const [showFailuresOnly, setShowFailuresOnly] = useState(false)
+  const [selectedFailureKey, setSelectedFailureKey] = useState<string | null>(null)
 
   const loadJobs = async (silent = false) => {
     try {
@@ -321,6 +327,11 @@ export function MemoryOperationsSettings() {
     })
   }, [attentionFilter, failureCategoryFilter, recentFailures, scopeFilter, searchQuery])
 
+  const selectedFailure = useMemo(
+    () => (selectedFailureKey ? recentFailures.find((failure) => getFailureKey(failure) === selectedFailureKey) ?? null : null),
+    [recentFailures, selectedFailureKey],
+  )
+
   const runNow = async (job: CombinedJob) => {
     try {
       setActionKey(`${job.scope}-${job.job_id}-run`)
@@ -407,6 +418,108 @@ export function MemoryOperationsSettings() {
       return
     }
     openEntity(failure)
+  }
+
+  const renderFailureDetailPanel = () => {
+    if (!selectedFailure) {
+      return (
+        <div className="rounded-2xl border border-dashed border-outline bg-surface p-4 text-sm text-on-surface-muted">
+          <div className="font-medium text-on-surface">{isZh ? '失败明细' : 'Failure details'}</div>
+          <p className="mt-2 leading-6">
+            {isZh
+              ? '从左侧选择一条失败记录，这里会显示原始错误、分类判断和建议动作。'
+              : 'Select a failure on the left to inspect the raw error, classification, and suggested action.'}
+          </p>
+        </div>
+      )
+    }
+
+    const category = inferFailureCategory(selectedFailure)
+    const title =
+      selectedFailure.scope === 'project'
+        ? isZh
+          ? `项目 / ${selectedFailure.project_name}`
+          : `Project / ${selectedFailure.project_name}`
+        : isZh
+          ? `客户 / ${selectedFailure.client_name}`
+          : `Client / ${selectedFailure.client_name}`
+    const busyRetry = actionKey === `${selectedFailure.scope}-failure-${selectedFailure.failed_at}`
+
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-amber-950">{isZh ? '失败明细' : 'Failure details'}</div>
+            <div className="mt-1 text-sm text-amber-900">{title}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedFailureKey(null)}
+            className="rounded-lg p-1 text-amber-700 hover:bg-amber-100"
+            aria-label={isZh ? '关闭失败明细' : 'Close failure details'}
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-2 text-xs text-amber-900">
+          <div className="rounded-xl bg-white/70 p-3">
+            <div className="font-medium">{isZh ? '失败分类' : 'Category'}</div>
+            <div className="mt-1">{getFailureCategoryLabel(category, isZh)}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl bg-white/70 p-3">
+              <div className="font-medium">{isZh ? '阶段' : 'Stage'}</div>
+              <div className="mt-1">{selectedFailure.stage}</div>
+            </div>
+            <div className="rounded-xl bg-white/70 p-3">
+              <div className="font-medium">{isZh ? '重试次数' : 'Retries'}</div>
+              <div className="mt-1">{selectedFailure.retry_count ?? 0}</div>
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/70 p-3">
+            <div className="font-medium">{isZh ? '失败时间' : 'Failed at'}</div>
+            <div className="mt-1">{formatDate(selectedFailure.failed_at, isZh)}</div>
+          </div>
+          <div className="rounded-xl bg-white/70 p-3">
+            <div className="font-medium">{isZh ? '原始错误' : 'Raw error'}</div>
+            <div className="mt-2 whitespace-pre-wrap break-words leading-5">{selectedFailure.message}</div>
+          </div>
+          <div className="rounded-xl bg-white/70 p-3">
+            <div className="font-medium">{isZh ? '处理建议' : 'Suggested handling'}</div>
+            <div className="mt-2 leading-5">{getFailureCategoryAdvice(category, isZh)}</div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void retryFailure(selectedFailure)}
+            disabled={busyRetry}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+          >
+            {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {isZh ? '立即重试' : 'Retry now'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runSuggestedAction(selectedFailure)}
+            className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {getSuggestedActionLabel(category, isZh)}
+          </button>
+          <button
+            type="button"
+            onClick={() => openEntity(selectedFailure)}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {isZh ? '打开对象' : 'Open entity'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   const renderJobCard = (job: CombinedJob) => {
@@ -711,6 +824,13 @@ export function MemoryOperationsSettings() {
                           {getSuggestedActionLabel(inferFailureCategory(failure), isZh)}
                         </button>
                         <button
+                          onClick={() => setSelectedFailureKey(getFailureKey(failure))}
+                          className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {isZh ? '查看明细' : 'Details'}
+                        </button>
+                        <button
                           onClick={() => openEntity(failure)}
                           className="inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
                         >
@@ -727,6 +847,8 @@ export function MemoryOperationsSettings() {
         </div>
 
         <div className="space-y-4">
+          {renderFailureDetailPanel()}
+
           <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
               <Wallet className="h-4 w-4" />
