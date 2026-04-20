@@ -3,6 +3,8 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 
 interface ProjectMemoryInsightCardProps {
   content: string;
+  emptyDescription?: string;
+  emptyTitle?: string;
   error: string;
   hint: string;
   isZh: boolean;
@@ -13,6 +15,8 @@ interface ProjectMemoryInsightCardProps {
 
 export function ProjectMemoryInsightCard({
   content,
+  emptyDescription,
+  emptyTitle,
   error,
   hint,
   isZh,
@@ -21,6 +25,10 @@ export function ProjectMemoryInsightCard({
   title,
 }: ProjectMemoryInsightCardProps) {
   const actionLabel = content ? (isZh ? "重新生成全部" : "Regenerate All") : isZh ? "生成全部摘要" : "Generate All";
+  const fallbackEmptyTitle = isZh ? "尚未生成本维度摘要" : "This summary has not been generated yet";
+  const fallbackEmptyDescription = isZh
+    ? "点击生成全部摘要后，系统会一次性生成概览、风险、交付、干系人、客户视角、财务和文档摘要。"
+    : "Click Generate All to create overview, risk, delivery, stakeholder, client-facing, financial, and document summaries in one run.";
 
   return (
     <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-sky-50 p-5">
@@ -73,13 +81,14 @@ export function ProjectMemoryInsightCard({
         </div>
       ) : (
         <div className="rounded-lg bg-white/70 p-3 text-sm text-gray-500">
-          {loading
-            ? isZh
-              ? "正在整理项目摘要..."
-              : "Generating summary..."
-            : isZh
-              ? "暂无摘要内容，点击生成摘要后再调用 AI。"
-              : "No summary yet. Click Generate to call AI."}
+          {loading ? (
+            isZh ? "正在整理项目摘要..." : "Generating summary..."
+          ) : (
+            <div className="space-y-1">
+              <div className="font-medium text-gray-700">{emptyTitle || fallbackEmptyTitle}</div>
+              <div>{emptyDescription || fallbackEmptyDescription}</div>
+            </div>
+          )}
         </div>
       )}
     </div>

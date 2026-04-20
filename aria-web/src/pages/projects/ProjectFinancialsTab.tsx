@@ -58,6 +58,12 @@ export function ProjectFinancialsTab({
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showContractModal, setShowContractModal] = useState(false);
   const [defaultPaymentType, setDefaultPaymentType] = useState<PaymentType>("received");
+  const hasFinancialData =
+    (financials.contract_amount || 0) > 0 ||
+    (financials.total_received || 0) > 0 ||
+    (financials.total_expense || 0) > 0 ||
+    (financials.total_invoiced || 0) > 0 ||
+    (financials.payments || []).length > 0;
 
   const filteredPayments = useMemo(
     () =>
@@ -114,6 +120,24 @@ export function ProjectFinancialsTab({
     <div className="w-full space-y-6">
       <ProjectMemoryInsightCard
         content={financialInsight.content}
+        emptyDescription={
+          hasFinancialData
+            ? isZh
+              ? "财务记录已存在，但当前记忆版本还没有财务摘要。点击生成全部摘要后，会一次性生成并缓存所有维度。"
+              : "Financial records exist, but this memory version does not have a financial summary yet. Generate All will create and cache every summary view in one run."
+            : isZh
+              ? "当前项目还没有合同金额、回款、开票或支出记录。可先补充财务数据；也可以生成全部摘要，让 AI 明确标记财务数据暂缺。"
+              : "This project has no contract, received, invoiced, or expense records yet. Add financial data first, or Generate All so AI can mark financial data as missing."
+        }
+        emptyTitle={
+          hasFinancialData
+            ? isZh
+              ? "财务摘要尚未生成"
+              : "Financial summary not generated"
+            : isZh
+              ? "财务数据为空"
+              : "No financial data"
+        }
         error={financialInsight.error}
         hint={
           isZh
