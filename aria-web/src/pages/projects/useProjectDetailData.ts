@@ -25,6 +25,14 @@ function getProjectDetailErrorMessage(error: unknown) {
   return "Failed to fetch project detail";
 }
 
+function getProjectDetailErrorStatus(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    return error.response?.status ?? null;
+  }
+
+  return null;
+}
+
 function getCachedProjectDetail(projectId: number | null) {
   if (!projectId) return null;
   const entry = projectDetailCache.get(projectId);
@@ -74,6 +82,7 @@ export function useProjectDetailData(projectId?: string) {
   const [initialLoading, setInitialLoading] = useState(!cachedDetail);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(cachedDetail);
 
   useEffect(() => {
@@ -81,6 +90,7 @@ export function useProjectDetailData(projectId?: string) {
     setProjectDetail(cachedDetail);
     setInitialLoading(!cachedDetail);
     setError(null);
+    setErrorStatus(null);
   }, [cachedDetail, numericProjectId]);
 
   const refreshProjectDetail = useCallback(async () => {
@@ -89,6 +99,7 @@ export function useProjectDetailData(projectId?: string) {
       projectDetailRef.current = null;
       setProjectDetail(null);
       setError(projectId ? "Invalid project id" : null);
+      setErrorStatus(null);
       setInitialLoading(false);
       setIsRefreshing(false);
       return;
@@ -103,6 +114,7 @@ export function useProjectDetailData(projectId?: string) {
     const isFirstLoad = !projectDetailRef.current;
 
     setError(null);
+    setErrorStatus(null);
     setIsRefreshing(!isFirstLoad);
 
     try {
@@ -127,6 +139,7 @@ export function useProjectDetailData(projectId?: string) {
       projectDetailRef.current = null;
       setProjectDetail(null);
       setError(getProjectDetailErrorMessage(error));
+      setErrorStatus(getProjectDetailErrorStatus(error));
     } finally {
       if (requestIdRef.current === requestId) {
         setInitialLoading(false);
@@ -145,6 +158,7 @@ export function useProjectDetailData(projectId?: string) {
 
   return {
     error,
+    errorStatus,
     initialLoading,
     isRefreshing,
     projectDetail,
