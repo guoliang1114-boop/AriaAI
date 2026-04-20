@@ -8,6 +8,7 @@ interface ProjectOverviewSummaryCardProps {
   onGenerate: (summaryType?: ProjectMemorySummaryType, force?: boolean) => void;
   onSummaryTypeChange: (summaryType: ProjectMemorySummaryType) => void;
   summaryError: string;
+  summaryCooldownUntil?: number | null;
   summaryText: string;
   summaryType: ProjectMemorySummaryType;
 }
@@ -76,12 +77,18 @@ export function ProjectOverviewSummaryCard({
   onGenerate,
   onSummaryTypeChange,
   summaryError,
+  summaryCooldownUntil,
   summaryText,
   summaryType,
 }: ProjectOverviewSummaryCardProps) {
   const title = isZh ? "AI 项目总结" : "AI Project Summary";
   const generateLabel = isZh ? "生成总结" : "Generate Summary";
   const regenerateLabel = isZh ? "重新生成" : "Regenerate";
+
+  const isCoolingDown = !!summaryCooldownUntil && Date.now() < summaryCooldownUntil;
+  const actionDisabled = generatingSummary || isCoolingDown;
+  const actionLabel = isCoolingDown ? (isZh ? "限流冷却中" : "Cooling down") : regenerateLabel;
+  const primaryActionLabel = isCoolingDown ? (isZh ? "限流冷却中" : "Cooling down") : generateLabel;
 
   const controls = (
     <div className="space-y-2">
@@ -130,7 +137,7 @@ export function ProjectOverviewSummaryCard({
           <button
             type="button"
             onClick={() => void onGenerate(summaryType, true)}
-            disabled={generatingSummary}
+            disabled={actionDisabled}
             className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
           >
             {generatingSummary ? (
@@ -138,7 +145,7 @@ export function ProjectOverviewSummaryCard({
             ) : (
               <Sparkles className="h-3 w-3" />
             )}
-            {regenerateLabel}
+            {actionLabel}
           </button>
         </div>
 
@@ -184,7 +191,7 @@ export function ProjectOverviewSummaryCard({
           <button
             type="button"
             onClick={() => void onGenerate(summaryType, true)}
-            disabled={generatingSummary}
+            disabled={actionDisabled}
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
             {generatingSummary ? (
@@ -192,7 +199,7 @@ export function ProjectOverviewSummaryCard({
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {generateLabel}
+            {primaryActionLabel}
           </button>
         </div>
       </div>

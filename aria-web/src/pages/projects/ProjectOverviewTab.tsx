@@ -50,6 +50,7 @@ export function ProjectOverviewTab({
     recentTodos,
     rebuildMemory,
     setDescExpanded,
+    summaryCooldownUntil,
     summaryError,
     summaryText,
     summaryType,
@@ -110,6 +111,7 @@ export function ProjectOverviewTab({
           isZh={isZh}
           onGenerate={generateSummary}
           onSummaryTypeChange={handleSummaryTypeChange}
+          summaryCooldownUntil={summaryCooldownUntil}
           summaryError={summaryError}
           summaryText={summaryText}
           summaryType={summaryType}

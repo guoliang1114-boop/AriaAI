@@ -38,6 +38,26 @@ interface UseProjectOverviewDataOptions {
 }
 
 type SummaryCache = Partial<Record<ProjectMemorySummaryType, string>>;
+const API_LIMIT_COOLDOWN_MS = 90_000;
+
+function isApiLimitError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("429") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("too many requests") ||
+    normalized.includes("engine_overloaded") ||
+    message.includes("API 限流") ||
+    message.includes("服务当前繁忙")
+  );
+}
+
+function getApiLimitSummaryError(isZh: boolean) {
+  return isZh
+    ? "Kimi 当前触发 API 限流，不是风险模块故障。系统已暂停本页重新生成 90 秒，并记录到 API 限流页；请稍后重试或先使用已有项目记忆。"
+    : "Kimi hit an API rate limit. This is not a risk-module failure. Regeneration is paused on this page for 90 seconds and recorded in API Limits; please retry later or use existing project memory.";
+}
 
 async function streamSummaryRequest<TDone extends object>(options: {
   body?: Record<string, unknown>;
@@ -119,6 +139,7 @@ export function useProjectOverviewData({
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [summaryText, setSummaryText] = useState(project.context_summary || "");
   const [summaryError, setSummaryError] = useState("");
+  const [summaryCooldownUntil, setSummaryCooldownUntil] = useState<number | null>(null);
   const [descExpanded, setDescExpanded] = useState(false);
   const [overviewNotesText, setOverviewNotesText] = useState((mdNotes || "").trim());
   const [recentArtifacts, setRecentArtifacts] = useState<GeneratedArtifact[]>([]);
@@ -132,6 +153,19 @@ export function useProjectOverviewData({
   const [summaryCache, setSummaryCache] = useState<SummaryCache>({
     overview: project.context_summary || "",
   });
+
+  const startSummaryCooldown = () => {
+    setSummaryCooldownUntil(Date.now() + API_LIMIT_COOLDOWN_MS);
+  };
+
+  const isSummaryCoolingDown = () => !!summaryCooldownUntil && Date.now() < summaryCooldownUntil;
+
+  useEffect(() => {
+    if (!summaryCooldownUntil) return;
+    const delay = Math.max(summaryCooldownUntil - Date.now(), 0);
+    const timer = window.setTimeout(() => setSummaryCooldownUntil(null), delay);
+    return () => window.clearTimeout(timer);
+  }, [summaryCooldownUntil]);
 
   const firstMarkdownFile = useMemo(
     () =>
@@ -328,6 +362,11 @@ export function useProjectOverviewData({
   }, [isRebuildingMemory, pendingSummaryRefresh]);
 
   const generateOverviewSummary = async () => {
+    if (isSummaryCoolingDown()) {
+      setSummaryError(getApiLimitSummaryError(isZh));
+      return;
+    }
+
     setGeneratingSummary(true);
     setSummaryText("");
     setSummaryError("");
@@ -356,6 +395,11 @@ export function useProjectOverviewData({
       await refreshMemory();
     } catch (error) {
       console.error("Failed to generate summary:", error);
+      if (isApiLimitError(error)) {
+        startSummaryCooldown();
+        setSummaryError(getApiLimitSummaryError(isZh));
+        return;
+      }
       setSummaryError(
         error instanceof Error && error.message
           ? error.message
@@ -375,6 +419,11 @@ export function useProjectOverviewData({
     if (!force && summaryCache[nextType]) {
       setSummaryText(summaryCache[nextType] || "");
       setSummaryError("");
+      return;
+    }
+
+    if (isSummaryCoolingDown()) {
+      setSummaryError(getApiLimitSummaryError(isZh));
       return;
     }
 
@@ -405,6 +454,11 @@ export function useProjectOverviewData({
       await refreshMemory();
     } catch (error) {
       console.error("Failed to generate memory summary:", error);
+      if (isApiLimitError(error)) {
+        startSummaryCooldown();
+        setSummaryError(getApiLimitSummaryError(isZh));
+        return;
+      }
       setSummaryError(
         error instanceof Error && error.message
           ? error.message
@@ -465,6 +519,7 @@ export function useProjectOverviewData({
     recentTodos,
     rebuildMemory,
     setDescExpanded,
+    summaryCooldownUntil,
     summaryError,
     summaryText,
     summaryType,
