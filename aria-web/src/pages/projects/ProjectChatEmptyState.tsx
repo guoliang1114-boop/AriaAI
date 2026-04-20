@@ -15,13 +15,13 @@ export function ProjectChatEmptyState({
   startConversationLabel,
 }: ProjectChatEmptyStateProps) {
   return (
-    <div className="h-full flex flex-col items-center justify-center text-gray-500">
+    <div className="flex w-full flex-col items-center justify-center text-gray-500">
       <div className="w-16 h-16 rounded-2xl bg-primary/5 flex items-center justify-center mb-4 border border-primary/10">
         <Bot className="w-8 h-8 text-primary/40" />
       </div>
       <p className="text-base font-semibold text-gray-900 mb-2">{startConversationLabel}</p>
       <p className="text-sm text-gray-500 mb-6 max-w-xs text-center">{choosePromptLabel}</p>
-      <div className="grid grid-cols-2 gap-3 max-w-md">
+      <div className="grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
         {quickPrompts.map((prompt) => (
           <button
             key={prompt.key}

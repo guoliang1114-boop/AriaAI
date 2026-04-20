@@ -91,7 +91,7 @@ AriaAI/
 │   └── AUTO_DEPLOY.md          # 本文件
 ├── aria-web/                   # 前端代码
 │   └── dist/                   # 构建输出
-└── AriaAI/backend/             # 后端代码
+└── AriaAI/backend/             # 后端代码；SCP 后位于 /www/wwwroot/AriaAI/AriaAI/backend
 ```
 
 ---

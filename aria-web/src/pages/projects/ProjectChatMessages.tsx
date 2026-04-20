@@ -142,13 +142,15 @@ export function ProjectChatMessages({
       )}
 
       {messages.length === 0 && !streamingContent && !isLoading && !isLoadingMessages && (
-        <div className="mx-auto flex h-full max-w-5xl">
-          <ProjectChatEmptyState
-            choosePromptLabel={choosePromptLabel}
-            onQuickPrompt={onQuickPrompt}
-            quickPrompts={quickPrompts}
-            startConversationLabel={startConversationLabel}
-          />
+        <div className="absolute inset-0 flex items-center justify-center px-4 py-10">
+          <div className="w-full max-w-5xl">
+            <ProjectChatEmptyState
+              choosePromptLabel={choosePromptLabel}
+              onQuickPrompt={onQuickPrompt}
+              quickPrompts={quickPrompts}
+              startConversationLabel={startConversationLabel}
+            />
+          </div>
         </div>
       )}
 

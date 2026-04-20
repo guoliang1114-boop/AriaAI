@@ -69,7 +69,7 @@ jobs:
           port: ${{ secrets.SERVER_PORT || '22' }}
           script: |
             set -e
-            cd /www/wwwroot/AriaAI/backend
+            cd /www/wwwroot/AriaAI/AriaAI/backend
 
             # Activate the backend virtual environment.
             source .venv/bin/activate

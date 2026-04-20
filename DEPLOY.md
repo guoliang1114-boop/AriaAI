@@ -76,7 +76,7 @@ on:
 
 1. 项目代码目录存在：`/www/wwwroot/AriaAI`
 2. 前端站点目录存在：`/www/wwwroot/aria.d2cgo.co`
-3. 后端虚拟环境已创建：`/www/wwwroot/AriaAI/backend/.venv`
+3. 后端虚拟环境已创建：`/www/wwwroot/AriaAI/AriaAI/backend/.venv`
 4. PM2 中已有 `ariaai-backend` 进程
 5. Nginx 已完成站点配置
 6. PostgreSQL 可用
@@ -167,7 +167,7 @@ git push origin main
 建议登录服务器检查：
 
 ```bash
-cd /www/wwwroot/AriaAI/backend
+cd /www/wwwroot/AriaAI/AriaAI/backend
 source .venv/bin/activate
 alembic current
 alembic upgrade head
@@ -209,7 +209,7 @@ alembic upgrade head
 最常见的补救动作：
 
 ```bash
-cd /www/wwwroot/AriaAI/backend
+cd /www/wwwroot/AriaAI/AriaAI/backend
 source .venv/bin/activate
 pip install -r requirements.txt
 python3 scripts/ensure_db.py
