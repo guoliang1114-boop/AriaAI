@@ -1,43 +1,25 @@
 # AriaAI
 
-面向咨询团队的 AI 协作工作台。
+AriaAI 是面向咨询、售前与交付团队的 AI 协作工作台。当前仓库已经进入“下一版本迭代准备”阶段，主线不再是补基础页面，而是把项目记忆、客户记忆、Skill 工作流、后台任务治理和部署可靠性做成稳定产品能力。
 
-当前仓库的主工作形态已经明确为：
-- 前端：`aria-web`，React + TypeScript + Vite
+## 技术栈
+
+- 前端：`aria-web`，React 19 + TypeScript + Vite
 - 后端：`AriaAI/backend`，FastAPI + SQLModel + Alembic
-- 数据库：PostgreSQL
+- 数据库：PostgreSQL 为默认生产路径，SQLite 仅作为本地 fallback
+- 调度：APScheduler
+- AI 能力：多模型配置、项目/客户上下文、RAG、工具调用、Skill 模板
 
 ## 快速启动
 
-### 后端
+后端：
 
 ```powershell
 cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
 .\start.ps1
 ```
 
-Linux / macOS:
-
-```bash
-cd AriaAI/backend
-./start.sh
-```
-
-默认数据库连接：
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/ariaai
-```
-
-首次切换数据库或拉取新迁移后，先执行：
-
-```bash
-cd AriaAI/backend
-source .venv/bin/activate
-alembic upgrade head
-```
-
-### 前端
+前端：
 
 ```powershell
 cd C:\Users\Administrator\AP\AriaAI\aria-web
@@ -52,59 +34,37 @@ cd C:\Users\Administrator\AP\AriaAI\aria-web
 npm run build
 ```
 
+数据库迁移治理：
+
+```bash
+cd AriaAI/backend
+python scripts/migration_governance.py report
+python scripts/migration_governance.py ensure
+python scripts/migration_governance.py upgrade
+python scripts/migration_governance.py check
+```
+
 ## 当前核心能力
 
-- 统一认证与用户管理
-- 项目工作台与项目详情页
-- 项目聊天
-  - 流式输出
-  - 标题生成
-  - Markdown / PDF 导出
-  - 项目级上下文注入
-- 项目文档工作区
-  - 左侧 Markdown 文档树
-  - 右侧编辑 / 预览 / 分栏
-  - 咨询类售前模板初始化
-  - 新建、重命名、删除
-  - AI 润色，含流式输出
-- 项目待办
-  - 指派负责人
-  - 截止日期
-  - 仪表盘“我的待办”聚合
-- 客户管理与客户详情
-- 知识库上传、向量化与 RAG 检索
-- 项目级知识范围隔离
-  - 仅当前项目
-  - 当前客户
-  - 全局知识库
-- Skills、模板、调度任务、生成文件
-
-## 仓库结构
-
-```text
-AriaAI/
-├─ README.md
-├─ docs/
-├─ AriaAI/
-│  ├─ backend/
-│  │  ├─ app/
-│  │  ├─ alembic/
-│  │  └─ POSTGRESQL.md
-│  └─ skills/
-└─ aria-web/
-   └─ src/
-```
+- 项目工作台：概览、聊天、记忆、笔记、待办、里程碑、财务、文档、设置。
+- 项目聊天：SSE 流式输出、项目/客户/全局知识范围、RAG 引用、工具调用、生成物卡片、Skill 入口。
+- 项目记忆：结构化项目记忆、多视角摘要、摘要缓存、预热、槽位编辑、手动刷新、任务队列。
+- 客户记忆：客户级长期记忆、跨项目沉淀、手动提升、归档自动沉淀、多视角摘要、客户记忆页。
+- 统一任务治理：项目/客户记忆任务统一面板、失败分类、失败明细、重试、预算、告警汇总。
+- 迁移治理：Alembic revision 检测、短号 alias 修复、部署脚本接入、设置页迁移状态。
+- Settings：AI、用户、服务器、语言、项目记忆、客户记忆、Memory Operations、Migration Status。
 
 ## 推荐先读
 
-1. [docs/00-项目总览.md](docs/00-项目总览.md)
-2. [docs/06-当前架构图.md](docs/06-当前架构图.md)
-3. [docs/03-代码问题清单.md](docs/03-代码问题清单.md)
-4. [AriaAI/backend/POSTGRESQL.md](AriaAI/backend/POSTGRESQL.md)
+1. [下一版本迭代计划](docs/09-下一版本迭代计划.md)
+2. [项目总览](docs/00-项目总览.md)
+3. [代码问题清单](docs/03-代码问题清单.md)
+4. [项目记忆架构与落地进度](docs/08-项目记忆架构与落地进度.md)
+5. [PostgreSQL 与迁移治理](AriaAI/backend/POSTGRESQL.md)
 
 ## 当前注意事项
 
-- 线上默认应使用 PostgreSQL，不建议继续依赖 SQLite。
-- 每次部署新代码后，都应执行 `alembic upgrade head`。
-- 近期项目域能力增长很快，`AriaAI/backend/app/routers/projects.py` 和 `aria-web/src/pages/projects/ProjectDetail.tsx` 仍是复杂度中心。
-- 仓库里仍有少量历史中文编码污染，功能可用，但值得继续治理。
+- 每次部署前优先跑 `migration_governance.py report/check`，再执行 `ensure/upgrade`。
+- 线上默认使用 PostgreSQL，不建议继续把 SQLite 当作生产路径。
+- `Memory Operations` 是后续排查记忆任务、预算、失败和重试的首选入口。
+- 旧文档中仍有少量历史编码污染，已开始以 vNext 基线文档逐步替换。
