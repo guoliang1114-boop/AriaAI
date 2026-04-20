@@ -26,6 +26,7 @@ import {
   loadProjectMemorySettings,
   loadClientMemorySettings,
   loadMemoryOperationsSettings,
+  loadApiLimitsSettings,
   loadMigrationSettings,
   loadMessageSettings,
   loadForbidden,
@@ -58,6 +59,9 @@ const ClientMemorySettings = lazy(() =>
 )
 const MemoryOperationsSettings = lazy(() =>
   loadMemoryOperationsSettings().then((module) => ({ default: module.MemoryOperationsSettings })),
+)
+const ApiLimitsSettings = lazy(() =>
+  loadApiLimitsSettings().then((module) => ({ default: module.ApiLimitsSettings })),
 )
 const MigrationSettings = lazy(() =>
   loadMigrationSettings().then((module) => ({ default: module.MigrationSettings })),
@@ -258,6 +262,16 @@ function AppRoutes() {
               <AdminGuard>
                 <LazyPage>
                   <MemoryOperationsSettings />
+                </LazyPage>
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="api-limits"
+            element={
+              <AdminGuard>
+                <LazyPage>
+                  <ApiLimitsSettings />
                 </LazyPage>
               </AdminGuard>
             }
