@@ -16,12 +16,12 @@ import {
 } from "lucide-react";
 import { api } from "../../api/client";
 import type {
+  ClientMemory,
   ClientMemoryResponse,
   ProjectDetail as ProjectDetailType,
   ProjectMemoryEditableSlot,
   ProjectMemory,
   ProjectMemoryResponse,
-  ProjectMember,
 } from "../../types/api";
 import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
@@ -35,6 +35,8 @@ interface ProjectMemoryTabProps {
 
 interface ClientSummary {
   id: number;
+  contact?: string;
+  industry?: string;
   name: string;
 }
 
@@ -98,19 +100,23 @@ function DetailCard({
 }
 
 function StakeholderManagementCard({
+  client,
+  clientMemory,
   isZh,
-  members,
   memory,
-  onManageMembers,
+  onOpenClientMemory,
 }: {
+  client: ClientSummary | null;
+  clientMemory: ClientMemory | null;
   isZh: boolean;
-  members: ProjectMember[];
   memory: ProjectMemory | null;
-  onManageMembers: () => void;
+  onOpenClientMemory: () => void;
 }) {
   const pinnedNotes = memory?.stakeholder_notes_detail?.pinned || [];
   const aiNotes = memory?.stakeholder_notes_detail?.ai || memory?.stakeholder_notes || [];
-  const hasStakeholderCoverage = members.length > 0 && pinnedNotes.length > 0;
+  const clientContacts = clientMemory?.key_contacts || [];
+  const hasClientContacts = clientContacts.length > 0 || Boolean(client?.contact?.trim());
+  const hasStakeholderCoverage = hasClientContacts && pinnedNotes.length > 0;
 
   return (
     <div className="rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-5">
@@ -124,42 +130,41 @@ function StakeholderManagementCard({
               <h3 className="font-semibold text-gray-900">{isZh ? "干系人管理与分析" : "Stakeholder Management & Analysis"}</h3>
               <p className="mt-0.5 text-sm text-gray-500">
                 {isZh
-                  ? "把成员、沟通提醒和 AI 观察放在一起，方便判断下一步对齐动作。"
-                  : "Combine members, communication reminders, and AI observations for the next alignment move."}
+                  ? "这里的干系人优先指客户侧联系人、决策人、使用方和影响方，用来判断下一步客户对齐动作。"
+                  : "Stakeholders here mean client-side contacts, decision makers, users, and influencers for the next alignment move."}
               </p>
             </div>
           </div>
         </div>
         <button
           type="button"
-          onClick={onManageMembers}
+          onClick={onOpenClientMemory}
+          disabled={!client}
           className="rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
         >
-          {isZh ? "管理成员" : "Manage Members"}
+          {isZh ? "打开客户记忆" : "Open Client Memory"}
         </button>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "项目成员" : "Members"}</div>
-          <div className="mt-2 text-2xl font-semibold text-gray-900">{members.length}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "关联客户" : "Linked Client"}</div>
+          <div className="mt-2 text-xl font-semibold text-gray-900">{client?.name || (isZh ? "未关联" : "Not linked")}</div>
           <div className="mt-2 text-sm text-gray-600">
-            {members.length
-              ? members.slice(0, 3).map((member) => member.user.display_name).join(" / ")
-              : isZh
-                ? "还没有维护项目成员"
-                : "No project members yet"}
+            {client?.contact || client?.industry || (isZh ? "建议先在项目设置中关联客户" : "Link a client in project settings first")}
           </div>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "固定沟通提示" : "Pinned reminders"}</div>
-          <div className="mt-2 text-2xl font-semibold text-gray-900">{pinnedNotes.length}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "客户关键联系人" : "Client key contacts"}</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{clientContacts.length}</div>
           <p className="mt-2 text-sm text-gray-600">
-            {pinnedNotes.length
-              ? pinnedNotes[0]
+            {clientContacts.length
+              ? clientContacts.slice(0, 2).map((contact) => `${contact.name || (isZh ? "未命名" : "Unnamed")} ${contact.role ? `/${contact.role}` : ""}`).join(" · ")
+              : client?.contact
+                ? client.contact
               : isZh
-                ? "建议固定关键人的偏好、禁区和跟进节奏"
-                : "Pin preferences, sensitivities, and follow-up cadence"}
+                ? "客户记忆尚未沉淀关键联系人"
+                : "No client key contacts captured yet"}
           </p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
@@ -167,17 +172,35 @@ function StakeholderManagementCard({
           <p className="mt-2 text-sm text-gray-700">
             {hasStakeholderCoverage
               ? isZh
-                ? "干系人信息已有基础覆盖，下一步应围绕固定提示安排沟通。"
+                ? "客户侧关键人和长期沟通提醒已有基础覆盖，适合直接用于下一次客户沟通准备。"
                 : "Stakeholder coverage exists. Use pinned reminders to plan the next touchpoint."
-              : members.length
+              : hasClientContacts
                 ? isZh
-                  ? "已有成员，但缺少长期沟通提示，建议从 AI 建议中挑选并固定。"
-                  : "Members exist, but long-term reminders are missing. Promote useful AI notes to pinned items."
+                  ? "已有客户联系人线索，但缺少固定沟通提示，建议从 AI 观察中挑选并固定。"
+                  : "Client contact signals exist, but pinned reminders are missing. Promote useful AI notes."
                 : isZh
-                  ? "缺少成员和关键联系人，建议先补齐项目干系人。"
-                  : "Members and key contacts are missing. Add stakeholders first."}
+                  ? "客户侧关键人还不清晰，建议先在客户资料或客户记忆中补齐联系人、角色和决策影响。"
+                  : "Client-side stakeholders are unclear. Capture contacts, roles, and decision influence first."}
           </p>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-gray-100 bg-white/70 p-4">
+        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "固定沟通提醒" : "Pinned communication reminders"}</div>
+        {pinnedNotes.length ? (
+          <ul className="mt-2 grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+            {pinnedNotes.slice(0, 4).map((item, index) => (
+              <li key={`${item}-${index}`} className="flex items-start gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-gray-500">
+            {isZh ? "还没有固定客户侧干系人提醒，可以从 AI 观察中挑选长期有效的偏好、禁区和跟进节奏。" : "No pinned client-side stakeholder reminders yet. Promote preferences, sensitivities, and cadence from AI observations."}
+          </p>
+        )}
       </div>
 
       {aiNotes.length ? (
@@ -299,6 +322,8 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   const [isPromotingToClient, setIsPromotingToClient] = useState(false);
   const [clientPromotionError, setClientPromotionError] = useState<string | null>(null);
   const [clientPromotionMessage, setClientPromotionMessage] = useState<string | null>(null);
+  const [linkedClient, setLinkedClient] = useState<ClientSummary | null>(null);
+  const [clientMemory, setClientMemory] = useState<ClientMemory | null>(null);
 
   const overviewInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目记忆摘要失败，请稍后重试" : "Failed to generate project memory summary",
@@ -334,6 +359,34 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       setMemory(null);
     } finally {
       setIsLoadingMemory(false);
+    }
+  };
+
+  const refreshLinkedClientMemory = async () => {
+    const clientName = project.client?.trim() || "";
+    if (!clientName) {
+      setLinkedClient(null);
+      setClientMemory(null);
+      return;
+    }
+
+    try {
+      const clients = await api.get<ClientSummary[]>("/clients");
+      const matchedClient = clients.find(
+        (client) => normalizeClientName(client.name) === normalizeClientName(clientName),
+      );
+      setLinkedClient(matchedClient || null);
+
+      if (!matchedClient) {
+        setClientMemory(null);
+        return;
+      }
+
+      const memoryData = await api.get<ClientMemoryResponse>(`/clients/${matchedClient.id}/memory`);
+      setClientMemory(memoryData.memory);
+    } catch (error) {
+      console.error("Failed to load linked client memory:", error);
+      setClientMemory(null);
     }
   };
 
@@ -430,6 +483,10 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   useEffect(() => {
     void refreshMemory();
   }, [projectId]);
+
+  useEffect(() => {
+    void refreshLinkedClientMemory();
+  }, [project.client]);
 
   const sourceCoverage = useMemo(
     () => [
@@ -805,10 +862,13 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       </div>
 
       <StakeholderManagementCard
+        client={linkedClient}
+        clientMemory={clientMemory}
         isZh={isZh}
-        members={members}
         memory={memory}
-        onManageMembers={() => navigate(`/projects/${projectId}/settings`)}
+        onOpenClientMemory={() => {
+          if (linkedClient) navigate(`/clients/${linkedClient.id}/memory`);
+        }}
       />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">

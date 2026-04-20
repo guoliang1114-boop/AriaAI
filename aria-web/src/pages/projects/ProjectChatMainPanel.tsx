@@ -212,6 +212,7 @@ export function ProjectChatMainPanel({
           <div className="mx-auto max-w-5xl">
             <ProjectAnchorsCard
               compact
+              clientName={projectClientName}
               isZh={isZh}
               memory={projectMemory}
               onManage={() => window.open(`/projects/${projectId}/memory`, "_self")}

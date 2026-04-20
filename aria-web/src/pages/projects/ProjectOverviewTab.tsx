@@ -28,7 +28,7 @@ export function ProjectOverviewTab({
 }: ProjectOverviewTabProps) {
   void _onProjectUpdate;
 
-  const { project, financials, md_notes, members } = projectDetail;
+  const { project, financials, md_notes } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
@@ -119,9 +119,9 @@ export function ProjectOverviewTab({
         />
 
         <ProjectAnchorsCard
+          clientName={project.client}
           isZh={isZh}
           memory={memory}
-          members={members}
           onManage={() => navigate(`/projects/${projectId}/memory`)}
         />
 

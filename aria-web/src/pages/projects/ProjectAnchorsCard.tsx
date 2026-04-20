@@ -1,5 +1,5 @@
-import { AlertTriangle, HelpCircle, MessageSquareText, Users } from "lucide-react";
-import type { ProjectMemory, ProjectMember } from "../../types/api";
+import { AlertTriangle, Building2, HelpCircle, MessageSquareText, Users } from "lucide-react";
+import type { ProjectMemory } from "../../types/api";
 
 type AnchorGroup = {
   description: string;
@@ -40,24 +40,27 @@ function totalAnchors(groups: AnchorGroup[]) {
 }
 
 export function ProjectAnchorsCard({
+  clientContactsCount = 0,
+  clientName,
   isZh,
   memory,
-  members = [],
   onManage,
   compact = false,
 }: {
+  clientContactsCount?: number;
+  clientName?: string;
   isZh: boolean;
   memory: ProjectMemory | null;
-  members?: ProjectMember[];
   onManage: () => void;
   compact?: boolean;
 }) {
   const groups = anchorGroups(memory, isZh);
   const anchorCount = totalAnchors(groups);
   const stakeholderPinnedCount = groups[2]?.items.length || 0;
-  const hasMembers = members.length > 0;
+  const hasClient = Boolean(clientName?.trim());
+  const hasClientContacts = clientContactsCount > 0;
 
-  if (compact && anchorCount === 0 && !hasMembers) return null;
+  if (compact && anchorCount === 0 && !hasClient) return null;
 
   return (
     <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-5 shadow-sm">
@@ -119,34 +122,45 @@ export function ProjectAnchorsCard({
       <div className="mt-4 rounded-xl border border-gray-100 bg-white/80 p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Users className="h-4 w-4 text-sky-600" />
-          {isZh ? "干系人管理与分析" : "Stakeholder Management & Analysis"}
+          {isZh ? "客户侧干系人分析" : "Client-side Stakeholder Analysis"}
         </div>
         <div className="mt-3 grid gap-3 text-sm md:grid-cols-3">
           <div className="rounded-lg bg-gray-50 p-3">
-            <div className="text-xs text-gray-500">{isZh ? "项目成员" : "Project Members"}</div>
-            <div className="mt-1 text-lg font-semibold text-gray-900">{members.length}</div>
+            <div className="text-xs text-gray-500">{isZh ? "关联客户" : "Linked Client"}</div>
+            <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <Building2 className="h-4 w-4 text-emerald-600" />
+              <span className="truncate">{clientName || (isZh ? "未关联" : "Not linked")}</span>
+            </div>
           </div>
           <div className="rounded-lg bg-gray-50 p-3">
-            <div className="text-xs text-gray-500">{isZh ? "固定干系人提示" : "Pinned Stakeholder Notes"}</div>
-            <div className="mt-1 text-lg font-semibold text-gray-900">{stakeholderPinnedCount}</div>
+            <div className="text-xs text-gray-500">{isZh ? "客户联系人线索" : "Client Contact Signals"}</div>
+            <div className="mt-1 text-lg font-semibold text-gray-900">{clientContactsCount}</div>
+            <div className="mt-1 text-xs text-gray-500">
+              {isZh ? "来自客户记忆关键联系人" : "From client memory key contacts"}
+            </div>
           </div>
           <div className="rounded-lg bg-gray-50 p-3">
             <div className="text-xs text-gray-500">{isZh ? "建议动作" : "Suggested Action"}</div>
             <div className="mt-1 flex items-start gap-2 text-gray-700">
-              {hasMembers && stakeholderPinnedCount ? (
+              {hasClientContacts && stakeholderPinnedCount ? (
                 <>
                   <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                  <span>{isZh ? "按固定提示安排下一次沟通。" : "Plan the next touchpoint from pinned notes."}</span>
+                  <span>{isZh ? "围绕客户关键人和固定提示安排下一次沟通。" : "Plan the next touchpoint around client contacts and pinned notes."}</span>
                 </>
-              ) : hasMembers ? (
+              ) : stakeholderPinnedCount ? (
                 <>
                   <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                  <span>{isZh ? "补充干系人偏好和敏感点。" : "Add stakeholder preferences and sensitivities."}</span>
+                  <span>{isZh ? "已有沟通提醒，建议到客户空间补齐联系人和角色。" : "Pinned reminders exist. Add client contacts and roles next."}</span>
+                </>
+              ) : hasClient ? (
+                <>
+                  <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  <span>{isZh ? "从客户资料和 AI 观察中固定关键人偏好。" : "Pin key stakeholder preferences from client context and AI observations."}</span>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
-                  <span>{isZh ? "先添加项目成员和关键联系人。" : "Add project members and key contacts first."}</span>
+                  <span>{isZh ? "先关联客户，再补齐客户侧关键联系人。" : "Link a client, then capture client-side key contacts."}</span>
                 </>
               )}
             </div>
