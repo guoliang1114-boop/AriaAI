@@ -84,6 +84,8 @@ If you see errors like:
 - `relation "...\" already exists`
 - `column "...\" already exists`
 - `column "...\" does not exist`
+- `Can't locate revision identified by '005'`
+- `current_revision: 005_v1_5` with `latest_revision: 005`
 
 then the most likely cause is schema drift between the real database and the `alembic_version` table.
 
@@ -94,3 +96,28 @@ In that case:
 3. If the schema is a known legacy lightweight schema, run `python scripts/migration_governance.py ensure`.
 4. Only if the schema has been manually verified, stamp Alembic to the version that matches reality.
 5. Run `python scripts/migration_governance.py upgrade` again.
+
+## Revision alias repair SOP
+
+Some historical deployments used short filename prefixes such as `005` instead of the real Alembic revision ID `005_v1_5`.
+When that happens, Alembic may report pending revisions even though the schema is already at the expected version, or fail because the short revision is unknown.
+
+Use this safe repair flow:
+
+```bash
+cd AriaAI/backend
+python scripts/migration_governance.py report
+python scripts/migration_governance.py ensure
+python scripts/migration_governance.py upgrade
+python scripts/migration_governance.py check
+```
+
+`ensure` normalizes a single short `alembic_version` alias to the matching full local revision ID, for example `005` -> `005_v1_5`.
+It does not auto-stamp an existing non-empty revision to an unrelated head.
+
+If `check` still reports pending revisions after `ensure`:
+
+1. Run `alembic current` and `alembic heads`.
+2. Confirm whether the database schema really includes the objects from each pending migration.
+3. If schema and data have been manually verified, run an explicit `alembic stamp <revision>` using the full revision ID.
+4. Re-run `python scripts/migration_governance.py check`.

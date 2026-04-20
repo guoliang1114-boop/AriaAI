@@ -329,6 +329,28 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertEqual(governance["mode"], "alembic")
         self.assertEqual(governance["pending_revisions"], ["002_add_memory"])
 
+    def test_database_migration_governance_normalizes_short_revision_alias(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="005",
+            revisions=["001_v1_1", "002_v1_2", "003_v1_3", "004_v1_4", "005_v1_5"],
+        )
+
+        self.assertEqual(governance["current_revision"], "005_v1_5")
+        self.assertEqual(governance["latest_revision"], "005_v1_5")
+        self.assertEqual(governance["pending_count"], 0)
+        self.assertTrue(governance["up_to_date"])
+
+    def test_database_migration_governance_keeps_unknown_revision_pending(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="999",
+            revisions=["001_v1_1", "002_v1_2"],
+        )
+
+        self.assertEqual(governance["current_revision"], "999")
+        self.assertEqual(governance["pending_revisions"], ["001_v1_1", "002_v1_2"])
+
     def test_get_project_memory_payload_flattens_pinned_slots(self):
         project = Project(
             name="Alpha",

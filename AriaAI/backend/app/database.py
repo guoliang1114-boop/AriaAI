@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel, Session, create_engine
 
@@ -25,9 +27,19 @@ engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 
 def _get_local_alembic_revisions() -> list[str]:
-    alembic_dir = Path(__file__).resolve().parent.parent / "alembic" / "versions"
-    if not alembic_dir.exists():
+    backend_dir = Path(__file__).resolve().parent.parent
+    alembic_ini = backend_dir / "alembic.ini"
+    alembic_dir = backend_dir / "alembic" / "versions"
+    if not alembic_ini.exists() or not alembic_dir.exists():
         return []
+
+    try:
+        config = Config(str(alembic_ini))
+        config.set_main_option("script_location", str(backend_dir / "alembic"))
+        script = ScriptDirectory.from_config(config)
+        return [revision.revision for revision in reversed(list(script.walk_revisions()))]
+    except Exception:
+        pass
 
     revisions: list[str] = []
     for item in alembic_dir.iterdir():
@@ -38,6 +50,20 @@ def _get_local_alembic_revisions() -> list[str]:
             revisions.append(match.group(1))
 
     return sorted(revisions)
+
+
+def _normalize_alembic_revision(revision: str | None, local_revisions: list[str]) -> str | None:
+    if not revision:
+        return None
+    if revision in local_revisions:
+        return revision
+
+    # Legacy deploy scripts used filename prefixes like 005 as revision IDs.
+    # Normalize those short aliases to the real Alembic IDs such as 005_v1_5.
+    matches = [item for item in local_revisions if item.startswith(f"{revision}_")]
+    if len(matches) == 1:
+        return matches[0]
+    return revision
 
 
 def create_db():
@@ -145,6 +171,7 @@ def get_database_migration_governance(
 ) -> dict:
     local_revisions = revisions or _get_local_alembic_revisions()
     latest_revision = local_revisions[-1] if local_revisions else None
+    current_revision = _normalize_alembic_revision(current_revision, local_revisions)
 
     if tables is None:
         with engine.connect() as conn:
@@ -153,6 +180,7 @@ def get_database_migration_governance(
             if "alembic_version" in tables:
                 try:
                     current_revision = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+                    current_revision = _normalize_alembic_revision(current_revision, local_revisions)
                 except Exception:
                     current_revision = None
             else:

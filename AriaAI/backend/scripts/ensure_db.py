@@ -20,7 +20,12 @@ from sqlalchemy import inspect, text
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
-from app.database import engine, get_database_migration_governance  # noqa: E402
+from app.database import (  # noqa: E402
+    _get_local_alembic_revisions,
+    _normalize_alembic_revision,
+    engine,
+    get_database_migration_governance,
+)
 
 
 def _print_governance(prefix: str, tables: list[str], current_revision: str | None) -> None:
@@ -159,6 +164,18 @@ def _ensure_alembic_version(conn, inspector, report_only: bool) -> None:
                 {"revision": latest_revision},
             )
         return
+
+    local_revisions = _get_local_alembic_revisions()
+    if len(versions) == 1:
+        normalized_revision = _normalize_alembic_revision(versions[0], local_revisions)
+        if normalized_revision and normalized_revision != versions[0]:
+            print(f"Normalize alembic_version {versions[0]} -> {normalized_revision}")
+            if not report_only:
+                conn.execute(
+                    text("UPDATE alembic_version SET version_num = :normalized WHERE version_num = :current"),
+                    {"current": versions[0], "normalized": normalized_revision},
+                )
+            return
 
     print(f"Current alembic versions: {versions}")
 
