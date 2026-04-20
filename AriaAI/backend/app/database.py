@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel, Session, create_engine
@@ -27,11 +28,16 @@ def _get_local_alembic_revisions() -> list[str]:
     alembic_dir = Path(__file__).resolve().parent.parent / "alembic" / "versions"
     if not alembic_dir.exists():
         return []
-    return sorted(
-        item.name.split("_", 1)[0]
-        for item in alembic_dir.iterdir()
-        if item.is_file() and item.suffix == ".py" and "_" in item.name
-    )
+
+    revisions: list[str] = []
+    for item in alembic_dir.iterdir():
+        if not item.is_file() or item.suffix != ".py":
+            continue
+        match = re.search(r"^revision\s*=\s*['\"]([^'\"]+)['\"]", item.read_text(encoding="utf-8"), re.MULTILINE)
+        if match:
+            revisions.append(match.group(1))
+
+    return sorted(revisions)
 
 
 def create_db():
