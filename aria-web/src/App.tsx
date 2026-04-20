@@ -25,7 +25,11 @@ import {
   loadAboutSettings,
   loadProjectMemorySettings,
   loadClientMemorySettings,
+  loadMemoryOperationsSettings,
+  loadMigrationSettings,
   loadMessageSettings,
+  loadForbidden,
+  loadNotFound,
 } from './routeLoaders'
 
 const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
@@ -52,7 +56,15 @@ const ProjectMemorySettings = lazy(() =>
 const ClientMemorySettings = lazy(() =>
   loadClientMemorySettings().then((module) => ({ default: module.ClientMemorySettings })),
 )
+const MemoryOperationsSettings = lazy(() =>
+  loadMemoryOperationsSettings().then((module) => ({ default: module.MemoryOperationsSettings })),
+)
+const MigrationSettings = lazy(() =>
+  loadMigrationSettings().then((module) => ({ default: module.MigrationSettings })),
+)
 const MessageSettings = lazy(() => loadMessageSettings().then((module) => ({ default: module.MessageSettings })))
+const Forbidden = lazy(() => loadForbidden().then((module) => ({ default: module.Forbidden })))
+const NotFound = lazy(() => loadNotFound().then((module) => ({ default: module.NotFound })))
 
 function RouteFallback() {
   return (
@@ -74,10 +86,36 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function getStoredUserIsAdmin() {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { is_admin?: boolean }
+    return !!parsed?.is_admin
+  } catch {
+    return false
+  }
+}
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  if (!getStoredUserIsAdmin()) {
+    return <Navigate to="/403" replace />
+  }
+  return <>{children}</>
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route
+        path="/403"
+        element={
+          <LazyPage>
+            <Forbidden />
+          </LazyPage>
+        }
+      />
       <Route
         path="/"
         element={
@@ -215,27 +253,53 @@ function AppRoutes() {
             }
           />
           <Route
+            path="memory-ops"
+            element={
+              <AdminGuard>
+                <LazyPage>
+                  <MemoryOperationsSettings />
+                </LazyPage>
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="migrations"
+            element={
+              <AdminGuard>
+                <LazyPage>
+                  <MigrationSettings />
+                </LazyPage>
+              </AdminGuard>
+            }
+          />
+          <Route
             path="users"
             element={
-              <LazyPage>
-                <UsersSettings />
-              </LazyPage>
+              <AdminGuard>
+                <LazyPage>
+                  <UsersSettings />
+                </LazyPage>
+              </AdminGuard>
             }
           />
           <Route
             path="messages"
             element={
-              <LazyPage>
-                <MessageSettings />
-              </LazyPage>
+              <AdminGuard>
+                <LazyPage>
+                  <MessageSettings />
+                </LazyPage>
+              </AdminGuard>
             }
           />
           <Route
             path="server"
             element={
-              <LazyPage>
-                <ServerSettings />
-              </LazyPage>
+              <AdminGuard>
+                <LazyPage>
+                  <ServerSettings />
+                </LazyPage>
+              </AdminGuard>
             }
           />
           <Route
@@ -250,12 +314,28 @@ function AppRoutes() {
             path="about"
             element={
               <LazyPage>
-                <AboutSettings />
+              <AboutSettings />
+            </LazyPage>
+          }
+        />
+          <Route
+            path="*"
+            element={
+              <LazyPage>
+                <NotFound />
               </LazyPage>
             }
           />
         </Route>
       </Route>
+      <Route
+        path="*"
+        element={
+          <LazyPage>
+            <NotFound />
+          </LazyPage>
+        }
+      />
     </Routes>
   )
 }

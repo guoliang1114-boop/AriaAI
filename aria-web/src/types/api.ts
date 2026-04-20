@@ -46,6 +46,18 @@ export interface ProjectMemoryDocument {
   reason: string
 }
 
+export interface ProjectMemoryEditableSlot {
+  ai: string[]
+  pinned: string[]
+}
+
+export interface ProjectMemoryClientPromotion {
+  client_id: number
+  client_name: string
+  promoted_at: string
+  trigger: string
+}
+
 export interface ProjectMemory {
   project_brief: string
   current_stage: string
@@ -58,11 +70,15 @@ export interface ProjectMemory {
   financial_status: string
   delivery_signals: string[]
   stakeholder_notes: string[]
+  key_risks_detail?: ProjectMemoryEditableSlot
+  open_questions_detail?: ProjectMemoryEditableSlot
+  stakeholder_notes_detail?: ProjectMemoryEditableSlot
   memory_version: number
   last_updated_at: string
   stale: boolean
   rebuild_log?: Array<{ at: string; trigger: string; version: number }>
   _coverage?: Record<string, number | string>
+  _client_promotion?: ProjectMemoryClientPromotion
 }
 
 export interface ProjectMemoryResponse {
@@ -116,11 +132,31 @@ export interface ProjectMemoryJob {
   next_run_at?: string | null
   memory_stale: boolean
   memory_version: number
+  retry_count?: number
+  max_retries?: number
+  trigger?: string | null
+  summary_types?: string[]
 }
 
 export interface ProjectMemoryJobsResponse {
   jobs: ProjectMemoryJob[]
   count: number
+  budget?: {
+    used: number
+    limit: number
+    remaining: number
+  }
+  recent_failures?: Array<{
+    scope: 'project'
+    project_id: number
+    project_name: string
+    client?: string
+    category?: string
+    stage: string
+    message: string
+    retry_count?: number
+    failed_at: string
+  }>
 }
 
 export type ProjectMemorySummaryType =
@@ -214,11 +250,30 @@ export interface ClientMemoryJob {
   next_run_at?: string | null
   memory_stale: boolean
   memory_version: number
+  retry_count?: number
+  max_retries?: number
+  trigger?: string | null
+  summary_types?: string[]
 }
 
 export interface ClientMemoryJobsResponse {
   jobs: ClientMemoryJob[]
   count: number
+  budget?: {
+    used: number
+    limit: number
+    remaining: number
+  }
+  recent_failures?: Array<{
+    scope: 'client'
+    client_id: number
+    client_name: string
+    category?: string
+    stage: string
+    message: string
+    retry_count?: number
+    failed_at: string
+  }>
 }
 
 export interface ClientMemoryBatchWarmSummariesResponse {
@@ -241,6 +296,10 @@ export type ClientMemorySummaryType =
   | 'stakeholder'
   | 'lessons'
   | 'client-facing'
+  | 'risk'
+  | 'opportunity'
+  | 'relationship'
+  | 'delivery'
 
 export interface ClientMemorySummaryResponse {
   client_id: number

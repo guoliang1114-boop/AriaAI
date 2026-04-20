@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  ArrowUpRight,
   Brain,
+  CheckCircle2,
   Clock3,
   FileText,
+  Loader2,
+  Save,
   ShieldAlert,
   Target,
   Users,
 } from "lucide-react";
 import { api } from "../../api/client";
 import type {
+  ClientMemoryResponse,
   ProjectDetail as ProjectDetailType,
+  ProjectMemoryEditableSlot,
   ProjectMemory,
   ProjectMemoryResponse,
 } from "../../types/api";
@@ -23,6 +30,25 @@ import { useProjectMemorySummary } from "./useProjectMemorySummary";
 interface ProjectMemoryTabProps {
   projectDetail: ProjectDetailType;
   projectId: string;
+}
+
+interface ClientSummary {
+  id: number;
+  name: string;
+}
+
+function normalizeClientName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getApiErrorMessage(error: unknown) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string; message?: string } | string } }).response;
+    if (typeof response?.data === "string") return response.data;
+    return response?.data?.detail || response?.data?.message;
+  }
+  if (error instanceof Error) return error.message;
+  return undefined;
 }
 
 function SectionList({
@@ -70,14 +96,108 @@ function DetailCard({
   );
 }
 
+function EditableSlotCard({
+  title,
+  description,
+  slotKey,
+  slotDetail,
+  isZh,
+  projectId,
+  onSaved,
+}: {
+  title: string
+  description: string
+  slotKey: "key_risks" | "open_questions" | "stakeholder_notes"
+  slotDetail?: ProjectMemoryEditableSlot
+  isZh: boolean
+  projectId: string
+  onSaved: (memory: ProjectMemoryResponse["memory"]) => void
+}) {
+  const [value, setValue] = useState((slotDetail?.pinned || []).join("\n"))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setValue((slotDetail?.pinned || []).join("\n"))
+  }, [slotDetail?.pinned])
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const response = await api.patch<{ memory: ProjectMemory }>(`/projects/${projectId}/memory/slots/${slotKey}`, {
+        pinned: value
+          .split("\n")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      })
+      onSaved(response.memory)
+    } catch (error) {
+      console.error(`Failed to update ${slotKey}:`, error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <p className="mt-1 text-sm text-gray-500">{description}</p>
+        </div>
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {isZh ? "保存" : "Save"}
+        </button>
+      </div>
+
+      {slotDetail?.ai?.length ? (
+        <div className="mt-4 rounded-lg bg-gray-50 p-3">
+          <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            {isZh ? "AI 建议" : "AI suggestions"}
+          </div>
+          <ul className="mt-2 space-y-2 text-sm text-gray-700">
+            {slotDetail.ai.map((item, index) => (
+              <li key={`${item}-${index}`} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-4">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+          {isZh ? "固定内容（每行一条）" : "Pinned items (one per line)"}
+        </div>
+        <textarea
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          rows={6}
+          className="w-full rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+          placeholder={isZh ? "输入希望长期保留的要点，每行一条。" : "Add the items that should stay pinned, one per line."}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabProps) {
   const { project, files, milestones, todos, members, financials } = projectDetail;
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [memoryMeta, setMemoryMeta] = useState<ProjectMemoryResponse | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
+  const [isPromotingToClient, setIsPromotingToClient] = useState(false);
+  const [clientPromotionError, setClientPromotionError] = useState<string | null>(null);
+  const [clientPromotionMessage, setClientPromotionMessage] = useState<string | null>(null);
 
   const overviewInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目记忆摘要失败，请稍后重试" : "Failed to generate project memory summary",
@@ -136,6 +256,76 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
     }
   };
 
+  const promoteToClientMemory = async () => {
+    setClientPromotionError(null);
+    setClientPromotionMessage(null);
+
+    const clientName = project.client?.trim() || "";
+    const projectHasMemory = Boolean(memory) && (memory?.memory_version ?? project.memory_version ?? 0) > 0;
+    if (!clientName) {
+      setClientPromotionError(isZh ? "这个项目还没有填写客户，暂时不能沉淀到客户记忆。" : "This project has no client yet.");
+      return;
+    }
+    if (!projectHasMemory) {
+      setClientPromotionError(
+        isZh
+          ? "请先刷新项目记忆，再把稳定的项目经验沉淀到客户记忆。"
+          : "Rebuild project memory first, then promote it into client memory.",
+      );
+      return;
+    }
+
+    setIsPromotingToClient(true);
+    try {
+      const clients = await api.get<ClientSummary[]>("/clients");
+      const matchedClient = clients.find(
+        (client) => normalizeClientName(client.name) === normalizeClientName(clientName),
+      );
+      if (!matchedClient) {
+        throw new Error(
+          isZh
+            ? `没有找到同名客户「${clientName}」，请先在客户空间创建或修正客户名称。`
+            : `No matching client named "${clientName}" was found.`,
+        );
+      }
+
+      const promoted = await api.post<ClientMemoryResponse>(
+        `/clients/${matchedClient.id}/memory/promote-project`,
+        { project_id: Number(projectId) },
+        { timeout: 120000 },
+      );
+      const promotedAt = promoted.memory_updated_at || new Date().toISOString();
+      setMemory((currentMemory) =>
+        currentMemory
+          ? {
+              ...currentMemory,
+              _client_promotion: {
+                client_id: matchedClient.id,
+                client_name: matchedClient.name,
+                promoted_at: promotedAt,
+                trigger: "manual_project_memory_promote",
+              },
+            }
+          : currentMemory,
+      );
+      setClientPromotionMessage(
+        isZh
+          ? `已沉淀到「${matchedClient.name}」客户记忆，客户画像和经验库已更新。`
+          : `Promoted into ${matchedClient.name} client memory.`,
+      );
+    } catch (error) {
+      console.error("Failed to promote project memory into client memory:", error);
+      setClientPromotionError(
+        getApiErrorMessage(error) ||
+          (isZh
+            ? "沉淀到客户记忆失败，请稍后重试或先刷新项目记忆。"
+            : "Failed to promote project memory. Please try again later."),
+      );
+    } finally {
+      setIsPromotingToClient(false);
+    }
+  };
+
   useEffect(() => {
     void refreshMemory();
   }, [projectId]);
@@ -173,9 +363,77 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
     : isZh
       ? "暂无"
       : "N/A";
+  const promotionMeta = memory?._client_promotion
+  const clientName = project.client?.trim() || "";
+  const hasProjectMemory = Boolean(memory) && (memory?.memory_version ?? project.memory_version ?? 0) > 0;
 
   return (
     <div className="space-y-6">
+      {promotionMeta ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4" />
+                {isZh ? "这个项目的经验已经沉淀到客户记忆" : "This project has been promoted into client memory"}
+              </div>
+              <div className="mt-1 text-emerald-800">
+                {isZh
+                  ? `客户：${promotionMeta.client_name} · 沉淀时间：${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`
+                  : `Client: ${promotionMeta.client_name} · Promoted at ${formatProjectMemoryUpdatedAt(promotionMeta.promoted_at, isZh)}`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${promotionMeta.client_id}/memory`)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              {isZh ? "打开客户记忆" : "Open client memory"}
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 via-emerald-50 to-white p-4 text-sm text-teal-950">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-semibold">
+                <Users className="h-4 w-4 text-teal-700" />
+                {isZh ? "把项目经验提升到客户记忆" : "Promote project learning into client memory"}
+              </div>
+              <p className="mt-1 max-w-3xl text-teal-800">
+                {isZh
+                  ? clientName
+                    ? `将当前项目记忆沉淀到「${clientName}」客户空间，后续客户画像、决策偏好和经验复用会更连贯。`
+                    : "项目暂未填写客户。补齐客户后，就可以把项目沉淀为客户级长期经验。"
+                  : clientName
+                    ? `Promote this project memory into ${clientName}'s client workspace for reusable long-term context.`
+                    : "Add a client to this project before promoting memory."}
+              </p>
+              {!hasProjectMemory ? (
+                <p className="mt-2 text-xs font-medium text-amber-700">
+                  {isZh ? "建议先刷新项目记忆，再沉淀到客户记忆。" : "Rebuild project memory before promoting it."}
+                </p>
+              ) : null}
+              {clientPromotionError ? (
+                <p className="mt-2 text-xs font-medium text-red-700">{clientPromotionError}</p>
+              ) : null}
+              {clientPromotionMessage ? (
+                <p className="mt-2 text-xs font-medium text-emerald-700">{clientPromotionMessage}</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => void promoteToClientMemory()}
+              disabled={isPromotingToClient || !clientName || !hasProjectMemory}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-900/10 transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 disabled:shadow-none"
+            >
+              {isPromotingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+              {isZh ? "提升到客户记忆" : "Promote to client memory"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="xl:col-span-1">
           <ProjectOverviewMemoryCard
@@ -443,6 +701,57 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             items={memory?.stakeholder_notes || []}
           />
         </DetailCard>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <EditableSlotCard
+          description={isZh ? "固定必须长期保留的风险判断。" : "Pin the risk calls that should stay over time."}
+          isZh={isZh}
+          onSaved={(nextMemory) => {
+            setMemory(nextMemory)
+            void Promise.all([
+              overviewInsight.refresh(true),
+              riskInsight.refresh(true),
+              stakeholderInsight.refresh(true),
+            ])
+          }}
+          projectId={projectId}
+          slotDetail={memory?.key_risks_detail}
+          slotKey="key_risks"
+          title={isZh ? "固定风险要点" : "Pinned Risk Notes"}
+        />
+        <EditableSlotCard
+          description={isZh ? "固定必须持续跟踪的开放问题。" : "Pin the open questions that must stay visible."}
+          isZh={isZh}
+          onSaved={(nextMemory) => {
+            setMemory(nextMemory)
+            void Promise.all([
+              overviewInsight.refresh(true),
+              riskInsight.refresh(true),
+              stakeholderInsight.refresh(true),
+            ])
+          }}
+          projectId={projectId}
+          slotDetail={memory?.open_questions_detail}
+          slotKey="open_questions"
+          title={isZh ? "固定开放问题" : "Pinned Open Questions"}
+        />
+        <EditableSlotCard
+          description={isZh ? "固定关键干系人的偏好和沟通提醒。" : "Pin stakeholder preferences and communication reminders."}
+          isZh={isZh}
+          onSaved={(nextMemory) => {
+            setMemory(nextMemory)
+            void Promise.all([
+              overviewInsight.refresh(true),
+              riskInsight.refresh(true),
+              stakeholderInsight.refresh(true),
+            ])
+          }}
+          projectId={projectId}
+          slotDetail={memory?.stakeholder_notes_detail}
+          slotKey="stakeholder_notes"
+          title={isZh ? "固定干系人提示" : "Pinned Stakeholder Notes"}
+        />
       </div>
     </div>
   );

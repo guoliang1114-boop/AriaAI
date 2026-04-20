@@ -178,6 +178,7 @@ export function ClientMemorySettings() {
     options?: {
       silent?: boolean
       forceRefresh?: boolean
+      profile?: 'core' | 'all'
     },
   ) => {
     if (clientIds.length === 0) return
@@ -188,7 +189,10 @@ export function ClientMemorySettings() {
         '/clients/memory/warm-summaries-batch',
         {
           client_ids: clientIds,
-          summary_types: ['overview', 'stakeholder', 'lessons'],
+          summary_types:
+            options?.profile === 'all'
+              ? ['overview', 'stakeholder', 'lessons', 'risk', 'opportunity', 'relationship', 'delivery', 'client-facing']
+              : ['overview', 'stakeholder', 'lessons'],
           language: i18n.language,
           force_refresh: options?.forceRefresh ?? false,
         },
@@ -372,7 +376,7 @@ export function ClientMemorySettings() {
     }
 
     autoWarmSummariesTriggeredRef.current = true
-    void warmSummaries(readyClientIds, { silent: true })
+    void warmSummaries(readyClientIds, { silent: true, profile: 'core' })
   }, [isGeneratingMissing, isWarmingSummaries, loading, readyClientIds])
 
   const filterOptions: Array<{ key: MemoryFilter; label: string; count: number }> = [
@@ -429,7 +433,7 @@ export function ClientMemorySettings() {
             {isZh ? '刷新待更新记忆' : 'Refresh Stale Memory'}
           </button>
           <button
-            onClick={() => void warmSummaries(readyClientIds, { forceRefresh: false })}
+            onClick={() => void warmSummaries(readyClientIds, { forceRefresh: false, profile: 'all' })}
             disabled={readyClientIds.length === 0 || isWarmingSummaries}
             className="inline-flex items-center gap-2 rounded-xl border border-outline px-4 py-2 text-sm font-medium text-on-surface transition hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-50"
           >

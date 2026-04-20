@@ -1,443 +1,338 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  TrendingUp,
-  DollarSign,
-  Shield,
-  FileText,
-  Users,
-  Cpu,
-  Briefcase,
-  Target,
-  BarChart3,
-  Clock,
   ArrowRight,
-  Plus,
-  Loader2,
+  BarChart3,
   Brain,
+  Briefcase,
+  Clock3,
+  Cpu,
+  DollarSign,
+  FileText,
   MessageSquare,
-} from 'lucide-react'
-import { api } from '../../api/client'
-import { PageTitle } from '../../components/PageTitle'
-import type { SkillSummary } from '../../types/api'
+  Search,
+  Shield,
+  Target,
+  TrendingUp,
+  Users,
+  Zap,
+} from "lucide-react";
 
-const getSkillTypes = (t: any) => [
-  { id: 'all', label: t('skills.types.all') },
-  { id: 'quick', label: t('skills.types.quick') },
-  { id: 'deep', label: t('skills.types.deep') },
-]
+import { api } from "../../api/client";
+import { PageTitle } from "../../components/PageTitle";
+import type { SkillSummary } from "../../types/api";
 
-const extractMinutes = (estimatedTime?: string): number => {
-  if (!estimatedTime) return 0
-  const match = estimatedTime.match(/(\d+)/)
-  return match ? parseInt(match[1], 10) : 0
-}
+const extractMinutes = (estimatedTime?: string) => {
+  if (!estimatedTime) return 0;
+  const match = estimatedTime.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+};
 
-const normalizeCategory = (value: string) => value.replace(/\?/g, '').trim()
+const normalizeCategory = (value: string) => value.replace(/\?/g, "").trim();
 
-const getCategoryKey = (category: string) => {
-  const normalized = normalizeCategory(category)
+const getCategoryIcon = (category: string) => {
+  const normalized = normalizeCategory(category).toLowerCase();
+  if (normalized.includes("strategy")) return TrendingUp;
+  if (normalized.includes("market")) return Target;
+  if (normalized.includes("finance")) return DollarSign;
+  if (normalized.includes("risk")) return Shield;
+  if (normalized.includes("digital")) return Cpu;
+  if (normalized.includes("proposal")) return FileText;
+  if (normalized.includes("operation")) return Briefcase;
+  if (normalized.includes("org")) return Users;
+  if (normalized.includes("data")) return BarChart3;
+  return Brain;
+};
 
-  const knownKeys = [
-    { key: 'strategy', values: ['閹存鏆愭稉搴☆杻闂€'] },
-    { key: 'market', values: ['鐢倸婧€娑撳骸顓归幋'] },
-    { key: 'manda', values: ['楠炴儼鍠樻稉搴濇唉閺'] },
-    { key: 'finance', values: ['鐠愩垹濮熼崪銊嚄'] },
-    { key: 'digital', values: ['閺佹澘鐡ч崠鏍︾瑢閹垛偓閺'] },
-    { key: 'org', values: ['缂佸嫮绮愭稉搴濇眽閹'] },
-    { key: 'operations', values: ['鏉╂劘鎯€娑撳孩鏅ラ懗'] },
-    { key: 'risk', values: ['妞嬪酣娅撴稉搴℃値鐟'] },
-    { key: 'proposals', values: ['閹绘劖顢嶆稉搴ㄣ€嶉惄顔绘唉娴'] },
-  ]
-
-  const matched = knownKeys.find((item) => item.values.some((value) => normalized === value))
-  return matched?.key ?? normalized
-}
-
-const getCategoryLabel = (category: string, t: any) => {
-  switch (getCategoryKey(category)) {
-    case 'strategy':
-      return t('skills.categories.strategy')
-    case 'market':
-      return t('skills.categories.market')
-    case 'manda':
-      return t('skills.categories.manda')
-    case 'finance':
-      return t('skills.categories.finance')
-    case 'digital':
-      return t('skills.categories.digital')
-    case 'org':
-      return t('skills.categories.org')
-    case 'operations':
-      return t('skills.categories.operations')
-    case 'risk':
-      return t('skills.categories.risk')
-    case 'proposals':
-      return t('skills.categories.proposals')
-    default:
-      return category
-  }
-}
-
-const getSkillIcon = (category: string) => {
-  switch (getCategoryKey(category)) {
-    case 'strategy':
-      return TrendingUp
-    case 'market':
-      return Target
-    case 'manda':
-      return DollarSign
-    case 'finance':
-      return BarChart3
-    case 'digital':
-      return Cpu
-    case 'org':
-      return Users
-    case 'operations':
-      return Briefcase
-    case 'risk':
-      return Shield
-    case 'proposals':
-      return FileText
-    default:
-      return Brain
-  }
-}
-
-const getCategoryColor = (category: string) => {
-  switch (getCategoryKey(category)) {
-    case 'strategy':
-      return 'bg-primary/10 text-primary'
-    case 'market':
-      return 'bg-tertiary/10 text-tertiary'
-    case 'manda':
-      return 'bg-error/10 text-error'
-    case 'finance':
-      return 'bg-green-500/10 text-green-600'
-    case 'digital':
-      return 'bg-blue-500/10 text-blue-600'
-    case 'org':
-      return 'bg-purple-500/10 text-purple-600'
-    case 'operations':
-      return 'bg-active/10 text-active'
-    case 'risk':
-      return 'bg-orange-500/10 text-orange-600'
-    case 'proposals':
-      return 'bg-secondary-container text-on-secondary-container'
-    default:
-      return 'bg-surface-container-high text-on-surface-muted'
-  }
-}
+const getCategoryTone = (category: string) => {
+  const normalized = normalizeCategory(category).toLowerCase();
+  if (normalized.includes("strategy")) return "bg-blue-50 text-blue-700 border-blue-100";
+  if (normalized.includes("market")) return "bg-emerald-50 text-emerald-700 border-emerald-100";
+  if (normalized.includes("finance")) return "bg-amber-50 text-amber-700 border-amber-100";
+  if (normalized.includes("risk")) return "bg-rose-50 text-rose-700 border-rose-100";
+  if (normalized.includes("digital")) return "bg-violet-50 text-violet-700 border-violet-100";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+};
 
 export function Skills() {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const skillTypes = getSkillTypes(t)
-  const [loading, setLoading] = useState(true)
-  const [skills, setSkills] = useState<SkillSummary[]>([])
-  const [activeCategory, setActiveCategory] = useState('all')
-  const [activeType, setActiveType] = useState('all')
-
-  const handleUseSkill = (skillId: number) => {
-    navigate(`/chat?skill=${skillId}`)
-  }
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [loading, setLoading] = useState(true);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [activeType, setActiveType] = useState<"all" | "quick" | "deep">("all");
 
   useEffect(() => {
-    void fetchSkills()
-  }, [])
+    const fetchSkills = async () => {
+      try {
+        setLoading(true);
+        const data = await api.get<SkillSummary[]>("/skills/meta/summary");
+        setSkills(data);
+      } catch (error) {
+        console.error("Failed to fetch skills:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const fetchSkills = async () => {
-    try {
-      setLoading(true)
-      const data = await api.get<SkillSummary[]>('/skills/meta/summary')
-      setSkills(data)
-    } catch (error) {
-      console.error('Failed to fetch skills:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+    void fetchSkills();
+  }, []);
+
+  const handleUseSkill = (skillId: number) => {
+    const projectId = searchParams.get("project");
+    const nextParams = new URLSearchParams({ skill: String(skillId) });
+    if (projectId) nextParams.set("project", projectId);
+    navigate(`/chat?${nextParams.toString()}`);
+  };
 
   const categories = useMemo(
     () => [
-      { id: 'all', label: t('skills.categories.all') },
-      ...Array.from(new Map(skills.map((skill) => [normalizeCategory(skill.category), skill.category])).values()).map((category) => ({
-        id: category,
-        label: getCategoryLabel(category, t),
-      })),
+      { id: "all", label: t("skills.categories.all") },
+      ...Array.from(new Map(skills.map((skill) => [normalizeCategory(skill.category), skill.category])).values()).map(
+        (category) => ({
+          id: category,
+          label: category,
+        }),
+      ),
     ],
     [skills, t],
-  )
+  );
 
-  const filteredSkills = useMemo(
-    () =>
-      skills.filter((skill) => {
-        const categoryMatch =
-          activeCategory === 'all' || normalizeCategory(skill.category) === normalizeCategory(activeCategory)
-        const estimatedMinutes = extractMinutes(skill.estimated_time)
-        const isQuick = estimatedMinutes <= 10
-        const typeMatch =
-          activeType === 'all' ||
-          (activeType === 'quick' && isQuick) ||
-          (activeType === 'deep' && !isQuick)
-        return categoryMatch && typeMatch
-      }),
-    [activeCategory, activeType, skills],
-  )
+  const filteredSkills = useMemo(() => {
+    return skills.filter((skill) => {
+      const normalizedSearch = search.trim().toLowerCase();
+      const matchesSearch =
+        !normalizedSearch ||
+        skill.name.toLowerCase().includes(normalizedSearch) ||
+        skill.description.toLowerCase().includes(normalizedSearch) ||
+        skill.category.toLowerCase().includes(normalizedSearch);
+      const matchesCategory =
+        activeCategory === "all" || normalizeCategory(skill.category) === normalizeCategory(activeCategory);
+      const minutes = extractMinutes(skill.estimated_time);
+      const isQuick = minutes <= 10;
+      const matchesType =
+        activeType === "all" ||
+        (activeType === "quick" && isQuick) ||
+        (activeType === "deep" && !isQuick);
 
-  const featuredSkill = useMemo(
-    () => filteredSkills.find((s) => s.name.includes('Market') || s.name.includes('Strategic')) || filteredSkills[0],
-    [filteredSkills],
-  )
+      return matchesSearch && matchesCategory && matchesType;
+    });
+  }, [activeCategory, activeType, search, skills]);
 
-  const regularSkills = useMemo(
-    () => filteredSkills.filter((s) => s.id !== featuredSkill?.id),
-    [featuredSkill?.id, filteredSkills],
-  )
-
-  const newTodayCount = useMemo(
-    () => skills.filter((s) => s.created_at && new Date(s.created_at).toDateString() === new Date().toDateString()).length,
-    [skills],
-  )
+  const featuredSkills = filteredSkills.slice(0, 2);
+  const regularSkills = filteredSkills.slice(2);
 
   if (loading) {
     return (
       <>
-        <PageTitle title="Skills" />
-        <div className="min-h-full bg-surface flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <PageTitle title={t("skills.title")} />
+        <div className="flex min-h-full items-center justify-center bg-slate-50">
+          <Zap className="h-8 w-8 animate-pulse text-primary" />
         </div>
       </>
-    )
+    );
   }
 
   return (
     <>
-      <PageTitle title="Skills" />
-      <div className="min-h-full bg-surface">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="relative rounded-3xl bg-gradient-primary p-10 mb-8 overflow-hidden shadow-2xl shadow-primary/20">
-            <div className="absolute inset-0 opacity-20">
-              <div className="absolute top-0 right-0 w-96 h-96 bg-white/30 rounded-full blur-3xl"></div>
-              <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-400/20 rounded-full blur-3xl"></div>
-            </div>
-
-            <div className="relative z-10 flex items-start justify-between">
-              <div className="max-w-2xl">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 backdrop-blur-md mb-6 border border-white/10">
-                  <span className="text-label-sm text-white/90 font-semibold tracking-wider">{t('skills.eliteEdition')}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      <PageTitle title={t("skills.title")} />
+      <div className="min-h-full bg-[linear-gradient(180deg,#f7f8fb_0%,#eef3f8_100%)]">
+        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
+          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#dcecff_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
+            <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+            <div className="relative">
+              <div className="max-w-3xl">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white/80 px-3 py-1.5 text-xs font-medium text-primary shadow-sm backdrop-blur">
+                  <Brain className="h-3.5 w-3.5" />
+                  <span>{t("skills.title")}</span>
                 </div>
-
-                <h1 className="text-headline-lg text-white mb-4 leading-tight">
-                  The Intelligent Stratum
-                  <br />
-                  <span className="text-gradient bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">{t('skills.title')}</span>
+                <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-slate-900">
+                  {t("skills.workbenchTitle")}
                 </h1>
-                <p className="text-body-lg text-white/80 max-w-xl leading-relaxed">{t('skills.subtitle')}</p>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+                  {t("skills.workbenchSubtitle")}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="relative w-full min-w-0 flex-1 xl:max-w-2xl">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("skills.searchPlaceholder")}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
+                />
               </div>
 
-              <div className="hidden lg:flex gap-6">
-                <div className="text-center px-6 py-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
-                  <div className="text-4xl font-manrope font-bold text-white mb-1">{skills.length}</div>
-                  <div className="text-sm text-white/70 font-medium tracking-wide">{t('skills.activeSkills')}</div>
+              <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
+                <div className="relative min-w-[220px] xl:min-w-[260px]">
+                  <select
+                    value={activeCategory}
+                    onChange={(event) => setActiveCategory(event.target.value)}
+                    className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-4 pr-10 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
+                  >
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
                 </div>
-                <div className="text-center px-6 py-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
-                  <div className="text-4xl font-manrope font-bold text-white mb-1">{newTodayCount}</div>
-                  <div className="text-sm text-white/70 font-medium tracking-wide">{t('skills.newToday')}</div>
+
+                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                  {(["all", "quick", "deep"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setActiveType(type)}
+                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+                        activeType === type
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-600 hover:bg-white hover:text-slate-900"
+                      }`}
+                    >
+                      {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  {t("skills.resultsCount", { count: filteredSkills.length })}
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 mb-8">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                  normalizeCategory(activeCategory) === normalizeCategory(cat.id)
-                    ? 'bg-primary text-white shadow-lg shadow-primary/25 scale-105'
-                    : 'bg-white text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface border border-outline/20 hover:border-outline/40'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-            <div className="flex-1"></div>
-            <div className="flex items-center gap-1 p-1 bg-surface-container-low rounded-xl">
-              {skillTypes.map((type) => (
-                <button
-                  key={type.id}
-                  onClick={() => setActiveType(type.id)}
-                  className={`px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
-                    activeType === type.id ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-muted hover:text-on-surface'
-                  }`}
-                >
-                  {type.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          </section>
 
           {filteredSkills.length === 0 ? (
-            <div className="card-premium text-center py-20">
-              <div className="w-20 h-20 rounded-2xl bg-surface-container-low flex items-center justify-center mx-auto mb-6">
-                <Brain className="w-10 h-10 text-on-surface-muted" />
-              </div>
-              <h3 className="text-headline-sm text-on-surface mb-3">{t('skills.noSkills')}</h3>
-              <p className="text-body-md text-on-surface-muted max-w-md mx-auto">{t('skills.createFirst')}</p>
+            <div className="mt-8 rounded-[1.5rem] border border-dashed border-slate-300 bg-white/80 px-6 py-20 text-center text-slate-500">
+              <Brain className="mx-auto mb-4 h-10 w-10 text-slate-300" />
+              <h3 className="text-lg font-semibold text-slate-700">{t("skills.noSkills")}</h3>
+              <p className="mt-2 text-sm">{t("skills.createFirst")}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-12 gap-6 mb-10">
-              {featuredSkill && (
-                <div className="col-span-12 lg:col-span-6">
-                  <div className="card-premium h-full flex flex-col group cursor-pointer" onClick={() => handleUseSkill(featuredSkill.id)}>
-                    <div className="flex items-start justify-between mb-6">
-                      <div
-                        className={`w-16 h-16 rounded-2xl ${getCategoryColor(featuredSkill.category)} flex items-center justify-center transition-transform group-hover:scale-110`}
-                      >
-                        {(() => {
-                          const Icon = getSkillIcon(featuredSkill.category)
-                          return <Icon className="w-8 h-8" />
-                        })()}
-                      </div>
-                      <span className="px-4 py-1.5 rounded-full bg-surface-container-low text-label-sm text-on-surface-muted font-medium border border-outline/10">
-                        {getCategoryLabel(featuredSkill.category, t)}
-                      </span>
-                    </div>
+            <>
+              <section className="mt-8 grid gap-6 lg:grid-cols-2">
+                {featuredSkills.map((skill) => (
+                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => handleUseSkill(skill.id)} />
+                ))}
+              </section>
 
-                    <h3 className="text-headline-sm text-on-surface mb-3 group-hover:text-primary transition-colors">{featuredSkill.name}</h3>
-                    <p className="text-body-md text-on-surface-muted mb-6 flex-1 leading-relaxed">{featuredSkill.description}</p>
-
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-container-low border border-outline/10">
-                        <span
-                          className={`w-2.5 h-2.5 rounded-full ${
-                            extractMinutes(featuredSkill.estimated_time) > 10 ? 'bg-primary' : 'bg-emerald-500'
-                          }`}
-                        ></span>
-                        <span className="text-sm font-medium text-on-surface">
-                          {extractMinutes(featuredSkill.estimated_time) > 10 ? t('skills.types.deep') : t('skills.types.quick')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-on-surface-muted font-medium">
-                        <Clock className="w-4 h-4" />
-                        {featuredSkill.estimated_time || '~30 mins'}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-5 rounded-xl bg-surface-container-low border border-outline/10">
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="text-label-sm text-on-surface-muted mb-1 font-semibold">{t('skills.estimatedTime')}</p>
-                        <p className="text-sm text-on-surface">{featuredSkill.estimated_time || '~30 mins'}</p>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleUseSkill(featuredSkill.id)
-                        }}
-                        className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center text-white shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all flex-shrink-0 group-hover:scale-105"
-                        title={t('skills.useSkill')}
-                      >
-                        <MessageSquare className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {regularSkills.map((skill) => {
-                const SkillIcon = getSkillIcon(skill.category)
-                const isQuick = extractMinutes(skill.estimated_time) <= 10
-                return (
-                  <div key={skill.id} className="col-span-12 md:col-span-6 lg:col-span-3">
-                    <div className="card-premium hover-lift h-full flex flex-col group cursor-pointer" onClick={() => handleUseSkill(skill.id)}>
-                      <div className="flex items-start justify-between mb-4">
-                        <div
-                          className={`w-12 h-12 rounded-xl ${getCategoryColor(skill.category)} flex items-center justify-center transition-transform group-hover:scale-110`}
-                        >
-                          <SkillIcon className="w-5 h-5" />
-                        </div>
-                        <span className="px-2.5 py-1 rounded-lg bg-surface-container-low text-label-sm text-on-surface-muted font-medium border border-outline/10">
-                          {getCategoryLabel(skill.category, t)}
-                        </span>
-                      </div>
-
-                      <h4 className="text-label-lg text-on-surface mb-2 group-hover:text-primary transition-colors">{skill.name}</h4>
-                      <p className="text-body-sm text-on-surface-muted mb-4 flex-1 line-clamp-2 leading-relaxed">{skill.description}</p>
-
-                      <div className="space-y-3 pt-4 border-t border-outline/10">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-on-surface-muted font-medium">{t('skills.type')}</span>
-                          <span className={`font-semibold ${isQuick ? 'text-emerald-600' : 'text-primary'}`}>
-                            {isQuick ? t('skills.types.quick') : t('skills.types.deep')}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-on-surface-muted font-medium">{t('skills.estimatedTime')}</span>
-                          <span className="font-semibold text-on-surface">{skill.estimated_time || '~30 mins'}</span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleUseSkill(skill.id)
-                          }}
-                          className="w-full mt-3 py-2.5 rounded-xl bg-primary/5 hover:bg-primary/10 border border-primary/20 text-primary text-sm font-medium flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                          {t('skills.useSkill')}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+              <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+                {regularSkills.map((skill) => (
+                  <SkillCard key={skill.id} skill={skill} onUse={() => handleUseSkill(skill.id)} />
+                ))}
+              </section>
+            </>
           )}
-
-          <div className="card-premium border-l-4 border-tertiary hover-lift">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-5">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-tertiary/20 to-tertiary/5 flex items-center justify-center shadow-inner">
-                  <Plus className="w-7 h-7 text-tertiary" />
-                </div>
-                <div>
-                  <h3 className="text-label-lg text-on-surface mb-1 font-semibold">{t('skills.customWorkflowTitle')}</h3>
-                  <p className="text-body-sm text-on-surface-muted leading-relaxed">{t('skills.customWorkflowDesc')}</p>
-                </div>
-              </div>
-              <button className="btn-premium flex items-center gap-2 whitespace-nowrap">
-                {t('skills.requestWorkflow')}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <footer className="mt-16 pt-8 border-t border-outline/10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 text-sm text-on-surface-muted">
-                <span>{t('skills.footer')}</span>
-              </div>
-              <div className="flex items-center gap-6 text-sm text-on-surface-muted">
-                <a href="#" className="hover:text-on-surface transition-colors">
-                  {t('skills.resources')}
-                </a>
-                <a href="#" className="hover:text-on-surface transition-colors">
-                  {t('skills.legal')}
-                </a>
-                <a href="#" className="hover:text-on-surface transition-colors">
-                  {t('skills.support')}
-                </a>
-                <a href="#" className="hover:text-on-surface transition-colors">
-                  {t('skills.language')}
-                </a>
-              </div>
-            </div>
-          </footer>
         </div>
       </div>
     </>
-  )
+  );
+}
+
+function FeaturedSkillCard({
+  skill,
+  onUse,
+}: {
+  skill: SkillSummary;
+  onUse: () => void;
+}) {
+  const { t } = useTranslation();
+  const Icon = getCategoryIcon(skill.category);
+  const tone = getCategoryTone(skill.category);
+  const isQuick = extractMinutes(skill.estimated_time) <= 10;
+
+  return (
+    <div className="group overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.08)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${tone}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>{skill.category}</span>
+      </div>
+
+      <h3 className="mt-5 text-xl font-semibold text-slate-900 transition-colors group-hover:text-primary">
+        {skill.name}
+      </h3>
+      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{skill.description}</p>
+
+      <div className="mt-6 flex items-center gap-3 text-sm text-slate-500">
+        <span className={`rounded-full px-3 py-1 ${isQuick ? "bg-emerald-50 text-emerald-700" : "bg-primary/10 text-primary"}`}>
+          {isQuick ? t("skills.types.quick") : t("skills.types.deep")}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Clock3 className="h-4 w-4" />
+          {skill.estimated_time || t("skills.timeFallback")}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onUse}
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary"
+      >
+        <MessageSquare className="h-4 w-4" />
+        <span>{t("skills.useSkill")}</span>
+        <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function SkillCard({
+  skill,
+  onUse,
+}: {
+  skill: SkillSummary;
+  onUse: () => void;
+}) {
+  const { t } = useTranslation();
+  const Icon = getCategoryIcon(skill.category);
+  const tone = getCategoryTone(skill.category);
+  const isQuick = extractMinutes(skill.estimated_time) <= 10;
+
+  return (
+    <div className="flex h-full flex-col rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-xl border ${tone}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${tone}`}>{skill.category}</span>
+      </div>
+
+      <h4 className="mt-4 text-base font-semibold text-slate-900">{skill.name}</h4>
+      <p className="mt-2 flex-1 line-clamp-3 text-sm leading-6 text-slate-600">{skill.description}</p>
+
+      <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
+        <span className={`${isQuick ? "text-emerald-700" : "text-primary"} font-medium`}>
+          {isQuick ? t("skills.types.quick") : t("skills.types.deep")}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-slate-500">
+          <Clock3 className="h-4 w-4" />
+          {skill.estimated_time || t("skills.timeFallback")}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onUse}
+        className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary transition hover:bg-primary/10"
+      >
+        <MessageSquare className="h-4 w-4" />
+        <span>{t("skills.useSkill")}</span>
+      </button>
+    </div>
+  );
 }

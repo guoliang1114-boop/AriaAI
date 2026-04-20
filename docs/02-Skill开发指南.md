@@ -1,330 +1,141 @@
 # AriaAI Skill 开发指南
 
-更新日期：2026-04-17
+更新时间：2026-04-20
 
-适用范围：当前仓库中的数据库 Skill 模型、后端 Skill 接口、工具注册机制，以及前端/聊天侧的实际接入方式。
+## 1. Skill 定位
 
----
+在当前代码里，Skill 是数据库中的可配置能力模块，不是本地插件目录。它的作用是把可复用的方法论、提示词模板、工具定义和执行约束沉淀成业务工作流。
 
-## 1. 先说结论
+当前 Skill 体系由三部分组成：
 
-在当前代码里，Skill 不是一个独立插件目录，而是一条数据库记录。
+- 数据库 Skill 定义。
+- 后端 Skill CRUD 与工具 schema 验证。
+- 聊天/项目空间中的 Skill 执行入口和结果回流。
 
-也就是说，当前系统的 Skill 体系本质上是：
+下一版本的目标是让 Skill 从“可选模板”升级为“项目/客户空间中的一等动作”。
 
-- 用数据库表保存 Skill 定义
-- 用后端接口做 CRUD 管理
-- 用 `system_prompt + user_template + tools_definition_json` 组合出能力
-- 在聊天链路里按 Skill 配置决定提示词和可用工具
+## 2. 数据模型
 
-当前最关键的相关代码：
-
-- `AriaAI/backend/app/models/db.py`
-- `AriaAI/backend/app/routers/skills.py`
-- `AriaAI/backend/app/tools/__init__.py`
-
----
-
-## 2. 当前 Skill 数据模型
-
-`Skill` 模型定义在：
+Skill 模型位于：
 
 - `AriaAI/backend/app/models/db.py`
 
-当前核心字段如下：
+核心字段包括：
 
 | 字段 | 说明 |
 |---|---|
-| `id` | 主键 |
-| `name` | Skill 名称 |
-| `category` | 分类，当前仍是自由文本 |
-| `description` | 简介 |
+| `id` | Skill ID |
+| `name` | 名称 |
+| `description` | 描述 |
+| `category` | 分类 |
 | `system_prompt` | 系统提示词 |
-| `user_template` | 默认用户输入模板 |
-| `estimated_time` | 预计耗时描述 |
-| `max_tokens` | 当前默认 `4096` |
-| `tools_definition_json` | 新版工具定义，使用完整 schema |
-| `tools_json` | 旧版兼容字段，保存简单工具名列表 |
+| `user_template` | 用户输入模板 |
+| `tools_definition_json` | 工具 schema |
+| `is_active` | 是否启用 |
+| `created_at` | 创建时间 |
+| `updated_at` | 更新时间 |
 
-当前模型还保留了两个属性封装：
-
-- `tools`
-  - 读写 `tools_json`
-  - 用于兼容旧版“仅保存工具名列表”的写法
-- `tools_definition`
-  - 读写 `tools_definition_json`
-  - 用于当前推荐的完整工具 schema 写法
-
-建议理解为：
-
-- `tools_definition_json` 是现在应该优先使用的正式字段
-- `tools_json` 只是兼容层，不建议继续作为主要配置方式扩展新能力
-
----
-
-## 3. Skill 相关接口
-
-当前路由定义在：
-
-- `AriaAI/backend/app/routers/skills.py`
-
-当前可以确认的基础接口有：
+## 3. 后端接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/skills` | 获取 Skill 列表，可按 `category` 过滤 |
+| `GET` | `/skills` | 获取 Skill 列表，可按分类过滤 |
 | `POST` | `/skills` | 创建 Skill |
 | `PATCH` | `/skills/{skill_id}` | 更新 Skill |
 | `DELETE` | `/skills/{skill_id}` | 删除 Skill |
 
-创建与更新时当前主要使用这些字段：
+注意：
 
-### 创建 `SkillCreate`
+- Skill 列表带缓存。
+- Skill 变更后会清理缓存。
+- `tools_definition_json` 需要保持 JSON schema 可解析。
 
-- `name`
-- `category`
-- `description`
-- `system_prompt`
-- `user_template`
-- `estimated_time`
-- `tools_definition_json`
+## 4. 推荐 Skill 定义
 
-### 更新 `SkillUpdate`
-
-- `name`
-- `description`
-- `system_prompt`
-- `user_template`
-- `estimated_time`
-- `tools_definition_json`
-
-注意点：
-
-- 当前 `PATCH` 没有单独暴露 `category` 更新字段，如果要支持分类编辑，需要补接口字段
-- `list_skills` 结果带了 TTL 缓存，Skill 变更后会自动清理缓存
-
----
-
-## 4. 当前工具注册机制
-
-工具注册中心定义在：
-
-- `AriaAI/backend/app/tools/__init__.py`
-
-当前注册中心核心职责：
-
-1. 注册工具
-2. 暴露工具 schema
-3. 执行工具
-4. 返回统一格式的工具执行结果
-
-当前工具注册的核心格式是：
-
-```python
-registry.register(
-    name="generate_ppt",
-    description="Generate a PowerPoint presentation",
-    input_schema={...},
-)
-```
-
-注册后，`get_schemas()` 会返回适合大模型工具调用的结构，核心字段是：
-
-- `name`
-- `description`
-- `input_schema`
-
-工具执行结果当前会被包装为类似结构：
+最小可用 Skill：
 
 ```json
 {
-  "type": "tool_result",
-  "tool_name": "generate_ppt",
-  "status": "success",
-  "output": {}
-}
-```
-
-如果执行失败，会返回同结构的错误信息，而不是直接把后端异常原样抛给上层聊天逻辑。
-
----
-
-## 5. 推荐的 Skill 工具定义格式
-
-当前推荐直接写 `tools_definition_json`，使用完整 schema。
-
-推荐格式：
-
-```json
-[
-  {
-    "name": "generate_ppt",
-    "description": "Generate a PowerPoint presentation",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "slides": { "type": "array" }
-      },
-      "required": ["title", "slides"]
-    }
-  }
-]
-```
-
-不要再优先依赖这种旧式格式：
-
-```json
-["generate_ppt", "save_text"]
-```
-
-原因很简单：
-
-- 完整 schema 更容易校验
-- 更适合模型做参数构造
-- 后续接入前端可视化、测试和工具治理也更稳
-
----
-
-## 6. 一个最小可用 Skill 示例
-
-下面这个结构已经足够创建一个可工作的数据库 Skill：
-
-```json
-{
-  "name": "Executive Summary",
+  "name": "项目复盘助手",
+  "description": "基于项目资料生成复盘摘要、经验和后续行动",
   "category": "项目交付",
-  "description": "将复杂资料压缩成管理层可快速理解的执行摘要。",
-  "system_prompt": "你是一名资深咨询顾问，请输出结构清晰、行动导向的执行摘要。",
-  "user_template": "请基于以下资料生成执行摘要：\n\n项目背景：\n目标读者：\n核心问题：\n输入材料：",
-  "estimated_time": "~2 min",
-  "tools_definition_json": "[]"
+  "system_prompt": "你是一名资深交付负责人，擅长结构化复盘。",
+  "user_template": "请基于以下项目资料生成复盘：\n\n项目背景：\n关键结果：\n主要问题：\n后续行动：",
+  "tools_definition_json": "[]",
+  "is_active": true
 }
 ```
 
 如果 Skill 需要生成文档、PPT、Excel 或其他产物，再把对应工具 schema 填到 `tools_definition_json`。
 
----
+## 5. 当前已完成联动
 
-## 7. 当前推荐的 Skill 编写方式
+已完成：
 
-### 7.1 Prompt 层
+- Skill CRUD 与分类。
+- Skill 可进入聊天链路。
+- 项目聊天里可表达当前项目/客户知识范围。
+- 选中 Skill 后提示当前上下文。
+- Skill 结果可保存，并提示进入项目记忆治理。
+- 保存后可触发项目记忆刷新。
 
-建议顺序：
+仍需推进：
 
-1. 先写角色
-2. 再写任务目标
-3. 再写输出结构
-4. 最后补限制条件
+- 项目页显性启动 Skill。
+- 客户页显性启动 Skill。
+- Skill 执行默认携带项目/客户记忆。
+- Skill 结果一键保存为项目文档、项目笔记、客户记忆沉淀。
+- Skill 运行记录、版本、验证机制。
 
-比起写“请详细分析”，更推荐明确指定输出结构，例如：
+## 6. 编写建议
 
-- 背景
-- 关键发现
-- 建议
-- 风险
-- 下一步
+好的 Skill 应该满足：
 
-### 7.2 Template 层
+- 有明确任务边界，而不是泛泛聊天。
+- 输入模板能引导用户补齐关键资料。
+- 输出结构稳定，可被保存或复用。
+- 能说明结果适合沉淀到哪里：项目文档、项目笔记、项目记忆、客户记忆。
+- 如果使用工具，工具 schema 要小而明确。
 
-`user_template` 最好像一个轻量表单，而不是一大段自由文本说明。
+不建议：
 
-推荐写法：
+- 一个 Skill 同时承担多个互不相关的任务。
+- 系统提示词过长但没有输出约束。
+- 工具 schema 过宽，导致模型难以稳定调用。
+- 依赖用户手工复制大量项目上下文。
 
-```text
-项目名称：
-目标受众：
-本次任务目标：
-已有材料：
-输出偏好：
-```
+## 7. 下一版本 Skill 工作流
 
-这样做的好处：
+### 项目空间启动
 
-- 用户更容易填
-- 前端更容易做预填或结构化扩展
-- 模型输入更稳定
+目标：
 
-### 7.3 Tool 层
+- 在项目 Chat / Overview / Memory 中提供 Skill 入口。
+- 默认带入项目记忆、客户名称、文件摘要、里程碑和待办。
+- 执行后可保存为项目资产。
 
-工具定义尽量做到：
+### 客户空间启动
 
-- 一个工具只做一类事
-- 输入 schema 小而稳
-- 名称和用途一一对应
-- 不把多个阶段动作塞进一个巨型工具
+目标：
 
-坏例子：
+- 在客户 Detail / Memory 中提供 Skill 入口。
+- 默认带入客户记忆、关联项目和客户摘要。
+- 适合生成客户沟通策略、关系复盘、机会分析、交付风险总结。
 
-- 一个工具同时负责“搜索、整理、生成 PPT、保存文件、发送邮件”
+### 结果回流
 
-好例子：
+目标：
 
-- `research_market`
-- `generate_ppt`
-- `save_text`
+- 保存为项目文档。
+- 保存为项目笔记。
+- 保存为项目记忆 pinned 槽位。
+- 保存为客户记忆沉淀。
+- 保存后触发记忆刷新或摘要预热。
 
----
+## 8. 后续工程任务
 
-## 8. 当前与项目空间的关系
-
-当前代码里，Skill 已经能存在于聊天体系中，但“项目页直接用 Skill”的体验还没有完全做通。
-
-现状是：
-
-- `Conversation` 模型里已经有 `skill_id`
-- 项目聊天已经有项目上下文能力
-- 通用 Skill 管理已存在
-
-但仍缺的关键一环是：
-
-- 项目聊天页上的 Skill 选择器
-- Skill 模板与当前项目上下文自动联动
-- Skill 结果一键沉淀为项目文档/笔记/生成物
-
-这也是接下来最值得继续推进的一条线。
-
----
-
-## 9. 建议的开发流程
-
-### 新建一个 Skill
-
-1. 先定义目标用户和交付结果
-2. 写 `system_prompt`
-3. 写 `user_template`
-4. 如需工具，再补 `tools_definition_json`
-5. 通过 `/skills` 创建
-6. 在聊天链路里做一次真实验证
-
-### 修改一个已有 Skill
-
-1. 先确认它当前是否仍依赖旧 `tools_json`
-2. 优先迁移到 `tools_definition_json`
-3. 避免只改文案、不改输出结构
-4. 修改后重新验证工具调用是否仍稳定
-
----
-
-## 10. 当前已知不足
-
-基于现有代码，Skill 系统还有这些明显可优化点：
-
-- `category` 仍是自由文本，缺少统一枚举
-- Skill 缺少版本号、状态流转和发布机制
-- Skill 的导入/导出还没有标准格式
-- 项目聊天页尚未完整接入 Skill 选择与执行
-- Skill 测试与回归保护仍偏轻，更多依赖人工验证
-
----
-
-## 11. 建议的下一步
-
-如果后续继续沿 Skill 方向推进，建议优先顺序如下：
-
-1. 让项目聊天页支持 Skill 选择
-2. 让 Skill 自动携带项目上下文执行
-3. 让 Skill 结果一键沉淀为项目笔记、项目文档或生成物
-4. 给 Skill 增加更正式的分类、版本和验证机制
-
-到这一步，Skill 才会从“可配置提示词”真正升级为“项目工作流能力模块”。
+1. 设计 Skill 运行记录表。
+2. 给 Skill 增加版本号和发布状态。
+3. 给核心 Skill 增加回归样例。
+4. 为 Skill 执行失败增加结构化错误分类。
+5. 设计 Skill 导入/导出格式。

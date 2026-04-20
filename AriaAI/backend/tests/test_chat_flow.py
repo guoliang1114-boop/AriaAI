@@ -35,6 +35,7 @@ from app.models.db import (
     User,
 )
 from app import config as app_config
+from app import database as database_module
 from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
 from app.routers import clients as clients_router_module
@@ -272,6 +273,83 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
         self.assertIn("focused on the project's financial picture", financial_prompt)
         self.assertIn("Summary type: documents", documents_prompt)
         self.assertIn("focused on project documents and knowledge signals", documents_prompt)
+
+    def test_build_client_memory_summary_prompt_supports_relationship_and_delivery(self):
+        relationship_prompt = clients_router_module.build_client_memory_summary_prompt(
+            {
+                "client_profile": "Global account with strong executive sponsorship",
+                "decision_patterns": ["Prefers weekly steering rhythm"],
+                "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Final approver"}],
+                "lessons_learned": ["Bring finance and IT together early"],
+                "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                "sensitive_topics": ["Avoid overpromising delivery dates"],
+            },
+            "Acme",
+            "relationship",
+            "zh-CN",
+        )
+        delivery_prompt = clients_router_module.build_client_memory_summary_prompt(
+            {
+                "client_profile": "Global account with strong executive sponsorship",
+                "decision_patterns": ["Prefers weekly steering rhythm"],
+                "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Final approver"}],
+                "lessons_learned": ["Bring finance and IT together early"],
+                "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                "sensitive_topics": ["Avoid overpromising delivery dates"],
+            },
+            "Acme",
+            "delivery",
+            "en-US",
+        )
+
+        self.assertIn("Summary type: relationship", relationship_prompt)
+        self.assertIn("trust level", relationship_prompt)
+        self.assertIn("Write the answer in Chinese", relationship_prompt)
+        self.assertIn("Summary type: delivery", delivery_prompt)
+        self.assertIn("delivery readiness", delivery_prompt)
+
+    def test_database_migration_governance_detects_lightweight_mode(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "clientrecord"],
+            current_revision=None,
+            revisions=["001_init", "002_add_memory"],
+        )
+
+        self.assertEqual(governance["mode"], "lightweight")
+        self.assertEqual(governance["pending_count"], 2)
+        self.assertFalse(governance["up_to_date"])
+
+    def test_database_migration_governance_detects_alembic_mode(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="001_init",
+            revisions=["001_init", "002_add_memory"],
+        )
+
+        self.assertEqual(governance["mode"], "alembic")
+        self.assertEqual(governance["pending_revisions"], ["002_add_memory"])
+
+    def test_database_migration_governance_normalizes_short_revision_alias(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="005",
+            revisions=["001_v1_1", "002_v1_2", "003_v1_3", "004_v1_4", "005_v1_5"],
+        )
+
+        self.assertEqual(governance["current_revision"], "005_v1_5")
+        self.assertEqual(governance["latest_revision"], "005_v1_5")
+        self.assertEqual(governance["pending_count"], 0)
+        self.assertTrue(governance["up_to_date"])
+
+    def test_database_migration_governance_keeps_unknown_revision_pending(self):
+        governance = database_module.get_database_migration_governance(
+            tables=["project", "alembic_version"],
+            current_revision="999",
+            revisions=["001_v1_1", "002_v1_2"],
+        )
+
+        self.assertEqual(governance["current_revision"], "999")
+        self.assertEqual(governance["pending_revisions"], ["001_v1_1", "002_v1_2"])
 
     def test_get_project_memory_payload_flattens_pinned_slots(self):
         project = Project(
@@ -1791,6 +1869,57 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["count"], 2)
         self.assertEqual({item["job_type"] for item in body["jobs"]}, {"rebuild", "summary_warm"})
 
+    def test_memory_jobs_list_includes_budget_retry_and_recent_failures(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Queued Project",
+                client="Client",
+                memory_version=3,
+                memory_stale=True,
+                context_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "summary_warm",
+                            "message": "Rate limit exceeded",
+                            "retry_count": 2,
+                            "failed_at": "2026-04-19T10:00:00",
+                        }
+                    }
+                ),
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project_id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=3,
+                    content="cached",
+                )
+            )
+            session.commit()
+
+        fake_job = SimpleNamespace(
+            id=f"project_memory_rebuild_{project_id}",
+            next_run_time=datetime.utcnow(),
+        )
+        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
+            projects_router_module.scheduler_service,
+            "get_job_metadata",
+            return_value={"retry_count": 1, "max_retries": 3, "trigger": "project_updated"},
+        ):
+            resp = self.client.get("/projects/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["budget"]["used"], 1)
+        self.assertEqual(body["jobs"][0]["retry_count"], 1)
+        self.assertEqual(body["jobs"][0]["trigger"], "project_updated")
+        self.assertEqual(body["recent_failures"][0]["message"], "Rate limit exceeded")
+
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []
 
@@ -2981,6 +3110,62 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(body["jobs"][0]["job_type"], "summary_warm")
         self.assertEqual(body["jobs"][0]["language"], "zh")
 
+    def test_list_client_memory_jobs_includes_budget_retry_and_recent_failures(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                industry="Manufacturing",
+                client_memory_version=4,
+                client_memory_stale=False,
+                client_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "rebuild",
+                            "message": "Temporary model timeout",
+                            "retry_count": 1,
+                            "failed_at": "2026-04-19T11:00:00",
+                        }
+                    }
+                ),
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+            session.add(
+                ClientMemorySummary(
+                    client_id=client_id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=4,
+                    content="cached",
+                )
+            )
+            session.commit()
+
+        fake_job = SimpleNamespace(
+            id=f"client_memory_summary_warm_{client_id}_zh",
+            next_run_time=datetime.utcnow(),
+        )
+        with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
+            clients_router_module.scheduler_service,
+            "get_job_metadata",
+            return_value={
+                "retry_count": 2,
+                "max_retries": 3,
+                "trigger": "rebuild_completed",
+                "summary_types": ["overview", "risk"],
+            },
+        ):
+            resp = self.client.get("/clients/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["budget"]["used"], 1)
+        self.assertEqual(body["jobs"][0]["retry_count"], 2)
+        self.assertEqual(body["jobs"][0]["summary_types"], ["overview", "risk"])
+        self.assertEqual(body["recent_failures"][0]["stage"], "rebuild")
+
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []
 
@@ -3077,6 +3262,55 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                 select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
             ).all()
             self.assertEqual(len(cached), 2)
+
+    def test_client_memory_warm_summaries_batch_supports_relationship_and_delivery(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme Corp",
+                client_memory_json=json.dumps(
+                    {
+                        "client_profile": "Strategic manufacturing account",
+                        "decision_patterns": ["Prefers phased rollout"],
+                        "key_contacts": [{"name": "Jane", "role": "CFO", "note": "Executive sponsor"}],
+                        "lessons_learned": ["Value proof matters before scale"],
+                        "project_history": [{"project_name": "Alpha", "status": "won", "outcome": "Expanded"}],
+                        "sensitive_topics": ["Avoid promising fixed dates too early"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=3,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+        with patch.object(
+            clients_router_module,
+            "complete_with_selected_model",
+            new=AsyncMock(return_value="- Cached summary"),
+        ) as mocked_complete:
+            resp = self.client.post(
+                "/clients/memory/warm-summaries-batch",
+                json={
+                    "client_ids": [client_id],
+                    "summary_types": ["relationship", "delivery"],
+                    "language": "en-US",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["processed_count"], 1)
+        self.assertGreaterEqual(body["warmed_count"], 2)
+        self.assertEqual(mocked_complete.await_count, 2)
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ClientMemorySummary).where(ClientMemorySummary.client_id == client_id)
+            ).all()
+            self.assertEqual(sorted(item.summary_type for item in cached), ["delivery", "relationship"])
 
     def test_client_memory_summary_uses_cache_by_memory_version(self):
         with Session(self.engine) as session:

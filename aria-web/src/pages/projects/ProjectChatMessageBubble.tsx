@@ -79,7 +79,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     };
 
     return (
-      <div className={`flex items-start gap-3.5 group ${isUser ? "flex-row-reverse" : ""}`}>
+      <div className={`mx-auto flex max-w-5xl items-start gap-3.5 group ${isUser ? "flex-row-reverse" : ""}`}>
         <div
           className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
             isUser ? "bg-gray-200" : "bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20"

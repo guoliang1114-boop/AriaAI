@@ -48,7 +48,7 @@ interface DashboardProjectSummary {
 }
 
 const cardBase =
-  'rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-[0_22px_60px_-30px_rgba(15,23,42,0.28)]'
+  'rounded-[28px] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_50px_-34px_rgba(59,130,246,0.18)] backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_60px_-30px_rgba(59,130,246,0.2)]'
 
 function readCachedUser() {
   try {
@@ -264,33 +264,33 @@ export function Welcome() {
   return (
     <>
       <PageTitle title={t('dashboard.title')} />
-      <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.08),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.06),_transparent_24%),linear-gradient(to_bottom,_rgba(248,250,252,1),_rgba(255,255,255,1))]">
+      <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.1),_transparent_24%),radial-gradient(circle_at_center,_rgba(251,191,36,0.08),_transparent_26%),linear-gradient(to_bottom,_rgba(248,250,252,1),_rgba(255,255,255,1))]">
         <div className="space-y-6 px-8 py-8">
-          <section className="relative overflow-hidden rounded-[32px] bg-slate-950 p-8 text-white shadow-[0_24px_80px_-32px_rgba(15,23,42,0.75)]">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.32),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.22),_transparent_24%)]" />
+          <section className="relative overflow-hidden rounded-[32px] border border-sky-100 bg-[linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(239,246,255,0.96)_38%,_rgba(236,253,245,0.94)_100%)] p-8 text-slate-900 shadow-[0_24px_80px_-36px_rgba(59,130,246,0.28)]">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.18),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.16),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(251,191,36,0.14),_transparent_22%)]" />
             <div className="relative grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
               <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
+                <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs font-medium text-sky-700 shadow-sm">
                   <Sparkles className="h-3.5 w-3.5" />
                   {isZh ? '今日工作台' : 'Today workspace'}
                 </div>
                 <div>
-                  <p className="mb-2 text-sm text-white/70">{greeting}</p>
+                  <p className="mb-2 text-sm text-slate-500">{greeting}</p>
                   <h1 className="max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl">
                     {user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
                   </h1>
-                  <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75">
+                  <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">
                     {isZh
                       ? '先看待办优先级、项目节奏和记忆健康度，再决定今天最值得推进的动作。'
                       : 'Start from priorities, project rhythm, and memory health before choosing what to move today.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90">
+                  <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-2xl bg-sky-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600">
                     {isZh ? '开始新对话' : 'Start a chat'}
                     <ArrowRight className="h-4 w-4" />
                   </button>
-                  <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10">
+                  <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/80 px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-white">
                     <FolderKanban className="h-4 w-4" />
                     {isZh ? '新建项目' : 'Create project'}
                   </button>
@@ -301,8 +301,8 @@ export function Welcome() {
                     { label: isZh ? '记忆待处理' : 'Memory work', value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
                     { label: isZh ? '活跃项目' : 'Active projects', value: activeProjects.length },
                   ].map((item) => (
-                    <div key={item.label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80">
-                      {item.label}: <span className="font-semibold text-white">{item.value}</span>
+                    <div key={item.label} className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+                      {item.label}: <span className="font-semibold text-slate-900">{item.value}</span>
                     </div>
                   ))}
                 </div>
@@ -310,18 +310,54 @@ export function Welcome() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
-                  { title: isZh ? '项目记忆' : 'Project memory', sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries', icon: Brain, path: '/settings/memory', style: 'from-indigo-500/20 to-indigo-400/5 text-white' },
-                  { title: isZh ? '客户记忆' : 'Client memory', sub: isZh ? '查看客户级长期经验沉淀' : 'Review client-level knowledge', icon: Users, path: '/settings/client-memory', style: 'from-emerald-500/20 to-emerald-400/5 text-white' },
-                  { title: isZh ? '客户列表' : 'Clients', sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships', icon: Building2, path: '/clients', style: 'from-sky-500/20 to-sky-400/5 text-white' },
-                  { title: isZh ? '项目列表' : 'Projects', sub: isZh ? '回到核心业务看板' : 'Return to the delivery board', icon: FolderKanban, path: '/projects', style: 'from-white/95 to-white/80 text-slate-900' },
+                  {
+                    title: isZh ? '项目记忆' : 'Project memory',
+                    sub: isZh ? '统一刷新项目记忆与摘要缓存' : 'Refresh project memory and cached summaries',
+                    icon: Brain,
+                    path: '/settings/memory',
+                    cardClass: 'border-indigo-200/70 bg-gradient-to-br from-indigo-500/24 via-sky-500/12 to-white/72 text-slate-950',
+                    subClass: 'text-slate-700',
+                    iconClass: 'text-indigo-700',
+                  },
+                  {
+                    title: isZh ? '客户记忆' : 'Client memory',
+                    sub: isZh ? '查看客户级长期经验沉淀' : 'Review client-level knowledge',
+                    icon: Users,
+                    path: '/settings/client-memory',
+                    cardClass: 'border-emerald-200/80 bg-gradient-to-br from-emerald-400/24 via-teal-300/12 to-white/74 text-slate-950',
+                    subClass: 'text-slate-700',
+                    iconClass: 'text-emerald-700',
+                  },
+                  {
+                    title: isZh ? '客户列表' : 'Clients',
+                    sub: isZh ? '维护客户档案与合作关系' : 'Maintain client records and relationships',
+                    icon: Building2,
+                    path: '/clients',
+                    cardClass: 'border-sky-200/85 bg-gradient-to-br from-sky-200/88 via-cyan-100/82 to-white/92 text-slate-900',
+                    subClass: 'text-slate-600',
+                    iconClass: 'text-sky-700',
+                  },
+                  {
+                    title: isZh ? '项目列表' : 'Projects',
+                    sub: isZh ? '回到核心业务看板' : 'Return to the delivery board',
+                    icon: FolderKanban,
+                    path: '/projects',
+                    cardClass: 'border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-slate-50/96 text-slate-900',
+                    subClass: 'text-slate-600',
+                    iconClass: 'text-amber-700',
+                  },
                 ].map((item) => (
-                  <button key={item.title} onClick={() => navigate(item.path)} className={`group rounded-3xl border border-white/10 bg-gradient-to-br ${item.style} p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]`}>
+                  <button
+                    key={item.title}
+                    onClick={() => navigate(item.path)}
+                    className={`group rounded-3xl border ${item.cardClass} p-4 text-left shadow-[0_16px_36px_-28px_rgba(59,130,246,0.18)] backdrop-blur-sm transition duration-200 hover:-translate-y-1 hover:shadow-[0_18px_40px_-24px_rgba(59,130,246,0.22)]`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-2">
                         <div className="text-sm font-semibold">{item.title}</div>
-                        <div className={`text-xs leading-5 ${item.style.includes('white/95') ? 'text-slate-600' : 'text-white/70'}`}>{item.sub}</div>
+                        <div className={`text-xs leading-5 ${item.subClass}`}>{item.sub}</div>
                       </div>
-                      <item.icon className="h-4 w-4 opacity-80 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      <item.icon className={`h-4 w-4 ${item.iconClass} opacity-85 transition duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5`} />
                     </div>
                   </button>
                 ))}
@@ -336,10 +372,10 @@ export function Welcome() {
               { label: isZh ? '合同总额' : 'Contract value', value: formatCurrency(contractValue, isZh), sub: isZh ? '按未归档项目统计' : 'Across non-archived projects', icon: Wallet, tone: 'to-emerald-50/80' },
               { label: isZh ? '技能数量' : 'Available skills', value: secondaryLoading ? '...' : skills.length, sub: isZh ? '可复用的工作流和技能' : 'Reusable skills and workflows', icon: Sparkles, tone: 'to-amber-50/80' },
             ].map((card) => (
-              <div key={card.label} className={`rounded-3xl border border-slate-200/70 bg-gradient-to-br from-white ${card.tone} p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.4)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-28px_rgba(15,23,42,0.35)]`}>
+              <div key={card.label} className={`rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white ${card.tone} p-5 shadow-[0_18px_40px_-30px_rgba(59,130,246,0.16)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_-28px_rgba(59,130,246,0.2)]`}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm text-on-surface-muted">{card.label}</div>
-                  <div className="rounded-xl bg-white/70 p-2 text-primary shadow-sm"><card.icon className="h-4 w-4" /></div>
+                  <div className="rounded-xl bg-white p-2 text-sky-600 shadow-sm"><card.icon className="h-4 w-4" /></div>
                 </div>
                 <div className="text-3xl font-semibold text-on-surface">{card.value}</div>
                 <div className="mt-2 text-sm text-on-surface-muted">{card.sub}</div>

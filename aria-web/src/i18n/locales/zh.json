@@ -261,6 +261,11 @@
     "filter": "筛选"
   },
   "skills": {
+    "workbenchTitle": "\u6280\u80fd\u5de5\u4f5c\u53f0\uff0c\u8ba9\u7ed3\u6784\u5316\u6267\u884c\u66f4\u9ad8\u6548",
+    "workbenchSubtitle": "\u9009\u62e9\u4e00\u4e2a\u6280\u80fd\uff0c\u5feb\u901f\u7406\u89e3\u5b83\u7684\u9002\u7528\u573a\u666f\uff0c\u7136\u540e\u76f4\u63a5\u8fdb\u5165\u5f15\u5bfc\u5f0f\u5bf9\u8bdd\u3002",
+    "searchPlaceholder": "\u6309\u540d\u79f0\u3001\u5206\u7c7b\u6216\u7528\u9014\u641c\u7d22\u6280\u80fd",
+    "resultsCount": "\u5171 {{count}} \u4e2a\u6280\u80fd",
+    "timeFallback": "\u7ea630 \u5206\u949f",
     "title": "技能中心",
     "subtitle": "为高级咨询师精心策划的 AI 驱动运营模块。选择您的领域以启动深度分析任务或快速战略输出。",
     "noSkills": "未找到技能",

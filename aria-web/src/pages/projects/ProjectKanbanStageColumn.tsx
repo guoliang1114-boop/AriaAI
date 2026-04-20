@@ -5,12 +5,14 @@ import { ProjectKanbanCard } from './ProjectKanbanCard'
 
 interface ProjectKanbanStageColumnProps {
   onProjectClick: (id: number) => void
+  onProjectPrefetch?: (id: number) => void
   projects: Project[]
   stage: ProjectStageConfig
 }
 
 export function ProjectKanbanStageColumn({
   onProjectClick,
+  onProjectPrefetch,
   projects,
   stage,
 }: ProjectKanbanStageColumnProps) {
@@ -52,6 +54,8 @@ export function ProjectKanbanStageColumn({
           <ProjectKanbanCard
             key={project.id}
             onClick={() => onProjectClick(project.id)}
+            onPointerDown={() => onProjectPrefetch?.(project.id)}
+            onPointerEnter={() => onProjectPrefetch?.(project.id)}
             project={project}
             stage={stage}
           />

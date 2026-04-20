@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   Project,
@@ -24,22 +25,32 @@ export function ProjectDetailLayout({
   onRefresh: () => void;
   children: ReactNode;
 }) {
+  const [isChatFocusMode, setIsChatFocusMode] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("aria-project-chat-fullscreen") === "true";
+  });
   const isPersistentTab =
     activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <ProjectDetailHeader
-        project={project}
-        onBack={onBack}
-        projectId={projectId}
-      />
+    <div className={activeTabId === "chat" && isChatFocusMode ? "h-screen overflow-hidden bg-gray-50" : "min-h-full bg-gray-50"}>
+      {!(activeTabId === "chat" && isChatFocusMode) ? (
+        <ProjectDetailHeader
+          project={project}
+          onBack={onBack}
+          projectId={projectId}
+        />
+      ) : null}
 
       <PersistentProjectPanels
         projectId={projectId}
         project={project}
         projectDetail={projectDetail}
         activeTabId={activeTabId}
+        isChatFocusMode={isChatFocusMode}
+        onChatFocusModeChange={setIsChatFocusMode}
         onRefresh={onRefresh}
       />
 

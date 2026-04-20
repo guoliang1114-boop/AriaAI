@@ -1,25 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { 
-  Info, 
-  Package, 
-  Heart, 
-  Sparkles, 
-  Globe, 
-  Mail, 
-  MessageCircle,
-  ExternalLink,
-  Loader2,
-  CheckCircle,
-  Server,
-  Database,
-  Cpu,
+import {
   Calendar,
-  Shield,
-  FileText,
+  Check,
+  CheckCircle,
   ChevronRight,
   Copy,
-  Check
+  ExternalLink,
+  FileText,
+  Heart,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Package,
+  Server,
+  Shield,
+  Sparkles,
 } from 'lucide-react'
 import { api } from '../../api/client'
 
@@ -29,85 +25,105 @@ interface SystemInfo {
   environment: string
   apiStatus: 'online' | 'offline'
   apiVersion?: string
-  databaseStatus: 'connected' | 'disconnected'
 }
 
 interface ChangelogEntry {
   version: string
   date: string
+  summary: string
   changes: string[]
 }
 
 export function AboutSettings() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1',
     buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
-    databaseStatus: 'disconnected',
   })
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'changelog' | 'license'>('overview')
 
-  // Changelog data
   const changelog: ChangelogEntry[] = [
     {
-      version: '1.0.0',
-      date: '2026-04-09',
-      changes: [
-        'Initial release of AriaAI',
-        'AI-powered consulting assistance',
-        'Project and knowledge management',
-        'Multi-user support with role-based access',
-        'Integration with Claude and Moonshot AI',
-      ],
-    },
-    {
-      version: '0.9.0',
-      date: '2026-03-15',
-      changes: [
-        'Beta release with core features',
-        'Skill system for specialized tasks',
-        'Document upload and vector search',
-        'Real-time chat interface',
-      ],
+      version: '0.0.1',
+      date: '2026-04-19',
+      summary: isZh ? '首个正式记录版本，统一产品版本显示。' : 'First recorded release baseline with unified version display.',
+      changes: isZh
+        ? [
+            '将 Web 版本统一记录为 V0.0.1。',
+            '让 About 页面直接展示当前打包版本与发布时间。',
+            '为后端 health 接口补充 API version 返回值。',
+            '建立后续版本迭代可继续追加的更新记录起点。',
+          ]
+        : [
+            'Recorded the web release baseline as V0.0.1.',
+            'Aligned the About page with the packaged app version and build time.',
+            'Added API version reporting through the backend health endpoint.',
+            'Established the starting point for future release notes.',
+          ],
     },
   ]
 
-  // Tech stack with icons/colors
   const techStack = [
-    { name: 'React', category: 'frontend', color: 'bg-blue-500/10 text-blue-600 border-blue-200' },
-    { name: 'TypeScript', category: 'frontend', color: 'bg-blue-600/10 text-blue-700 border-blue-300' },
-    { name: 'Vite', category: 'frontend', color: 'bg-purple-500/10 text-purple-600 border-purple-200' },
-    { name: 'Tailwind CSS', category: 'frontend', color: 'bg-cyan-500/10 text-cyan-600 border-cyan-200' },
-    { name: 'FastAPI', category: 'backend', color: 'bg-green-500/10 text-green-600 border-green-200' },
-    { name: 'PostgreSQL', category: 'backend', color: 'bg-indigo-500/10 text-indigo-600 border-indigo-200' },
-    { name: 'SQLModel', category: 'backend', color: 'bg-orange-500/10 text-orange-600 border-orange-200' },
-    { name: 'Claude API', category: 'ai', color: 'bg-amber-500/10 text-amber-600 border-amber-200' },
-    { name: 'Moonshot AI', category: 'ai', color: 'bg-violet-500/10 text-violet-600 border-violet-200' },
+    { name: 'React', color: 'bg-sky-100 text-sky-700 border-sky-200' },
+    { name: 'TypeScript', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+    { name: 'Vite', color: 'bg-violet-100 text-violet-700 border-violet-200' },
+    { name: 'Tailwind CSS', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+    { name: 'FastAPI', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+    { name: 'PostgreSQL', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+    { name: 'SQLModel', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+    { name: 'Claude API', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+    { name: 'Moonshot AI', color: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200' },
+  ]
+
+  const links = [
+    {
+      title: 'GitHub',
+      subtitle: isZh ? '查看代码仓库与版本历史' : 'View the repository and release history',
+      href: 'https://github.com/guoliang1114-boop/AriaAI',
+      icon: FileText,
+    },
+    {
+      title: isZh ? '文档' : 'Documentation',
+      subtitle: isZh ? '查看产品说明与部署资料' : 'Read product and deployment docs',
+      href: 'https://aria.d2cgo.co/settings/about',
+      icon: ExternalLink,
+    },
+    {
+      title: isZh ? '邮件支持' : 'Email Support',
+      subtitle: 'support@ariaai.com',
+      href: 'mailto:support@ariaai.com',
+      icon: Mail,
+    },
+    {
+      title: isZh ? '反馈建议' : 'Feedback',
+      subtitle: isZh ? '提交问题与体验建议' : 'Share bugs and product feedback',
+      href: 'https://ariaai.com/feedback',
+      icon: MessageCircle,
+    },
   ]
 
   useEffect(() => {
-    loadSystemInfo()
+    void loadSystemInfo()
   }, [])
 
   const loadSystemInfo = async () => {
     try {
       setLoading(true)
-      
-      // Try to get version from backend
       try {
-        const health = await api.get('/health')
-        setSystemInfo(prev => ({
+        const health = await api.get<{ version?: string; environment?: string }>('/health')
+        setSystemInfo((prev) => ({
           ...prev,
           apiStatus: 'online',
-          apiVersion: (health as any).version,
-          environment: (health as any).environment || 'production',
+          apiVersion: health.version,
+          environment: health.environment || 'production',
         }))
       } catch {
-        setSystemInfo(prev => ({
+        setSystemInfo((prev) => ({
           ...prev,
           apiStatus: 'offline',
         }))
@@ -118,257 +134,238 @@ export function AboutSettings() {
   }
 
   const copyVersionInfo = () => {
-    const info = `AriaAI v${systemInfo.version}
-Build: ${systemInfo.buildDate}
-API: ${systemInfo.apiStatus} ${systemInfo.apiVersion ? `(${systemInfo.apiVersion})` : ''}
-Environment: ${systemInfo.environment}`
+    const info = [
+      `AriaAI v${systemInfo.version}`,
+      `${isZh ? '构建日期' : 'Build date'}: ${systemInfo.buildDate}`,
+      `${isZh ? 'API 状态' : 'API status'}: ${systemInfo.apiStatus}${systemInfo.apiVersion ? ` (${systemInfo.apiVersion})` : ''}`,
+      `${isZh ? '环境' : 'Environment'}: ${systemInfo.environment}`,
+    ].join('\n')
     navigator.clipboard.writeText(info)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const packagedAtLabel =
+    typeof __BUILD_TIME__ !== 'undefined'
+      ? new Date(__BUILD_TIME__).toLocaleString(isZh ? 'zh-CN' : 'en-US')
+      : '-'
+
+  const headerTitle = t('about.title') || (isZh ? '关于 AriaAI' : 'About AriaAI')
+  const headerSubtitle =
+    t('about.subtitle') || (isZh ? '版本信息与技术说明' : 'Version info and technical details')
+
   const renderOverview = () => (
     <div className="space-y-6">
-      {/* App Header */}
-      <div className="flex items-center gap-5 p-6 bg-gradient-to-br from-primary/5 to-tertiary/5 rounded-2xl border border-outline/10">
-        <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20">
-          <Sparkles className="w-10 h-10 text-white" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-2xl font-bold text-on-surface">AriaAI</h3>
-          <p className="text-on-surface-muted">{t('about.tagline') || '智能咨询助手'}</p>
-          <div className="flex items-center gap-3 mt-2">
-            <span className="px-2.5 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded-full">
-              v{systemInfo.version}
-            </span>
-            <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${
-              systemInfo.apiStatus === 'online' 
-                ? 'bg-success/10 text-success' 
-                : 'bg-error/10 text-error'
-            }`}>
-              {systemInfo.apiStatus === 'online' 
-                ? (t('about.systemOnline') || '系统正常') 
-                : (t('about.systemOffline') || '离线')}
-            </span>
+      <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-[linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(239,246,255,0.96)_38%,_rgba(236,253,245,0.92)_100%)] p-6 shadow-[0_24px_70px_-42px_rgba(59,130,246,0.28)]">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500 shadow-lg shadow-sky-500/20">
+              <Sparkles className="h-8 w-8 text-white" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-2xl font-semibold text-slate-950">AriaAI</h3>
+                <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+                  V{systemInfo.version}
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    systemInfo.apiStatus === 'online'
+                      ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200'
+                      : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200'
+                  }`}
+                >
+                  {systemInfo.apiStatus === 'online'
+                    ? t('about.systemOnline') || (isZh ? '系统在线' : 'Online')
+                    : t('about.systemOffline') || (isZh ? '系统离线' : 'Offline')}
+                </span>
+              </div>
+              <p className="text-sm text-slate-600">
+                {t('about.tagline') || (isZh ? '智能咨询助手' : 'Intelligent Consulting Assistant')}
+              </p>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                {isZh
+                  ? '当前版本页汇总产品版本、打包时间、API 状态与基础技术栈，方便发布留档与环境核对。'
+                  : 'This release page summarizes the product version, build time, API status, and baseline stack for quick release verification.'}
+              </p>
+            </div>
           </div>
+          <button
+            onClick={copyVersionInfo}
+            className="inline-flex items-center gap-2 self-start rounded-2xl border border-white/80 bg-white/85 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-white"
+            title={t('about.copyInfo') || (isZh ? '复制版本信息' : 'Copy version info')}
+          >
+            {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+            {copied ? (isZh ? '已复制' : 'Copied') : t('about.copyInfo') || (isZh ? '复制版本信息' : 'Copy version info')}
+          </button>
         </div>
-        <button
-          onClick={copyVersionInfo}
-          className="p-2 hover:bg-surface-container-high rounded-xl transition-colors"
-          title={t('about.copyInfo') || '复制版本信息'}
-        >
-          {copied ? (
-            <Check className="w-5 h-5 text-success" />
-          ) : (
-            <Copy className="w-5 h-5 text-on-surface-muted" />
-          )}
-        </button>
       </div>
 
-      {/* Build Info Banner */}
-      <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <p className="text-sm font-medium text-primary">
-              {t('about.currentVersion') || '当前版本'}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            icon: Package,
+            label: t('about.version') || (isZh ? '版本' : 'Version'),
+            value: `V${systemInfo.version}`,
+            sub: t('about.webVersion') || (isZh ? '前端发布版本' : 'Web release version'),
+          },
+          {
+            icon: Server,
+            label: t('about.apiVersion') || (isZh ? 'API 版本' : 'API Version'),
+            value: systemInfo.apiVersion || '-',
+            sub: systemInfo.apiStatus === 'online'
+              ? t('about.connected') || (isZh ? '接口已连接' : 'Connected')
+              : (isZh ? '接口未连接' : 'Unavailable'),
+          },
+          {
+            icon: Calendar,
+            label: t('about.buildDate') || (isZh ? '构建日期' : 'Build Date'),
+            value: systemInfo.buildDate,
+            sub: `${t('about.packagedAt') || (isZh ? '打包时间' : 'Packaged at')}: ${packagedAtLabel}`,
+          },
+          {
+            icon: Shield,
+            label: t('about.environment') || (isZh ? '环境' : 'Environment'),
+            value: systemInfo.environment,
+            sub:
+              systemInfo.environment === 'production'
+                ? t('about.production') || (isZh ? '生产环境' : 'Production')
+                : t('about.development') || (isZh ? '开发环境' : 'Development'),
+          },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className="rounded-3xl border border-slate-200/80 bg-white/92 p-5 shadow-[0_16px_40px_-32px_rgba(59,130,246,0.2)]"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm text-slate-500">{item.label}</div>
+              <div className="rounded-xl bg-sky-50 p-2 text-sky-600">
+                <item.icon className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="text-xl font-semibold text-slate-950">{item.value}</div>
+            <div className="mt-2 text-sm leading-6 text-slate-600">{item.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-on-surface">
+              {isZh ? '版本说明' : 'Release Notes'}
+            </h3>
+            <p className="mt-1 text-sm text-on-surface-muted">
+              {isZh ? '当前记录版本的定位与说明。' : 'Purpose and scope of the current recorded release.'}
             </p>
-            <p className="text-xs text-on-surface-muted mt-0.5">
-              {typeof __BUILD_TIME__ !== 'undefined'
-                ? `${t('about.packagedAt') || '打包时间'}: ${new Date(__BUILD_TIME__).toLocaleString('zh-CN')}`
-                : '-'}
+          </div>
+          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
+              <Sparkles className="h-4 w-4" />
+              {isZh ? 'V0.0.1 基线版本' : 'V0.0.1 Baseline Release'}
+            </div>
+            <p className="mt-3 text-sm leading-7 text-slate-700">
+              {isZh
+                ? '这是当前产品的第一条正式版本记录，用来统一前端 About 页面、打包产物和后端健康检查中的版本标识，作为后续迭代发布的起点。'
+                : 'This is the first formally recorded product version and establishes a shared version identity across the About page, packaged build, and backend health check.'}
             </p>
           </div>
-          <span className="px-3 py-1 text-lg font-bold bg-primary text-white rounded-lg shadow-sm">
-            v{systemInfo.version}
-          </span>
+        </div>
+
+        <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-on-surface">
+              {t('about.techStack') || (isZh ? '技术栈' : 'Tech Stack')}
+            </h3>
+            <p className="mt-1 text-sm text-on-surface-muted">
+              {isZh ? '当前版本主要依赖的核心技术。' : 'Core technologies behind the current release.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {techStack.map((tech) => (
+              <span key={tech.name} className={`rounded-xl border px-3 py-1.5 text-sm font-medium ${tech.color}`}>
+                {tech.name}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* System Status Grid */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="p-4 bg-surface-container-low rounded-xl border border-outline/10">
-          <div className="flex items-center gap-2 text-on-surface-muted mb-2">
-            <Package className="w-4 h-4" />
-            <span className="text-sm">{t('about.version') || '版本'}</span>
-          </div>
-          <p className="text-lg font-semibold text-on-surface">{systemInfo.version}</p>
-          <p className="text-xs text-on-surface-muted mt-1">
-            {t('about.webVersion') || 'Web 版本'}
+      <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
+        <div className="mb-4">
+          <h3 className="text-base font-semibold text-on-surface">
+            {isZh ? '常用链接' : 'Quick Links'}
+          </h3>
+          <p className="mt-1 text-sm text-on-surface-muted">
+            {isZh ? '跳转到仓库、支持与反馈入口。' : 'Jump to repository, support, and feedback destinations.'}
           </p>
         </div>
-        
-        <div className="p-4 bg-surface-container-low rounded-xl border border-outline/10">
-          <div className="flex items-center gap-2 text-on-surface-muted mb-2">
-            <Server className="w-4 h-4" />
-            <span className="text-sm">{t('about.apiVersion') || 'API 版本'}</span>
-          </div>
-          <p className="text-lg font-semibold text-on-surface">
-            {systemInfo.apiVersion || '-'}
-          </p>
-          <p className="text-xs text-success mt-1 flex items-center gap-1">
-            {systemInfo.apiStatus === 'online' && (
-              <>
-                <CheckCircle className="w-3 h-3" />
-                {t('about.connected') || '已连接'}
-              </>
-            )}
-          </p>
-        </div>
-        
-        <div className="p-4 bg-surface-container-low rounded-xl border border-outline/10">
-          <div className="flex items-center gap-2 text-on-surface-muted mb-2">
-            <Calendar className="w-4 h-4" />
-            <span className="text-sm">{t('about.buildDate') || '构建日期'}</span>
-          </div>
-          <p className="text-lg font-semibold text-on-surface">{systemInfo.buildDate}</p>
-          <p className="text-xs text-on-surface-muted mt-1">
-            {systemInfo.environment === 'production' 
-              ? (t('about.production') || '生产环境') 
-              : (t('about.development') || '开发环境')}
-          </p>
-        </div>
-        
-        <div className="p-4 bg-surface-container-low rounded-xl border border-outline/10">
-          <div className="flex items-center gap-2 text-on-surface-muted mb-2">
-            <Shield className="w-4 h-4" />
-            <span className="text-sm">{t('about.license') || '许可证'}</span>
-          </div>
-          <p className="text-lg font-semibold text-on-surface">Proprietary</p>
-          <p className="text-xs text-on-surface-muted mt-1">
-            {t('about.allRightsReserved') || '保留所有权利'}
-          </p>
-        </div>
-      </div>
-
-      {/* Tech Stack */}
-      <div>
-        <h4 className="text-sm font-medium text-on-surface-secondary mb-3">
-          {t('about.techStack') || '技术栈'}
-        </h4>
-        <div className="flex flex-wrap gap-2">
-          {techStack.map(tech => (
-            <span
-              key={tech.name}
-              className={`px-3 py-1.5 text-sm rounded-lg font-medium border ${tech.color}`}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {links.map((link) => (
+            <a
+              key={link.title}
+              href={link.href}
+              target={link.href.startsWith('http') ? '_blank' : undefined}
+              rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+              className="group flex items-center gap-3 rounded-2xl border border-outline/10 bg-surface-container-low px-4 py-4 transition hover:border-outline/30 hover:bg-surface-container-lowest"
             >
-              {tech.name}
-            </span>
+              <div className="rounded-xl bg-surface-container-high p-2.5 text-on-surface-muted transition group-hover:bg-sky-50 group-hover:text-sky-600">
+                <link.icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-on-surface">{link.title}</div>
+                <div className="truncate text-xs text-on-surface-muted">{link.subtitle}</div>
+              </div>
+              <ExternalLink className="h-4 w-4 text-on-surface-muted" />
+            </a>
           ))}
         </div>
       </div>
 
-      {/* Quick Links */}
-      <div className="grid grid-cols-2 gap-3">
-        <a
-          href="https://github.com/ariaai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 p-4 bg-surface-container-low rounded-xl border border-outline/10 hover:border-outline/30 transition-all group"
-        >
-          <div className="w-10 h-10 bg-surface-container-high rounded-xl flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-            <svg className="w-5 h-5 text-on-surface-muted group-hover:text-primary" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-            </svg>
-          </div>
-          <div className="flex-1">
-            <p className="font-medium text-on-surface text-sm">GitHub</p>
-            <p className="text-xs text-on-surface-muted">{t('about.viewSource') || '查看源码'}</p>
-          </div>
-          <ExternalLink className="w-4 h-4 text-on-surface-muted" />
-        </a>
-        
-        <a
-          href="https://ariaai.com/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 p-4 bg-surface-container-low rounded-xl border border-outline/10 hover:border-outline/30 transition-all group"
-        >
-          <div className="w-10 h-10 bg-surface-container-high rounded-xl flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-            <FileText className="w-5 h-5 text-on-surface-muted group-hover:text-primary" />
-          </div>
-          <div className="flex-1">
-            <p className="font-medium text-on-surface text-sm">{t('about.documentation') || '文档'}</p>
-            <p className="text-xs text-on-surface-muted">{t('about.readDocs') || '阅读文档'}</p>
-          </div>
-          <ExternalLink className="w-4 h-4 text-on-surface-muted" />
-        </a>
-        
-        <a
-          href="mailto:support@ariaai.com"
-          className="flex items-center gap-3 p-4 bg-surface-container-low rounded-xl border border-outline/10 hover:border-outline/30 transition-all group"
-        >
-          <div className="w-10 h-10 bg-surface-container-high rounded-xl flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-            <Mail className="w-5 h-5 text-on-surface-muted group-hover:text-primary" />
-          </div>
-          <div className="flex-1">
-            <p className="font-medium text-on-surface text-sm">{t('about.email') || '邮件'}</p>
-            <p className="text-xs text-on-surface-muted">support@ariaai.com</p>
-          </div>
-          <ExternalLink className="w-4 h-4 text-on-surface-muted" />
-        </a>
-        
-        <a
-          href="https://ariaai.com/feedback"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 p-4 bg-surface-container-low rounded-xl border border-outline/10 hover:border-outline/30 transition-all group"
-        >
-          <div className="w-10 h-10 bg-surface-container-high rounded-xl flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-            <MessageCircle className="w-5 h-5 text-on-surface-muted group-hover:text-primary" />
-          </div>
-          <div className="flex-1">
-            <p className="font-medium text-on-surface text-sm">{t('about.feedback') || '反馈'}</p>
-            <p className="text-xs text-on-surface-muted">{t('about.sendFeedback') || '发送反馈'}</p>
-          </div>
-          <ExternalLink className="w-4 h-4 text-on-surface-muted" />
-        </a>
-      </div>
-
-      {/* Footer */}
-      <div className="pt-6 border-t border-outline/10">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-on-surface-muted flex items-center gap-1">
-            Made with <Heart className="w-3 h-3 text-error" /> by AriaAI Team
-          </p>
-          <p className="text-xs text-on-surface-muted">
-            © 2026 AriaAI. {t('about.allRightsReserved') || 'All rights reserved.'}
-          </p>
-        </div>
+      <div className="flex flex-col gap-3 border-t border-outline/10 pt-6 text-xs text-on-surface-muted sm:flex-row sm:items-center sm:justify-between">
+        <p className="flex items-center gap-1">
+          Made with <Heart className="h-3 w-3 text-error" /> by AriaAI Team
+        </p>
+        <p>© 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}</p>
       </div>
     </div>
   )
 
   const renderChangelog = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-on-surface">
-        {t('about.changelog') || '更新日志'}
-      </h3>
-      
+      <div>
+        <h3 className="text-lg font-semibold text-on-surface">
+          {t('about.changelog') || (isZh ? '更新日志' : 'Changelog')}
+        </h3>
+        <p className="mt-1 text-sm text-on-surface-muted">
+          {isZh ? '记录每个正式版本的重要变更。' : 'Track the important changes for each recorded release.'}
+        </p>
+      </div>
+
       <div className="space-y-6">
         {changelog.map((entry, index) => (
-          <div 
-            key={entry.version} 
-            className={`relative pl-6 pb-6 ${index !== changelog.length - 1 ? 'border-l-2 border-outline/20' : ''}`}
+          <div
+            key={entry.version}
+            className={`relative pl-6 ${index !== changelog.length - 1 ? 'border-l-2 border-outline/20 pb-6' : ''}`}
           >
-            {/* Timeline dot */}
-            <div className="absolute left-0 top-0 w-3 h-3 bg-primary rounded-full -translate-x-[7px]" />
-            
-            <div className="bg-surface-container-low rounded-xl p-4 border border-outline/10">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="px-2.5 py-1 text-sm font-semibold bg-primary/10 text-primary rounded-lg">
-                  v{entry.version}
+            <div className="absolute left-0 top-1 h-3 w-3 -translate-x-[7px] rounded-full bg-primary" />
+            <div className="rounded-2xl border border-outline/10 bg-surface p-5 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <span className="rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary">
+                  V{entry.version}
                 </span>
                 <span className="text-sm text-on-surface-muted">{entry.date}</span>
-                {index === 0 && (
-                  <span className="px-2 py-0.5 text-xs bg-success/10 text-success rounded-full">
-                    {t('about.latest') || '最新'}
+                {index === 0 ? (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                    {t('about.latest') || (isZh ? '最新' : 'Latest')}
                   </span>
-                )}
+                ) : null}
               </div>
+              <p className="mb-4 text-sm leading-6 text-slate-700">{entry.summary}</p>
               <ul className="space-y-2">
-                {entry.changes.map((change, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-on-surface">
-                    <ChevronRight className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                {entry.changes.map((change) => (
+                  <li key={change} className="flex items-start gap-2 text-sm text-on-surface">
+                    <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
                     {change}
                   </li>
                 ))}
@@ -382,32 +379,37 @@ Environment: ${systemInfo.environment}`
 
   const renderLicense = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-on-surface">
-        {t('about.license') || '许可证'}
-      </h3>
-      
-      <div className="bg-surface-container-low rounded-xl p-6 border border-outline/10">
-        <h4 className="font-medium text-on-surface mb-4">AriaAI License Agreement</h4>
-        <div className="space-y-4 text-sm text-on-surface-muted">
+      <div>
+        <h3 className="text-lg font-semibold text-on-surface">
+          {t('about.license') || (isZh ? '许可说明' : 'License')}
+        </h3>
+        <p className="mt-1 text-sm text-on-surface-muted">
+          {isZh ? '当前产品许可与第三方依赖许可概览。' : 'Overview of product licensing and third-party dependencies.'}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-outline/10 bg-surface p-6 shadow-sm">
+        <h4 className="mb-4 font-medium text-on-surface">
+          {isZh ? 'AriaAI 使用许可' : 'AriaAI License Agreement'}
+        </h4>
+        <div className="space-y-4 text-sm leading-7 text-on-surface-muted">
+          <p>Copyright © 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}.</p>
           <p>
-            Copyright © 2026 AriaAI. All rights reserved.
+            {isZh
+              ? '本软件为专有软件与保密资产。未经授权，不得以任何形式复制、转让或分发。'
+              : 'This software is proprietary and confidential. Unauthorized copying, transfer, or distribution is prohibited.'}
           </p>
           <p>
-            This software is proprietary and confidential. Unauthorized copying, 
-            transfer, or distribution of this software, via any medium, is strictly 
-            prohibited.
-          </p>
-          <p>
-            THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, 
-            EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
-            MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+            {isZh
+              ? '软件按“现状”提供，不附带任何明示或暗示担保，包括适销性、特定用途适用性及非侵权担保。'
+              : 'The software is provided "as is", without warranty of any kind, express or implied, including merchantability, fitness for a particular purpose, and noninfringement.'}
           </p>
         </div>
       </div>
 
       <div>
-        <h4 className="font-medium text-on-surface mb-3">
-          {t('about.thirdPartyLicenses') || '第三方许可证'}
+        <h4 className="mb-3 font-medium text-on-surface">
+          {t('about.thirdPartyLicenses') || (isZh ? '第三方许可证' : 'Third-party Licenses')}
         </h4>
         <div className="space-y-2">
           {[
@@ -415,10 +417,10 @@ Environment: ${systemInfo.environment}`
             { name: 'Tailwind CSS', license: 'MIT License' },
             { name: 'Lucide Icons', license: 'ISC License' },
             { name: 'FastAPI', license: 'MIT License' },
-          ].map(item => (
-            <div 
+          ].map((item) => (
+            <div
               key={item.name}
-              className="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-outline/10"
+              className="flex items-center justify-between rounded-xl border border-outline/10 bg-surface-container-low px-4 py-3"
             >
               <span className="text-sm font-medium text-on-surface">{item.name}</span>
               <span className="text-xs text-on-surface-muted">{item.license}</span>
@@ -432,34 +434,28 @@ Environment: ${systemInfo.environment}`
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-on-surface mb-1">
-          {t('about.title') || '关于 AriaAI'}
-        </h2>
-        <p className="text-sm text-on-surface-muted">
-          {t('about.subtitle') || '版本信息和技术详情'}
-        </p>
+        <h2 className="mb-1 text-lg font-semibold text-on-surface">{headerTitle}</h2>
+        <p className="text-sm text-on-surface-muted">{headerSubtitle}</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-surface-container-low rounded-xl">
+      <div className="flex gap-1 rounded-xl bg-surface-container-low p-1">
         {[
-          { id: 'overview', label: t('about.overview') || '概览' },
-          { id: 'changelog', label: t('about.changelog') || '更新日志' },
-          { id: 'license', label: t('about.license') || '许可证' },
-        ].map(tab => (
+          { id: 'overview', label: t('about.overview') || (isZh ? '概览' : 'Overview') },
+          { id: 'changelog', label: t('about.changelog') || (isZh ? '更新日志' : 'Changelog') },
+          { id: 'license', label: t('about.license') || (isZh ? '许可说明' : 'License') },
+        ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+            onClick={() => setActiveTab(tab.id as 'overview' | 'changelog' | 'license')}
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
               activeTab === tab.id
                 ? 'bg-surface text-on-surface shadow-sm'
                 : 'text-on-surface-muted hover:text-on-surface'
@@ -470,7 +466,6 @@ Environment: ${systemInfo.environment}`
         ))}
       </div>
 
-      {/* Content */}
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'changelog' && renderChangelog()}
       {activeTab === 'license' && renderLicense()}

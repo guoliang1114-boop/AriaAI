@@ -10,6 +10,7 @@ interface ProjectChatSaveFormProps {
   folders: ProjectFolder[];
   loading: boolean;
   onActionChange: (action: "merge" | "new") => void;
+  onCancel: () => void;
   onFileNameChange: (value: string) => void;
   onSelectedFileChange: (fileId: number | null) => void;
   onSelectedFolderChange: (folderId: number | null) => void;
@@ -25,6 +26,7 @@ export function ProjectChatSaveForm({
   folders,
   loading,
   onActionChange,
+  onCancel,
   onFileNameChange,
   onSelectedFileChange,
   onSelectedFolderChange,
@@ -136,6 +138,7 @@ export function ProjectChatSaveForm({
       <div className="flex justify-end gap-2 px-0 pt-2">
         <button
           type="button"
+          onClick={onCancel}
           disabled={loading}
           className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
         >

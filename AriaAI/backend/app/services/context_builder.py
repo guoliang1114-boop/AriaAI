@@ -445,6 +445,14 @@ def build_chat_context(
                 client_memory_context = _format_client_memory_for_prompt(client)
                 if client_memory_context:
                     project_context = client_memory_context + "\n\n" + project_context
+
+    if skill_id and project_context.strip():
+        skill_briefing = (
+            "\n\nCurrent workspace briefing:\n"
+            "Use the project/client context below as the default operating context for this skill run. "
+            "Prefer these facts over generic assumptions, and keep outputs grounded in the current workspace."
+        )
+        skill_ctx.skill_prompt = (skill_ctx.skill_prompt or "").strip() + skill_briefing
     
     # Build RAG context
     rag_data = build_rag_context(

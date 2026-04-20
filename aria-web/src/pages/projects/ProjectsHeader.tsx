@@ -1,9 +1,6 @@
 import { FolderKanban, Plus, Search, User } from "lucide-react";
 
 interface ProjectsHeaderProps {
-  archivedCount: number;
-  businessCount: number;
-  deliveryCount: number;
   isLoadingUsers: boolean;
   isZh: boolean;
   onCreateProject: () => void;
@@ -11,16 +8,10 @@ interface ProjectsHeaderProps {
   onSelectedMemberChange: (value: number | null) => void;
   searchQuery: string;
   selectedMemberId: number | null;
-  totalCount: number;
   users: Array<{ id: number; display_name: string }>;
 }
 
-const statCardClassName = "rounded-2xl border px-4 py-3 shadow-sm transition-colors";
-
 export function ProjectsHeader({
-  archivedCount,
-  businessCount,
-  deliveryCount,
   isLoadingUsers,
   isZh,
   onCreateProject,
@@ -28,7 +19,6 @@ export function ProjectsHeader({
   onSelectedMemberChange,
   searchQuery,
   selectedMemberId,
-  totalCount,
   users,
 }: ProjectsHeaderProps) {
   return (
@@ -48,7 +38,7 @@ export function ProjectsHeader({
             </div>
             <p className="text-sm text-gray-500">
               {isZh
-                ? "按阶段管理项目推进，快速查看商机、交付和归档项目。"
+                ? "按阶段管理项目，快速查看商务、交付和归档内容。"
                 : "Manage projects by phase and quickly review business, delivery, and archived work."}
             </p>
           </div>
@@ -96,36 +86,6 @@ export function ProjectsHeader({
               <Plus className="h-4 w-4" />
               {isZh ? "新建项目" : "New Project"}
             </button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className={`${statCardClassName} border-gray-200 bg-gray-50/80`}>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
-              {isZh ? "项目总数" : "Total Projects"}
-            </div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">{totalCount}</div>
-          </div>
-
-          <div className={`${statCardClassName} border-indigo-200 bg-indigo-50`}>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-indigo-600">
-              {isZh ? "商务阶段" : "Business Phase"}
-            </div>
-            <div className="mt-1 text-2xl font-bold text-indigo-700">{businessCount}</div>
-          </div>
-
-          <div className={`${statCardClassName} border-emerald-200 bg-emerald-50`}>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-emerald-600">
-              {isZh ? "交付阶段" : "Delivery Phase"}
-            </div>
-            <div className="mt-1 text-2xl font-bold text-emerald-700">{deliveryCount}</div>
-          </div>
-
-          <div className={`${statCardClassName} border-slate-200 bg-slate-50`}>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-              {isZh ? "已归档" : "Archived"}
-            </div>
-            <div className="mt-1 text-2xl font-bold text-slate-700">{archivedCount}</div>
           </div>
         </div>
       </div>
