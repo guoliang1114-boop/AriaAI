@@ -1715,6 +1715,55 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertTrue(resp.json()["cached"])
         resp.close()
 
+    def test_memory_summary_cache_endpoint_does_not_generate(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Cached Summary Read Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=7,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project.id,
+                    summary_type="delivery",
+                    language="zh",
+                    memory_version=7,
+                    content="- cached delivery summary",
+                )
+            )
+            session.commit()
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+            resp = self.client.get(
+                f"/projects/{project_id}/memory/summaries/delivery",
+                params={"language": "zh-CN"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["content"], "- cached delivery summary")
+        self.assertTrue(resp.json()["cached"])
+        resp.close()
+
+        missing_resp = self.client.get(
+            f"/projects/{project_id}/memory/summaries/risk",
+            params={"language": "zh-CN"},
+        )
+        self.assertEqual(missing_resp.status_code, 404)
+        missing_resp.close()
+
     def test_memory_summarize_force_refresh_bypasses_cache_and_updates_it(self):
         async def fake_complete(messages, max_tokens=4000):
             return "- fresh risk summary"

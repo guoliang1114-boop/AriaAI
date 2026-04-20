@@ -2078,6 +2078,43 @@ async def summarize_project_memory(
         )
 
 
+@router.get("/{project_id}/memory/summaries/{summary_type}")
+def get_project_memory_summary(
+    project_id: int,
+    summary_type: str,
+    language: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    memory_payload = get_project_memory_payload(project)
+    memory_version = int(memory_payload.get("memory_version", 0) or 0)
+    normalized_language = normalize_summary_language(language)
+
+    if memory_version <= 0:
+        raise HTTPException(status_code=404, detail="No cached project memory summary")
+
+    normalized_summary_type = (summary_type or "overview").strip() or "overview"
+    cached_summary = get_project_memory_summary_cache(
+        session,
+        project_id=project_id,
+        summary_type=normalized_summary_type,
+        language=normalized_language,
+        memory_version=memory_version,
+    )
+    if not cached_summary:
+        raise HTTPException(status_code=404, detail="No cached project memory summary")
+
+    return _build_project_memory_summary_response(
+        cached=True,
+        content=cached_summary.content,
+        generated_at=cached_summary.updated_at,
+        memory_payload=memory_payload,
+        memory_version=memory_version,
+        project_id=project_id,
+        summary_type=normalized_summary_type,
+    )
+
+
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
 
 @router.post("/{project_id}/notes")

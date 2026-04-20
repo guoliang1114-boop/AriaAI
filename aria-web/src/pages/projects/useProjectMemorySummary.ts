@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ProjectMemorySummaryType } from "../../types/api";
+import type { ProjectMemorySummaryResponse, ProjectMemorySummaryType } from "../../types/api";
 
 interface UseProjectMemorySummaryOptions {
   enabled?: boolean;
@@ -101,8 +101,33 @@ async function streamMemorySummary(options: {
   return content.trim();
 }
 
+async function loadCachedMemorySummary(options: {
+  language: string;
+  projectId: string;
+  summaryType: ProjectMemorySummaryType;
+}) {
+  const token = localStorage.getItem("authToken") || "";
+  const params = new URLSearchParams({ language: options.language });
+  const response = await fetch(
+    `/api/projects/${options.projectId}/memory/summaries/${encodeURIComponent(options.summaryType)}?${params.toString()}`,
+    {
+      headers: {
+        "X-Auth-Token": token,
+      },
+    },
+  );
+
+  if (response.status === 404) return "";
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as ProjectMemorySummaryResponse;
+  return data.content?.trim() || "";
+}
+
 export function useProjectMemorySummary({
-  enabled = false,
+  enabled = true,
   errorMessage,
   language,
   memoryVersion,
@@ -163,8 +188,29 @@ export function useProjectMemorySummary({
       setContent(cached);
       setError("");
       setLoading(false);
+      return;
     }
-  }, [cacheKey, enabled]);
+
+    if (!memoryVersion) return;
+
+    let cancelled = false;
+    void loadCachedMemorySummary({ language, projectId, summaryType })
+      .then((cachedContent) => {
+        if (cancelled || !cachedContent) return;
+        memorySummaryCache.set(cacheKey, cachedContent);
+        setContent(cachedContent);
+        setError("");
+        setLoading(false);
+      })
+      .catch((nextError) => {
+        if (cancelled) return;
+        console.error("Failed to load cached project memory summary:", nextError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheKey, enabled, language, memoryVersion, projectId, summaryType]);
 
   return {
     content,
