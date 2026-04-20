@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type {
@@ -45,6 +46,7 @@ export function ProjectChatTab({
   onProjectUpdate: () => Promise<void> | void;
 }) {
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const quickPrompts = getProjectQuickPrompts(isZh);
@@ -432,6 +434,8 @@ export function ProjectChatTab({
         isOpen={panel.saveModalOpen}
         messageId={panel.saveMessageId}
         onClose={panel.closeSaveModal}
+        onOpenProjectMemory={() => navigate(`/projects/${project.id}/memory`)}
+        onRefreshProjectMemory={() => handleRebuildMemory()}
         onSuccess={() => onProjectUpdate()}
         projectId={project.id}
       />
@@ -442,6 +446,8 @@ export function ProjectChatTab({
         folders={folders || []}
         isOpen={panel.conversationSaveModalOpen}
         onClose={panel.closeConversationSaveModal}
+        onOpenProjectMemory={() => navigate(`/projects/${project.id}/memory`)}
+        onRefreshProjectMemory={() => handleRebuildMemory()}
         onSuccess={() => onProjectUpdate()}
         projectId={project.id}
       />

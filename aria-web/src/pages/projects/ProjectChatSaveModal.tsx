@@ -1,4 +1,5 @@
-import { X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, RefreshCw, X } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "../../api/client";
@@ -17,6 +18,8 @@ type ProjectChatSaveModalProps = {
   files: ProjectFile[];
   folders: ProjectFolder[];
   onSuccess: () => void;
+  onOpenProjectMemory?: () => void;
+  onRefreshProjectMemory?: () => Promise<void> | void;
 };
 
 export function ProjectChatSaveModal({
@@ -27,12 +30,16 @@ export function ProjectChatSaveModal({
   conversationId,
   files,
   folders,
+  onOpenProjectMemory,
+  onRefreshProjectMemory,
   onSuccess,
 }: ProjectChatSaveModalProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const toast = useToast();
+  const [saved, setSaved] = useState(false);
+  const [refreshingMemory, setRefreshingMemory] = useState(false);
   const {
     action,
     fileName,
@@ -85,8 +92,8 @@ export function ProjectChatSaveModal({
       }
 
       toast.success(action === "merge" ? copy.mergedIntoNote : copy.savedAsNewNote);
-      onSuccess();
-      onClose();
+      await onSuccess();
+      setSaved(true);
     } catch (err: any) {
       const msg = err?.response?.data?.detail || copy.saveFailed;
       toast.error(msg);
@@ -108,28 +115,81 @@ export function ProjectChatSaveModal({
           {copy.saveToMemoryHint}
         </div>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleSubmit();
-          }}
-        >
-          <ProjectChatSaveForm
-            action={action}
-            copy={copy}
-            fileName={fileName}
-            filesInSelectedFolder={filesInSelectedFolder}
-            folders={folders}
-            loading={loading}
-            onActionChange={setAction}
-            onCancel={onClose}
-            onFileNameChange={setFileName}
-            onSelectedFileChange={setSelectedFileId}
-            onSelectedFolderChange={setSelectedFolderId}
-            selectedFileId={selectedFileId}
-            selectedFolderId={selectedFolderId}
-          />
-        </form>
+        {saved ? (
+          <div className="space-y-4 p-5">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                <CheckCircle2 className="h-4 w-4" />
+                {copy.saveCompleteTitle}
+              </div>
+              <p className="mt-2 text-sm leading-6 text-emerald-800">{copy.saveCompleteHint}</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {onRefreshProjectMemory ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setRefreshingMemory(true);
+                    try {
+                      await onRefreshProjectMemory();
+                      toast.success(copy.memoryRefreshStarted);
+                    } catch (error) {
+                      console.error("Failed to refresh project memory after save:", error);
+                      toast.error(copy.memoryRefreshFailed);
+                    } finally {
+                      setRefreshingMemory(false);
+                    }
+                  }}
+                  disabled={refreshingMemory}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary disabled:opacity-60"
+                >
+                  {refreshingMemory ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  {copy.refreshProjectMemory}
+                </button>
+              ) : null}
+              {onOpenProjectMemory ? (
+                <button
+                  type="button"
+                  onClick={onOpenProjectMemory}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  {copy.openProjectMemory}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              {copy.finishSave}
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit();
+            }}
+          >
+            <ProjectChatSaveForm
+              action={action}
+              copy={copy}
+              fileName={fileName}
+              filesInSelectedFolder={filesInSelectedFolder}
+              folders={folders}
+              loading={loading}
+              onActionChange={setAction}
+              onCancel={onClose}
+              onFileNameChange={setFileName}
+              onSelectedFileChange={setSelectedFileId}
+              onSelectedFolderChange={setSelectedFolderId}
+              selectedFileId={selectedFileId}
+              selectedFolderId={selectedFolderId}
+            />
+          </form>
+        )}
       </div>
     </div>
   );

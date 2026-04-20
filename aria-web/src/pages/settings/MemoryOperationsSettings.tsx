@@ -27,6 +27,7 @@ type JobScopeFilter = 'all' | 'project' | 'client'
 type JobTypeFilter = 'all' | 'rebuild' | 'summary_warm'
 type RetryFilter = 'all' | 'retrying' | 'clean'
 type FailureCategory = 'all' | 'budget' | 'rate_limit' | 'timeout' | 'database' | 'data' | 'scheduler' | 'llm' | 'unknown'
+type AttentionFilter = 'all' | 'manual'
 
 type BudgetInfo = {
   used: number
@@ -197,6 +198,7 @@ export function MemoryOperationsSettings() {
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeFilter>('all')
   const [retryFilter, setRetryFilter] = useState<RetryFilter>('all')
   const [failureCategoryFilter, setFailureCategoryFilter] = useState<FailureCategory>('all')
+  const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all')
   const [showFailuresOnly, setShowFailuresOnly] = useState(false)
 
   const loadJobs = async (silent = false) => {
@@ -266,6 +268,11 @@ export function MemoryOperationsSettings() {
     return { category, count }
   }, [failureGroups])
 
+  const manualAttentionFailures = useMemo(
+    () => recentFailures.filter((failure) => ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))),
+    [recentFailures],
+  )
+
   const filteredJobs = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return jobs.filter((job) => {
@@ -288,6 +295,7 @@ export function MemoryOperationsSettings() {
     const query = searchQuery.trim().toLowerCase()
     return recentFailures.filter((failure) => {
       if (scopeFilter !== 'all' && failure.scope !== scopeFilter) return false
+      if (attentionFilter === 'manual' && !['database', 'data', 'unknown'].includes(inferFailureCategory(failure))) return false
       if (failureCategoryFilter !== 'all' && inferFailureCategory(failure) !== failureCategoryFilter) return false
       if (!query) return true
       const fields =
@@ -296,7 +304,7 @@ export function MemoryOperationsSettings() {
           : [failure.client_name, failure.stage, failure.message, inferFailureCategory(failure)]
       return fields.some((item) => String(item || '').toLowerCase().includes(query))
     })
-  }, [failureCategoryFilter, recentFailures, scopeFilter, searchQuery])
+  }, [attentionFilter, failureCategoryFilter, recentFailures, scopeFilter, searchQuery])
 
   const runNow = async (job: CombinedJob) => {
     try {
@@ -472,7 +480,7 @@ export function MemoryOperationsSettings() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-8">
         <SectionCard
           title={isZh ? '总任务数' : 'Total jobs'}
           value={jobs.length}
@@ -506,6 +514,12 @@ export function MemoryOperationsSettings() {
           tone={recentFailures.length > 0 ? 'warning' : 'default'}
         />
         <SectionCard
+          title={isZh ? '需人工处理' : 'Manual attention'}
+          value={manualAttentionFailures.length}
+          description={isZh ? '数据库、数据缺失或未知失败' : 'Database, data, or unknown failures'}
+          tone={manualAttentionFailures.length > 0 ? 'warning' : 'default'}
+        />
+        <SectionCard
           title={isZh ? '项目预热预算' : 'Project warm budget'}
           value={`${projectBudget?.used ?? 0}/${projectBudget?.limit ?? 0}`}
           description={isZh ? `剩余 ${projectBudget?.remaining ?? 0}` : `${projectBudget?.remaining ?? 0} remaining`}
@@ -520,7 +534,7 @@ export function MemoryOperationsSettings() {
       </div>
 
       <div className="rounded-2xl border border-outline bg-surface p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(5,minmax(0,1fr))]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(6,minmax(0,1fr))]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-muted" />
             <input
@@ -571,6 +585,15 @@ export function MemoryOperationsSettings() {
                 {getFailureCategoryLabel(category, isZh)}
               </option>
             ))}
+          </select>
+
+          <select
+            value={attentionFilter}
+            onChange={(event) => setAttentionFilter(event.target.value as AttentionFilter)}
+            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
+          >
+            <option value="all">{isZh ? '全部处理方式' : 'All handling'}</option>
+            <option value="manual">{isZh ? '仅需人工处理' : 'Manual attention only'}</option>
           </select>
 
           <button
@@ -635,7 +658,11 @@ export function MemoryOperationsSettings() {
                         <button
                           onClick={() => void retryFailure(failure)}
                           disabled={busyRetry}
-                          className="inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white disabled:opacity-60"
+                          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-60 ${
+                            ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))
+                              ? 'border-amber-200 bg-amber-50 text-amber-800'
+                              : 'border-outline text-on-surface'
+                          }`}
                         >
                           {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                           {isZh ? '立即重试' : 'Retry now'}
