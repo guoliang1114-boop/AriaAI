@@ -70,12 +70,14 @@ export function useProjectDetailData(projectId?: string) {
   const cachedDetail = useMemo(() => getCachedProjectDetail(numericProjectId), [numericProjectId]);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const projectDetailRef = useRef<ProjectDetailType | null>(cachedDetail);
   const [initialLoading, setInitialLoading] = useState(!cachedDetail);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectDetail, setProjectDetail] = useState<ProjectDetailType | null>(cachedDetail);
 
   useEffect(() => {
+    projectDetailRef.current = cachedDetail;
     setProjectDetail(cachedDetail);
     setInitialLoading(!cachedDetail);
     setError(null);
@@ -84,6 +86,7 @@ export function useProjectDetailData(projectId?: string) {
   const refreshProjectDetail = useCallback(async () => {
     if (!numericProjectId) {
       abortControllerRef.current?.abort();
+      projectDetailRef.current = null;
       setProjectDetail(null);
       setError(projectId ? "Invalid project id" : null);
       setInitialLoading(false);
@@ -97,7 +100,7 @@ export function useProjectDetailData(projectId?: string) {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    const isFirstLoad = !projectDetail;
+    const isFirstLoad = !projectDetailRef.current;
 
     setError(null);
     setIsRefreshing(!isFirstLoad);
@@ -113,6 +116,7 @@ export function useProjectDetailData(projectId?: string) {
       }
 
       setCachedProjectDetail(numericProjectId, data);
+      projectDetailRef.current = data;
       setProjectDetail(data);
     } catch (error) {
       if (controller.signal.aborted || requestIdRef.current !== requestId) {
@@ -120,6 +124,7 @@ export function useProjectDetailData(projectId?: string) {
       }
 
       console.error("Failed to fetch project detail:", error);
+      projectDetailRef.current = null;
       setProjectDetail(null);
       setError(getProjectDetailErrorMessage(error));
     } finally {
@@ -128,7 +133,7 @@ export function useProjectDetailData(projectId?: string) {
         setIsRefreshing(false);
       }
     }
-  }, [numericProjectId, projectDetail, projectId]);
+  }, [numericProjectId, projectId]);
 
   useEffect(() => {
     void refreshProjectDetail();
