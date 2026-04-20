@@ -7,6 +7,7 @@ Priority order:
 """
 import os
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent.parent
@@ -132,14 +133,21 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 # =============================================================================
+# External Service Integration
+# =============================================================================
+CTOOLS_BASE_URL = os.getenv("CTOOLS_BASE_URL", "http://localhost:3001")
+CTOOLS_API_TOKEN = os.getenv("CTOOLS_API_TOKEN", "")
+
+# =============================================================================
 # Feature Flags
 # =============================================================================
 ENABLE_BIGMODEL = os.getenv("ENABLE_BIGMODEL", "true").lower() == "true"
 ENABLE_RAG = os.getenv("ENABLE_RAG", "true").lower() == "true"
 ENABLE_FILE_GENERATION = os.getenv("ENABLE_FILE_GENERATION", "true").lower() == "true"
+ENABLE_PDF_TRANSLATION = os.getenv("ENABLE_PDF_TRANSLATION", "true").lower() == "true"
 
 
-def validate_jwt_secret(secret: str | None = None) -> None:
+def validate_jwt_secret(secret: Optional[str] = None) -> None:
     if ALLOW_INSECURE_JWT_SECRET:
         return
 

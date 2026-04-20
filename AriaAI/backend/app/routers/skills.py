@@ -762,6 +762,50 @@ GSTACK_PRO_SKILLS = [
         "estimated_time": "~15 min",
         "tools": ["strategy", "plan", "market"],
     },
+    # ── 翻译与内容 ──────────────────────────────────────────────────
+    {
+        "name": "PDF 智能翻译",
+        "category": "数字化与技术",
+        "description": "一键翻译 PDF/DOCX/PPTX 文档，保留原始排版与格式，支持术语库与翻译记忆。Powered by CTools.",
+        "system_prompt": (
+            "你是专业文档翻译顾问，精通多语言技术文档、商业报告、法律文件的精准翻译。\n"
+            "你通过 CTools 翻译引擎（DeepSeek AI 驱动）为用户提供一站式文档翻译服务。\n\n"
+            "## 工作流程\n"
+            "1. 确认用户要翻译的文件路径、源语言和目标语言。\n"
+            "2. 如果用户未提供 CTools API Token，提醒用户：\n"
+            "   - 登录 CTools 平台，从浏览器开发者工具的网络请求中复制 JWT Token；\n"
+            "   - 或在 Aria 后端 .env 中配置 CTOOLS_API_TOKEN。\n"
+            "3. 调用 translate_document 工具提交翻译任务。\n"
+            "4. 向用户报告进度（上传 → 解析 → 翻译 → 排版还原 → 完成）。\n"
+            "5. 翻译完成后，提供下载链接并简要说明文件存放位置。\n\n"
+            "## 支持格式\n"
+            "PDF、DOCX、PPTX、XLSX、EPUB、HTML、TXT\n\n"
+            "## 语言代码参考\n"
+            "- 中文：zh 或 zh-CN\n"
+            "- 英语：en\n"
+            "- 日语：ja\n"
+            "- 德语：de\n"
+            "- 法语：fr\n"
+            "- 西班牙语：es\n"
+            "- 韩语：ko\n\n"
+            "## 注意事项\n"
+            "- 默认保留原始排版（preserve_formatting=true）。\n"
+            "- 大文件（>30页 PDF）可能需要 10-20 分钟。\n"
+            "- 如果翻译失败，记录 translation_id 以便排查。"
+        ),
+        "user_template": (
+            "请帮我翻译以下文档：\n\n"
+            "文件路径（Aria 服务器上的路径，或上传后的相对路径）：\n"
+            "源语言（如 en、ja、auto）：\n"
+            "目标语言（如 zh、en）：\n\n"
+            "特殊要求（可选）：\n"
+            "- 是否保留原文排版：是 / 否\n"
+            "- 是否使用术语库：是 / 否\n"
+            "- 专业领域（法律/医学/IT/金融）："
+        ),
+        "estimated_time": "~10 min",
+        "tools": ["translate_document"],
+    },
 ]
 
 
@@ -784,12 +828,21 @@ def migrate_categories(session: Session = Depends(get_session)):
 @router.post("/seed-pro")
 def seed_pro_skills(session: Session = Depends(get_session)):
     """Idempotently add gstack-style guided workflow skills. Safe to call repeatedly."""
+    from app.tools import registry as _registry
     existing_names = {s.name for s in session.exec(select(Skill)).all()}
     created = 0
     for s in GSTACK_PRO_SKILLS:
         if s["name"] not in existing_names:
             skill = Skill(**{k: v for k, v in s.items() if k != "tools"})
-            skill.tools_definition_json = json.dumps([{"name": t, "type": "legacy"} for t in s.get("tools", [])])
+            # Build tools definition: prefer full schema from registry, fallback to legacy name
+            tool_defs = []
+            for t in s.get("tools", []):
+                tool_def = _registry.get(t)
+                if tool_def:
+                    tool_defs.append(tool_def.to_anthropic_schema())
+                else:
+                    tool_defs.append({"name": t, "type": "legacy"})
+            skill.tools_definition_json = json.dumps(tool_defs)
             session.add(skill)
             created += 1
     session.commit()

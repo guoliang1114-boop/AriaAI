@@ -20,6 +20,7 @@ from app.services import scheduler
 
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
+from app.tools import pdf_translation  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS
 from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel

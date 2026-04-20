@@ -217,6 +217,34 @@ class DocumentChunk(SQLModel, table=True):
         self.embedding_json = json.dumps(value)
 
 
+# ── External Service Integration ─────────────────────────────────────────────
+
+class ExternalService(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    slug: str = Field(unique=True, index=True)          # e.g. 'ctools', 'notion'
+    name: str                                           # Display name
+    description: str = ""
+    base_url: str                                       # API base URL
+    auth_type: str = "bearer_token"                     # bearer_token | api_key | oauth2 | basic_auth | custom
+    auth_config_json: str = "{}"                        # Extra auth config (header names, etc.)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExternalServiceCredential(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    service_id: int = Field(foreign_key="externalservice.id", index=True)
+    scope: str = "system"                               # system | user
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    credential_type: str = "token"                      # token | api_key | oauth2 | basic | custom
+    encrypted_value: str                                # Fernet-encrypted JSON payload
+    expires_at: Optional[datetime] = None
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Skills ────────────────────────────────────────────────────────────────────
 
 class Skill(SQLModel, table=True):
