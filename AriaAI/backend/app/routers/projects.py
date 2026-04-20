@@ -132,7 +132,16 @@ from app.routers.auth import get_current_user
 _PROJECTS_TTL = 120.0
 _CLIENTS_KEY = "all"
 logger = logging.getLogger(__name__)
+_project_memory_locks: dict[int, asyncio.Lock] = {}
 _project_summary_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_project_memory_lock(project_id: int) -> asyncio.Lock:
+    lock = _project_memory_locks.get(project_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _project_memory_locks[project_id] = lock
+    return lock
 
 
 def _project_summary_lock_key(project_id: int, summary_type: str, language: str, memory_version: int) -> str:
@@ -694,7 +703,11 @@ async def _ensure_project_memory(
     project = project or get_project_or_404(session, project_id)
     memory_payload = get_project_memory_payload(project)
     if project.memory_stale or project.memory_version == 0:
-        memory_payload = await _rebuild_project_memory(session, project_id, project, trigger="on_demand")
+        async with _get_project_memory_lock(project_id):
+            project = get_project_or_404(session, project_id)
+            memory_payload = get_project_memory_payload(project)
+            if project.memory_stale or project.memory_version == 0:
+                memory_payload = await _rebuild_project_memory(session, project_id, project, trigger="on_demand")
         project = get_project_or_404(session, project_id)
     return project, memory_payload
 

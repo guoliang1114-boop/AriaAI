@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type {
   GeneratedArtifact,
@@ -147,9 +147,6 @@ export function useProjectOverviewData({
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
-  const autoRefreshAttemptedRef = useRef<string>("");
-  const [pendingSummaryRefresh, setPendingSummaryRefresh] =
-    useState<Exclude<ProjectMemorySummaryType, "overview"> | null>(null);
   const [summaryCache, setSummaryCache] = useState<SummaryCache>({
     overview: project.context_summary || "",
   });
@@ -318,48 +315,10 @@ export function useProjectOverviewData({
         { timeout: 60000 },
       );
       setMemory(data.memory);
-      if (summaryType !== "overview" && summaryText.trim()) {
-        setSummaryCache((current) => {
-          const next = { ...current };
-          delete next[summaryType];
-          return next;
-        });
-        setPendingSummaryRefresh(summaryType);
-      }
     } finally {
       setIsRebuildingMemory(false);
     }
   };
-
-  useEffect(() => {
-    if (!memory?.stale || isLoadingMemory || isRebuildingMemory) {
-      return;
-    }
-
-    const attemptKey = `${projectId}:${memory.memory_version ?? 0}`;
-    if (autoRefreshAttemptedRef.current === attemptKey) {
-      return;
-    }
-    autoRefreshAttemptedRef.current = attemptKey;
-
-    const timer = window.setTimeout(() => {
-      void rebuildMemory();
-    }, 1500);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [isLoadingMemory, isRebuildingMemory, memory?.memory_version, memory?.stale, projectId]);
-
-  useEffect(() => {
-    if (!pendingSummaryRefresh || isRebuildingMemory) {
-      return;
-    }
-
-    const summaryTypeToRefresh = pendingSummaryRefresh;
-    setPendingSummaryRefresh(null);
-    void generateMemorySummary(summaryTypeToRefresh, true);
-  }, [isRebuildingMemory, pendingSummaryRefresh]);
 
   const generateOverviewSummary = async () => {
     if (isSummaryCoolingDown()) {
@@ -498,7 +457,6 @@ export function useProjectOverviewData({
     }
 
     setSummaryText("");
-    void generateMemorySummary(nextType, false);
   };
 
   return {
