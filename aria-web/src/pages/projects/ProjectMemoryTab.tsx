@@ -21,6 +21,7 @@ import type {
   ProjectMemoryEditableSlot,
   ProjectMemory,
   ProjectMemoryResponse,
+  ProjectMember,
 } from "../../types/api";
 import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
@@ -92,6 +93,106 @@ function DetailCard({
         <h3 className="font-semibold text-gray-900">{title}</h3>
       </div>
       {children}
+    </div>
+  );
+}
+
+function StakeholderManagementCard({
+  isZh,
+  members,
+  memory,
+  onManageMembers,
+}: {
+  isZh: boolean;
+  members: ProjectMember[];
+  memory: ProjectMemory | null;
+  onManageMembers: () => void;
+}) {
+  const pinnedNotes = memory?.stakeholder_notes_detail?.pinned || [];
+  const aiNotes = memory?.stakeholder_notes_detail?.ai || memory?.stakeholder_notes || [];
+  const hasStakeholderCoverage = members.length > 0 && pinnedNotes.length > 0;
+
+  return (
+    <div className="rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white">
+              <Users className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">{isZh ? "干系人管理与分析" : "Stakeholder Management & Analysis"}</h3>
+              <p className="mt-0.5 text-sm text-gray-500">
+                {isZh
+                  ? "把成员、沟通提醒和 AI 观察放在一起，方便判断下一步对齐动作。"
+                  : "Combine members, communication reminders, and AI observations for the next alignment move."}
+              </p>
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onManageMembers}
+          className="rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+        >
+          {isZh ? "管理成员" : "Manage Members"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "项目成员" : "Members"}</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{members.length}</div>
+          <div className="mt-2 text-sm text-gray-600">
+            {members.length
+              ? members.slice(0, 3).map((member) => member.user.display_name).join(" / ")
+              : isZh
+                ? "还没有维护项目成员"
+                : "No project members yet"}
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "固定沟通提示" : "Pinned reminders"}</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{pinnedNotes.length}</div>
+          <p className="mt-2 text-sm text-gray-600">
+            {pinnedNotes.length
+              ? pinnedNotes[0]
+              : isZh
+                ? "建议固定关键人的偏好、禁区和跟进节奏"
+                : "Pin preferences, sensitivities, and follow-up cadence"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "分析结论" : "Analysis"}</div>
+          <p className="mt-2 text-sm text-gray-700">
+            {hasStakeholderCoverage
+              ? isZh
+                ? "干系人信息已有基础覆盖，下一步应围绕固定提示安排沟通。"
+                : "Stakeholder coverage exists. Use pinned reminders to plan the next touchpoint."
+              : members.length
+                ? isZh
+                  ? "已有成员，但缺少长期沟通提示，建议从 AI 建议中挑选并固定。"
+                  : "Members exist, but long-term reminders are missing. Promote useful AI notes to pinned items."
+                : isZh
+                  ? "缺少成员和关键联系人，建议先补齐项目干系人。"
+                  : "Members and key contacts are missing. Add stakeholders first."}
+          </p>
+        </div>
+      </div>
+
+      {aiNotes.length ? (
+        <div className="mt-4 rounded-xl border border-gray-100 bg-white/70 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "AI 干系人观察" : "AI stakeholder observations"}</div>
+          <ul className="mt-2 grid gap-2 text-sm text-gray-700 md:grid-cols-2">
+            {aiNotes.slice(0, 4).map((item, index) => (
+              <li key={`${item}-${index}`} className="flex items-start gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -702,6 +803,13 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           />
         </DetailCard>
       </div>
+
+      <StakeholderManagementCard
+        isZh={isZh}
+        members={members}
+        memory={memory}
+        onManageMembers={() => navigate(`/projects/${projectId}/settings`)}
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <EditableSlotCard

@@ -4,6 +4,7 @@ import { useToast } from "../../contexts/ToastContext";
 import type { GeneratedArtifact, ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
 import { downloadProjectFile } from "./downloadProjectFile";
 import { downloadArtifact } from "./downloadArtifact";
+import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
 import { ProjectOverviewArtifactsCard } from "./ProjectOverviewArtifactsCard";
 import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
 import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
@@ -27,7 +28,7 @@ export function ProjectOverviewTab({
 }: ProjectOverviewTabProps) {
   void _onProjectUpdate;
 
-  const { project, financials, md_notes } = projectDetail;
+  const { project, financials, md_notes, members } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
@@ -115,6 +116,13 @@ export function ProjectOverviewTab({
           summaryError={summaryError}
           summaryText={summaryText}
           summaryType={summaryType}
+        />
+
+        <ProjectAnchorsCard
+          isZh={isZh}
+          memory={memory}
+          members={members}
+          onManage={() => navigate(`/projects/${projectId}/memory`)}
         />
 
         {overviewNotesText.length > 0 && (

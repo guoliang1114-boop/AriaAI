@@ -5,6 +5,7 @@ import type {
   Conversation,
   GeneratedArtifact,
   Message,
+  ProjectMemory,
   ProjectMemoryStatusResponse,
   Reference,
   Skill,
@@ -15,6 +16,7 @@ import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMemoryQuickBar } from "./ProjectChatMemoryQuickBar";
 import { ProjectChatMessages } from "./ProjectChatMessages";
+import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
 import { getProjectChatCopy, type ProjectMemoryQuickAction, type ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatMainPanelProps {
@@ -32,6 +34,7 @@ interface ProjectChatMainPanelProps {
   isLoadingMemoryStatus: boolean;
   isRebuildingMemory: boolean;
   memoryQuickActions: ProjectMemoryQuickAction[];
+  projectMemory: ProjectMemory | null;
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
@@ -82,6 +85,7 @@ export function ProjectChatMainPanel({
   isLoadingMemoryStatus,
   isRebuildingMemory,
   memoryQuickActions,
+  projectMemory,
   messages,
   messagesContainerRef,
   onInputChange,
@@ -119,6 +123,11 @@ export function ProjectChatMainPanel({
   const selectedSkillData = useMemo(
     () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
     [selectedSkillId, skills],
+  );
+  const hasPinnedAnchors = Boolean(
+    projectMemory?.key_risks_detail?.pinned?.length ||
+      projectMemory?.open_questions_detail?.pinned?.length ||
+      projectMemory?.stakeholder_notes_detail?.pinned?.length,
   );
   const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
@@ -197,6 +206,19 @@ export function ProjectChatMainPanel({
         actions={memoryQuickActions}
         onSelect={onQuickPrompt}
       />
+
+      {hasPinnedAnchors ? (
+        <div className="border-b border-gray-100 bg-white/80 px-4 py-3">
+          <div className="mx-auto max-w-5xl">
+            <ProjectAnchorsCard
+              compact
+              isZh={isZh}
+              memory={projectMemory}
+              onManage={() => window.open(`/projects/${projectId}/memory`, "_self")}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div
         ref={messagesContainerRef}

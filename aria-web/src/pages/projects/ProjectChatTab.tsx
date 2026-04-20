@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectFile,
   ProjectFolder,
+  ProjectMemory,
   ProjectMemoryResponse,
   ProjectMemoryStatusResponse,
   Skill,
@@ -53,6 +54,7 @@ export function ProjectChatTab({
   const memoryQuickActions = getProjectMemoryQuickActions(isZh);
   const toast = useToast();
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
+  const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -196,14 +198,19 @@ export function ProjectChatTab({
     const loadMemoryStatus = async () => {
       setIsLoadingMemoryStatus(true);
       try {
-        const data = await api.get<ProjectMemoryStatusResponse>(`/projects/${project.id}/memory/status`);
+        const [statusData, memoryData] = await Promise.all([
+          api.get<ProjectMemoryStatusResponse>(`/projects/${project.id}/memory/status`),
+          api.get<ProjectMemoryResponse>(`/projects/${project.id}/memory`),
+        ]);
         if (!cancelled) {
-          setMemoryStatus(data);
+          setMemoryStatus(statusData);
+          setProjectMemory(memoryData.memory);
         }
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load project memory status:", error);
           setMemoryStatus(null);
+          setProjectMemory(null);
         }
       } finally {
         if (!cancelled) {
@@ -242,6 +249,7 @@ export function ProjectChatTab({
         memory_updated_at: data.memory_updated_at,
         memory_version: data.memory_version,
       });
+      setProjectMemory(data.memory);
       if (!silent) {
         toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
       }
@@ -392,6 +400,7 @@ export function ProjectChatTab({
         isSidebarOpen={panel.isSidebarOpen}
         knowledgeScope={panel.knowledgeScope}
         memoryQuickActions={memoryQuickActions}
+        projectMemory={projectMemory}
         memoryStatus={memoryStatus}
         messages={messages}
         messagesContainerRef={panel.messagesContainerRef}
