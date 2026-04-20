@@ -104,6 +104,10 @@ function getBudgetTone(budget: BudgetInfo | null): 'default' | 'warning' {
   return budget.remaining <= Math.max(5, Math.floor(budget.limit * 0.15)) ? 'warning' : 'default'
 }
 
+function isBudgetLow(budget: BudgetInfo | null) {
+  return getBudgetTone(budget) === 'warning'
+}
+
 function inferFailureCategory(failure: FailureItem): Exclude<FailureCategory, 'all'> {
   const explicit = failure.category
   if (
@@ -293,6 +297,111 @@ export function MemoryOperationsSettings() {
     () => recentFailures.filter((failure) => ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))),
     [recentFailures],
   )
+
+  const alertSummary = useMemo(() => {
+    const alerts: Array<{
+      key: string
+      severity: 'critical' | 'warning' | 'info'
+      title: string
+      description: string
+      action: string
+      onClick: () => void
+    }> = []
+
+    if (manualAttentionFailures.length > 0) {
+      alerts.push({
+        key: 'manual-attention',
+        severity: 'critical',
+        title: isZh ? '需要人工处理的失败' : 'Manual attention needed',
+        description: isZh
+          ? `${manualAttentionFailures.length} 条数据库、数据缺失或未知失败，不建议直接盲目重试。`
+          : `${manualAttentionFailures.length} database, data, or unknown failures should be inspected before retrying.`,
+        action: isZh ? '查看人工处理项' : 'Review manual items',
+        onClick: () => {
+          setShowFailuresOnly(true)
+          setAttentionFilter('manual')
+        },
+      })
+    }
+
+    if (mostCommonFailureCategory.count > 0) {
+      alerts.push({
+        key: 'top-failure-category',
+        severity: mostCommonFailureCategory.category === 'database' || mostCommonFailureCategory.category === 'unknown' ? 'critical' : 'warning',
+        title: isZh
+          ? `主要失败类型：${getFailureCategoryLabel(mostCommonFailureCategory.category, isZh)}`
+          : `Top failure type: ${getFailureCategoryLabel(mostCommonFailureCategory.category, isZh)}`,
+        description: isZh
+          ? `最近失败中有 ${mostCommonFailureCategory.count} 条属于这一类，建议优先清理。`
+          : `${mostCommonFailureCategory.count} recent failures are in this category.`,
+        action: isZh ? '筛选该类型' : 'Filter this type',
+        onClick: () => {
+          setShowFailuresOnly(true)
+          setFailureCategoryFilter(mostCommonFailureCategory.category)
+        },
+      })
+    }
+
+    if (grouped.retrying.length > 0) {
+      alerts.push({
+        key: 'retrying-jobs',
+        severity: 'warning',
+        title: isZh ? '存在重试中的任务' : 'Jobs are retrying',
+        description: isZh
+          ? `${grouped.retrying.length} 个任务已经进入重试，建议确认是否被限流、超时或模型服务影响。`
+          : `${grouped.retrying.length} jobs have already retried. Check rate limit, timeout, or model issues.`,
+        action: isZh ? '查看重试任务' : 'View retrying jobs',
+        onClick: () => {
+          setShowFailuresOnly(false)
+          setRetryFilter('retrying')
+        },
+      })
+    }
+
+    if (isBudgetLow(projectBudget)) {
+      alerts.push({
+        key: 'project-budget',
+        severity: 'warning',
+        title: isZh ? '项目摘要预热预算偏低' : 'Project warm budget is low',
+        description: isZh
+          ? `今日剩余 ${projectBudget?.remaining ?? 0}，建议暂停批量预热，优先处理失败和高价值项目。`
+          : `${projectBudget?.remaining ?? 0} project warm budget remains today.`,
+        action: isZh ? '查看摘要预热任务' : 'View warm jobs',
+        onClick: () => {
+          setShowFailuresOnly(false)
+          setScopeFilter('project')
+          setJobTypeFilter('summary_warm')
+        },
+      })
+    }
+
+    if (isBudgetLow(clientBudget)) {
+      alerts.push({
+        key: 'client-budget',
+        severity: 'warning',
+        title: isZh ? '客户摘要预热预算偏低' : 'Client warm budget is low',
+        description: isZh
+          ? `今日剩余 ${clientBudget?.remaining ?? 0}，建议先保留给关键客户或手动触发场景。`
+          : `${clientBudget?.remaining ?? 0} client warm budget remains today.`,
+        action: isZh ? '查看客户预热任务' : 'View client warm jobs',
+        onClick: () => {
+          setShowFailuresOnly(false)
+          setScopeFilter('client')
+          setJobTypeFilter('summary_warm')
+        },
+      })
+    }
+
+    return alerts
+  }, [
+    clientBudget,
+    grouped.retrying.length,
+    isZh,
+    manualAttentionFailures.length,
+    mostCommonFailureCategory.category,
+    mostCommonFailureCategory.count,
+    projectBudget,
+  ])
 
   const filteredJobs = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -680,6 +789,88 @@ export function MemoryOperationsSettings() {
           description={isZh ? `剩余 ${clientBudget?.remaining ?? 0}` : `${clientBudget?.remaining ?? 0} remaining`}
           tone={getBudgetTone(clientBudget)}
         />
+      </div>
+
+      <div
+        className={`rounded-2xl border p-4 shadow-sm ${
+          alertSummary.length > 0
+            ? 'border-amber-200 bg-gradient-to-br from-amber-50 via-orange-50 to-white'
+            : 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-teal-50 to-white'
+        }`}
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div
+              className={`flex items-center gap-2 text-sm font-semibold ${
+                alertSummary.length > 0 ? 'text-amber-950' : 'text-emerald-950'
+              }`}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              {isZh ? '失败告警汇总' : 'Failure alert summary'}
+            </div>
+            <p className={`mt-1 text-sm ${alertSummary.length > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>
+              {alertSummary.length > 0
+                ? isZh
+                  ? '按风险优先级汇总当前需要关注的记忆任务问题。'
+                  : 'Current memory operation risks, ordered by operational priority.'
+                : isZh
+                  ? '当前没有需要优先处理的失败、重试或预算风险。'
+                  : 'No priority failures, retries, or budget risks right now.'}
+            </p>
+          </div>
+          {alertSummary.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowFailuresOnly(true)
+                setFailureCategoryFilter('all')
+                setAttentionFilter('all')
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+            >
+              <Filter className="h-4 w-4" />
+              {isZh ? '查看全部失败' : 'View all failures'}
+            </button>
+          ) : null}
+        </div>
+
+        {alertSummary.length > 0 ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {alertSummary.map((alert) => (
+              <div
+                key={alert.key}
+                className={`rounded-xl border bg-white/80 p-3 ${
+                  alert.severity === 'critical'
+                    ? 'border-red-200'
+                    : alert.severity === 'warning'
+                      ? 'border-amber-200'
+                      : 'border-blue-200'
+                }`}
+              >
+                <div
+                  className={`text-sm font-semibold ${
+                    alert.severity === 'critical'
+                      ? 'text-red-900'
+                      : alert.severity === 'warning'
+                        ? 'text-amber-900'
+                        : 'text-blue-900'
+                  }`}
+                >
+                  {alert.title}
+                </div>
+                <div className="mt-1 min-h-[40px] text-xs leading-5 text-on-surface-muted">{alert.description}</div>
+                <button
+                  type="button"
+                  onClick={alert.onClick}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-surface-container-low"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {alert.action}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-2xl border border-outline bg-surface p-4">
