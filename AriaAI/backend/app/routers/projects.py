@@ -132,6 +132,19 @@ from app.routers.auth import get_current_user
 _PROJECTS_TTL = 120.0
 _CLIENTS_KEY = "all"
 logger = logging.getLogger(__name__)
+_project_summary_locks: dict[str, asyncio.Lock] = {}
+
+
+def _project_summary_lock_key(project_id: int, summary_type: str, language: str, memory_version: int) -> str:
+    return f"{project_id}:{summary_type}:{language}:{memory_version}"
+
+
+def _get_project_summary_lock(key: str) -> asyncio.Lock:
+    lock = _project_summary_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _project_summary_locks[key] = lock
+    return lock
 
 
 def _bust_project(project_id: int) -> None:
@@ -382,6 +395,27 @@ def _record_project_memory_failure_by_id(
         logger.exception("Failed to record project memory failure for project_id=%s", project_id)
 
 
+def _build_project_memory_summary_response(
+    *,
+    cached: bool,
+    content: str,
+    generated_at: datetime,
+    memory_payload: dict,
+    memory_version: int,
+    project_id: int,
+    summary_type: str,
+) -> dict:
+    return {
+        "project_id": project_id,
+        "summary_type": summary_type,
+        "content": content,
+        "source_memory_version": memory_version,
+        "memory_stale": memory_payload.get("stale", False),
+        "generated_at": generated_at.isoformat(),
+        "cached": cached,
+    }
+
+
 async def _generate_memory_summary_cache(
     session: Session,
     project: Project,
@@ -536,12 +570,12 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
         try:
             memory_payload = await _rebuild_project_memory(
                 session,
-                project_id,
+                project_id=project_id,
                 project=project,
                 trigger=trigger,
             )
             _schedule_project_memory_summary_warm(
-                project_id,
+                project_id=project_id,
                 summary_types=["overview", "risk", "stakeholder"],
                 trigger="rebuild_completed",
             )
@@ -1882,86 +1916,153 @@ async def summarize_project_memory(
         summary_type,
         body.language,
     )
+    lock_key = _project_summary_lock_key(project_id, summary_type, normalized_language, memory_version)
+    summary_lock = _get_project_summary_lock(lock_key)
+    wait_for_existing_generation = summary_lock.locked()
+
     if body.stream:
         async def event_stream():
             accumulated: list[str] = []
-            try:
-                async for chunk in stream_llm_text_chunks(
-                    stream_with_selected_model(
-                        [{"role": "user", "content": prompt}],
-                        max_tokens=1400,
+            async with summary_lock:
+                with Session(engine) as lock_session:
+                    fresh_cached = get_project_memory_summary_cache(
+                        lock_session,
+                        project_id=project_id,
+                        summary_type=summary_type,
+                        language=normalized_language,
+                        memory_version=memory_version,
                     )
-                ):
-                    accumulated.append(chunk)
-                    yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
-            except Exception as e:
-                _record_project_memory_failure_by_id(
-                    project_id,
-                    stage=f"memory_summary:{summary_type}",
-                    message=str(e),
-                )
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                return
+                    if fresh_cached and (not body.force_refresh or wait_for_existing_generation):
+                        generated_at = fresh_cached.updated_at.isoformat()
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "text",
+                                    "content": fresh_cached.content,
+                                    "cached": True,
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n\n"
+                        )
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "done",
+                                    "project_id": project_id,
+                                    "summary_type": summary_type,
+                                    "content": fresh_cached.content,
+                                    "source_memory_version": memory_version,
+                                    "memory_stale": memory_payload.get("stale", False),
+                                    "generated_at": generated_at,
+                                    "cached": True,
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n\n"
+                        )
+                        return
 
-            content = "".join(accumulated).strip()
-            cached = save_project_memory_summary_cache(
-                session,
-                project_id=project_id,
-                summary_type=summary_type,
-                language=normalized_language,
-                memory_version=memory_version,
-                content=content,
-            )
-            yield (
-                "data: "
-                + json.dumps(
-                    {
-                        "type": "done",
-                        "project_id": project_id,
-                        "summary_type": summary_type,
-                        "content": content,
-                        "source_memory_version": memory_version,
-                        "memory_stale": memory_payload.get("stale", False),
-                        "generated_at": cached.updated_at.isoformat(),
-                        "cached": False,
-                    },
-                    ensure_ascii=False,
+                try:
+                    async for chunk in stream_llm_text_chunks(
+                        stream_with_selected_model(
+                            [{"role": "user", "content": prompt}],
+                            max_tokens=1400,
+                        )
+                    ):
+                        accumulated.append(chunk)
+                        yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    _record_project_memory_failure_by_id(
+                        project_id,
+                        stage=f"memory_summary:{summary_type}",
+                        message=str(e),
+                    )
+                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    return
+
+                content = "".join(accumulated).strip()
+                with Session(engine) as write_session:
+                    cached = save_project_memory_summary_cache(
+                        write_session,
+                        project_id=project_id,
+                        summary_type=summary_type,
+                        language=normalized_language,
+                        memory_version=memory_version,
+                        content=content,
+                    )
+                    generated_at = cached.updated_at.isoformat()
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "done",
+                            "project_id": project_id,
+                            "summary_type": summary_type,
+                            "content": content,
+                            "source_memory_version": memory_version,
+                            "memory_stale": memory_payload.get("stale", False),
+                            "generated_at": generated_at,
+                            "cached": False,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
                 )
-                + "\n\n"
-            )
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    try:
-        content = await complete_with_selected_model(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1400,
-        )
-    except Exception as e:
-        _set_project_memory_failure(
+    async with summary_lock:
+        fresh_cached = get_project_memory_summary_cache(
             session,
-            project,
-            stage=f"memory_summary:{summary_type}",
-            message=str(e),
+            project_id=project_id,
+            summary_type=summary_type,
+            language=normalized_language,
+            memory_version=memory_version,
         )
-        raise
-    cached = save_project_memory_summary_cache(
-        session,
-        project_id=project_id,
-        summary_type=summary_type,
-        language=normalized_language,
-        memory_version=memory_version,
-        content=content.strip(),
-    )
-    return {
-        "project_id": project_id,
-        "summary_type": summary_type,
-        "content": cached.content,
-        "source_memory_version": memory_version,
-        "memory_stale": memory_payload.get("stale", False),
-        "generated_at": cached.updated_at,
-        "cached": False,
-    }
+        if fresh_cached and (not body.force_refresh or wait_for_existing_generation):
+            return _build_project_memory_summary_response(
+                cached=True,
+                content=fresh_cached.content,
+                generated_at=fresh_cached.updated_at,
+                memory_payload=memory_payload,
+                memory_version=memory_version,
+                project_id=project_id,
+                summary_type=summary_type,
+            )
+
+        try:
+            content = await complete_with_selected_model(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1400,
+            )
+        except Exception as e:
+            _set_project_memory_failure(
+                session,
+                project,
+                stage=f"memory_summary:{summary_type}",
+                message=str(e),
+            )
+            raise
+        cached = save_project_memory_summary_cache(
+            session,
+            project_id=project_id,
+            summary_type=summary_type,
+            language=normalized_language,
+            memory_version=memory_version,
+            content=content.strip(),
+        )
+        return _build_project_memory_summary_response(
+            cached=False,
+            content=cached.content,
+            generated_at=cached.updated_at,
+            memory_payload=memory_payload,
+            memory_version=memory_version,
+            project_id=project_id,
+            summary_type=summary_type,
+        )
 
 
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
