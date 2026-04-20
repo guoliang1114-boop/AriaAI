@@ -11,9 +11,11 @@ import {
   FileText,
   FolderKanban,
   Loader2,
+  MessageSquare,
   Phone,
   RefreshCw,
   Save,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -130,6 +132,23 @@ export function ClientDetail() {
     } finally {
       setRebuildingMemory(false)
     }
+  }
+
+  const handleStartClientSkill = (intent: 'strategy' | 'opportunity' | 'retrospective') => {
+    if (!client) return
+    const prompt = buildClientSkillPrompt({
+      client,
+      intent,
+      isZh,
+      memoryStatus,
+      projects,
+    })
+    const params = new URLSearchParams({
+      client: String(client.id),
+      clientName: client.name,
+      q: prompt,
+    })
+    navigate(`/skills?${params.toString()}`)
   }
 
   const memorySummary = useMemo(() => {
@@ -392,6 +411,40 @@ export function ClientDetail() {
             </div>
 
             <div className="space-y-6">
+              <section className="overflow-hidden rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(160deg,#ecfdf5_0%,#f8fafc_48%,#ffffff_100%)] p-6 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">{isZh ? '客户 Skill 工作流' : 'Client Skill Workflows'}</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {isZh
+                        ? '从客户空间直接启动 Skill，自动带入客户档案、客户记忆状态和关联项目线索。'
+                        : 'Launch a Skill from the client workspace with client profile, memory status, and related project context prefilled.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <ClientSkillLaunchCard
+                    title={isZh ? '关系策略' : 'Relationship strategy'}
+                    description={isZh ? '整理关键干系人、沟通节奏和下一次拜访重点。' : 'Map stakeholders, communication cadence, and the next meeting focus.'}
+                    onClick={() => handleStartClientSkill('strategy')}
+                  />
+                  <ClientSkillLaunchCard
+                    title={isZh ? '机会分析' : 'Opportunity analysis'}
+                    description={isZh ? '基于客户背景和历史项目找潜在增购与交叉销售机会。' : 'Use client context and project history to surface expansion opportunities.'}
+                    onClick={() => handleStartClientSkill('opportunity')}
+                  />
+                  <ClientSkillLaunchCard
+                    title={isZh ? '项目复盘' : 'Project retrospective'}
+                    description={isZh ? '把关联项目经验整理成可复用的客户洞察。' : 'Turn related project experience into reusable client insight.'}
+                    onClick={() => handleStartClientSkill('retrospective')}
+                  />
+                </div>
+              </section>
+
               <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-6 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -512,6 +565,106 @@ function FormField({
       {children}
     </label>
   )
+}
+
+function ClientSkillLaunchCard({
+  description,
+  onClick,
+  title,
+}: {
+  description: string
+  onClick: () => void
+  title: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full items-start gap-3 rounded-[1.15rem] border border-white/80 bg-white/85 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-white hover:shadow-md"
+    >
+      <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition group-hover:bg-emerald-700">
+        <MessageSquare className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-slate-900">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
+      </span>
+      <ExternalLink className="mt-1 h-4 w-4 flex-shrink-0 text-slate-300 transition group-hover:text-emerald-600" />
+    </button>
+  )
+}
+
+function buildClientSkillPrompt({
+  client,
+  intent,
+  isZh,
+  memoryStatus,
+  projects,
+}: {
+  client: Client
+  intent: 'strategy' | 'opportunity' | 'retrospective'
+  isZh: boolean
+  memoryStatus: ClientMemoryStatusResponse | null
+  projects: Project[]
+}) {
+  const projectLines = projects.length
+    ? projects.slice(0, 8).map((project) => `- ${project.name} (${project.status || 'unknown'})`).join('\n')
+    : isZh
+      ? '- 暂无关联项目'
+      : '- No related projects yet'
+  const memoryState = !memoryStatus?.has_memory
+    ? isZh
+      ? '尚未生成客户记忆'
+      : 'Client memory has not been generated'
+    : memoryStatus.memory_stale
+      ? isZh
+        ? `客户记忆需要刷新，当前版本 ${memoryStatus.memory_version ?? 'N/A'}`
+        : `Client memory needs refresh, current version ${memoryStatus.memory_version ?? 'N/A'}`
+      : isZh
+        ? `客户记忆可用，当前版本 ${memoryStatus.memory_version ?? 'N/A'}`
+        : `Client memory is ready, current version ${memoryStatus.memory_version ?? 'N/A'}`
+
+  const intentInstruction = {
+    strategy: isZh
+      ? '请基于该客户档案，为我生成一份客户关系策略，包含关键关系判断、下一次沟通目标、风险提醒和 3 条可执行跟进动作。'
+      : 'Please generate a client relationship strategy with relationship judgment, next communication goals, risks, and 3 concrete follow-up actions.',
+    opportunity: isZh
+      ? '请基于该客户档案和关联项目，分析潜在增购、交叉销售或新项目机会，并按优先级给出推进建议。'
+      : 'Please analyze expansion, cross-sell, or new-project opportunities from this client profile and project history, then prioritize next moves.',
+    retrospective: isZh
+      ? '请基于该客户的关联项目，提炼可复用经验、客户偏好、交付注意事项，以及后续项目的启动建议。'
+      : 'Please extract reusable lessons, client preferences, delivery caveats, and start recommendations for future projects from this client history.',
+  }[intent]
+
+  if (!isZh) {
+    return `${intentInstruction}
+
+Client context:
+- Name: ${client.name}
+- Industry: ${client.industry || 'Not provided'}
+- Contact: ${client.contact || 'Not provided'}
+- Notes: ${client.notes || 'Not provided'}
+- Memory status: ${memoryState}
+
+Related projects:
+${projectLines}
+
+Please use the client context first. If information is missing, state assumptions clearly and suggest what to capture next.`
+  }
+
+  return `${intentInstruction}
+
+客户上下文：
+- 客户名称：${client.name}
+- 行业：${client.industry || '未填写'}
+- 联系人：${client.contact || '未填写'}
+- 备注：${client.notes || '未填写'}
+- 记忆状态：${memoryState}
+
+关联项目：
+${projectLines}
+
+请优先使用客户上下文。如果信息不足，请明确你的假设，并指出下一步应该补充哪些客户信息。`
 }
 
 function getProjectStatusTone(status: string) {

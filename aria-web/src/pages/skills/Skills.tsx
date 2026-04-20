@@ -64,6 +64,9 @@ export function Skills() {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [activeType, setActiveType] = useState<"all" | "quick" | "deep">("all");
+  const clientId = searchParams.get("client");
+  const clientName = searchParams.get("clientName");
+  const prefilledPrompt = searchParams.get("q");
 
   useEffect(() => {
     const fetchSkills = async () => {
@@ -85,6 +88,7 @@ export function Skills() {
     const projectId = searchParams.get("project");
     const nextParams = new URLSearchParams({ skill: String(skillId) });
     if (projectId) nextParams.set("project", projectId);
+    if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
     navigate(`/chat?${nextParams.toString()}`);
   };
 
@@ -160,6 +164,27 @@ export function Skills() {
           </section>
 
           <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur">
+            {clientId ? (
+              <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-900">
+                      {clientName ? `来自客户空间：${clientName}` : "来自客户空间"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">
+                      选择一个 Skill 后，会自动把客户档案、客户记忆状态和关联项目线索带入聊天输入框。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/clients/${clientId}`)}
+                    className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100"
+                  >
+                    返回客户空间
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="relative w-full min-w-0 flex-1 xl:max-w-2xl">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
