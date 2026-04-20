@@ -26,6 +26,7 @@ type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client
 type JobScopeFilter = 'all' | 'project' | 'client'
 type JobTypeFilter = 'all' | 'rebuild' | 'summary_warm'
 type RetryFilter = 'all' | 'retrying' | 'clean'
+type FailureCategory = 'all' | 'budget' | 'rate_limit' | 'timeout' | 'database' | 'data' | 'scheduler' | 'llm' | 'unknown'
 
 type BudgetInfo = {
   used: number
@@ -39,6 +40,7 @@ type FailureItem =
       project_id: number
       project_name: string
       client?: string
+      category?: string
       stage: string
       message: string
       retry_count?: number
@@ -48,6 +50,7 @@ type FailureItem =
       scope: 'client'
       client_id: number
       client_name: string
+      category?: string
       stage: string
       message: string
       retry_count?: number
@@ -95,6 +98,46 @@ function getBudgetTone(budget: BudgetInfo | null): 'default' | 'warning' {
   return budget.remaining <= Math.max(5, Math.floor(budget.limit * 0.15)) ? 'warning' : 'default'
 }
 
+function inferFailureCategory(failure: FailureItem): Exclude<FailureCategory, 'all'> {
+  const explicit = failure.category
+  if (
+    explicit === 'budget' ||
+    explicit === 'rate_limit' ||
+    explicit === 'timeout' ||
+    explicit === 'database' ||
+    explicit === 'data' ||
+    explicit === 'scheduler' ||
+    explicit === 'llm' ||
+    explicit === 'unknown'
+  ) {
+    return explicit
+  }
+  const text = `${failure.stage} ${failure.message}`.toLowerCase()
+  if (text.includes('budget') || text.includes('daily limit') || text.includes('quota')) return 'budget'
+  if (text.includes('429') || text.includes('rate limit') || text.includes('too many requests')) return 'rate_limit'
+  if (text.includes('timeout') || text.includes('timed out')) return 'timeout'
+  if (text.includes('database') || text.includes('sql') || text.includes('psycopg') || text.includes('sqlite')) return 'database'
+  if (text.includes('not found') || text.includes('empty') || text.includes('no project') || text.includes('no client')) return 'data'
+  if (text.includes('scheduler') || text.includes('job') || text.includes('queue')) return 'scheduler'
+  if (text.includes('model') || text.includes('llm') || text.includes('claude') || text.includes('kimi') || text.includes('deepseek')) return 'llm'
+  return 'unknown'
+}
+
+function getFailureCategoryLabel(category: FailureCategory, isZh: boolean) {
+  const labels: Record<FailureCategory, { zh: string; en: string }> = {
+    all: { zh: '全部失败类型', en: 'All failure types' },
+    budget: { zh: '预算不足', en: 'Budget' },
+    rate_limit: { zh: '限流', en: 'Rate limit' },
+    timeout: { zh: '超时', en: 'Timeout' },
+    database: { zh: '数据库', en: 'Database' },
+    data: { zh: '数据缺失', en: 'Data' },
+    scheduler: { zh: '调度器', en: 'Scheduler' },
+    llm: { zh: '模型服务', en: 'LLM' },
+    unknown: { zh: '未知', en: 'Unknown' },
+  }
+  return isZh ? labels[category].zh : labels[category].en
+}
+
 export function MemoryOperationsSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -111,6 +154,7 @@ export function MemoryOperationsSettings() {
   const [scopeFilter, setScopeFilter] = useState<JobScopeFilter>('all')
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeFilter>('all')
   const [retryFilter, setRetryFilter] = useState<RetryFilter>('all')
+  const [failureCategoryFilter, setFailureCategoryFilter] = useState<FailureCategory>('all')
   const [showFailuresOnly, setShowFailuresOnly] = useState(false)
 
   const loadJobs = async (silent = false) => {
@@ -157,6 +201,29 @@ export function MemoryOperationsSettings() {
     [jobs],
   )
 
+  const failureGroups = useMemo(() => {
+    const groups: Record<Exclude<FailureCategory, 'all'>, number> = {
+      budget: 0,
+      rate_limit: 0,
+      timeout: 0,
+      database: 0,
+      data: 0,
+      scheduler: 0,
+      llm: 0,
+      unknown: 0,
+    }
+    recentFailures.forEach((failure) => {
+      groups[inferFailureCategory(failure)] += 1
+    })
+    return groups
+  }, [recentFailures])
+
+  const mostCommonFailureCategory = useMemo(() => {
+    const entries = Object.entries(failureGroups) as Array<[Exclude<FailureCategory, 'all'>, number]>
+    const [category, count] = entries.sort((a, b) => b[1] - a[1])[0] ?? ['unknown', 0]
+    return { category, count }
+  }, [failureGroups])
+
   const filteredJobs = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return jobs.filter((job) => {
@@ -179,14 +246,15 @@ export function MemoryOperationsSettings() {
     const query = searchQuery.trim().toLowerCase()
     return recentFailures.filter((failure) => {
       if (scopeFilter !== 'all' && failure.scope !== scopeFilter) return false
+      if (failureCategoryFilter !== 'all' && inferFailureCategory(failure) !== failureCategoryFilter) return false
       if (!query) return true
       const fields =
         failure.scope === 'project'
-          ? [failure.project_name, failure.client, failure.stage, failure.message]
-          : [failure.client_name, failure.stage, failure.message]
+          ? [failure.project_name, failure.client, failure.stage, failure.message, inferFailureCategory(failure)]
+          : [failure.client_name, failure.stage, failure.message, inferFailureCategory(failure)]
       return fields.some((item) => String(item || '').toLowerCase().includes(query))
     })
-  }, [recentFailures, scopeFilter, searchQuery])
+  }, [failureCategoryFilter, recentFailures, scopeFilter, searchQuery])
 
   const runNow = async (job: CombinedJob) => {
     try {
@@ -362,7 +430,7 @@ export function MemoryOperationsSettings() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7">
         <SectionCard
           title={isZh ? '总任务数' : 'Total jobs'}
           value={jobs.length}
@@ -384,6 +452,18 @@ export function MemoryOperationsSettings() {
           description={isZh ? '已经至少重试过一次' : 'Jobs that already retried at least once'}
         />
         <SectionCard
+          title={isZh ? '失败告警' : 'Failure alerts'}
+          value={recentFailures.length}
+          description={
+            mostCommonFailureCategory.count > 0
+              ? `${getFailureCategoryLabel(mostCommonFailureCategory.category, isZh)} ${mostCommonFailureCategory.count}`
+              : isZh
+                ? '暂无失败记录'
+                : 'No recent failures'
+          }
+          tone={recentFailures.length > 0 ? 'warning' : 'default'}
+        />
+        <SectionCard
           title={isZh ? '项目预热预算' : 'Project warm budget'}
           value={`${projectBudget?.used ?? 0}/${projectBudget?.limit ?? 0}`}
           description={isZh ? `剩余 ${projectBudget?.remaining ?? 0}` : `${projectBudget?.remaining ?? 0} remaining`}
@@ -398,7 +478,7 @@ export function MemoryOperationsSettings() {
       </div>
 
       <div className="rounded-2xl border border-outline bg-surface p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(5,minmax(0,1fr))]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-muted" />
             <input
@@ -437,6 +517,18 @@ export function MemoryOperationsSettings() {
             <option value="all">{isZh ? '全部重试状态' : 'All retry states'}</option>
             <option value="retrying">{isZh ? '仅重试中的任务' : 'Retrying only'}</option>
             <option value="clean">{isZh ? '仅未重试任务' : 'No-retry only'}</option>
+          </select>
+
+          <select
+            value={failureCategoryFilter}
+            onChange={(event) => setFailureCategoryFilter(event.target.value as FailureCategory)}
+            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
+          >
+            {(['all', 'budget', 'rate_limit', 'timeout', 'database', 'data', 'scheduler', 'llm', 'unknown'] as FailureCategory[]).map((category) => (
+              <option key={category} value={category}>
+                {getFailureCategoryLabel(category, isZh)}
+              </option>
+            ))}
           </select>
 
           <button
@@ -488,6 +580,8 @@ export function MemoryOperationsSettings() {
                           <div className="text-sm font-medium text-on-surface">{title}</div>
                           <div className="mt-1 text-xs text-on-surface-muted">
                             {isZh ? '阶段' : 'Stage'}: {failure.stage}
+                            {' / '}
+                            {getFailureCategoryLabel(inferFailureCategory(failure), isZh)}
                             {' / '}
                             {isZh ? '重试' : 'Retry'}: {failure.retry_count ?? 0}
                           </div>

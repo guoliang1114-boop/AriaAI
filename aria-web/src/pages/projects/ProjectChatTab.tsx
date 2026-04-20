@@ -410,6 +410,7 @@ export function ProjectChatTab({
         onSkillChange={setSelectedSkillId}
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
         onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
+        projectClientName={project.client}
         projectId={project.id}
         quickPrompts={quickPrompts}
         skills={skills}

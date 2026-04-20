@@ -151,6 +151,7 @@ export interface ProjectMemoryJobsResponse {
     project_id: number
     project_name: string
     client?: string
+    category?: string
     stage: string
     message: string
     retry_count?: number
@@ -267,6 +268,7 @@ export interface ClientMemoryJobsResponse {
     scope: 'client'
     client_id: number
     client_name: string
+    category?: string
     stage: string
     message: string
     retry_count?: number

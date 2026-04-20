@@ -220,6 +220,7 @@ def _set_client_memory_failure(
 ) -> None:
     memory = _get_raw_client_memory(client)
     memory["_last_failure"] = {
+        "category": _classify_memory_failure(stage, message),
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
@@ -366,6 +367,25 @@ def _is_retryable_client_memory_rebuild_error(exc: Exception) -> bool:
         or "timeout" in message
         or "temporarily unavailable" in message
     )
+
+
+def _classify_memory_failure(stage: str, message: str) -> str:
+    text = f"{stage} {message}".lower()
+    if "budget" in text or "daily limit" in text or "quota" in text:
+        return "budget"
+    if "429" in text or "rate limit" in text or "too many requests" in text:
+        return "rate_limit"
+    if "timeout" in text or "timed out" in text:
+        return "timeout"
+    if "database" in text or "sql" in text or "psycopg" in text or "sqlite" in text:
+        return "database"
+    if "not found" in text or "no client" in text or "empty" in text:
+        return "data"
+    if "scheduler" in text or "job" in text or "queue" in text:
+        return "scheduler"
+    if "model" in text or "llm" in text or "claude" in text or "kimi" in text or "deepseek" in text:
+        return "llm"
+    return "unknown"
 
 
 def _count_client_summary_warm_budget_used_today(session: Session) -> int:

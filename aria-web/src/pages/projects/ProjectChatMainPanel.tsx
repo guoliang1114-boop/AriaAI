@@ -47,6 +47,7 @@ interface ProjectChatMainPanelProps {
   onJumpToBottom: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
+  projectClientName?: string;
   quickPrompts: ProjectQuickPrompt[];
   startConversationLabel: string;
   streamingArtifacts: GeneratedArtifact[];
@@ -109,9 +110,11 @@ export function ProjectChatMainPanel({
   selectedSkillId,
   isLoadingSkills,
   onSkillChange,
+  projectClientName,
 }: ProjectChatMainPanelProps) {
   const { i18n } = useTranslation();
-  const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
+  const isZh = i18n.language.startsWith("zh");
+  const copy = getProjectChatCopy(isZh);
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
   const selectedSkillData = useMemo(
     () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
@@ -306,7 +309,15 @@ export function ProjectChatMainPanel({
           </div>
         }
         selectedSkillPanel={
-          selectedSkillData ? <ProjectSkillReferencePanel skill={selectedSkillData} /> : null
+          selectedSkillData ? (
+            <ProjectSkillReferencePanel
+              isZh={isZh}
+              knowledgeScope={knowledgeScope}
+              projectClientName={projectClientName}
+              skill={selectedSkillData}
+              onKnowledgeScopeChange={onKnowledgeScopeChange}
+            />
+          ) : null
         }
         placeholder={inputPlaceholder}
         onChange={onInputChange}
@@ -316,17 +327,47 @@ export function ProjectChatMainPanel({
   );
 }
 
-function ProjectSkillReferencePanel({ skill }: { skill: Skill }) {
+function ProjectSkillReferencePanel({
+  isZh,
+  knowledgeScope,
+  onKnowledgeScopeChange,
+  projectClientName,
+  skill,
+}: {
+  isZh: boolean;
+  knowledgeScope: "project" | "client" | "global";
+  onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
+  projectClientName?: string;
+  skill: Skill;
+}) {
+  const scopeLabel =
+    knowledgeScope === "client"
+      ? isZh
+        ? "客户记忆"
+        : "Client memory"
+      : knowledgeScope === "global"
+        ? isZh
+          ? "全局知识"
+          : "Global knowledge"
+        : isZh
+          ? "项目上下文"
+          : "Project context";
+
   return (
-    <div className="mx-auto mb-3 max-w-5xl overflow-hidden rounded-xl border border-gray-200 bg-primary/5">
+    <div className="mx-auto mb-3 max-w-5xl overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/60">
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200/80 px-3 py-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-          <Info className="h-4 w-4 text-primary" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
+          <Info className="h-4 w-4 text-emerald-700" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-gray-700">{skill.name}</p>
-          <p className="truncate text-xs text-gray-400">{skill.category}</p>
+          <p className="truncate text-xs text-gray-500">
+            {skill.category} · {isZh ? "将随消息一起携带" : "attached to the next message"}
+          </p>
         </div>
+        <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-1 text-xs text-emerald-700">
+          {scopeLabel}
+        </span>
         {skill.estimated_time ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-gray-500">
             <Clock3 className="h-3 w-3" />
@@ -338,6 +379,37 @@ function ProjectSkillReferencePanel({ skill }: { skill: Skill }) {
         {skill.description ? (
           <p className="text-sm leading-6 text-gray-600">{skill.description}</p>
         ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onKnowledgeScopeChange("project")}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+              knowledgeScope === "project"
+                ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white"
+            }`}
+          >
+            {isZh ? "使用项目上下文" : "Use project context"}
+          </button>
+          {projectClientName ? (
+            <button
+              type="button"
+              onClick={() => onKnowledgeScopeChange("client")}
+              className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                knowledgeScope === "client"
+                  ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                  : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white"
+              }`}
+            >
+              {isZh ? `使用客户记忆：${projectClientName}` : `Use client memory: ${projectClientName}`}
+            </button>
+          ) : null}
+        </div>
+        <p className="text-xs leading-5 text-gray-500">
+          {isZh
+            ? "Skill 产出后可通过顶部“沉淀结果 / 沉淀对话”保存到项目文档，后续可继续进入项目或客户记忆治理。"
+            : "After the skill runs, use Save result / Save chat in the header to persist output into project documents for later memory governance."}
+        </p>
         {skill.user_template ? (
           <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">Template</p>
