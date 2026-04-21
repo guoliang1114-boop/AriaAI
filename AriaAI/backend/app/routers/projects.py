@@ -382,6 +382,36 @@ def _get_project_memory_failure(project: Project) -> dict | None:
     return failure if isinstance(failure, dict) else None
 
 
+def _get_project_memory_successes(project: Project) -> list[dict]:
+    rebuild_log = _get_raw_project_memory(project).get("rebuild_log")
+    if not isinstance(rebuild_log, list):
+        return []
+
+    successes: list[dict] = []
+    for item in rebuild_log:
+        if not isinstance(item, dict):
+            continue
+        completed_at = str(item.get("at") or "")
+        if not completed_at:
+            continue
+        version = item.get("version", project.memory_version)
+        successes.append(
+            {
+                "scope": "project",
+                "project_id": project.id,
+                "project_name": project.name,
+                "client": project.client,
+                "stage": "rebuild",
+                "status": "success",
+                "message": f"Project memory rebuilt successfully at version {version}.",
+                "trigger": item.get("trigger", ""),
+                "version": version,
+                "completed_at": completed_at,
+            }
+        )
+    return successes
+
+
 def _record_project_memory_failure_by_id(
     project_id: int,
     *,
@@ -1818,20 +1848,22 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
     jobs.sort(key=lambda item: (item.get("next_run_at") or "", item["project_id"], item["job_type"]))
     used_today = _count_summary_warm_budget_used_today(session)
     recent_failures = []
+    recent_successes = []
     for project in all_projects:
         failure = _get_project_memory_failure(project)
-        if not failure:
-            continue
-        recent_failures.append(
-            {
-                "scope": "project",
-                "project_id": project.id,
-                "project_name": project.name,
-                "client": project.client,
-                **failure,
-            }
-        )
+        if failure:
+            recent_failures.append(
+                {
+                    "scope": "project",
+                    "project_id": project.id,
+                    "project_name": project.name,
+                    "client": project.client,
+                    **failure,
+                }
+            )
+        recent_successes.extend(_get_project_memory_successes(project))
     recent_failures.sort(key=lambda item: item.get("failed_at", ""), reverse=True)
+    recent_successes.sort(key=lambda item: item.get("completed_at", ""), reverse=True)
     return {
         "jobs": jobs,
         "count": len(jobs),
@@ -1841,6 +1873,7 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
             "remaining": max(MEMORY_SUMMARY_WARM_DAILY_LIMIT - used_today, 0),
         },
         "recent_failures": recent_failures[:8],
+        "recent_successes": recent_successes[:12],
     }
 
 

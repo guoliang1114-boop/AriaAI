@@ -2042,7 +2042,10 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                             "message": "Rate limit exceeded",
                             "retry_count": 2,
                             "failed_at": "2026-04-19T10:00:00",
-                        }
+                        },
+                        "rebuild_log": [
+                            {"at": "2026-04-18T09:00:00", "trigger": "manual", "version": 3}
+                        ],
                     }
                 ),
             )
@@ -2078,6 +2081,9 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["jobs"][0]["retry_count"], 1)
         self.assertEqual(body["jobs"][0]["trigger"], "project_updated")
         self.assertEqual(body["recent_failures"][0]["message"], "Rate limit exceeded")
+        self.assertEqual(body["recent_successes"][0]["project_id"], project_id)
+        self.assertEqual(body["recent_successes"][0]["completed_at"], "2026-04-18T09:00:00")
+        self.assertEqual(body["recent_successes"][0]["version"], 3)
 
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []
@@ -3420,7 +3426,10 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
                             "message": "Temporary model timeout",
                             "retry_count": 1,
                             "failed_at": "2026-04-19T11:00:00",
-                        }
+                        },
+                        "rebuild_log": [
+                            {"at": "2026-04-18T12:30:00", "trigger": "client_manual", "version": 4}
+                        ],
                     }
                 ),
             )
@@ -3461,6 +3470,9 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.assertEqual(body["jobs"][0]["retry_count"], 2)
         self.assertEqual(body["jobs"][0]["summary_types"], ["overview", "risk"])
         self.assertEqual(body["recent_failures"][0]["stage"], "rebuild")
+        self.assertEqual(body["recent_successes"][0]["client_id"], client_id)
+        self.assertEqual(body["recent_successes"][0]["completed_at"], "2026-04-18T12:30:00")
+        self.assertEqual(body["recent_successes"][0]["version"], 4)
 
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []
