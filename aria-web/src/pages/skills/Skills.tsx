@@ -66,6 +66,8 @@ export function Skills() {
   const [activeType, setActiveType] = useState<"all" | "quick" | "deep">("all");
   const clientId = searchParams.get("client");
   const clientName = searchParams.get("clientName");
+  const projectId = searchParams.get("project");
+  const projectName = searchParams.get("projectName");
   const prefilledPrompt = searchParams.get("q");
 
   useEffect(() => {
@@ -85,11 +87,10 @@ export function Skills() {
   }, []);
 
   const handleUseSkill = (skillId: number) => {
-    const projectId = searchParams.get("project");
     const nextParams = new URLSearchParams({ skill: String(skillId) });
     if (projectId) nextParams.set("project", projectId);
     if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
-    navigate(`/chat?${nextParams.toString()}`);
+    navigate(projectId ? `/projects/${projectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`);
   };
 
   const categories = useMemo(
@@ -164,7 +165,28 @@ export function Skills() {
           </section>
 
           <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur">
-            {clientId ? (
+            {projectId ? (
+              <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-950">
+                      {projectName ? `来自项目空间：${projectName}` : "来自项目空间"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-indigo-800">
+                      选择一个 Skill 后，会进入当前项目 Chat，并自动带入项目记忆、文档、待办、财务和客户线索。输出后可保存为项目文档或笔记。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${projectId}`)}
+                    className="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-800 transition hover:bg-indigo-100"
+                  >
+                    返回项目空间
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {clientId && !projectId ? (
               <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type {
@@ -48,6 +48,7 @@ export function ProjectChatTab({
 }) {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const quickPrompts = getProjectQuickPrompts(isZh);
@@ -73,6 +74,8 @@ export function ProjectChatTab({
   } | null>(null);
   const autoRefreshAttemptedRef = useRef("");
   const processedSkillRef = useRef<string | null>(null);
+  const processedLaunchRef = useRef<string | null>(null);
+  const preserveLaunchSkillRef = useRef(false);
 
   const {
     conversations,
@@ -107,6 +110,8 @@ export function ProjectChatTab({
   });
 
   const panel = useProjectChatPanel();
+  const launchSkillParam = searchParams.get("skill");
+  const launchPrompt = searchParams.get("q");
 
   const {
     isLoading,
@@ -164,6 +169,10 @@ export function ProjectChatTab({
       return;
     }
     if (!activeConvId) {
+      if (preserveLaunchSkillRef.current) {
+        preserveLaunchSkillRef.current = false;
+        return;
+      }
       setSelectedSkillId(null);
       processedSkillRef.current = null;
     }
@@ -171,6 +180,9 @@ export function ProjectChatTab({
 
   useEffect(() => {
     if (!selectedSkillId || showSkillTemplateModal || messages.length > 0) {
+      return;
+    }
+    if (panel.inputValue.trim()) {
       return;
     }
 
@@ -190,7 +202,33 @@ export function ProjectChatTab({
     });
     setShowSkillTemplateModal(true);
     processedSkillRef.current = skillKey;
-  }, [activeConvId, messages.length, selectedSkillId, showSkillTemplateModal, skills]);
+  }, [activeConvId, messages.length, panel.inputValue, selectedSkillId, showSkillTemplateModal, skills]);
+
+  useEffect(() => {
+    if ((!launchSkillParam && !launchPrompt) || isLoadingConversations) {
+      return;
+    }
+
+    const launchKey = `${launchSkillParam || ""}:${launchPrompt || ""}`;
+    if (processedLaunchRef.current === launchKey) {
+      return;
+    }
+    processedLaunchRef.current = launchKey;
+
+    const skillId = launchSkillParam ? Number(launchSkillParam) : null;
+    if (skillId && Number.isFinite(skillId)) {
+      preserveLaunchSkillRef.current = true;
+    }
+    startNewChat();
+    panel.setKnowledgeScope("project");
+    if (skillId && Number.isFinite(skillId)) {
+      setSelectedSkillId(skillId);
+    }
+    if (launchPrompt) {
+      panel.setInputValue(launchPrompt);
+    }
+    setSearchParams({}, { replace: true });
+  }, [isLoadingConversations, launchPrompt, launchSkillParam, panel, setSearchParams, startNewChat]);
 
   useEffect(() => {
     let cancelled = false;

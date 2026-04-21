@@ -13,6 +13,7 @@ import { ProjectOverviewMilestonesCard } from "./ProjectOverviewMilestonesCard";
 import { ProjectOverviewNotesCard } from "./ProjectOverviewNotesCard";
 import { ProjectOverviewSidebar } from "./ProjectOverviewSidebar";
 import { ProjectOverviewSummaryCard } from "./ProjectOverviewSummaryCard";
+import { buildProjectSkillPrompt, ProjectSkillWorkflowsCard } from "./ProjectSkillWorkflowsCard";
 import { useProjectOverviewData } from "./useProjectOverviewData";
 
 interface ProjectOverviewTabProps {
@@ -87,6 +88,20 @@ export function ProjectOverviewTab({
     }
   };
 
+  const handleStartProjectSkill = (intent: "brief" | "risk" | "stakeholder") => {
+    const prompt = buildProjectSkillPrompt({
+      intent,
+      isZh,
+      projectDetail,
+    });
+    const params = new URLSearchParams({
+      project: String(project.id),
+      projectName: project.name,
+      q: prompt,
+    });
+    navigate(`/skills?${params.toString()}`);
+  };
+
   return (
     <div className="grid grid-cols-12 gap-6">
       <div className="col-span-12 space-y-6 lg:col-span-8">
@@ -105,6 +120,12 @@ export function ProjectOverviewTab({
           onToggleDescription={() => setDescExpanded((value) => !value)}
           projectClient={project.client}
           projectStatus={project.status}
+        />
+
+        <ProjectSkillWorkflowsCard
+          isZh={isZh}
+          onStart={handleStartProjectSkill}
+          projectDetail={projectDetail}
         />
 
         <ProjectOverviewSummaryCard
