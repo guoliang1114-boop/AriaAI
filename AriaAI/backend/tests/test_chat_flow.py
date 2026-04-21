@@ -1995,6 +1995,38 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["count"], 2)
         self.assertEqual({item["job_type"] for item in body["jobs"]}, {"rebuild", "summary_warm"})
 
+    def test_memory_jobs_list_keeps_status_only_rebuild_when_only_summary_warm_is_queued(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Status Only Project",
+                client="Client",
+                memory_version=2,
+                memory_stale=False,
+                memory_rebuild_status="queued",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        fake_jobs = [
+            SimpleNamespace(
+                id=f"project_memory_summary_warm_{project_id}_zh",
+                next_run_time=datetime.utcnow(),
+            ),
+        ]
+
+        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=fake_jobs):
+            resp = self.client.get("/projects/memory/jobs")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["count"], 2)
+        jobs_by_source = {item["status_source"]: item for item in body["jobs"]}
+        self.assertEqual(jobs_by_source["scheduler"]["job_type"], "summary_warm")
+        self.assertEqual(jobs_by_source["project_status"]["job_type"], "rebuild")
+        self.assertEqual(jobs_by_source["project_status"]["status_note"], "queued")
+
     def test_memory_jobs_list_includes_budget_retry_and_recent_failures(self):
         with Session(self.engine) as session:
             project = Project(
@@ -2060,6 +2092,44 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn("project_memory_rebuild_42", removed)
         self.assertIn("project_memory_summary_warm_42_zh", removed)
         self.assertIn("project_memory_summary_warm_42_en", removed)
+
+    def test_memory_jobs_run_now_clears_status_only_queue_when_memory_is_ready(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Ready Queued Project",
+                client="Client",
+                memory_version=4,
+                memory_stale=False,
+                memory_rebuild_status="queued",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Ready memory",
+                        "memory_version": 4,
+                        "stale": False,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(
+            projects_router_module,
+            "_warm_project_memory_summary_caches",
+            new=AsyncMock(return_value=["overview"]),
+        ), patch.object(projects_router_module.scheduler_service, "remove_job"):
+            resp = self.client.post(f"/projects/memory/jobs/{project_id}/run-now")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["action"], "summary_warm")
+
+        with Session(self.engine) as session:
+            refreshed = session.get(Project, project_id)
+            self.assertIsNotNone(refreshed)
+            self.assertEqual(refreshed.memory_rebuild_status, "idle")
+            self.assertIsNone(refreshed.memory_rebuild_failed_at)
 
     def test_memory_rebuild_persists_rebuild_log_and_coverage(self):
         async def fake_complete(messages, max_tokens=4000):
