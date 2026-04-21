@@ -215,6 +215,58 @@ def _ensure_alembic_version(conn, inspector, report_only: bool) -> None:
     print(f"Current alembic versions: {versions}")
 
 
+def _ensure_release_message(conn, inspector, report_only: bool) -> None:
+    if "systemmessage" not in inspector.get_table_names():
+        print("systemmessage not present, skip release message seed")
+        return
+
+    release_title = "AriaAI 已支持 Kimi K2.6"
+    existing = conn.execute(
+        text("SELECT id FROM systemmessage WHERE title = :title LIMIT 1"),
+        {"title": release_title},
+    ).scalar()
+    if existing:
+        print("Kimi K2.6 release message already exists")
+        return
+
+    print("Create Kimi K2.6 release message")
+    if report_only:
+        return
+    conn.execute(
+        text(
+            """
+            INSERT INTO systemmessage (
+                title,
+                content,
+                level,
+                link,
+                is_published,
+                created_by_user_id,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :title,
+                :content,
+                'success',
+                '/settings/ai',
+                true,
+                NULL,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+            """
+        ),
+        {
+            "title": release_title,
+            "content": (
+                "本次升级已将 Kimi 默认模型切换到 kimi-k2.6。原 Kimi 2.5 的 API Key "
+                "可继续使用，无需重新配置。项目总结、长程上下文和 Agent 工具调用会获得更好的稳定性。"
+            ),
+        },
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ensure additive schema and Alembic stamp are present.")
     parser.add_argument(
@@ -237,6 +289,7 @@ def main() -> None:
 
         inspector = inspect(conn)
         _ensure_alembic_version(conn, inspector, args.report_only)
+        _ensure_release_message(conn, inspector, args.report_only)
 
         inspector = inspect(conn)
         tables_after = inspector.get_table_names()

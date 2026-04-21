@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
   ArrowRight,
+  BellRing,
   Brain,
   Building2,
   ChevronRight,
+  CheckCircle2,
   FolderKanban,
   Home,
   ListTodo,
@@ -21,7 +23,7 @@ import type { AxiosError } from 'axios'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
 import { ServiceErrorState } from '../components/ServiceErrorState'
-import type { Conversation, MyProjectTodo, Project, SkillSummary, User } from '../types/api'
+import type { Conversation, MyProjectTodo, Project, SkillSummary, SystemMessage, User } from '../types/api'
 
 interface ErrorResponsePayload {
   detail?: string
@@ -116,6 +118,62 @@ function LoadingBlock({ label }: { label: string }) {
   )
 }
 
+function HomeAnnouncementCard({
+  isZh,
+  message,
+  onOpen,
+  onRead,
+}: {
+  isZh: boolean
+  message: SystemMessage
+  onOpen: () => void
+  onRead: () => void
+}) {
+  return (
+    <section className="relative overflow-hidden rounded-[28px] border border-emerald-200/80 bg-[linear-gradient(135deg,_rgba(236,253,245,0.96),_rgba(240,253,250,0.95)_45%,_rgba(255,251,235,0.9)_100%)] p-5 text-slate-900 shadow-[0_22px_60px_-36px_rgba(16,185,129,0.45)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.2),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(14,165,233,0.14),_transparent_28%)]" />
+      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-[0_14px_30px_-18px_rgba(5,150,105,0.9)]">
+            <BellRing className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-emerald-200 bg-white/80 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                {isZh ? '系统升级' : 'Product update'}
+              </span>
+              <span className="rounded-full bg-slate-900/5 px-2.5 py-1 text-xs font-medium text-slate-600">
+                Kimi K2.6
+              </span>
+            </div>
+            <h2 className="text-base font-semibold text-slate-950 md:text-lg">{message.title}</h2>
+            <p className="mt-1 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700">{message.content}</p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {message.link ? (
+            <button
+              onClick={onOpen}
+              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              {isZh ? '查看 AI 设置' : 'View AI settings'}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          ) : null}
+          <button
+            onClick={onRead}
+            className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white/85 px-4 py-2.5 text-sm font-medium text-emerald-800 transition hover:bg-white"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {isZh ? '知道了' : 'Got it'}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function Welcome() {
   const navigate = useNavigate()
   const { i18n, t } = useTranslation()
@@ -132,6 +190,7 @@ export function Welcome() {
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [myTodos, setMyTodos] = useState<MyProjectTodo[]>([])
+  const [messages, setMessages] = useState<SystemMessage[]>([])
 
   useEffect(() => {
     void loadData()
@@ -178,6 +237,10 @@ export function Welcome() {
         })
         .catch(() => {})
         .finally(() => setSecondaryLoading(false))
+
+      void api.get<{ items: SystemMessage[]; unread_count: number }>('/messages')
+        .then((systemMessages) => setMessages(systemMessages.items))
+        .catch(() => {})
     } catch (err) {
       const apiError = err as AxiosError<ErrorResponsePayload>
       if (apiError.response?.status === 401) throw apiError
@@ -233,6 +296,32 @@ export function Welcome() {
       count: projects.filter((project) => project.status === status).length,
     }))
   ), [projects])
+  const homeAnnouncement = useMemo(
+    () => messages.find((message) => !message.is_read && message.is_published) || null,
+    [messages],
+  )
+
+  const markAnnouncementRead = async (messageId: number) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? { ...message, is_read: true, read_at: new Date().toISOString() }
+          : message,
+      ),
+    )
+    window.dispatchEvent(new Event('messages:updated'))
+    try {
+      await api.post(`/messages/${messageId}/read`)
+    } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? { ...message, is_read: false, read_at: null }
+            : message,
+        ),
+      )
+    }
+  }
 
   if (loading) {
     return (
@@ -326,6 +415,18 @@ export function Welcome() {
       <PageTitle title={t('dashboard.title')} />
       <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.1),_transparent_24%),radial-gradient(circle_at_center,_rgba(251,191,36,0.08),_transparent_26%),linear-gradient(to_bottom,_rgba(248,250,252,1),_rgba(255,255,255,1))]">
         <div className="space-y-6 px-8 py-8">
+          {homeAnnouncement ? (
+            <HomeAnnouncementCard
+              isZh={isZh}
+              message={homeAnnouncement}
+              onOpen={() => {
+                void markAnnouncementRead(homeAnnouncement.id)
+                navigate(homeAnnouncement.link || '/messages')
+              }}
+              onRead={() => void markAnnouncementRead(homeAnnouncement.id)}
+            />
+          ) : null}
+
           <section className="relative overflow-hidden rounded-[32px] border border-sky-100 bg-[linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(239,246,255,0.96)_38%,_rgba(236,253,245,0.94)_100%)] p-8 text-slate-900 shadow-[0_24px_80px_-36px_rgba(59,130,246,0.28)]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.18),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.16),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(251,191,36,0.14),_transparent_22%)]" />
             <div className="relative grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
