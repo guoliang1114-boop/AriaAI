@@ -55,20 +55,21 @@ export function SettingsLayout() {
     <>
       <PageTitle title={t('settings.title')} />
       <div className="min-h-full bg-surface">
-        <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mb-6 rounded-2xl bg-surface-container-low px-5 py-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-on-surface">{t('settings.title')}</h1>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-on-surface-muted">{t('settings.description')}</p>
-              </div>
-              <span className="inline-flex w-fit items-center rounded-full bg-surface px-3 py-1 text-xs font-medium text-on-surface-muted">
+        <div className="w-full px-4 py-4 sm:px-6 lg:px-8">
+          <div className="mb-4 flex flex-col gap-2 border-b border-outline/60 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-on-surface">{t('settings.title')}</h1>
+              <p className="mt-0.5 hidden max-w-3xl truncate text-sm text-on-surface-muted lg:block">{t('settings.description')}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="hidden w-fit items-center rounded-full bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface-muted sm:inline-flex">
                 {isZh ? '系统配置' : 'System settings'}
               </span>
+              <span className="text-xs text-on-surface-muted lg:hidden">{t('settings.description')}</span>
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="flex w-full flex-col gap-5 lg:flex-row lg:items-start">
             <aside
               className={`w-full flex-shrink-0 transition-[width] duration-200 lg:sticky lg:top-6 ${
                 navCollapsed ? 'lg:w-[72px]' : 'lg:w-64'
