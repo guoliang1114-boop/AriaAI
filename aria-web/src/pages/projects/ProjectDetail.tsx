@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, FolderKanban, Home, Loader2, RefreshCw, ServerCrash } from "lucide-react";
+import { FolderKanban, Home, Loader2, MessageSquare, RefreshCw } from "lucide-react";
 import { PageTitle } from "../../components/PageTitle";
+import { ServiceErrorState } from "../../components/ServiceErrorState";
 import { ProjectAnchorsTab } from "./ProjectAnchorsTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
@@ -143,100 +144,50 @@ export function ProjectDetail() {
     return (
       <>
         <PageTitle title="Project" />
-        <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.14),transparent_30%)] bg-gray-50">
-          <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
-            <div className="grid w-full gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-              <section className="rounded-[2rem] border border-white/80 bg-white/90 p-8 shadow-[0_24px_70px_rgba(15,23,42,0.10)] backdrop-blur">
-                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
-                  isServiceUnavailable ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
-                }`}>
-                  {isServiceUnavailable ? <ServerCrash className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-                  {copy.badge}
-                </div>
-                <h1 className="mt-6 text-3xl font-semibold tracking-tight text-gray-950 md:text-4xl">
-                  {copy.title}
-                </h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">{copy.description}</p>
-                {error ? (
-                  <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-                    <div className="font-medium text-gray-900">{isZh ? "错误详情" : "Error detail"}</div>
-                    <div className="mt-1 break-words">{error}</div>
-                  </div>
-                ) : null}
-
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void refreshProjectDetail()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:opacity-95"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    {copy.primaryAction}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate("/projects")}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                  >
-                    <FolderKanban className="h-4 w-4" />
-                    {copy.secondaryAction}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate("/")}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                  >
-                    <Home className="h-4 w-4" />
-                    {isZh ? "回到首页" : "Dashboard"}
-                  </button>
-                </div>
-              </section>
-
-              <aside className="space-y-4">
-                <div className="rounded-[2rem] border border-white/80 bg-white/80 p-6 shadow-sm backdrop-blur">
-                  <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${
-                    isServiceUnavailable ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"
-                  }`}>
-                    {isServiceUnavailable ? <ServerCrash className="h-6 w-6" /> : <ArrowLeft className="h-6 w-6" />}
-                  </div>
-                  <h2 className="text-lg font-semibold text-gray-950">{copy.hintTitle}</h2>
-                  <div className="mt-4 space-y-3 text-sm leading-6 text-gray-600">
-                    <p>{copy.hintOne}</p>
-                    <p>{copy.hintTwo}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-[2rem] border border-white/80 bg-white/80 p-6 shadow-sm backdrop-blur">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">
-                    {isZh ? "快捷入口" : "Quick links"}
-                  </h3>
-                  <div className="mt-4 grid gap-3">
-                    <button
-                      type="button"
-                      onClick={() => navigate("/projects")}
-                      className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:bg-gray-50"
-                    >
-                      <div className="text-sm font-medium text-gray-950">{t("nav.projects")}</div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        {isZh ? "查看项目列表，确认项目是否仍然存在。" : "Open the project list and confirm this project still exists."}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate("/chat")}
-                      className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:bg-gray-50"
-                    >
-                      <div className="text-sm font-medium text-gray-950">{isZh ? "对话" : "Chat"}</div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        {isZh ? "如果项目页暂时不可用，可以先继续通用对话。" : "Continue in general chat while this page recovers."}
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </aside>
-            </div>
-          </div>
-        </div>
+        <ServiceErrorState
+          actions={[
+            {
+              icon: <RefreshCw className="h-4 w-4" />,
+              label: copy.primaryAction,
+              onClick: () => void refreshProjectDetail(),
+            },
+            {
+              icon: <FolderKanban className="h-4 w-4" />,
+              label: copy.secondaryAction,
+              onClick: () => navigate("/projects"),
+              variant: "secondary",
+            },
+            {
+              icon: <Home className="h-4 w-4" />,
+              label: isZh ? "回到首页" : "Dashboard",
+              onClick: () => navigate("/"),
+              variant: "secondary",
+            },
+          ]}
+          badge={copy.badge}
+          description={copy.description}
+          detail={error}
+          detailLabel={isZh ? "错误详情" : "Error detail"}
+          hints={[copy.hintOne, copy.hintTwo]}
+          hintTitle={copy.hintTitle}
+          linksTitle={isZh ? "快捷入口" : "Quick links"}
+          serviceUnavailable={isServiceUnavailable}
+          title={copy.title}
+          links={[
+            {
+              label: t("nav.projects"),
+              description: isZh ? "查看项目列表，确认项目是否仍然存在。" : "Open the project list and confirm this project still exists.",
+              icon: <FolderKanban className="h-4 w-4" />,
+              onClick: () => navigate("/projects"),
+            },
+            {
+              label: isZh ? "对话" : "Chat",
+              description: isZh ? "如果项目页暂时不可用，可以先继续通用对话。" : "Continue in general chat while this page recovers.",
+              icon: <MessageSquare className="h-4 w-4" />,
+              onClick: () => navigate("/chat"),
+            },
+          ]}
+        />
       </>
     );
   }

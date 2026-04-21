@@ -13,7 +13,6 @@ import {
   Loader2,
   MessageSquare,
   RefreshCw,
-  ServerCrash,
   Sparkles,
   Users,
   Wallet,
@@ -21,6 +20,7 @@ import {
 import type { AxiosError } from 'axios'
 import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
+import { ServiceErrorState } from '../components/ServiceErrorState'
 import type { Conversation, MyProjectTodo, Project, SkillSummary, User } from '../types/api'
 
 interface ErrorResponsePayload {
@@ -274,97 +274,49 @@ export function Welcome() {
     return (
       <>
         <PageTitle title={t('dashboard.title')} />
-        <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.16),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.14),_transparent_30%),linear-gradient(to_bottom,_#f8fafc,_#ffffff)]">
-          <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
-            <div className="grid w-full gap-8 lg:grid-cols-[1.12fr_0.88fr]">
-              <section className="rounded-[32px] border border-white/80 bg-white/92 p-8 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
-                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
-                  isServiceUnavailable ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                }`}>
-                  {isServiceUnavailable ? <ServerCrash className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-                  {errorCopy.badge}
-                </div>
-                <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-                  {errorCopy.title}
-                </h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">{errorCopy.description}</p>
-
-                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  <div className="font-medium text-slate-900">{isZh ? '错误详情' : 'Error detail'}</div>
-                  <div className="mt-1 break-words">{error}</div>
-                </div>
-
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <button
-                    onClick={() => void loadData()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary/90"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    {errorCopy.primary}
-                  </button>
-                  <button
-                    onClick={() => navigate('/projects')}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <FolderKanban className="h-4 w-4" />
-                    {isZh ? '返回项目列表' : 'Projects'}
-                  </button>
-                  <button
-                    onClick={() => navigate('/chat')}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    {isZh ? '进入对话' : 'Chat'}
-                  </button>
-                </div>
-              </section>
-
-              <aside className="space-y-4">
-                <div className="rounded-[32px] border border-white/80 bg-white/82 p-6 shadow-sm backdrop-blur">
-                  <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${
-                    isServiceUnavailable ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'
-                  }`}>
-                    {isServiceUnavailable ? <ServerCrash className="h-6 w-6" /> : <AlertCircle className="h-6 w-6" />}
-                  </div>
-                  <h2 className="text-lg font-semibold text-slate-950">{errorCopy.hintTitle}</h2>
-                  <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                    <p>{errorCopy.hintOne}</p>
-                    <p>{errorCopy.hintTwo}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-[32px] border border-white/80 bg-white/82 p-6 shadow-sm backdrop-blur">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    {isZh ? '快捷入口' : 'Quick links'}
-                  </h3>
-                  <div className="mt-4 grid gap-3">
-                    <button
-                      onClick={() => navigate('/')}
-                      className="rounded-2xl border border-slate-100 bg-white px-4 py-4 text-left transition hover:bg-slate-50"
-                    >
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-950">
-                        <Home className="h-4 w-4" />
-                        {isZh ? '刷新首页' : 'Dashboard'}
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {isZh ? '等服务恢复后重新进入今日工作台。' : 'Return here once the service recovers.'}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => navigate('/settings/memory-ops')}
-                      className="rounded-2xl border border-slate-100 bg-white px-4 py-4 text-left transition hover:bg-slate-50"
-                    >
-                      <div className="text-sm font-medium text-slate-950">{isZh ? '任务中心' : 'Operations'}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {isZh ? '管理员可以查看记忆任务和失败记录。' : 'Admins can inspect memory jobs and failures.'}
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </aside>
-            </div>
-          </div>
-        </div>
+        <ServiceErrorState
+          actions={[
+            {
+              icon: <RefreshCw className="h-4 w-4" />,
+              label: errorCopy.primary,
+              onClick: () => void loadData(),
+            },
+            {
+              icon: <FolderKanban className="h-4 w-4" />,
+              label: isZh ? '返回项目列表' : 'Projects',
+              onClick: () => navigate('/projects'),
+              variant: 'secondary',
+            },
+            {
+              icon: <MessageSquare className="h-4 w-4" />,
+              label: isZh ? '进入对话' : 'Chat',
+              onClick: () => navigate('/chat'),
+              variant: 'secondary',
+            },
+          ]}
+          badge={errorCopy.badge}
+          description={errorCopy.description}
+          detail={error}
+          detailLabel={isZh ? '错误详情' : 'Error detail'}
+          hints={[errorCopy.hintOne, errorCopy.hintTwo]}
+          hintTitle={errorCopy.hintTitle}
+          linksTitle={isZh ? '快捷入口' : 'Quick links'}
+          serviceUnavailable={isServiceUnavailable}
+          title={errorCopy.title}
+          links={[
+            {
+              icon: <Home className="h-4 w-4" />,
+              label: isZh ? '刷新首页' : 'Dashboard',
+              description: isZh ? '等服务恢复后重新进入今日工作台。' : 'Return here once the service recovers.',
+              onClick: () => navigate('/'),
+            },
+            {
+              label: isZh ? '任务中心' : 'Operations',
+              description: isZh ? '管理员可以查看记忆任务和失败记录。' : 'Admins can inspect memory jobs and failures.',
+              onClick: () => navigate('/settings/memory-ops'),
+            },
+          ]}
+        />
       </>
     )
   }
