@@ -10,6 +10,17 @@ type ProjectDetailCacheEntry = {
   fetchedAt: number;
 };
 
+export interface ProjectMemoryStateUpdate {
+  memory_rebuild_failed_at?: string | null;
+  memory_rebuild_status?: string;
+  memory_stale: boolean;
+  memory_updated_at?: string | null;
+  memory_version: number;
+  projectId: number;
+  project_brief?: string;
+}
+
+const PROJECT_MEMORY_STATE_UPDATED = "aria:project-memory-state-updated";
 const projectDetailCache = new Map<number, ProjectDetailCacheEntry>();
 const projectDetailInFlight = new Map<number, Promise<ProjectDetailType>>();
 
@@ -43,6 +54,40 @@ function getCachedProjectDetail(projectId: number | null) {
 
 function setCachedProjectDetail(projectId: number, data: ProjectDetailType) {
   projectDetailCache.set(projectId, { data, fetchedAt: Date.now() });
+}
+
+function applyMemoryUpdateToDetail(
+  detail: ProjectDetailType,
+  update: ProjectMemoryStateUpdate,
+): ProjectDetailType {
+  return {
+    ...detail,
+    project: {
+      ...detail.project,
+      context_summary: update.project_brief?.trim() || detail.project.context_summary,
+      memory_rebuild_failed_at: update.memory_rebuild_failed_at ?? null,
+      memory_rebuild_status: update.memory_rebuild_status ?? detail.project.memory_rebuild_status ?? "idle",
+      memory_stale: update.memory_stale,
+      memory_updated_at: update.memory_updated_at ?? detail.project.memory_updated_at,
+      memory_version: update.memory_version,
+    },
+  };
+}
+
+export function dispatchProjectMemoryStateUpdated(update: ProjectMemoryStateUpdate) {
+  const cached = getCachedProjectDetail(update.projectId);
+  if (cached) {
+    setCachedProjectDetail(update.projectId, applyMemoryUpdateToDetail(cached, update));
+  }
+  window.dispatchEvent(new CustomEvent<ProjectMemoryStateUpdate>(PROJECT_MEMORY_STATE_UPDATED, { detail: update }));
+}
+
+function subscribeProjectMemoryStateUpdated(handler: (update: ProjectMemoryStateUpdate) => void) {
+  const listener = (event: Event) => {
+    handler((event as CustomEvent<ProjectMemoryStateUpdate>).detail);
+  };
+  window.addEventListener(PROJECT_MEMORY_STATE_UPDATED, listener);
+  return () => window.removeEventListener(PROJECT_MEMORY_STATE_UPDATED, listener);
 }
 
 export async function prefetchProjectDetailData(projectId: number) {
@@ -155,6 +200,19 @@ export function useProjectDetailData(projectId?: string) {
       abortControllerRef.current?.abort();
     };
   }, [refreshProjectDetail]);
+
+  useEffect(() => {
+    if (!numericProjectId) return;
+    return subscribeProjectMemoryStateUpdated((update) => {
+      if (update.projectId !== numericProjectId) return;
+      const current = projectDetailRef.current;
+      if (!current) return;
+      const nextDetail = applyMemoryUpdateToDetail(current, update);
+      projectDetailRef.current = nextDetail;
+      setCachedProjectDetail(numericProjectId, nextDetail);
+      setProjectDetail(nextDetail);
+    });
+  }, [numericProjectId]);
 
   return {
     error,

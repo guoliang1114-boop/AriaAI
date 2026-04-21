@@ -11,6 +11,7 @@ import { ProjectSettingsFormCard } from "./ProjectSettingsFormCard";
 import { ProjectSettingsMembersCard } from "./ProjectSettingsMembersCard";
 import { ProjectSettingsMemoryManagementCard } from "./ProjectSettingsMemoryManagementCard";
 import { useProjectMemorySummary } from "./useProjectMemorySummary";
+import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 import { useProjectSettingsEditor } from "./useProjectSettingsEditor";
 import { useProjectSettingsMembers } from "./useProjectSettingsMembers";
 
@@ -51,7 +52,23 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
   const rebuildMemory = async () => {
     setIsRebuildingMemory(true);
     try {
-      await api.post(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 60000 });
+      const data = await api.post<{
+        memory: { project_brief?: string };
+        memory_rebuild_failed_at?: string | null;
+        memory_rebuild_status?: string;
+        memory_stale?: boolean;
+        memory_updated_at?: string | null;
+        memory_version: number;
+      }>(`/projects/${project.id}/memory/rebuild`, {}, { timeout: 60000 });
+      dispatchProjectMemoryStateUpdated({
+        projectId: project.id,
+        memory_stale: data.memory_stale ?? false,
+        memory_updated_at: data.memory_updated_at,
+        memory_version: data.memory_version,
+        memory_rebuild_status: data.memory_rebuild_status ?? "idle",
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at ?? null,
+        project_brief: data.memory.project_brief,
+      });
       await settingsInsight.refresh(true);
       onUpdate();
       toast.success(isZh ? "项目记忆已更新" : "Project memory refreshed");

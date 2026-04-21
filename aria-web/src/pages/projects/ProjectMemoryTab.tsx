@@ -25,6 +25,7 @@ import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectMemorySlotCard } from "./ProjectMemorySlotCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
 import { formatProjectMemoryUpdatedAt } from "./projectMemoryTime";
+import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 import { useProjectMemorySummary } from "./useProjectMemorySummary";
 
 interface ProjectMemoryTabProps {
@@ -309,6 +310,15 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       );
       setMemoryMeta(data);
       setMemory(data.memory);
+      dispatchProjectMemoryStateUpdated({
+        projectId: Number(projectId),
+        memory_stale: data.memory_stale,
+        memory_updated_at: data.memory_updated_at,
+        memory_version: data.memory_version,
+        memory_rebuild_status: data.memory_rebuild_status ?? "idle",
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at ?? null,
+        project_brief: data.memory.project_brief,
+      });
       await Promise.all([
         overviewInsight.refresh(true),
         riskInsight.refresh(true),

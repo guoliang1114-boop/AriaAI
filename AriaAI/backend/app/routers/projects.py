@@ -1639,7 +1639,9 @@ async def rebuild_project_memory(project_id: int, session: Session = Depends(get
         "memory": saved_memory,
         "memory_version": saved_memory.get("memory_version", 0),
         "memory_updated_at": saved_memory.get("last_updated_at", ""),
+        "memory_stale": False,
         "memory_rebuild_status": "idle",
+        "memory_rebuild_failed_at": None,
     }
 
 

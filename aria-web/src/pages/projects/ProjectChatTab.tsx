@@ -27,6 +27,7 @@ import {
   getProjectMemoryQuickActions,
   getProjectQuickPrompts,
 } from "./projectChatCopy";
+import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 import { useProjectChatPanel } from "./useProjectChatPanel";
@@ -286,8 +287,19 @@ export function ProjectChatTab({
         memory_stale: data.memory_stale,
         memory_updated_at: data.memory_updated_at,
         memory_version: data.memory_version,
+        memory_rebuild_status: data.memory_rebuild_status,
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at,
       });
       setProjectMemory(data.memory);
+      dispatchProjectMemoryStateUpdated({
+        projectId: project.id,
+        memory_stale: data.memory_stale,
+        memory_updated_at: data.memory_updated_at,
+        memory_version: data.memory_version,
+        memory_rebuild_status: data.memory_rebuild_status ?? "idle",
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at ?? null,
+        project_brief: data.memory.project_brief,
+      });
       if (!silent) {
         toast.success(isZh ? "项目记忆已重建" : "Project memory rebuilt");
       }

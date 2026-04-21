@@ -15,6 +15,7 @@ import {
   subscribeProjectMemorySummariesUpdated,
   type ProjectMemorySummaryMap,
 } from "./projectMemorySummarySync";
+import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 
 const formatAmount = (amount: number | undefined | null): string => {
   if (!amount || amount === 0) return "0";
@@ -305,6 +306,15 @@ export function useProjectOverviewData({
         { timeout: 60000 },
       );
       setMemory(data.memory);
+      dispatchProjectMemoryStateUpdated({
+        projectId: Number(projectId),
+        memory_stale: data.memory_stale,
+        memory_updated_at: data.memory_updated_at,
+        memory_version: data.memory_version,
+        memory_rebuild_status: data.memory_rebuild_status ?? "idle",
+        memory_rebuild_failed_at: data.memory_rebuild_failed_at ?? null,
+        project_brief: data.memory.project_brief,
+      });
     } finally {
       setIsRebuildingMemory(false);
     }

@@ -23,6 +23,7 @@ import type {
   ProjectMemoryJobsResponse,
   ProjectMemoryResponse,
 } from '../../types/api'
+import { dispatchProjectMemoryStateUpdated } from '../projects/useProjectDetailData'
 import { formatProjectMemoryUpdatedAt } from '../projects/projectMemoryTime'
 
 type MemoryFilter = 'all' | 'ready' | 'stale' | 'missing'
@@ -161,6 +162,15 @@ export function ProjectMemorySettings() {
       memory_rebuild_failed_at?: string | null
     },
   ) => {
+    dispatchProjectMemoryStateUpdated({
+      projectId,
+      memory_stale: update.memory_stale,
+      memory_updated_at: update.memory_updated_at,
+      memory_version: update.memory_version,
+      memory_rebuild_status: update.memory_rebuild_status ?? 'idle',
+      memory_rebuild_failed_at: update.memory_rebuild_failed_at ?? null,
+      project_brief: update.project_brief,
+    })
     setProjects((current) =>
       current.map((project) =>
         project.id === projectId
