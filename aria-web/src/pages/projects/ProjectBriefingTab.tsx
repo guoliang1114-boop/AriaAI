@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, Clock3, FileText, Loader2, MessageSquare, RefreshCw, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type { ProjectDetail, ProjectMeetingBriefing } from "../../types/api";
 
@@ -54,9 +55,15 @@ function formatDate(value?: string | null, isZh = true) {
   });
 }
 
+function formatPromptSection(title: string, items: string[]) {
+  if (!items.length) return `${title}\n- 暂无`;
+  return `${title}\n${items.map((item) => `- ${item}`).join("\n")}`;
+}
+
 export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefingTabProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const navigate = useNavigate();
   const [briefing, setBriefing] = useState<ProjectMeetingBriefing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -83,6 +90,21 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const generatedAt = briefing?.generated_at
     ? new Date(briefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
     : "";
+  const openChatWithBriefing = () => {
+    if (!briefing) return;
+    const prompt = [
+      `请基于这张会前简报，帮我准备一份面向客户会议的沟通话术和会议推进计划。`,
+      `项目：${briefing.project.name}`,
+      `客户：${briefing.project.client}`,
+      formatPromptSection("建议说什么", briefing.meeting_card.say),
+      formatPromptSection("需要避开什么", briefing.meeting_card.avoid),
+      formatPromptSection("需要确认的问题", briefing.meeting_card.confirm),
+      formatPromptSection("历史经验提醒", briefing.meeting_card.experience),
+      "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。",
+    ].join("\n\n");
+    const params = new URLSearchParams({ q: prompt });
+    navigate(`/projects/${projectId}/chat?${params.toString()}`);
+  };
 
   if (isLoading && !briefing) {
     return (
@@ -117,6 +139,15 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {isZh ? "刷新简报" : "Refresh"}
+          </button>
+          <button
+            type="button"
+            onClick={openChatWithBriefing}
+            disabled={!briefing}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+          >
+            <MessageSquare className="h-4 w-4" />
+            {isZh ? "带着简报开启对话" : "Open chat with briefing"}
           </button>
         </div>
 
