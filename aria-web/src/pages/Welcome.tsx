@@ -8,10 +8,12 @@ import {
   Building2,
   ChevronRight,
   FolderKanban,
+  Home,
   ListTodo,
   Loader2,
   MessageSquare,
   RefreshCw,
+  ServerCrash,
   Sparkles,
   Users,
   Wallet,
@@ -123,6 +125,7 @@ export function Welcome() {
   const [secondaryLoading, setSecondaryLoading] = useState(true)
   const [showExtendedSections, setShowExtendedSections] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [user] = useState<User | null>(() => readCachedUser())
   const [projects, setProjects] = useState<DashboardProjectSummary[]>([])
   const [clients, setClients] = useState<ClientSummary[]>([])
@@ -152,6 +155,7 @@ export function Welcome() {
       setLoading(true)
       setSecondaryLoading(true)
       setError(null)
+      setErrorStatus(null)
 
       const [allProjects, todos] = await Promise.all([
         api.get<DashboardProjectSummary[]>('/projects/meta/dashboard-summary'),
@@ -179,6 +183,7 @@ export function Welcome() {
       if (apiError.response?.status === 401) throw apiError
       setSecondaryLoading(false)
       setLoading(false)
+      setErrorStatus(apiError.response?.status ?? null)
       setError(
         !apiError.response
           ? isZh
@@ -241,20 +246,123 @@ export function Welcome() {
   }
 
   if (error) {
+    const isServiceUnavailable = errorStatus === 502 || errorStatus === 503 || errorStatus === 504
+    const errorCopy = isServiceUnavailable
+      ? {
+          badge: String(errorStatus),
+          title: isZh ? '工作台正在恢复中' : 'Workspace is recovering',
+          description: isZh
+            ? '部署或后端重启期间，工作台接口可能会短暂返回 502/503/504。数据通常没有丢，稍等片刻后重试即可。'
+            : 'During deployment or backend restart, workspace APIs may briefly return 502/503/504. Your data is usually safe. Try again shortly.',
+          hintTitle: isZh ? '现在可以这样做' : 'What you can do now',
+          hintOne: isZh ? '点击“重新加载工作台”，等后端恢复后会自动回到首页。' : 'Click Reload workspace and return once the backend is healthy.',
+          hintTwo: isZh ? '也可以先进入项目列表或对话页，继续其他工作。' : 'You can also open Projects or Chat and continue other work.',
+          primary: isZh ? '重新加载工作台' : 'Reload workspace',
+        }
+      : {
+          badge: errorStatus ? String(errorStatus) : (isZh ? '网络' : 'Network'),
+          title: isZh ? '工作台暂时无法加载' : 'Workspace could not load',
+          description: isZh
+            ? '工作台请求遇到问题。你可以重试，或者先进入项目列表继续工作。'
+            : 'The workspace request failed. You can retry or continue from the project list.',
+          hintTitle: isZh ? '下一步建议' : 'Next step',
+          hintOne: isZh ? '如果刚刚部署过，建议稍等几十秒再重试。' : 'If deployment just ran, wait a few seconds and retry.',
+          hintTwo: isZh ? '如果持续失败，可以从错误详情判断具体接口问题。' : 'If it continues, use the error detail to identify the failing API.',
+          primary: isZh ? '重试' : 'Retry',
+        }
+
     return (
       <>
         <PageTitle title={t('dashboard.title')} />
-        <div className="flex h-full items-center justify-center bg-surface">
-          <div className="max-w-md rounded-3xl border border-outline bg-surface p-8 text-center shadow-sm">
-            <AlertCircle className="mx-auto mb-4 h-10 w-10 text-error" />
-            <p className="mb-4 text-sm text-on-surface">{error}</p>
-            <button
-              onClick={() => void loadData()}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
-            >
-              <RefreshCw className="h-4 w-4" />
-              {isZh ? '重试' : 'Retry'}
-            </button>
+        <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.16),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.14),_transparent_30%),linear-gradient(to_bottom,_#f8fafc,_#ffffff)]">
+          <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
+            <div className="grid w-full gap-8 lg:grid-cols-[1.12fr_0.88fr]">
+              <section className="rounded-[32px] border border-white/80 bg-white/92 p-8 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
+                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+                  isServiceUnavailable ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                }`}>
+                  {isServiceUnavailable ? <ServerCrash className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                  {errorCopy.badge}
+                </div>
+                <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+                  {errorCopy.title}
+                </h1>
+                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">{errorCopy.description}</p>
+
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <div className="font-medium text-slate-900">{isZh ? '错误详情' : 'Error detail'}</div>
+                  <div className="mt-1 break-words">{error}</div>
+                </div>
+
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => void loadData()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary/90"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    {errorCopy.primary}
+                  </button>
+                  <button
+                    onClick={() => navigate('/projects')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <FolderKanban className="h-4 w-4" />
+                    {isZh ? '返回项目列表' : 'Projects'}
+                  </button>
+                  <button
+                    onClick={() => navigate('/chat')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    {isZh ? '进入对话' : 'Chat'}
+                  </button>
+                </div>
+              </section>
+
+              <aside className="space-y-4">
+                <div className="rounded-[32px] border border-white/80 bg-white/82 p-6 shadow-sm backdrop-blur">
+                  <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${
+                    isServiceUnavailable ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'
+                  }`}>
+                    {isServiceUnavailable ? <ServerCrash className="h-6 w-6" /> : <AlertCircle className="h-6 w-6" />}
+                  </div>
+                  <h2 className="text-lg font-semibold text-slate-950">{errorCopy.hintTitle}</h2>
+                  <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                    <p>{errorCopy.hintOne}</p>
+                    <p>{errorCopy.hintTwo}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-[32px] border border-white/80 bg-white/82 p-6 shadow-sm backdrop-blur">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {isZh ? '快捷入口' : 'Quick links'}
+                  </h3>
+                  <div className="mt-4 grid gap-3">
+                    <button
+                      onClick={() => navigate('/')}
+                      className="rounded-2xl border border-slate-100 bg-white px-4 py-4 text-left transition hover:bg-slate-50"
+                    >
+                      <div className="flex items-center gap-2 text-sm font-medium text-slate-950">
+                        <Home className="h-4 w-4" />
+                        {isZh ? '刷新首页' : 'Dashboard'}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {isZh ? '等服务恢复后重新进入今日工作台。' : 'Return here once the service recovers.'}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => navigate('/settings/memory-ops')}
+                      className="rounded-2xl border border-slate-100 bg-white px-4 py-4 text-left transition hover:bg-slate-50"
+                    >
+                      <div className="text-sm font-medium text-slate-950">{isZh ? '任务中心' : 'Operations'}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {isZh ? '管理员可以查看记忆任务和失败记录。' : 'Admins can inspect memory jobs and failures.'}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </aside>
+            </div>
           </div>
         </div>
       </>
