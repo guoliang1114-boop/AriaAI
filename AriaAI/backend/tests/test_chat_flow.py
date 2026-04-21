@@ -54,6 +54,7 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
+from app.services.time_utils import utc_now_naive
 
 
 class FakeRetrievalContext:
@@ -1979,11 +1980,11 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         fake_jobs = [
             SimpleNamespace(
                 id=f"project_memory_rebuild_{project_id}",
-                next_run_time=datetime.utcnow(),
+                next_run_time=utc_now_naive(),
             ),
             SimpleNamespace(
                 id=f"project_memory_summary_warm_{project_id}_zh",
-                next_run_time=datetime.utcnow(),
+                next_run_time=utc_now_naive(),
             ),
         ]
 
@@ -2012,7 +2013,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         fake_jobs = [
             SimpleNamespace(
                 id=f"project_memory_summary_warm_{project_id}_zh",
-                next_run_time=datetime.utcnow(),
+                next_run_time=utc_now_naive(),
             ),
         ]
 
@@ -2062,7 +2063,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         fake_job = SimpleNamespace(
             id=f"project_memory_rebuild_{project_id}",
-            next_run_time=datetime.utcnow(),
+            next_run_time=utc_now_naive(),
         )
         with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
             projects_router_module.scheduler_service,
@@ -3364,7 +3365,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
         fake_job = SimpleNamespace(
             id=f"client_memory_rebuild_{client_id}",
-            next_run_time=datetime.utcnow() + timedelta(minutes=5),
+            next_run_time=utc_now_naive() + timedelta(minutes=5),
         )
 
         with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]):
@@ -3393,7 +3394,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
         fake_job = SimpleNamespace(
             id=f"client_memory_summary_warm_{client_id}_zh",
-            next_run_time=datetime.utcnow() + timedelta(minutes=3),
+            next_run_time=utc_now_naive() + timedelta(minutes=3),
         )
 
         with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]):
@@ -3440,7 +3441,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
         fake_job = SimpleNamespace(
             id=f"client_memory_summary_warm_{client_id}_zh",
-            next_run_time=datetime.utcnow(),
+            next_run_time=utc_now_naive(),
         )
         with patch.object(clients_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
             clients_router_module.scheduler_service,

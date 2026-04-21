@@ -130,6 +130,7 @@ from app.services.project_todos import (
     serialize_todo,
     update_project_todo,
 )
+from app.services.time_utils import utc_now_naive
 from app.routers.auth import get_current_user
 
 _PROJECTS_TTL = 120.0
@@ -254,11 +255,11 @@ async def _auto_promote_archived_project_to_client_memory(
         raw_project_memory["_client_promotion"] = {
             "client_id": client.id,
             "client_name": client.name,
-            "promoted_at": datetime.utcnow().isoformat(),
+            "promoted_at": utc_now_naive().isoformat(),
             "trigger": "project_archived_auto_promoted",
         }
         project.context_memory_json = json.dumps(raw_project_memory, ensure_ascii=False)
-        project.updated_at = datetime.utcnow()
+        project.updated_at = utc_now_naive()
         session.add(project)
         session.commit()
     clients_cache.delete(_CLIENTS_KEY)
@@ -344,7 +345,7 @@ def _classify_memory_failure(stage: str, message: str) -> str:
 
 
 def _count_summary_warm_budget_used_today(session: Session) -> int:
-    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_day = utc_now_naive().replace(hour=0, minute=0, second=0, microsecond=0)
     warmed = session.exec(
         select(ProjectMemorySummary).where(ProjectMemorySummary.created_at >= start_of_day)
     ).all()
@@ -369,7 +370,7 @@ def _set_project_memory_failure(
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
-        "failed_at": datetime.utcnow().isoformat(),
+        "failed_at": utc_now_naive().isoformat(),
     }
     project.context_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(project)
@@ -555,7 +556,7 @@ def _schedule_project_memory_summary_warm(
         return False
 
     job_id = _memory_summary_warm_job_id(project_id, language)
-    run_at = datetime.utcnow() + timedelta(seconds=max(0, delay_seconds))
+    run_at = utc_now_naive() + timedelta(seconds=max(0, delay_seconds))
     scheduler_service.add_or_replace_date_job(
         job_id,
         run_at,
@@ -609,7 +610,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 delay_seconds = PROJECT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS * (2 ** retry_count)
                 scheduler_service.add_or_replace_date_job(
                     _memory_rebuild_job_id(project_id),
-                    datetime.utcnow() + timedelta(seconds=delay_seconds),
+                    utc_now_naive() + timedelta(seconds=delay_seconds),
                     _run_project_memory_rebuild_job,
                     args=[project_id, f"retry:{retry_count + 1}"],
                     metadata={
@@ -632,7 +633,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
                 retry_count=retry_count,
             )
             project.memory_rebuild_status = "failed"
-            project.memory_rebuild_failed_at = datetime.utcnow()
+            project.memory_rebuild_failed_at = utc_now_naive()
             session.add(project)
             session.commit()
             raise
@@ -641,7 +642,7 @@ async def _run_project_memory_rebuild_job(project_id: int, trigger: str = "debou
 def _schedule_project_memory_rebuild(project_id: int, trigger: str = "data_changed") -> None:
     if not scheduler_service.is_running():
         return
-    run_at = datetime.utcnow() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
+    run_at = utc_now_naive() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
     scheduler_service.add_or_replace_date_job(
         _memory_rebuild_job_id(project_id),
         run_at,
@@ -1229,7 +1230,7 @@ def save_message_to_document(
         else None
     )
     base_name = ensure_markdown_filename(
-        data.file_name or f"message_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        data.file_name or f"message_{utc_now_naive().strftime('%Y%m%d_%H%M%S')}"
     )
 
     new_file = create_markdown_project_file(
