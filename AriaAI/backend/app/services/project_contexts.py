@@ -16,6 +16,7 @@ from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts_by_name,
 )
+from app.services.time_utils import utc_now_naive
 
 MAX_SUMMARY_MILESTONES = 6
 MAX_SUMMARY_FILES = 8
@@ -187,7 +188,7 @@ def mark_project_memory_stale(session: Session, project_id: int, trigger: str = 
     project.memory_stale = True
     if project.memory_rebuild_status != "rebuilding":
         project.memory_rebuild_status = "idle"
-    project.updated_at = datetime.utcnow()
+    project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
 
@@ -303,7 +304,7 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
         "payments_total": len(payments),
         "client_stakeholders_total": len(client_stakeholders),
         "client_stakeholders": client_stakeholders,
-        "built_at": datetime.utcnow().isoformat(),
+        "built_at": utc_now_naive().isoformat(),
     }
 
     return project, "\n".join(lines), coverage
@@ -636,7 +637,7 @@ def save_project_memory(
         raise HTTPException(404, "Project not found")
 
     project.memory_version = (project.memory_version or 0) + 1
-    project.memory_updated_at = datetime.utcnow()
+    project.memory_updated_at = utc_now_naive()
     rebuild_log = memory.get("rebuild_log", [])
     if not isinstance(rebuild_log, list):
         rebuild_log = []
@@ -662,7 +663,7 @@ def save_project_memory(
     project.memory_stale = False
     project.memory_rebuild_status = "idle"
     project.memory_rebuild_failed_at = None
-    project.updated_at = datetime.utcnow()
+    project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -674,7 +675,7 @@ def save_project_context_summary(session: Session, project_id: int, summary: str
     if not project:
         return
     project.context_summary = summary
-    project.updated_at = datetime.utcnow()
+    project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
 
@@ -713,7 +714,7 @@ def save_project_memory_summary_cache(
         language=normalized_language,
         memory_version=memory_version,
     )
-    now = datetime.utcnow()
+    now = utc_now_naive()
     if cached:
         cached.content = content
         cached.updated_at = now

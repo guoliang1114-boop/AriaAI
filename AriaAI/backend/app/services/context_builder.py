@@ -25,6 +25,7 @@ from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts,
 )
+from app.services.time_utils import utc_now_naive
 from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
@@ -204,7 +205,7 @@ def build_global_workspace_context(session: Session) -> str:
     if not all_projects:
         return ""
     
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = utc_now_naive().strftime("%Y-%m-%d")
     ws_lines = [
         f"# 工作台全局数据（截至 {today_str}）",
         f"当前共有 {len(all_projects)} 个活跃项目。以下是每个项目的详细信息：\n",

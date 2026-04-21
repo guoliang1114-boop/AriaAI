@@ -40,6 +40,7 @@ from app.services.client_contexts import (
 )
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
+from app.services.time_utils import utc_now_naive
 
 _CLIENTS_KEY = "all"
 _CLIENTS_TTL = 120.0
@@ -263,7 +264,7 @@ def _set_client_memory_failure(
         "stage": stage,
         "message": message[:400],
         "retry_count": retry_count,
-        "failed_at": datetime.utcnow().isoformat(),
+        "failed_at": utc_now_naive().isoformat(),
     }
     client.client_memory_json = json.dumps(memory, ensure_ascii=False)
     session.add(client)
@@ -448,7 +449,7 @@ def _classify_memory_failure(stage: str, message: str) -> str:
 
 
 def _count_client_summary_warm_budget_used_today(session: Session) -> int:
-    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_day = utc_now_naive().replace(hour=0, minute=0, second=0, microsecond=0)
     warmed = session.exec(
         select(ClientMemorySummary).where(ClientMemorySummary.created_at >= start_of_day)
     ).all()
@@ -589,7 +590,7 @@ def _schedule_client_memory_summary_warm(
     if not scheduler_service.is_running():
         return False
     job_id = _client_memory_summary_warm_job_id(client_id, language)
-    run_at = datetime.utcnow() + timedelta(seconds=max(0, delay_seconds))
+    run_at = utc_now_naive() + timedelta(seconds=max(0, delay_seconds))
     scheduler_service.add_or_replace_date_job(
         job_id,
         run_at,
@@ -644,7 +645,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                         delay_seconds = CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS * (2 ** retry_count)
                         scheduler_service.add_or_replace_date_job(
                             _client_memory_rebuild_job_id(client_id),
-                            datetime.utcnow() + timedelta(seconds=delay_seconds),
+                            utc_now_naive() + timedelta(seconds=delay_seconds),
                             _run_client_memory_rebuild_job,
                             args=[client_id, f"retry:{retry_count + 1}"],
                             metadata={
@@ -666,7 +667,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
                     retry_count=retry_count if 'retry_count' in locals() else 0,
                 )
                 client.client_memory_rebuild_status = "failed"
-                client.client_memory_rebuild_failed_at = datetime.utcnow()
+                client.client_memory_rebuild_failed_at = utc_now_naive()
                 session.add(client)
                 session.commit()
             raise
@@ -675,7 +676,7 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
 def _schedule_client_memory_rebuild(client_id: int, trigger: str = "data_changed") -> None:
     if not scheduler_service.is_running():
         return
-    run_at = datetime.utcnow() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
+    run_at = utc_now_naive() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
     scheduler_service.add_or_replace_date_job(
         _client_memory_rebuild_job_id(client_id),
         run_at,
@@ -947,7 +948,7 @@ def update_client_stakeholder(
             raise HTTPException(status_code=400, detail="Stakeholder name is required")
     for field, value in values.items():
         setattr(stakeholder, field, value)
-    stakeholder.updated_at = datetime.utcnow()
+    stakeholder.updated_at = utc_now_naive()
     session.add(stakeholder)
     session.commit()
     session.refresh(stakeholder)
@@ -1341,7 +1342,7 @@ async def summarize_client_memory(
         "summary_type": normalized_summary_type,
         "content": content,
         "memory_version": int(memory.get("memory_version", 0) or 0),
-        "generated_at": cached.updated_at.isoformat() if cached else datetime.utcnow().isoformat(),
+        "generated_at": cached.updated_at.isoformat() if cached else utc_now_naive().isoformat(),
         "cached": False,
     }
 

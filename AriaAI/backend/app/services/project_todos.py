@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectTodo
+from app.services.time_utils import utc_now_naive
 
 
 def ensure_project_exists(session: Session, project_id: int) -> Project:
@@ -85,7 +86,7 @@ def update_project_todo(
     todo = get_project_todo_or_404(session, project_id, todo_id)
     for key, value in changes.items():
         setattr(todo, key, value)
-    todo.updated_at = datetime.utcnow()
+    todo.updated_at = utc_now_naive()
     session.add(todo)
     session.commit()
     session.refresh(todo)

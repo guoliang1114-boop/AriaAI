@@ -160,6 +160,7 @@ export function ProjectSettingsTab({ onUpdate, projectDetail }: ProjectSettingsT
           <ProjectMemoryInsightCard
             content={settingsInsight.content}
             error={settingsInsight.error}
+            generated={settingsInsight.generated}
             hint={
               isZh
                 ? "先快速对齐项目当前状态、关键风险和下一步动作，再决定是否调整项目设置。"

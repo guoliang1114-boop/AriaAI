@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectFile, ProjectFolder
+from app.services.time_utils import utc_now_naive
 
 
 def ensure_markdown_filename(name: str) -> str:
@@ -22,12 +23,12 @@ def ensure_markdown_filename(name: str) -> str:
 
 
 def build_markdown_export_header(timestamp: datetime | None = None) -> str:
-    current = timestamp or datetime.utcnow()
+    current = timestamp or utc_now_naive()
     return f"\n\n---\n\n> From project conversation | {current.strftime('%Y-%m-%d %H:%M')}\n\n"
 
 
 def build_timestamped_markdown_filename(base_name: str, timestamp: datetime | None = None) -> str:
-    current = timestamp or datetime.utcnow()
+    current = timestamp or utc_now_naive()
     safe_name = ensure_markdown_filename(base_name).removesuffix(".md")
     return f"{safe_name}_{current.strftime('%Y%m%d_%H%M%S')}.md"
 

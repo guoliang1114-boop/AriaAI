@@ -70,6 +70,7 @@ export function ProjectTodosTab({ projectId, memoryVersion, todos, onUpdate }: P
       <ProjectMemoryInsightCard
         content={riskInsight.content}
         error={riskInsight.error}
+        generated={riskInsight.generated}
         hint={
           isZh
             ? '基于项目记忆整理当前风险、阻塞点和最需要推进的待办方向'

@@ -134,6 +134,7 @@ export function ProjectNotesTab({
             <ProjectMemoryInsightCard
               content={stakeholderInsight.content}
               error={stakeholderInsight.error}
+              generated={stakeholderInsight.generated}
               hint={
                 isZh
                   ? "基于项目记忆整理当前干系人关注点、对齐状态和建议跟进动作"

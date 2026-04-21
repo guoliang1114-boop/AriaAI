@@ -3,6 +3,8 @@ from typing import Optional
 from sqlmodel import SQLModel, Field, Relationship
 import json
 
+from app.services.time_utils import utc_now_naive
+
 
 # ── Clients ────────────────────────────────────────────────────────────────
 
@@ -18,7 +20,7 @@ class ClientRecord(SQLModel, table=True):
     client_memory_updated_at: Optional[datetime] = None
     client_memory_rebuild_status: str = "idle"
     client_memory_rebuild_failed_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
     documents: list["KnowledgeDocument"] = Relationship(back_populates="client")
 
@@ -37,8 +39,8 @@ class ClientStakeholder(SQLModel, table=True):
     contact: str = ""
     last_action: str = ""
     note: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 # ── Projects ────────────────────────────────────────────────────────────────
@@ -60,8 +62,8 @@ class Project(SQLModel, table=True):
     memory_rebuild_failed_at: Optional[datetime] = None
     notes: str = ""                 # Accumulated project notes (from "沉淀到项目" actions)
     md_notes: str = ""              # Project-level Markdown notes
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
     milestones: list["Milestone"] = Relationship(back_populates="project")
     files: list["ProjectFile"] = Relationship(back_populates="project")
@@ -78,8 +80,8 @@ class ProjectMemorySummary(SQLModel, table=True):
     language: str = Field(index=True)
     memory_version: int = Field(index=True)
     content: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class ClientMemorySummary(SQLModel, table=True):
@@ -89,8 +91,8 @@ class ClientMemorySummary(SQLModel, table=True):
     language: str = Field(index=True)
     memory_version: int = Field(index=True)
     content: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class Milestone(SQLModel, table=True):
@@ -111,8 +113,8 @@ class ProjectTodo(SQLModel, table=True):
     is_done: bool = False
     due_date: Optional[str] = None
     assigned_to_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="todos")
     assigned_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectTodo.assigned_to_user_id]"})
@@ -122,7 +124,7 @@ class ProjectMember(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="members")
     user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[ProjectMember.user_id]"})
@@ -146,7 +148,7 @@ class ProjectFile(SQLModel, table=True):
     path: str                       # relative to UPLOADS_DIR
     size_bytes: int = 0
     summary: str = ""               # AI-generated file summary (auto-generated on upload)
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="files")
     folder: Optional[ProjectFolder] = Relationship(back_populates="files")
@@ -159,7 +161,7 @@ class ProjectPayment(SQLModel, table=True):
     payment_date: str               # YYYY-MM-DD
     note: str = ""
     payment_type: str = "received"  # received | expense | milestone_payment
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="payments")
 
@@ -171,8 +173,8 @@ class Conversation(SQLModel, table=True):
     title: str = "New Workstream"
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
     skill_id: Optional[int] = Field(default=None, foreign_key="skill.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="conversations")
     messages: list["Message"] = Relationship(back_populates="conversation")
@@ -184,7 +186,7 @@ class Message(SQLModel, table=True):
     role: str                       # user | assistant
     content: str
     metadata_json: str = "{}"       # references: skill_id, doc_ids, project_id, etc.
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
     conversation: Optional[Conversation] = Relationship(back_populates="messages")
     
@@ -209,7 +211,7 @@ class KnowledgeDocument(SQLModel, table=True):
     vector_status: str = "pending"  # pending | processing | synced | failed
     vector_progress: float = 0.0
     chunk_count: int = 0
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=utc_now_naive)
     client_id: Optional[int] = Field(default=None, foreign_key="clientrecord.id", index=True)
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
 
@@ -246,8 +248,8 @@ class ExternalService(SQLModel, table=True):
     auth_type: str = "bearer_token"                     # bearer_token | api_key | oauth2 | basic_auth | custom
     auth_config_json: str = "{}"                        # Extra auth config (header names, etc.)
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class ExternalServiceCredential(SQLModel, table=True):
@@ -259,8 +261,8 @@ class ExternalServiceCredential(SQLModel, table=True):
     encrypted_value: str                                # Fernet-encrypted JSON payload
     expires_at: Optional[datetime] = None
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 # ── Skills ────────────────────────────────────────────────────────────────────
@@ -317,7 +319,7 @@ class ToolCall(SQLModel, table=True):
     # 生成的文件（如果有）
     output_file_id: Optional[int] = Field(default=None, foreign_key="generatedfile.id")
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
     completed_at: Optional[datetime] = None
 
 
@@ -338,7 +340,7 @@ class GeneratedFile(SQLModel, table=True):
     description: str = ""           # 文件描述
     mime_type: str = ""             # MIME 类型
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
 
 # ── Scheduled Tasks ───────────────────────────────────────────────────────────
@@ -355,7 +357,7 @@ class ScheduledTask(SQLModel, table=True):
     status: str = "scheduled"       # scheduled | running | success | failed
     last_run: Optional[datetime] = None
     next_run: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
 
 # ── Templates ─────────────────────────────────────────────────────────────────
@@ -368,7 +370,7 @@ class Template(SQLModel, table=True):
     path: str
     tags_json: str = "[]"
     status: Optional[str] = None   # active | archived
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=utc_now_naive)
 
     @property
     def tags(self) -> list[str]:
@@ -396,7 +398,7 @@ class User(SQLModel, table=True):
     is_admin: bool = False
     is_active: bool = True
     auth_token: Optional[str] = None  # 保留用于兼容旧版
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class UserToken(SQLModel, table=True):
@@ -405,8 +407,8 @@ class UserToken(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     token: str = Field(index=True, unique=True)
     device_info: str = ""  # 设备信息（可选）
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_used_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    last_used_at: datetime = Field(default_factory=utc_now_naive)
     
     user: Optional[User] = Relationship()
 
@@ -419,12 +421,12 @@ class SystemMessage(SQLModel, table=True):
     link: str = ""
     is_published: bool = True
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
 class SystemMessageRead(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     message_id: int = Field(foreign_key="systemmessage.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    read_at: datetime = Field(default_factory=datetime.utcnow)
+    read_at: datetime = Field(default_factory=utc_now_naive)

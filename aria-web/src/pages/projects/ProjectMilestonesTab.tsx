@@ -146,6 +146,7 @@ export function ProjectMilestonesTab({
       <ProjectMemoryInsightCard
         content={deliveryInsight.content}
         error={deliveryInsight.error}
+        generated={deliveryInsight.generated}
         hint={
           isZh
             ? "基于项目记忆整理当前交付节奏、里程碑推进和下一步执行动作"

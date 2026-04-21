@@ -130,7 +130,7 @@ class ChatRouterTestCase(unittest.TestCase):
         conv_id = create_resp.json()["id"]
 
         with Session(self.engine) as session:
-            now = datetime.utcnow()
+            now = utc_now_naive()
             session.add(Message(conversation_id=conv_id, role="user", content="hello", created_at=now))
             session.add(
                 Message(
@@ -1150,7 +1150,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     content="Current user pending",
                     due_date="2026-05-01",
                     assigned_to_user_id=self.current_user_id,
-                    updated_at=datetime.utcnow() + timedelta(minutes=2),
+                    updated_at=utc_now_naive() + timedelta(minutes=2),
                 )
             )
             session.add(
@@ -1159,7 +1159,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     content="Current user latest",
                     due_date="2026-05-04",
                     assigned_to_user_id=self.current_user_id,
-                    updated_at=datetime.utcnow() + timedelta(minutes=3),
+                    updated_at=utc_now_naive() + timedelta(minutes=3),
                 )
             )
             session.add(
@@ -1169,7 +1169,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     due_date="2026-05-03",
                     assigned_to_user_id=self.current_user_id,
                     is_done=True,
-                    updated_at=datetime.utcnow() + timedelta(minutes=1),
+                    updated_at=utc_now_naive() + timedelta(minutes=1),
                 )
             )
             session.add(
@@ -1178,7 +1178,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     content="Other user pending",
                     due_date="2026-05-02",
                     assigned_to_user_id=other_user.id,
-                    updated_at=datetime.utcnow(),
+                    updated_at=utc_now_naive(),
                 )
             )
             session.commit()

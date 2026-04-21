@@ -139,6 +139,7 @@ export function ProjectFinancialsTab({
               : "No financial data"
         }
         error={financialInsight.error}
+        generated={financialInsight.generated}
         hint={
           isZh
             ? "基于项目记忆整理当前财务风险、回款关注点和需要优先处理的阻塞项"

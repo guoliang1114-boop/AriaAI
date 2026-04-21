@@ -13,6 +13,7 @@ from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts,
 )
+from app.services.time_utils import utc_now_naive
 
 SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "overview",
@@ -226,7 +227,7 @@ def save_client_memory(
         raise HTTPException(404, "Client not found")
 
     client.client_memory_version = int(client.client_memory_version or 0) + 1
-    client.client_memory_updated_at = datetime.utcnow()
+    client.client_memory_updated_at = utc_now_naive()
     memory["memory_version"] = client.client_memory_version
     memory["last_updated_at"] = client.client_memory_updated_at.isoformat()
     memory["stale"] = False
@@ -504,7 +505,7 @@ def save_client_memory_summary_cache(
         language=normalized_language,
         memory_version=memory_version,
     )
-    now = datetime.utcnow()
+    now = utc_now_naive()
     if cached:
         cached.content = content
         cached.updated_at = now

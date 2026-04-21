@@ -108,6 +108,7 @@ export function ProjectDocumentsTab({
         <ProjectMemoryInsightCard
           content={documentInsight.content}
           error={documentInsight.error}
+          generated={documentInsight.generated}
           hint={
             isZh
               ? "基于项目记忆整理当前重要文档、交付线索和最值得优先查看的材料"

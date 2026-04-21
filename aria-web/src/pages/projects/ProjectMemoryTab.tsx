@@ -573,6 +573,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           <ProjectMemoryInsightCard
             content={overviewInsight.content}
             error={overviewInsight.error}
+            generated={overviewInsight.generated}
             hint={
               isZh
                 ? "用业务语言快速理解当前项目共识，适合项目经理和业务负责人先看这一块。"
@@ -590,6 +591,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           <ProjectMemoryInsightCard
             content={riskInsight.content}
             error={riskInsight.error}
+            generated={riskInsight.generated}
             hint={
               isZh
                 ? "聚焦关键风险、阻塞点和需要尽快处理的问题。"
@@ -607,6 +609,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
           <ProjectMemoryInsightCard
             content={stakeholderInsight.content}
             error={stakeholderInsight.error}
+            generated={stakeholderInsight.generated}
             hint={
               isZh
                 ? "用来理解关键干系人状态、沟通重点和预期管理。"

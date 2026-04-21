@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectFolder, ProjectMember
+from app.services.time_utils import utc_now_naive
 
 
 DEFAULT_PROJECT_FOLDER_NAMES = ["项目需求", "方案和报价", "项目交付文档", "项目归档信息"]
@@ -71,7 +72,7 @@ def update_project_record(session: Session, project_id: int, changes: dict) -> P
     for key, value in changes.items():
         setattr(project, key, value)
     project.memory_stale = True
-    project.updated_at = datetime.utcnow()
+    project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
     session.refresh(project)

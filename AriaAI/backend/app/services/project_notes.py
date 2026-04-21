@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app.models.db import Project
+from app.services.time_utils import utc_now_naive
 
 
 def save_project_notes(session: Session, project_id: int, content: str, *, append: bool = True) -> Project:
@@ -15,12 +16,12 @@ def save_project_notes(session: Session, project_id: int, content: str, *, appen
         raise HTTPException(404, "Project not found")
 
     if append and project.notes:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        timestamp = utc_now_naive().strftime("%Y-%m-%d %H:%M")
         project.notes = f"{project.notes}\n\n---\n[{timestamp}]\n{content}"
     else:
         project.notes = content
 
-    project.updated_at = datetime.utcnow()
+    project.updated_at = utc_now_naive()
     session.add(project)
     session.commit()
     session.refresh(project)
