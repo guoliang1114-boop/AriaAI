@@ -23,7 +23,8 @@ import {
 
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
-import type { ClientMemoryResponse, ClientMemoryStatusResponse } from '../../types/api'
+import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
+import { ClientStakeholdersStructuredCard } from '../projects/ClientStakeholdersStructuredCard'
 
 interface Client {
   id: number
@@ -55,6 +56,7 @@ export function ClientDetail() {
   const [loading, setLoading] = useState(true)
   const [client, setClient] = useState<Client | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
+  const [stakeholders, setStakeholders] = useState<ClientStakeholder[]>([])
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
@@ -69,13 +71,17 @@ export function ClientDetail() {
   const fetchClient = async () => {
     try {
       setLoading(true)
-      const clientData = await api.get<Client>(`/clients/${id}`)
-      const memoryData = await api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`)
-      const projectsData = await api.get<Project[]>(`/clients/${id}/projects`)
+      const [clientData, memoryData, projectsData, stakeholderData] = await Promise.all([
+        api.get<Client>(`/clients/${id}`),
+        api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`),
+        api.get<Project[]>(`/clients/${id}/projects`),
+        api.get<ClientStakeholder[]>(`/clients/${id}/stakeholders`),
+      ])
       setClient(clientData)
       setEditForm(clientData)
       setMemoryStatus(memoryData)
       setProjects(projectsData)
+      setStakeholders(stakeholderData)
     } catch (error) {
       console.error('Failed to fetch client:', error)
     } finally {
@@ -132,6 +138,18 @@ export function ClientDetail() {
     } finally {
       setRebuildingMemory(false)
     }
+  }
+
+  const handleStakeholdersChanged = (nextStakeholders: ClientStakeholder[]) => {
+    setStakeholders(nextStakeholders)
+    setMemoryStatus((current) =>
+      current
+        ? {
+            ...current,
+            memory_stale: true,
+          }
+        : current,
+    )
   }
 
   const handleStartClientSkill = (intent: 'strategy' | 'opportunity' | 'retrospective') => {
@@ -414,6 +432,13 @@ export function ClientDetail() {
             </div>
 
             <div className="space-y-6">
+              <ClientStakeholdersStructuredCard
+                clientId={client.id}
+                isZh={isZh}
+                onChanged={handleStakeholdersChanged}
+                stakeholders={stakeholders}
+              />
+
               <section className="overflow-hidden rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(160deg,#ecfdf5_0%,#f8fafc_48%,#ffffff_100%)] p-6 shadow-sm">
                 <div className="flex items-start gap-3">
                   <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
