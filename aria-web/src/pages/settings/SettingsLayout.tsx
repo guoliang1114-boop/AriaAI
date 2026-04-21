@@ -13,6 +13,7 @@ import {
   Info,
   ListChecks,
   Server,
+  SlidersHorizontal,
   User,
   Users,
 } from 'lucide-react'
@@ -54,59 +55,81 @@ export function SettingsLayout() {
   return (
     <>
       <PageTitle title={t('settings.title')} />
-      <div className="min-h-full bg-surface">
-        <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-headline-md text-on-surface">{t('settings.title')}</h1>
-              <p className="mt-2 max-w-3xl text-body-md text-on-surface-muted">{t('settings.description')}</p>
+      <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_34%),linear-gradient(180deg,var(--color-surface),var(--color-surface-container-low))]">
+        <div className="w-full px-3 py-4 sm:px-5 lg:px-6">
+          <div className="mb-4 rounded-3xl border border-outline/70 bg-surface/85 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <SlidersHorizontal className="h-5 w-5" />
+                </span>
+                <div>
+                  <h1 className="text-lg font-semibold text-on-surface">{t('settings.title')}</h1>
+                  <p className="text-sm text-on-surface-muted">{t('settings.description')}</p>
+                </div>
+              </div>
+              <div className="hidden rounded-full bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface-muted sm:block">
+                {isZh ? '配置、治理与运维入口' : 'Configuration, governance, and operations'}
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={toggleNavCollapsed}
-              className="hidden items-center gap-2 rounded-xl border border-outline bg-surface px-3 py-2 text-sm font-medium text-on-surface transition hover:bg-surface-container-low lg:inline-flex"
-              aria-label={navCollapsed ? (isZh ? '展开设置菜单' : 'Expand settings menu') : isZh ? '收起设置菜单' : 'Collapse settings menu'}
-            >
-              {navCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-              {navCollapsed ? (isZh ? '展开菜单' : 'Expand') : isZh ? '收起菜单' : 'Collapse'}
-            </button>
           </div>
 
           <div className="flex w-full flex-col gap-5 lg:flex-row lg:items-start">
             <aside
               className={`w-full flex-shrink-0 transition-[width] duration-200 lg:sticky lg:top-6 ${
-                navCollapsed ? 'lg:w-20' : 'lg:w-64'
+                navCollapsed ? 'lg:w-[76px]' : 'lg:w-64'
               }`}
             >
               <nav
-                className={`flex gap-2 overflow-x-auto rounded-2xl bg-surface-container-low p-2 lg:block lg:space-y-1 lg:overflow-visible ${
+                className={`rounded-3xl border border-outline/70 bg-surface/90 p-2 shadow-sm backdrop-blur ${
                   navCollapsed ? 'lg:px-2' : ''
                 }`}
               >
-                {settingNavItems.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    end={item.path === ''}
-                    title={navCollapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      `flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all lg:w-full ${
-                        navCollapsed ? 'lg:justify-center lg:px-3' : ''
-                      } ${
-                        isActive
-                          ? 'bg-secondary-container/50 text-primary'
-                          : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                      }`
-                    }
+                <div
+                  className={`mb-2 hidden items-center gap-2 rounded-2xl bg-surface-container-low p-2 lg:flex ${
+                    navCollapsed ? 'justify-center' : 'justify-between'
+                  }`}
+                >
+                  <div className={`min-w-0 ${navCollapsed ? 'hidden' : ''}`}>
+                    <div className="text-sm font-semibold text-on-surface">{isZh ? '设置导航' : 'Settings nav'}</div>
+                    <div className="truncate text-xs text-on-surface-muted">{isZh ? '点击图标切换模块' : 'Jump between modules'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleNavCollapsed}
+                    className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl border border-outline bg-surface text-on-surface-muted transition hover:bg-surface-container-high hover:text-on-surface"
+                    aria-label={navCollapsed ? (isZh ? '展开设置菜单' : 'Expand settings menu') : isZh ? '收起设置菜单' : 'Collapse settings menu'}
                   >
-                    <item.icon className="h-4 w-4 flex-shrink-0" />
-                    <span className={`${navCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
-                  </NavLink>
-                ))}
+                    {navCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                  </button>
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                  {settingNavItems.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      end={item.path === ''}
+                      title={navCollapsed ? item.label : undefined}
+                      className={({ isActive }) =>
+                        `group flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all lg:w-full ${
+                          navCollapsed ? 'lg:justify-center lg:px-3' : ''
+                        } ${
+                          isActive
+                            ? 'bg-primary text-on-primary shadow-sm'
+                            : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+                        }`
+                      }
+                    >
+                      <item.icon className="h-4 w-4 flex-shrink-0" />
+                      <span className={`${navCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
               </nav>
             </aside>
 
-            <div className="card min-w-0 flex-1 overflow-hidden">
+            <div className="min-w-0 flex-1 overflow-hidden rounded-3xl border border-outline/70 bg-surface shadow-sm">
               <Outlet />
             </div>
           </div>
