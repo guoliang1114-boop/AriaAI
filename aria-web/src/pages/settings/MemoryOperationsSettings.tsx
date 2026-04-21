@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
+  CheckCircle2,
   Clock3,
   ExternalLink,
   Filter,
@@ -56,6 +57,31 @@ type FailureItem =
       message: string
       retry_count?: number
       failed_at: string
+    }
+
+type SuccessItem =
+  | {
+      scope: 'project'
+      project_id: number
+      project_name: string
+      client?: string
+      stage: string
+      status?: string
+      message: string
+      trigger?: string
+      version?: number
+      completed_at: string
+    }
+  | {
+      scope: 'client'
+      client_id: number
+      client_name: string
+      stage: string
+      status?: string
+      message: string
+      trigger?: string
+      version?: number
+      completed_at: string
     }
 
 function getFailureKey(failure: FailureItem) {
@@ -217,6 +243,7 @@ export function MemoryOperationsSettings() {
   const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
   const [clientBudget, setClientBudget] = useState<BudgetInfo | null>(null)
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
+  const [recentSuccesses, setRecentSuccesses] = useState<SuccessItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [scopeFilter, setScopeFilter] = useState<JobScopeFilter>('all')
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeFilter>('all')
@@ -244,6 +271,12 @@ export function MemoryOperationsSettings() {
           ...((projectData.recent_failures as FailureItem[] | undefined) ?? []),
           ...((clientData.recent_failures as FailureItem[] | undefined) ?? []),
         ].sort((a, b) => (b.failed_at || '').localeCompare(a.failed_at || '')),
+      )
+      setRecentSuccesses(
+        [
+          ...((projectData.recent_successes as SuccessItem[] | undefined) ?? []),
+          ...((clientData.recent_successes as SuccessItem[] | undefined) ?? []),
+        ].sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')),
       )
     } catch (error) {
       console.error('Failed to load memory operations:', error)
@@ -436,6 +469,19 @@ export function MemoryOperationsSettings() {
     })
   }, [attentionFilter, failureCategoryFilter, recentFailures, scopeFilter, searchQuery])
 
+  const filteredSuccesses = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return recentSuccesses.filter((success) => {
+      if (scopeFilter !== 'all' && success.scope !== scopeFilter) return false
+      if (!query) return true
+      const fields =
+        success.scope === 'project'
+          ? [success.project_name, success.client, success.stage, success.message, success.trigger]
+          : [success.client_name, success.stage, success.message, success.trigger]
+      return fields.some((item) => String(item || '').toLowerCase().includes(query))
+    })
+  }, [recentSuccesses, scopeFilter, searchQuery])
+
   const selectedFailure = useMemo(
     () => (selectedFailureKey ? recentFailures.find((failure) => getFailureKey(failure) === selectedFailureKey) ?? null : null),
     [recentFailures, selectedFailureKey],
@@ -500,7 +546,7 @@ export function MemoryOperationsSettings() {
     }
   }
 
-  const openEntity = (job: CombinedJob | FailureItem) => {
+  const openEntity = (job: CombinedJob | FailureItem | SuccessItem) => {
     if (job.scope === 'project') {
       navigate(`/projects/${job.project_id}/memory`)
       return
@@ -631,6 +677,59 @@ export function MemoryOperationsSettings() {
     )
   }
 
+  const renderSuccessCard = (success: SuccessItem, index: number) => {
+    const title =
+      success.scope === 'project'
+        ? isZh
+          ? `项目 / ${success.project_name}`
+          : `Project / ${success.project_name}`
+        : isZh
+          ? `客户 / ${success.client_name}`
+          : `Client / ${success.client_name}`
+    const subLabel =
+      success.scope === 'project'
+        ? success.client || (isZh ? '未填写客户' : 'No client')
+        : isZh
+          ? '客户记忆'
+          : 'Client memory'
+
+    return (
+      <div key={`${success.scope}-${success.completed_at}-${index}`} className="rounded-xl bg-emerald-50/80 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-medium text-emerald-950">
+              <CheckCircle2 className="h-4 w-4" />
+              {title}
+            </div>
+            <div className="mt-1 text-xs text-emerald-800">
+              {subLabel}
+              {' / '}
+              {isZh ? '阶段' : 'Stage'}: {success.stage}
+              {' / '}
+              {isZh ? '版本' : 'Version'} {success.version ?? '-'}
+            </div>
+          </div>
+          <div className="text-xs text-emerald-800">{formatDate(success.completed_at, isZh)}</div>
+        </div>
+        <div className="mt-2 text-sm text-emerald-950">{success.message}</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {success.trigger ? (
+            <span className="rounded-lg border border-emerald-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-emerald-800">
+              {isZh ? '触发' : 'Trigger'}: {success.trigger}
+            </span>
+          ) : null}
+          <button
+            onClick={() => openEntity(success)}
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:bg-white"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {isZh ? '打开详情' : 'Open'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const renderJobCard = (job: CombinedJob) => {
     const label =
       job.scope === 'project'
@@ -738,11 +837,11 @@ export function MemoryOperationsSettings() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-8">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-9">
         <SectionCard
-          title={isZh ? '总任务数' : 'Total jobs'}
+          title={isZh ? '进行中/排队' : 'Active jobs'}
           value={jobs.length}
-          description={isZh ? '当前排队中的后台任务' : 'Queued background jobs right now'}
+          description={isZh ? '当前排队或进行中的后台任务' : 'Queued or running background jobs'}
         />
         <SectionCard
           title={isZh ? '记忆重建' : 'Rebuild jobs'}
@@ -770,6 +869,19 @@ export function MemoryOperationsSettings() {
                 : 'No recent failures'
           }
           tone={recentFailures.length > 0 ? 'warning' : 'default'}
+        />
+        <SectionCard
+          title={isZh ? '最近成功' : 'Recent successes'}
+          value={recentSuccesses.length}
+          description={
+            recentSuccesses.length > 0
+              ? isZh
+                ? '最近完成的记忆任务'
+                : 'Recently completed memory jobs'
+              : isZh
+                ? '暂无成功记录'
+                : 'No success history yet'
+          }
         />
         <SectionCard
           title={isZh ? '需人工处理' : 'Manual attention'}
@@ -955,11 +1067,21 @@ export function MemoryOperationsSettings() {
           {!showFailuresOnly && filteredJobs.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-outline p-10 text-center text-sm text-on-surface-muted">
               <Clock3 className="mx-auto mb-3 h-6 w-6" />
-              {isZh ? '当前筛选条件下没有匹配的后台任务。' : 'No jobs match the current filters.'}
+              {isZh ? '当前筛选条件下没有匹配的排队或进行中任务。' : 'No queued or running jobs match the current filters.'}
             </div>
           ) : null}
 
           {!showFailuresOnly ? <div className="grid gap-4">{filteredJobs.map(renderJobCard)}</div> : null}
+
+          {!showFailuresOnly && filteredSuccesses.length > 0 ? (
+            <div className="rounded-2xl border border-emerald-200 bg-surface p-4 shadow-sm">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-950">
+                <CheckCircle2 className="h-4 w-4" />
+                {isZh ? '最近成功记录' : 'Recent successes'}
+              </div>
+              <div className="space-y-3">{filteredSuccesses.slice(0, 12).map(renderSuccessCard)}</div>
+            </div>
+          ) : null}
 
           {filteredFailures.length > 0 ? (
             <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">

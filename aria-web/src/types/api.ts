@@ -159,6 +159,18 @@ export interface ProjectMemoryJobsResponse {
     retry_count?: number
     failed_at: string
   }>
+  recent_successes?: Array<{
+    scope: 'project'
+    project_id: number
+    project_name: string
+    client?: string
+    stage: string
+    status?: 'success' | string
+    message: string
+    trigger?: string
+    version?: number
+    completed_at: string
+  }>
 }
 
 export type ProjectMemorySummaryType =
@@ -301,6 +313,17 @@ export interface ClientMemoryJobsResponse {
     message: string
     retry_count?: number
     failed_at: string
+  }>
+  recent_successes?: Array<{
+    scope: 'client'
+    client_id: number
+    client_name: string
+    stage: string
+    status?: 'success' | string
+    message: string
+    trigger?: string
+    version?: number
+    completed_at: string
   }>
 }
 

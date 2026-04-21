@@ -160,6 +160,7 @@ class ClientMemoryJobsResponse(BaseModel):
     count: int
     budget: dict = {}
     recent_failures: list[dict] = []
+    recent_successes: list[dict] = []
 
 
 class PromoteProjectMemoryRequest(BaseModel):
@@ -274,6 +275,35 @@ def _set_client_memory_failure(
 def _get_client_memory_failure(client: ClientRecord) -> dict | None:
     failure = _get_raw_client_memory(client).get("_last_failure")
     return failure if isinstance(failure, dict) else None
+
+
+def _get_client_memory_successes(client: ClientRecord) -> list[dict]:
+    rebuild_log = _get_raw_client_memory(client).get("rebuild_log")
+    if not isinstance(rebuild_log, list):
+        return []
+
+    successes: list[dict] = []
+    for item in rebuild_log:
+        if not isinstance(item, dict):
+            continue
+        completed_at = str(item.get("at") or "")
+        if not completed_at:
+            continue
+        version = item.get("version", client.client_memory_version)
+        successes.append(
+            {
+                "scope": "client",
+                "client_id": client.id,
+                "client_name": client.name,
+                "stage": "rebuild",
+                "status": "success",
+                "message": f"Client memory rebuilt successfully at version {version}.",
+                "trigger": item.get("trigger", ""),
+                "version": version,
+                "completed_at": completed_at,
+            }
+        )
+    return successes
 
 
 def _build_client_out(
@@ -761,19 +791,21 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
     jobs.sort(key=lambda item: ((item.next_run_at or ""), item.client_id, item.job_type))
     used_today = _count_client_summary_warm_budget_used_today(session)
     recent_failures = []
+    recent_successes = []
     for client in all_clients:
         failure = _get_client_memory_failure(client)
-        if not failure:
-            continue
-        recent_failures.append(
-            {
-                "scope": "client",
-                "client_id": client.id,
-                "client_name": client.name,
-                **failure,
-            }
-        )
+        if failure:
+            recent_failures.append(
+                {
+                    "scope": "client",
+                    "client_id": client.id,
+                    "client_name": client.name,
+                    **failure,
+                }
+            )
+        recent_successes.extend(_get_client_memory_successes(client))
     recent_failures.sort(key=lambda item: item.get("failed_at", ""), reverse=True)
+    recent_successes.sort(key=lambda item: item.get("completed_at", ""), reverse=True)
     return ClientMemoryJobsResponse(
         jobs=jobs,
         count=len(jobs),
@@ -783,6 +815,7 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
             "remaining": max(MEMORY_SUMMARY_WARM_DAILY_LIMIT - used_today, 0),
         },
         recent_failures=recent_failures[:8],
+        recent_successes=recent_successes[:12],
     )
 
 
