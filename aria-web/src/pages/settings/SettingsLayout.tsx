@@ -13,7 +13,6 @@ import {
   Info,
   ListChecks,
   Server,
-  SlidersHorizontal,
   User,
   Users,
 } from 'lucide-react'
@@ -55,49 +54,42 @@ export function SettingsLayout() {
   return (
     <>
       <PageTitle title={t('settings.title')} />
-      <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_34%),linear-gradient(180deg,var(--color-surface),var(--color-surface-container-low))]">
-        <div className="w-full px-3 py-4 sm:px-5 lg:px-6">
-          <div className="mb-4 rounded-3xl border border-outline/70 bg-surface/85 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">
-                  <SlidersHorizontal className="h-5 w-5" />
-                </span>
-                <div>
-                  <h1 className="text-lg font-semibold text-on-surface">{t('settings.title')}</h1>
-                  <p className="text-sm text-on-surface-muted">{t('settings.description')}</p>
-                </div>
+      <div className="min-h-full bg-surface-container-low/40">
+        <div className="w-full px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mb-5 border-b border-outline/70 pb-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-on-surface">{t('settings.title')}</h1>
+                <p className="mt-1 max-w-2xl text-sm text-on-surface-muted">{t('settings.description')}</p>
               </div>
-              <div className="hidden rounded-full bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface-muted sm:block">
-                {isZh ? '配置、治理与运维入口' : 'Configuration, governance, and operations'}
-              </div>
+              <span className="text-xs font-medium uppercase tracking-[0.18em] text-on-surface-muted">
+                {isZh ? '系统配置' : 'System settings'}
+              </span>
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
             <aside
               className={`w-full flex-shrink-0 transition-[width] duration-200 lg:sticky lg:top-6 ${
-                navCollapsed ? 'lg:w-[76px]' : 'lg:w-64'
+                navCollapsed ? 'lg:w-[68px]' : 'lg:w-60'
               }`}
             >
               <nav
-                className={`rounded-3xl border border-outline/70 bg-surface/90 p-2 shadow-sm backdrop-blur ${
-                  navCollapsed ? 'lg:px-2' : ''
-                }`}
+                className={`border border-outline/70 bg-surface p-2 ${navCollapsed ? 'lg:px-2' : ''}`}
               >
                 <div
-                  className={`mb-2 hidden items-center gap-2 rounded-2xl bg-surface-container-low p-2 lg:flex ${
+                  className={`mb-2 hidden items-center gap-2 border-b border-outline/60 px-2 pb-2 lg:flex ${
                     navCollapsed ? 'justify-center' : 'justify-between'
                   }`}
                 >
                   <div className={`min-w-0 ${navCollapsed ? 'hidden' : ''}`}>
-                    <div className="text-sm font-semibold text-on-surface">{isZh ? '设置导航' : 'Settings nav'}</div>
-                    <div className="truncate text-xs text-on-surface-muted">{isZh ? '点击图标切换模块' : 'Jump between modules'}</div>
+                    <div className="text-sm font-semibold text-on-surface">{isZh ? '导航' : 'Navigation'}</div>
+                    <div className="truncate text-xs text-on-surface-muted">{isZh ? '设置模块' : 'Settings sections'}</div>
                   </div>
                   <button
                     type="button"
                     onClick={toggleNavCollapsed}
-                    className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl border border-outline bg-surface text-on-surface-muted transition hover:bg-surface-container-high hover:text-on-surface"
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center border border-outline bg-surface text-on-surface-muted transition hover:bg-surface-container-low hover:text-on-surface"
                     aria-label={navCollapsed ? (isZh ? '展开设置菜单' : 'Expand settings menu') : isZh ? '收起设置菜单' : 'Collapse settings menu'}
                   >
                     {navCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -112,24 +104,33 @@ export function SettingsLayout() {
                       end={item.path === ''}
                       title={navCollapsed ? item.label : undefined}
                       className={({ isActive }) =>
-                        `group flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition-all lg:w-full ${
+                        `group relative flex shrink-0 items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors lg:w-full ${
                           navCollapsed ? 'lg:justify-center lg:px-3' : ''
                         } ${
                           isActive
-                            ? 'bg-primary text-on-primary shadow-sm'
-                            : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+                            ? 'bg-surface-container text-on-surface'
+                            : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
                         }`
                       }
                     >
-                      <item.icon className="h-4 w-4 flex-shrink-0" />
-                      <span className={`${navCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+                      {({ isActive }) => (
+                        <>
+                          <span
+                            className={`absolute left-0 top-2 h-[calc(100%-1rem)] w-0.5 bg-primary transition-opacity ${
+                              isActive ? 'opacity-100' : 'opacity-0'
+                            }`}
+                          />
+                          <item.icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-primary' : ''}`} />
+                          <span className={`${navCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+                        </>
+                      )}
                     </NavLink>
                   ))}
                 </div>
               </nav>
             </aside>
 
-            <div className="min-w-0 flex-1 overflow-hidden rounded-3xl border border-outline/70 bg-surface shadow-sm">
+            <div className="min-w-0 flex-1 overflow-hidden border border-outline/70 bg-surface">
               <Outlet />
             </div>
           </div>
