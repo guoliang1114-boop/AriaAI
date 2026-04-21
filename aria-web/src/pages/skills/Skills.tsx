@@ -56,7 +56,8 @@ const getCategoryTone = (category: string) => {
 };
 
 export function Skills() {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -66,6 +67,7 @@ export function Skills() {
   const [activeType, setActiveType] = useState<"all" | "quick" | "deep">("all");
   const clientId = searchParams.get("client");
   const clientName = searchParams.get("clientName");
+  const clientProjectId = searchParams.get("clientProject");
   const projectId = searchParams.get("project");
   const projectName = searchParams.get("projectName");
   const prefilledPrompt = searchParams.get("q");
@@ -87,10 +89,12 @@ export function Skills() {
   }, []);
 
   const handleUseSkill = (skillId: number) => {
+    const targetProjectId = projectId || clientProjectId;
     const nextParams = new URLSearchParams({ skill: String(skillId) });
-    if (projectId) nextParams.set("project", projectId);
+    if (targetProjectId) nextParams.set("project", targetProjectId);
     if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
-    navigate(projectId ? `/projects/${projectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`);
+
+    navigate(targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`);
   };
 
   const categories = useMemo(
@@ -129,6 +133,15 @@ export function Skills() {
 
   const featuredSkills = filteredSkills.slice(0, 2);
   const regularSkills = filteredSkills.slice(2);
+  const hasProjectSource = Boolean(projectId);
+  const hasClientSource = Boolean(clientId && !projectId);
+  const clientTargetText = clientProjectId
+    ? isZh
+      ? "选择后会进入该客户最近关联项目的 Chat 执行，输出可保存为项目文档或笔记。"
+      : "After selection, this will open the client's latest related project chat so outputs can be saved as project notes or documents."
+    : isZh
+      ? "该客户暂无关联项目，将先进入通用 Chat 兜底；建议后续关联项目后再沉淀为项目资产。"
+      : "No related project is available, so this falls back to general Chat. Link a project later to persist outputs as project assets.";
 
   if (loading) {
     return (
@@ -165,48 +178,30 @@ export function Skills() {
           </section>
 
           <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur">
-            {projectId ? (
-              <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-indigo-950">
-                      {projectName ? `来自项目空间：${projectName}` : "来自项目空间"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-indigo-800">
-                      选择一个 Skill 后，会进入当前项目 Chat，并自动带入项目记忆、文档、待办、财务和客户线索。输出后可保存为项目文档或笔记。
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/projects/${projectId}`)}
-                    className="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-800 transition hover:bg-indigo-100"
-                  >
-                    返回项目空间
-                  </button>
-                </div>
-              </div>
+            {hasProjectSource ? (
+              <LaunchSourceBanner
+                buttonLabel={isZh ? "返回项目空间" : "Back to project"}
+                description={
+                  isZh
+                    ? "选择一个 Skill 后，会进入当前项目 Chat，并自动带入项目记忆、文档、待办、财务和客户线索。输出后可保存为项目文档或笔记。"
+                    : "Choose a Skill to open this project chat with memory, documents, todos, financials, and client signals prefilled. Outputs can be saved as project notes or documents."
+                }
+                onBack={() => navigate(`/projects/${projectId}`)}
+                title={projectName ? (isZh ? `来自项目空间：${projectName}` : `From project: ${projectName}`) : isZh ? "来自项目空间" : "From project workspace"}
+                tone="indigo"
+              />
             ) : null}
-            {clientId && !projectId ? (
-              <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-emerald-900">
-                      {clientName ? `来自客户空间：${clientName}` : "来自客户空间"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-800">
-                      选择一个 Skill 后，会自动把客户档案、客户记忆状态和关联项目线索带入聊天输入框。
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/clients/${clientId}`)}
-                    className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-800 transition hover:bg-emerald-100"
-                  >
-                    返回客户空间
-                  </button>
-                </div>
-              </div>
+
+            {hasClientSource ? (
+              <LaunchSourceBanner
+                buttonLabel={isZh ? "返回客户空间" : "Back to client"}
+                description={clientTargetText}
+                onBack={() => navigate(`/clients/${clientId}`)}
+                title={clientName ? (isZh ? `来自客户空间：${clientName}` : `From client: ${clientName}`) : isZh ? "来自客户空间" : "From client workspace"}
+                tone="emerald"
+              />
             ) : null}
+
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="relative w-full min-w-0 flex-1 xl:max-w-2xl">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -286,6 +281,47 @@ export function Skills() {
         </div>
       </div>
     </>
+  );
+}
+
+function LaunchSourceBanner({
+  buttonLabel,
+  description,
+  onBack,
+  title,
+  tone,
+}: {
+  buttonLabel: string;
+  description: string;
+  onBack: () => void;
+  title: string;
+  tone: "emerald" | "indigo";
+}) {
+  const toneClass =
+    tone === "indigo"
+      ? "border-indigo-100 bg-indigo-50 text-indigo-800"
+      : "border-emerald-100 bg-emerald-50 text-emerald-800";
+  const buttonClass =
+    tone === "indigo"
+      ? "border-indigo-200 text-indigo-800 hover:bg-indigo-100"
+      : "border-emerald-200 text-emerald-800 hover:bg-emerald-100";
+
+  return (
+    <div className={`mb-4 rounded-2xl border px-4 py-3 ${toneClass}`}>
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-1 text-xs leading-5">{description}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          className={`inline-flex items-center justify-center rounded-xl border bg-white px-3 py-2 text-xs font-medium transition ${buttonClass}`}
+        >
+          {buttonLabel}
+        </button>
+      </div>
+    </div>
   );
 }
 
