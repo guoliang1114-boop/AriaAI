@@ -1770,13 +1770,14 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
     project_lookup = {project.id: project for project in all_projects}
 
     jobs: list[dict] = []
-    job_project_ids: set[int] = set()
+    rebuild_job_project_ids: set[int] = set()
     for job in scheduler_service.get_jobs():
         parsed = _parse_project_memory_job(job)
         if not parsed:
             continue
         project = project_lookup.get(parsed["project_id"])
-        job_project_ids.add(parsed["project_id"])
+        if parsed["job_type"] == "rebuild":
+            rebuild_job_project_ids.add(parsed["project_id"])
         jobs.append(
             {
                 **parsed,
@@ -1789,7 +1790,7 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
         )
 
     for project in all_projects:
-        if project.id in job_project_ids:
+        if project.id in rebuild_job_project_ids:
             continue
         if project.memory_rebuild_status not in {"queued", "rebuilding"}:
             continue
@@ -1890,6 +1891,12 @@ async def run_project_memory_jobs_now(
         summary_types=["overview", "risk", "stakeholder"],
         force_refresh=False,
     )
+    if project.memory_rebuild_status in {"queued", "rebuilding"}:
+        project.memory_rebuild_status = "idle"
+        project.memory_rebuild_failed_at = None
+        session.add(project)
+        session.commit()
+        _bust_project(project_id)
     return {
         "ok": True,
         "project_id": project_id,
