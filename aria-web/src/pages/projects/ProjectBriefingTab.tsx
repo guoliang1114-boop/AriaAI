@@ -10,6 +10,55 @@ interface ProjectBriefingTabProps {
   projectId: string;
 }
 
+type MeetingTemplateId = "status" | "executive" | "risk" | "commercial";
+
+const MEETING_TEMPLATES: Array<{
+  id: MeetingTemplateId;
+  zhLabel: string;
+  enLabel: string;
+  zhDescription: string;
+  enDescription: string;
+  zhPrompt: string;
+  enPrompt: string;
+}> = [
+  {
+    id: "status",
+    zhLabel: "项目例会",
+    enLabel: "Status meeting",
+    zhDescription: "同步进展、问题和会后行动",
+    enDescription: "Align progress, issues, and follow-up actions",
+    zhPrompt: "请按项目例会场景输出：进展同步、风险说明、待确认问题、会后行动清单。",
+    enPrompt: "For a status meeting, output progress updates, risks, questions to confirm, and follow-up actions.",
+  },
+  {
+    id: "executive",
+    zhLabel: "高层汇报",
+    enLabel: "Executive briefing",
+    zhDescription: "强调价值、决策和向上汇报口径",
+    enDescription: "Emphasize value, decisions, and executive framing",
+    zhPrompt: "请按高层汇报场景输出：开场价值陈述、关键决策点、量化收益表达、需要领导拍板的事项。",
+    enPrompt: "For an executive briefing, output value framing, decision points, quantified benefits, and leadership asks.",
+  },
+  {
+    id: "risk",
+    zhLabel: "风险沟通",
+    enLabel: "Risk alignment",
+    zhDescription: "控制敏感点，推动阻塞事项",
+    enDescription: "Handle sensitivities and unblock risks",
+    zhPrompt: "请按风险沟通场景输出：风险分级、敏感表达方式、需要客户确认的边界、降风险行动。",
+    enPrompt: "For risk alignment, output risk levels, careful wording, boundaries to confirm, and de-risking actions.",
+  },
+  {
+    id: "commercial",
+    zhLabel: "商务推进",
+    enLabel: "Commercial push",
+    zhDescription: "推进预算、采购、续约或回款",
+    enDescription: "Move budget, procurement, renewal, or collection forward",
+    zhPrompt: "请按商务推进场景输出：商务目标、采购/预算阻塞点、不同干系人的沟通重点、下一步推进路径。",
+    enPrompt: "For a commercial discussion, output commercial goals, procurement or budget blockers, stakeholder messaging, and next steps.",
+  },
+];
+
 function BriefingSection({
   title,
   items,
@@ -67,6 +116,7 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const [briefing, setBriefing] = useState<ProjectMeetingBriefing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [meetingTemplateId, setMeetingTemplateId] = useState<MeetingTemplateId>("status");
 
   const loadBriefing = async () => {
     setIsLoading(true);
@@ -90,10 +140,13 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const generatedAt = briefing?.generated_at
     ? new Date(briefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
     : "";
+  const selectedTemplate = MEETING_TEMPLATES.find((template) => template.id === meetingTemplateId) ?? MEETING_TEMPLATES[0];
   const openChatWithBriefing = () => {
     if (!briefing) return;
     const prompt = [
       `请基于这张会前简报，帮我准备一份面向客户会议的沟通话术和会议推进计划。`,
+      `会议类型：${isZh ? selectedTemplate.zhLabel : selectedTemplate.enLabel}`,
+      isZh ? selectedTemplate.zhPrompt : selectedTemplate.enPrompt,
       `项目：${briefing.project.name}`,
       `客户：${briefing.project.client}`,
       formatPromptSection("建议说什么", briefing.meeting_card.say),
@@ -173,6 +226,40 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
         {error ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div>
         ) : null}
+      </div>
+
+      <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-gray-950">{isZh ? "选择会议类型" : "Choose meeting type"}</div>
+            <p className="mt-1 text-sm text-gray-500">
+              {isZh ? "不同会议会改变带入 Chat 的输出要求。" : "Meeting type changes the prompt sent into chat."}
+            </p>
+          </div>
+          <div className="text-xs text-gray-400">{isZh ? "不会额外调用模型" : "No extra model call"}</div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {MEETING_TEMPLATES.map((template) => {
+            const active = template.id === meetingTemplateId;
+            return (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => setMeetingTemplateId(template.id)}
+                className={`rounded-2xl border p-4 text-left transition ${
+                  active
+                    ? "border-primary bg-primary/5 text-primary shadow-sm"
+                    : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300 hover:bg-white"
+                }`}
+              >
+                <div className="text-sm font-semibold">{isZh ? template.zhLabel : template.enLabel}</div>
+                <div className={`mt-2 text-xs leading-5 ${active ? "text-primary/80" : "text-gray-500"}`}>
+                  {isZh ? template.zhDescription : template.enDescription}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
