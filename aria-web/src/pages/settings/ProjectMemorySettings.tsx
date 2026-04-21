@@ -54,6 +54,15 @@ function getJobTypeText(jobType: ProjectMemoryJob['job_type'], isZh: boolean): s
   return isZh ? '记忆重建' : 'Memory Rebuild'
 }
 
+function getJobSourceText(job: ProjectMemoryJob, isZh: boolean): string {
+  if (job.status_source === 'project_status') {
+    return isZh
+      ? '项目状态显示仍在排队，但当前调度器里没有对应任务。可以点击立即执行来校准。'
+      : 'Project status still says queued, but no scheduler job exists. Run now to reconcile it.'
+  }
+  return isZh ? '来自后台调度器队列' : 'From scheduler queue'
+}
+
 function RebuildStatusIcon({ status }: { status?: string }) {
   if (status === 'rebuilding') return <Loader2 className="h-3 w-3 animate-spin" />
   if (status === 'queued') return <Clock3 className="h-3 w-3" />
@@ -332,6 +341,24 @@ export function ProjectMemorySettings() {
     try {
       setJobActionProjectId(projectId)
       await api.post(`/projects/memory/jobs/${projectId}/cancel`, {})
+      const project = projects.find((item) => item.id === projectId)
+      if (project) {
+        dispatchProjectMemoryStateUpdated({
+          projectId,
+          memory_stale: project.memory_stale ?? false,
+          memory_updated_at: project.memory_updated_at,
+          memory_version: project.memory_version ?? 0,
+          memory_rebuild_status: 'idle',
+          memory_rebuild_failed_at: null,
+        })
+      }
+      setProjects((current) =>
+        current.map((item) =>
+          item.id === projectId
+            ? { ...item, memory_rebuild_status: 'idle', memory_rebuild_failed_at: null }
+            : item,
+        ),
+      )
       setJobs((current) => current.filter((job) => job.project_id !== projectId))
       toast.success(isZh ? '已取消该项目的排队任务' : 'Cancelled queued jobs for this project')
     } catch (error) {
@@ -515,8 +542,20 @@ export function ProjectMemorySettings() {
                           {job.language}
                         </span>
                       ) : null}
+                      {job.status_source === 'project_status' ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                          {isZh ? '状态待校准' : 'Needs reconcile'}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-1 text-sm text-gray-500">{job.client}</div>
+                    <div className={`mt-2 rounded-lg px-3 py-2 text-xs ${
+                      job.status_source === 'project_status'
+                        ? 'bg-amber-50 text-amber-800'
+                        : 'bg-slate-50 text-slate-600'
+                    }`}>
+                      {getJobSourceText(job, isZh)}
+                    </div>
                     <div className="mt-2 grid gap-2 text-xs text-gray-600 sm:grid-cols-3">
                       <div>
                         <span className="font-medium">{isZh ? '计划执行：' : 'Scheduled: '}</span>

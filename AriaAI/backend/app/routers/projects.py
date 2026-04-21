@@ -1770,11 +1770,13 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
     project_lookup = {project.id: project for project in all_projects}
 
     jobs: list[dict] = []
+    job_project_ids: set[int] = set()
     for job in scheduler_service.get_jobs():
         parsed = _parse_project_memory_job(job)
         if not parsed:
             continue
         project = project_lookup.get(parsed["project_id"])
+        job_project_ids.add(parsed["project_id"])
         jobs.append(
             {
                 **parsed,
@@ -1782,6 +1784,32 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
                 "client": project.client if project else "",
                 "memory_stale": project.memory_stale if project else False,
                 "memory_version": project.memory_version if project else 0,
+                "status_source": "scheduler",
+            }
+        )
+
+    for project in all_projects:
+        if project.id in job_project_ids:
+            continue
+        if project.memory_rebuild_status not in {"queued", "rebuilding"}:
+            continue
+        jobs.append(
+            {
+                "project_id": project.id,
+                "job_type": "rebuild",
+                "language": None,
+                "job_id": f"project_memory_rebuild_status_{project.id}",
+                "next_run_at": None,
+                "retry_count": 0,
+                "max_retries": PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+                "trigger": "status_only",
+                "summary_types": [],
+                "project_name": project.name,
+                "client": project.client,
+                "memory_stale": project.memory_stale,
+                "memory_version": project.memory_version,
+                "status_source": "project_status",
+                "status_note": project.memory_rebuild_status,
             }
         )
 
@@ -1815,10 +1843,17 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
 
 
 @router.post("/memory/jobs/{project_id}/cancel")
-def cancel_project_memory_jobs(project_id: int):
+def cancel_project_memory_jobs(project_id: int, session: Session = Depends(get_session)):
     scheduler_service.remove_job(_memory_rebuild_job_id(project_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_memory_summary_warm_job_id(project_id, language))
+    project = session.get(Project, project_id)
+    if project and project.memory_rebuild_status in {"queued", "rebuilding"}:
+        project.memory_rebuild_status = "idle"
+        project.memory_rebuild_failed_at = None
+        session.add(project)
+        session.commit()
+        _bust_project(project_id)
     return {"ok": True, "project_id": project_id}
 
 

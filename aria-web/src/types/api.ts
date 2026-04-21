@@ -134,6 +134,8 @@ export interface ProjectMemoryJob {
   memory_version: number
   retry_count?: number
   max_retries?: number
+  status_note?: string
+  status_source?: 'scheduler' | 'project_status' | string
   trigger?: string | null
   summary_types?: string[]
 }
