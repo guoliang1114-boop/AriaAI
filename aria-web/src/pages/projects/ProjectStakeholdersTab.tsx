@@ -6,10 +6,12 @@ import { api } from "../../api/client";
 import type {
   ClientMemory,
   ClientMemoryResponse,
+  ClientStakeholder,
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
   ProjectMemoryResponse,
 } from "../../types/api";
+import { ClientStakeholdersStructuredCard } from "./ClientStakeholdersStructuredCard";
 import {
   ClientKeyContactsCard,
   ClientRelationshipContextCard,
@@ -41,6 +43,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [client, setClient] = useState<ClientSummary | null>(null);
   const [clientMemory, setClientMemory] = useState<ClientMemory | null>(null);
+  const [structuredStakeholders, setStructuredStakeholders] = useState<ClientStakeholder[]>([]);
   const [contactDraft, setContactDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingContact, setSavingContact] = useState(false);
@@ -66,6 +69,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
         if (!clientName) {
           setClient(null);
           setClientMemory(null);
+          setStructuredStakeholders([]);
           setContactDraft("");
           return;
         }
@@ -78,11 +82,18 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
 
         if (!matchedClient) {
           setClientMemory(null);
+          setStructuredStakeholders([]);
           return;
         }
 
-        const clientMemoryData = await api.get<ClientMemoryResponse>(`/clients/${matchedClient.id}/memory`);
-        if (!cancelled) setClientMemory(clientMemoryData.memory);
+        const [clientMemoryData, stakeholderData] = await Promise.all([
+          api.get<ClientMemoryResponse>(`/clients/${matchedClient.id}/memory`),
+          api.get<ClientStakeholder[]>(`/clients/${matchedClient.id}/stakeholders`),
+        ]);
+        if (!cancelled) {
+          setClientMemory(clientMemoryData.memory);
+          setStructuredStakeholders(stakeholderData);
+        }
       } catch (error) {
         console.error("Failed to load project stakeholders:", error);
       } finally {
@@ -104,28 +115,42 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
   const draftContactLines = splitContactLines(contactDraft);
   const sensitiveTopics = clientMemory?.sensitive_topics || [];
   const decisionPatterns = clientMemory?.decision_patterns || [];
-  const visualContacts: VisualContact[] = keyContacts.length
-    ? keyContacts.map((contact) => ({
-        name: contact.name || (isZh ? "未命名联系人" : "Unnamed contact"),
-        note: contact.note || "",
-        role: contact.role || (isZh ? "角色待补充" : "Role missing"),
-        source: isZh ? "客户记忆" : "Client memory",
+  const visualContacts: VisualContact[] = structuredStakeholders.length
+    ? structuredStakeholders.map((stakeholder) => ({
+        name: stakeholder.name || (isZh ? "未命名干系人" : "Unnamed stakeholder"),
+        note: stakeholder.concerns || stakeholder.note || stakeholder.communication_preference || "",
+        role: stakeholder.role || stakeholder.influence_type || (isZh ? "角色待补充" : "Role missing"),
+        source: isZh ? "结构化干系人" : "Structured stakeholder",
       }))
-    : draftContactLines.map((line, index) => ({
-        name: line.split(/[，,／/|｜]/)[0]?.trim() || `${isZh ? "联系人" : "Contact"} ${index + 1}`,
-        note: line,
-        role: isZh ? "手动维护" : "Manual",
-        source: isZh ? "客户资料" : "Client record",
-      }));
+    : keyContacts.length
+      ? keyContacts.map((contact) => ({
+          name: contact.name || (isZh ? "未命名联系人" : "Unnamed contact"),
+          note: contact.note || "",
+          role: contact.role || (isZh ? "角色待补充" : "Role missing"),
+          source: isZh ? "客户记忆" : "Client memory",
+        }))
+      : draftContactLines.map((line, index) => ({
+          name: line.split(/[，,|｜]/)[0]?.trim() || `${isZh ? "联系人" : "Contact"} ${index + 1}`,
+          note: line,
+          role: isZh ? "手动维护" : "Manual",
+          source: isZh ? "客户资料" : "Client record",
+        }));
 
   const stakeholderScore = useMemo(() => {
     let score = 0;
     if (client) score += 1;
-    if (keyContacts.length) score += 1;
+    if (structuredStakeholders.length || keyContacts.length) score += 1;
     if (pinnedNotes.length) score += 1;
     if (decisionPatterns.length || sensitiveTopics.length) score += 1;
     return score;
-  }, [client, decisionPatterns.length, keyContacts.length, pinnedNotes.length, sensitiveTopics.length]);
+  }, [
+    client,
+    decisionPatterns.length,
+    keyContacts.length,
+    pinnedNotes.length,
+    sensitiveTopics.length,
+    structuredStakeholders.length,
+  ]);
 
   const saveClientContact = async () => {
     if (!client) return;
@@ -147,7 +172,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
       <ProjectStakeholdersHero
         client={client}
         isZh={isZh}
-        keyContactCount={keyContacts.length}
+        keyContactCount={structuredStakeholders.length || keyContacts.length}
         onManageAnchors={() => navigate(`/projects/${projectId}/anchors`)}
         onOpenClientMemory={() => {
           if (client) navigate(`/clients/${client.id}/memory`);
@@ -164,13 +189,11 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
       ) : (
         <>
           <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <StakeholderMaintenanceSection
-              client={client}
-              contactDraft={contactDraft}
+            <ClientStakeholdersStructuredCard
+              clientId={client?.id}
               isZh={isZh}
-              onContactDraftChange={setContactDraft}
-              onSave={() => void saveClientContact()}
-              savingContact={savingContact}
+              onChanged={setStructuredStakeholders}
+              stakeholders={structuredStakeholders}
             />
             <StakeholderRelationshipMap
               client={client}
@@ -181,15 +204,19 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <StakeholderMaintenanceSection
+              client={client}
+              contactDraft={contactDraft}
+              isZh={isZh}
+              onContactDraftChange={setContactDraft}
+              onSave={() => void saveClientContact()}
+              savingContact={savingContact}
+            />
             <StakeholderPinnedReminderEditor
               isZh={isZh}
               memory={memory}
               onSaved={setMemory}
               projectId={projectId}
-            />
-            <ManualContactSignalsCard
-              isZh={isZh}
-              manualContactLines={manualContactLines}
             />
           </section>
 
@@ -217,6 +244,10 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
             <PinnedCommunicationRemindersCard
               isZh={isZh}
               pinnedNotes={pinnedNotes}
+            />
+            <ManualContactSignalsCard
+              isZh={isZh}
+              manualContactLines={manualContactLines}
             />
           </section>
 

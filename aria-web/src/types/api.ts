@@ -230,6 +230,24 @@ export interface ClientMemoryStatusResponse {
   memory_rebuild_failed_at?: string | null
 }
 
+export interface ClientStakeholder {
+  id: number
+  client_id: number
+  name: string
+  role: string
+  organization_level: string
+  influence_type: string
+  relationship_status: string
+  concerns: string
+  sensitivities: string
+  communication_preference: string
+  contact: string
+  last_action: string
+  note: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ClientMemoryBatchRebuildItem {
   client_id: number
   memory: ClientMemory

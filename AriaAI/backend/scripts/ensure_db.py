@@ -136,6 +136,41 @@ def _ensure_knowledge_document_project(conn, inspector, report_only: bool) -> No
         conn.execute(text("CREATE INDEX ix_knowledgedocument_project_id ON knowledgedocument (project_id)"))
 
 
+def _ensure_clientstakeholder(conn, inspector, report_only: bool) -> None:
+    if "clientstakeholder" in inspector.get_table_names():
+        print("clientstakeholder already exists")
+        return
+
+    print("Create table clientstakeholder")
+    if report_only:
+        return
+    conn.execute(
+        text(
+            """
+            CREATE TABLE clientstakeholder (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                name VARCHAR NOT NULL,
+                role VARCHAR NOT NULL DEFAULT '',
+                organization_level VARCHAR NOT NULL DEFAULT '',
+                influence_type VARCHAR NOT NULL DEFAULT '',
+                relationship_status VARCHAR NOT NULL DEFAULT 'unknown',
+                concerns TEXT NOT NULL DEFAULT '',
+                sensitivities TEXT NOT NULL DEFAULT '',
+                communication_preference TEXT NOT NULL DEFAULT '',
+                contact VARCHAR NOT NULL DEFAULT '',
+                last_action TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_clientstakeholder_client FOREIGN KEY (client_id) REFERENCES clientrecord(id) ON DELETE CASCADE
+            )
+            """
+        )
+    )
+    conn.execute(text("CREATE INDEX ix_clientstakeholder_client_id ON clientstakeholder (client_id)"))
+
+
 def _ensure_alembic_version(conn, inspector, report_only: bool) -> None:
     tables = inspector.get_table_names()
     governance = get_database_migration_governance(tables=tables)
@@ -198,6 +233,7 @@ def main() -> None:
         _ensure_projecttodo(conn, inspector, args.report_only)
         _ensure_projectmember(conn, inspector, args.report_only)
         _ensure_knowledge_document_project(conn, inspector, args.report_only)
+        _ensure_clientstakeholder(conn, inspector, args.report_only)
 
         inspector = inspect(conn)
         _ensure_alembic_version(conn, inspector, args.report_only)

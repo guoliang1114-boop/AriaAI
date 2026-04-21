@@ -23,6 +23,24 @@ class ClientRecord(SQLModel, table=True):
     documents: list["KnowledgeDocument"] = Relationship(back_populates="client")
 
 
+class ClientStakeholder(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(foreign_key="clientrecord.id", index=True)
+    name: str
+    role: str = ""
+    organization_level: str = ""
+    influence_type: str = ""
+    relationship_status: str = "unknown"
+    concerns: str = ""
+    sensitivities: str = ""
+    communication_preference: str = ""
+    contact: str = ""
+    last_action: str = ""
+    note: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Projects ────────────────────────────────────────────────────────────────
 
 class Project(SQLModel, table=True):

@@ -20,7 +20,7 @@ from app.config import (
     MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
 )
 from app.database import engine, get_session
-from app.models.db import ClientMemorySummary, ClientRecord, KnowledgeDocument, Project
+from app.models.db import ClientMemorySummary, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
 from app.services.cache import clients_cache
 from app.services.claude import complete
 from app.services import scheduler as scheduler_service
@@ -165,6 +165,45 @@ class PromoteProjectMemoryRequest(BaseModel):
     project_id: int
 
 
+class ClientStakeholderBase(BaseModel):
+    name: str
+    role: str = ""
+    organization_level: str = ""
+    influence_type: str = ""
+    relationship_status: str = "unknown"
+    concerns: str = ""
+    sensitivities: str = ""
+    communication_preference: str = ""
+    contact: str = ""
+    last_action: str = ""
+    note: str = ""
+
+
+class ClientStakeholderCreate(ClientStakeholderBase):
+    pass
+
+
+class ClientStakeholderUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    organization_level: Optional[str] = None
+    influence_type: Optional[str] = None
+    relationship_status: Optional[str] = None
+    concerns: Optional[str] = None
+    sensitivities: Optional[str] = None
+    communication_preference: Optional[str] = None
+    contact: Optional[str] = None
+    last_action: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ClientStakeholderOut(ClientStakeholderBase):
+    id: int
+    client_id: int
+    created_at: str
+    updated_at: str
+
+
 class ClientMemorySummaryRequest(BaseModel):
     language: Optional[str] = None
     summary_type: Optional[str] = "overview"
@@ -289,6 +328,26 @@ def _client_memory_rebuild_job_id(client_id: int) -> str:
 def _client_memory_summary_warm_job_id(client_id: int, language: str | None = None) -> str:
     normalized_language = normalize_summary_language(language)
     return f"client_memory_summary_warm_{client_id}_{normalized_language}"
+
+
+def _serialize_client_stakeholder(stakeholder: ClientStakeholder) -> ClientStakeholderOut:
+    return ClientStakeholderOut(
+        id=stakeholder.id,
+        client_id=stakeholder.client_id,
+        name=stakeholder.name,
+        role=stakeholder.role,
+        organization_level=stakeholder.organization_level,
+        influence_type=stakeholder.influence_type,
+        relationship_status=stakeholder.relationship_status,
+        concerns=stakeholder.concerns,
+        sensitivities=stakeholder.sensitivities,
+        communication_preference=stakeholder.communication_preference,
+        contact=stakeholder.contact,
+        last_action=stakeholder.last_action,
+        note=stakeholder.note,
+        created_at=stakeholder.created_at.isoformat(),
+        updated_at=stakeholder.updated_at.isoformat(),
+    )
 
 
 def _parse_client_memory_job(job) -> dict | None:
@@ -830,6 +889,90 @@ def list_client_projects(client_id: int, session: Session = Depends(get_session)
         }
         for project in matching
     ]
+
+
+@router.get("/{client_id}/stakeholders", response_model=list[ClientStakeholderOut])
+def list_client_stakeholders(client_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    stakeholders = session.exec(
+        select(ClientStakeholder)
+        .where(ClientStakeholder.client_id == client_id)
+        .order_by(ClientStakeholder.updated_at.desc(), ClientStakeholder.id.desc())
+    ).all()
+    return [_serialize_client_stakeholder(stakeholder) for stakeholder in stakeholders]
+
+
+@router.post("/{client_id}/stakeholders", response_model=ClientStakeholderOut, status_code=201)
+def create_client_stakeholder(
+    client_id: int,
+    body: ClientStakeholderCreate,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Stakeholder name is required")
+    stakeholder = ClientStakeholder(client_id=client_id, **body.model_dump())
+    stakeholder.name = name
+    session.add(stakeholder)
+    session.commit()
+    session.refresh(stakeholder)
+    _mark_client_memory_stale(session, client_id, trigger="stakeholder_created")
+    clients_cache.delete(_CLIENTS_KEY)
+    return _serialize_client_stakeholder(stakeholder)
+
+
+@router.put("/{client_id}/stakeholders/{stakeholder_id}", response_model=ClientStakeholderOut)
+def update_client_stakeholder(
+    client_id: int,
+    stakeholder_id: int,
+    body: ClientStakeholderUpdate,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    stakeholder = session.get(ClientStakeholder, stakeholder_id)
+    if not stakeholder or stakeholder.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Stakeholder not found")
+
+    values = body.model_dump(exclude_none=True)
+    if "name" in values:
+        values["name"] = values["name"].strip()
+        if not values["name"]:
+            raise HTTPException(status_code=400, detail="Stakeholder name is required")
+    for field, value in values.items():
+        setattr(stakeholder, field, value)
+    stakeholder.updated_at = datetime.utcnow()
+    session.add(stakeholder)
+    session.commit()
+    session.refresh(stakeholder)
+    _mark_client_memory_stale(session, client_id, trigger="stakeholder_updated")
+    clients_cache.delete(_CLIENTS_KEY)
+    return _serialize_client_stakeholder(stakeholder)
+
+
+@router.delete("/{client_id}/stakeholders/{stakeholder_id}", status_code=204)
+def delete_client_stakeholder(
+    client_id: int,
+    stakeholder_id: int,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    stakeholder = session.get(ClientStakeholder, stakeholder_id)
+    if not stakeholder or stakeholder.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Stakeholder not found")
+    session.delete(stakeholder)
+    session.commit()
+    _mark_client_memory_stale(session, client_id, trigger="stakeholder_deleted")
+    clients_cache.delete(_CLIENTS_KEY)
+    return None
 
 
 @router.post("/{client_id}/documents/{doc_id}", status_code=200)
