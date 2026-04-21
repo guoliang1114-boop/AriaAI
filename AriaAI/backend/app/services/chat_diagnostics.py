@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import httpx
 
+from app.config import KIMI_BASE_URL
+
 
 async def test_provider_connection(provider: str, model: str | None = None) -> dict:
     from app.core.security import get_api_key, get_bigmodel_api_key, get_kimi_api_key
@@ -35,12 +37,14 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                 return {"success": False, "message": "No API key configured"}
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    "https://api.moonshot.cn/v1/chat/completions",
+                    f"{KIMI_BASE_URL}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model or "kimi-k2-0711-preview",
+                        "model": model or "kimi-k2.6",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
+                        "temperature": 1.0,
+                        "top_p": 0.95,
                     },
                     timeout=30.0,
                 )

@@ -67,8 +67,19 @@ const models: AIModel[] = [
   },
   // Moonshot
   {
+    id: 'kimi-k2.6',
+    name: 'Kimi K2.6 (最新)',
+    provider: 'moonshot',
+    description: 'Moonshot 最新 K2.6 模型，面向长程编码、Agent 工具调用与多模态任务，256K 上下文',
+    maxTokens: 32768,
+    supportsTools: true,
+    supportsVision: true,
+    fixedParams: { temperature: 1, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
+    icon: '🔥',
+  },
+  {
     id: 'kimi-k2.5',
-    name: 'Kimi K2.5 (最新)',
+    name: 'Kimi K2.5',
     provider: 'moonshot',
     description: 'Moonshot 最新主力模型，256K 上下文，支持多模态、深度思考',
     maxTokens: 32768,
@@ -280,7 +291,7 @@ export function AISettings() {
     try {
       // Determine provider from selected model
       let provider = 'claude'
-      if (selectedModel.startsWith('moonshot-')) {
+      if (selectedModel.startsWith('moonshot-') || selectedModel.startsWith('kimi-')) {
         provider = 'kimi'
       } else if (selectedModel.startsWith('glm-')) {
         provider = 'bigmodel'

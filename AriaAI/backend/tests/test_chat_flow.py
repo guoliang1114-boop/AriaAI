@@ -47,8 +47,10 @@ from app.services import chat_exports as chat_exports_module
 from app.services import client_contexts as client_contexts_module
 from app.services import context_builder as context_builder_module
 from app.services import document_text as document_text_module
+from app.services import openai_compat as openai_compat_module
 from app.services import project_ai as project_ai_module
 from app.services import project_contexts as project_contexts_module
+from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services.chat_streaming import ChatRuntime, stream_chat_events
@@ -204,6 +206,14 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(blocked.json()["detail"], "Too many login attempts. Please try again later.")
         self.assertIn("Retry-After", blocked.headers)
+
+
+class ProviderSelectionTestCase(unittest.TestCase):
+    def test_kimi_k26_resolves_to_kimi_provider(self):
+        self.assertEqual(provider_selector_module.resolve_provider_from_model("kimi-k2.6"), "kimi")
+
+    def test_kimi_k26_uses_k2_sampling_defaults(self):
+        self.assertEqual(openai_compat_module._apply_moonshot_fixed_params("kimi-k2.6", 0.2), (1.0, 0.95))
 
 
 class ProjectServiceHelperTestCase(unittest.TestCase):

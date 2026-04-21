@@ -68,7 +68,7 @@ DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
 # Default models per provider
 DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-6",
-    "kimi": "kimi-k2.5",
+    "kimi": "kimi-k2.6",
     "bigmodel": "glm-5.1",
 }
 
@@ -77,6 +77,7 @@ MODEL_ALIASES = {
     "claude-opus-4": "claude-opus-4-6",
     "claude-sonnet-4": "claude-sonnet-4-6",
     "claude-haiku-4": "claude-haiku-4-5-20251001",
+    "kimi-k2.6-code-preview": "kimi-k2.6",
 }
 
 # =============================================================================
@@ -98,7 +99,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # API URLs
 # =============================================================================
 CLAUDE_BASE_URL = os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com")
-KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1")
+KIMI_BASE_URL = os.getenv("KIMI_BASE_URL") or os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1"
 BIGMODEL_BASE_URL = os.getenv("BIGMODEL_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
 
 # =============================================================================

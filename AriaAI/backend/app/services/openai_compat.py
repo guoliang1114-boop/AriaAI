@@ -17,13 +17,14 @@ import random
 from collections.abc import AsyncIterator
 
 import httpx
+from app.config import KIMI_BASE_URL as CONFIG_KIMI_BASE_URL
 from app.database import engine
 from sqlmodel import Session
 from app.models.db import Setting
 
 logger = logging.getLogger(__name__)
 
-KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+KIMI_BASE_URL = CONFIG_KIMI_BASE_URL
 BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
 # Persistent HTTP client for Kimi/OpenAI-compat calls
@@ -49,12 +50,26 @@ def _get_http_client() -> httpx.AsyncClient:
     if _http_client is None or _http_client.is_closed:
         _http_client = httpx.AsyncClient(timeout=300.0)
     return _http_client
-DEFAULT_KIMI_MODEL = "kimi-k2.5"
+DEFAULT_KIMI_MODEL = "kimi-k2.6"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
 SETTING_BIGMODEL_API_KEY = "bigmodel_api_key"
 SETTING_LLM_PROVIDER = "llm_provider"
+
+
+def _is_kimi_k2_model(model: str) -> bool:
+    return model.lower().startswith("kimi-k2.")
+
+
+def _apply_moonshot_fixed_params(model: str, temperature: float) -> tuple[float, float | None]:
+    """Moonshot K2 and V1 models publish recommended fixed sampling params."""
+    model_lower = model.lower()
+    if _is_kimi_k2_model(model_lower):
+        return 1.0, 0.95
+    if model_lower.startswith("moonshot-"):
+        return 0.6, 0.95
+    return temperature, None
 
 
 # =============================================================================
@@ -177,7 +192,7 @@ def _to_openai_messages(messages: list[dict], system: str = "") -> list[dict]:
                     "content": text_content or "",
                     "tool_calls": tool_calls,
                 }
-                # Preserve reasoning_content required by kimi-k2.5 multi-turn tool calls
+                # Preserve reasoning_content required by Kimi K2 multi-turn tool calls
                 if msg.get("reasoning_content"):
                     asst_msg["reasoning_content"] = msg["reasoning_content"]
                 result.append(asst_msg)
@@ -292,15 +307,7 @@ async def stream_response(
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
 
-    # Moonshot models have fixed parameters
-    if model == "kimi-k2.5":
-        # Kimi K2.5: temperature fixed to 1.0, top_p fixed to 0.95
-        temperature = 1.0
-        top_p = 0.95
-    elif model.startswith("moonshot-"):
-        # Moonshot V1 series: temperature fixed to 0.6, top_p fixed to 0.95
-        temperature = 0.6
-        top_p = 0.95
+    temperature, top_p = _apply_moonshot_fixed_params(model, temperature)
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
@@ -312,6 +319,8 @@ async def stream_response(
         "stream": True,
         "temperature": temperature,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
     if openai_tools:
         payload["tools"] = openai_tools
 
@@ -326,7 +335,7 @@ async def stream_response(
     # OpenAI streams tool calls as incremental index-keyed deltas
     tool_call_buffers: dict[int, dict] = {}  # index → {id, name, arguments}
     in_tool_call = False
-    reasoning_buffer = ""  # kimi-k2.5 reasoning_content
+    reasoning_buffer = ""  # Kimi K2 reasoning_content
 
     client = _get_http_client()
     finish_reason = None
@@ -356,7 +365,7 @@ async def stream_response(
             if text:
                 yield text
 
-            # Reasoning content (kimi-k2.5 thinking) — accumulate, don't stream to user
+            # Reasoning content (Kimi K2 thinking) — accumulate, don't stream to user
             reasoning = delta.get("reasoning_content")
             if reasoning:
                 reasoning_buffer += reasoning
@@ -433,15 +442,7 @@ async def complete(
     if not api_key:
         raise ValueError("No Kimi API key configured. Visit Settings to add one.")
 
-    # Moonshot models have fixed parameters
-    if model == "kimi-k2.5":
-        # Kimi K2.5: temperature fixed to 1.0, top_p fixed to 0.95
-        temperature = 1.0
-        top_p = 0.95
-    elif model.startswith("moonshot-"):
-        # Moonshot V1 series: temperature fixed to 0.6, top_p fixed to 0.95
-        temperature = 0.6
-        top_p = 0.95
+    temperature, top_p = _apply_moonshot_fixed_params(model, temperature)
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
@@ -452,6 +453,8 @@ async def complete(
         "messages": openai_messages,
         "temperature": temperature,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
     if openai_tools:
         payload["tools"] = openai_tools
 
