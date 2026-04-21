@@ -21,6 +21,13 @@ interface UseProjectMemorySummaryOptions {
 }
 
 const memorySummaryCache = new Map<string, string>();
+const memorySummaryGenerationRequests = new Map<
+  string,
+  Promise<{
+    memoryVersion?: number;
+    summaries: ProjectMemorySummaryMap;
+  }>
+>();
 
 function normalizeSummaryLanguage(language: string) {
   return normalizeProjectSummaryLanguage(language);
@@ -35,6 +42,18 @@ function buildSummaryCacheKey(options: {
   return [
     options.projectId,
     options.summaryType,
+    normalizeSummaryLanguage(options.language),
+    options.memoryVersion ?? 0,
+  ].join(":");
+}
+
+function buildSummaryGenerationKey(options: {
+  language: string;
+  memoryVersion?: number;
+  projectId: string;
+}) {
+  return [
+    options.projectId,
     normalizeSummaryLanguage(options.language),
     options.memoryVersion ?? 0,
   ].join(":");
@@ -71,45 +90,66 @@ async function streamMemorySummary(options: {
   onChunk: (value: string) => void;
 }) {
   if (options.forceRefresh) {
-    const token = localStorage.getItem("authToken") || "";
-    const response = await fetch(`/api/projects/${options.projectId}/memory/summaries/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Auth-Token": token,
-      },
-      body: JSON.stringify({
-        force_refresh: true,
-        language: options.language,
-        rebuild_if_stale: true,
-      }),
+    const generationKey = buildSummaryGenerationKey({
+      language: options.language,
+      memoryVersion: options.memoryVersion,
+      projectId: options.projectId,
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let generationRequest = memorySummaryGenerationRequests.get(generationKey);
+    if (!generationRequest) {
+      generationRequest = (async () => {
+        const token = localStorage.getItem("authToken") || "";
+        const response = await fetch(`/api/projects/${options.projectId}/memory/summaries/generate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Auth-Token": token,
+          },
+          body: JSON.stringify({
+            force_refresh: true,
+            language: options.language,
+            rebuild_if_stale: true,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = (await response.json()) as ProjectMemorySummariesResponse;
+        const summaries: ProjectMemorySummaryMap = {};
+        for (const [summaryType, summary] of Object.entries(data.summaries)) {
+          const content = summary?.content?.trim();
+          if (content) summaries[summaryType as ProjectMemorySummaryType] = content;
+        }
+
+        const nextMemoryVersion = data.source_memory_version || options.memoryVersion;
+        cacheSummaryMap({
+          language: options.language,
+          memoryVersion: nextMemoryVersion,
+          projectId: options.projectId,
+          summaries,
+        });
+        dispatchProjectMemorySummariesUpdated({
+          language: options.language,
+          memoryVersion: nextMemoryVersion,
+          projectId: options.projectId,
+          summaries,
+        });
+
+        return {
+          memoryVersion: nextMemoryVersion,
+          summaries,
+        };
+      })().finally(() => {
+        memorySummaryGenerationRequests.delete(generationKey);
+      });
+      memorySummaryGenerationRequests.set(generationKey, generationRequest);
     }
 
-    const data = (await response.json()) as ProjectMemorySummariesResponse;
-    const summaries: ProjectMemorySummaryMap = {};
-    for (const [summaryType, summary] of Object.entries(data.summaries)) {
-      const content = summary?.content?.trim();
-      if (content) summaries[summaryType as ProjectMemorySummaryType] = content;
-    }
-    const nextMemoryVersion = data.source_memory_version || options.memoryVersion;
-    cacheSummaryMap({
-      language: options.language,
-      memoryVersion: nextMemoryVersion,
-      projectId: options.projectId,
-      summaries,
-    });
-    dispatchProjectMemorySummariesUpdated({
-      language: options.language,
-      memoryVersion: nextMemoryVersion,
-      projectId: options.projectId,
-      summaries,
-    });
-
-    const content = data.summaries[options.summaryType]?.content?.trim() || "";
+    const data = await generationRequest;
+    const content = data.summaries[options.summaryType]?.trim() || "";
     options.onChunk(content);
     return content;
   }

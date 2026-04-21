@@ -10,6 +10,7 @@ from sqlmodel import Session
 from app.database import engine
 from app.models.db import ScheduledTask, Skill, Project, Conversation, Message
 from app.services.claude import complete, build_system_prompt
+from app.services.time_utils import utc_now_naive
 
 
 async def run_task(task_id: int) -> None:
@@ -19,7 +20,7 @@ async def run_task(task_id: int) -> None:
             return
 
         task.status = "running"
-        task.last_run = datetime.utcnow()
+        task.last_run = utc_now_naive()
         session.add(task)
         session.commit()
 

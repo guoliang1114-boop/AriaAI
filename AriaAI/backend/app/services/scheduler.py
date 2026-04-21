@@ -11,6 +11,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 from app.config import MEMORY_REBUILD_MAX_WORKERS
+from app.services.time_utils import utc_now_naive
 
 # Use ThreadPoolExecutor to support async functions
 _scheduler = BackgroundScheduler(
@@ -40,7 +41,7 @@ def is_running() -> bool:
 
 
 def next_run_from_frequency(frequency: str, cron_expr: str = "") -> Optional[datetime]:
-    now = datetime.utcnow()
+    now = utc_now_naive()
     freq = frequency.lower()
     if freq == "daily":
         return now + timedelta(days=1)

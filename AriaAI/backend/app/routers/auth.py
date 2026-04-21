@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.config import LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS
 from app.database import get_session, engine
 from app.models.db import User, UserToken
+from app.services.time_utils import utc_now_naive
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
@@ -149,7 +150,7 @@ def get_current_user(
     
     if user_token:
         # 更新最后使用时间
-        user_token.last_used_at = datetime.utcnow()
+        user_token.last_used_at = utc_now_naive()
         session.add(user_token)
         session.commit()
         

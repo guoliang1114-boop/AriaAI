@@ -13,6 +13,7 @@ from app.models.db import Message
 from app.routers.chat_schemas import ExportConversationRequest
 from app.services.chat_exports import build_markdown_export_content, safe_export_filename
 from app.services.chat_store import get_conversation_or_404, get_full_message_history
+from app.services.time_utils import utc_now_naive
 
 router = APIRouter()
 
@@ -81,7 +82,7 @@ async def _export_pdf(conv, messages: List[Message]):
             Paragraph(conv.title or "Untitled Conversation", title_style),
             Spacer(1, 0.1 * inch),
             Paragraph(
-                f"<i>Created: {conv.created_at.strftime('%Y-%m-%d %H:%M')} | Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}</i>",
+                f"<i>Created: {conv.created_at.strftime('%Y-%m-%d %H:%M')} | Exported: {utc_now_naive().strftime('%Y-%m-%d %H:%M')}</i>",
                 styles["Normal"],
             ),
             Spacer(1, 0.2 * inch),

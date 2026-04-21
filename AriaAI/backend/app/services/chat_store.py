@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from app.config import CONVERSATION_CACHE_TTL
 from app.models.db import Conversation, Message
 from app.services.cache import conversations_cache
+from app.services.time_utils import utc_now_naive
 
 _CONV_TTL = CONVERSATION_CACHE_TTL
 
@@ -148,7 +149,7 @@ def persist_assistant_message(
         new_session.add(asst_msg)
         conv = new_session.get(Conversation, conv_id)
         if conv:
-            conv.updated_at = datetime.utcnow()
+            conv.updated_at = utc_now_naive()
             if conv.title == "New Workstream":
                 conv.title = user_content[:40] + ("…" if len(user_content) > 40 else "")
                 need_title = True

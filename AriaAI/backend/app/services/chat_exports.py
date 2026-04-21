@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List
 
 from app.models.db import Message
+from app.services.time_utils import utc_now_naive
 
 
 def safe_export_filename(title: str, created_at: datetime, extension: str) -> str:
@@ -16,7 +17,7 @@ def build_markdown_export_content(conv, messages: List[Message]) -> str:
         f"# {conv.title or 'Untitled Conversation'}",
         "",
         f"**Created:** {conv.created_at.strftime('%Y-%m-%d %H:%M')}",
-        f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        f"**Exported:** {utc_now_naive().strftime('%Y-%m-%d %H:%M')}",
         "",
         "---",
         "",

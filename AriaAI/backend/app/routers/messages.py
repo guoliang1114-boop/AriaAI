@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import SystemMessage, SystemMessageRead, User
 from app.routers.auth import get_current_user, require_admin
+from app.services.time_utils import utc_now_naive
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -245,7 +246,7 @@ def admin_create_message(
         link=(body.link or "").strip(),
         is_published=body.is_published,
         created_by_user_id=admin.id,
-        updated_at=datetime.utcnow(),
+        updated_at=utc_now_naive(),
     )
     session.add(message)
     session.commit()
@@ -290,7 +291,7 @@ def admin_update_message(
         message.link = body.link.strip()
     if body.is_published is not None:
         message.is_published = body.is_published
-    message.updated_at = datetime.utcnow()
+    message.updated_at = utc_now_naive()
     session.add(message)
     session.commit()
     session.refresh(message)
