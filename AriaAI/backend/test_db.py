@@ -1,69 +1,90 @@
 #!/usr/bin/env python3
-"""测试数据库连接"""
+"""Manual database connectivity check.
+
+This file is intentionally not a unittest module. Run it directly when you need
+to verify the configured database connection:
+
+    python test_db.py
+"""
+
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
 
-# 加载 .env 文件
-env_path = Path(__file__).parent / ".env"
-if env_path.exists():
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ[key] = value
 
-from app.config import DATABASE_URL
+def load_local_env() -> None:
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return
 
-print(f"当前数据库配置: {DATABASE_URL}")
-print(f"数据库类型: {'SQLite' if DATABASE_URL.startswith('sqlite') else 'PostgreSQL'}")
-print()
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key, value)
 
-if DATABASE_URL.startswith("postgresql"):
+
+def main() -> int:
+    load_local_env()
+
+    from app.config import DATABASE_URL
+
+    db_type = "SQLite" if DATABASE_URL.startswith("sqlite") else "PostgreSQL"
+    print(f"Current database config: {DATABASE_URL}")
+    print(f"Database type: {db_type}")
+    print()
+
+    if not DATABASE_URL.startswith("postgresql"):
+        print("Using SQLite local database.")
+        print(f"Path: {DATABASE_URL}")
+        return 0
+
     try:
         import psycopg2
-        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-        cur = conn.cursor()
-        
-        # 测试连接
-        cur.execute("SELECT version();")
-        version = cur.fetchone()[0]
-        print(f"✅ 连接成功!")
-        print(f"   PostgreSQL: {version}")
-        
-        # 测试数据库权限
-        cur.execute("SELECT current_database(), current_user;")
-        db, user = cur.fetchone()
-        print(f"   数据库: {db}")
-        print(f"   用户: {user}")
-        
-        # 检查现有表
-        cur.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public'
-        """)
-        tables = cur.fetchall()
-        if tables:
-            print(f"\n   现有表 ({len(tables)}个):")
-            for (table,) in tables:
-                print(f"     - {table}")
-        else:
-            print("\n   数据库为空，需要初始化表")
-        
-        cur.close()
-        conn.close()
-        
-        print("\n✅ 数据库连接测试通过!")
-        sys.exit(0)
-        
     except ImportError:
-        print("❌ 缺少 psycopg2，请安装: pip install psycopg2-binary")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ 连接失败: {e}")
-        sys.exit(1)
-else:
-    print("ℹ️ 使用 SQLite 本地数据库")
-    print(f"   路径: {DATABASE_URL}")
+        print("Missing psycopg2. Install it with: pip install psycopg2-binary")
+        return 1
+
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+    except Exception as exc:
+        print(f"Connection failed: {exc}")
+        return 1
+
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version();")
+            version = cur.fetchone()[0]
+            print("Connection succeeded.")
+            print(f"PostgreSQL: {version}")
+
+            cur.execute("SELECT current_database(), current_user;")
+            db_name, user = cur.fetchone()
+            print(f"Database: {db_name}")
+            print(f"User: {user}")
+
+            cur.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+                """
+            )
+            tables = [row[0] for row in cur.fetchall()]
+            if tables:
+                print(f"\nTables ({len(tables)}):")
+                for table in tables:
+                    print(f"- {table}")
+            else:
+                print("\nDatabase is empty; run migrations or ensure_db first.")
+
+    conn.close()
+    print("\nDatabase connectivity check passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

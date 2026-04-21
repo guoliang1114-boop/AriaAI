@@ -1987,12 +1987,13 @@ async def summarize_project_memory(
     lock_key = _project_summary_lock_key(project_id, summary_type, normalized_language, memory_version)
     summary_lock = _get_project_summary_lock(lock_key)
     wait_for_existing_generation = summary_lock.locked()
+    session_bind = session.get_bind()
 
     if body.stream:
         async def event_stream():
             accumulated: list[str] = []
             async with summary_lock:
-                with Session(engine) as lock_session:
+                with Session(session_bind) as lock_session:
                     fresh_cached = get_project_memory_summary_cache(
                         lock_session,
                         project_id=project_id,
@@ -2052,7 +2053,7 @@ async def summarize_project_memory(
                     return
 
                 content = "".join(accumulated).strip()
-                with Session(engine) as write_session:
+                with Session(session_bind) as write_session:
                     cached = save_project_memory_summary_cache(
                         write_session,
                         project_id=project_id,
