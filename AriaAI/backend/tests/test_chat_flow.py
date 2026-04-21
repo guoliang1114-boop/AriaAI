@@ -20,6 +20,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.models.db import (
     ClientMemorySummary,
     ClientRecord,
+    ClientStakeholder,
     Conversation,
     Message,
     Milestone,
@@ -43,6 +44,7 @@ from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
+from app.services import client_contexts as client_contexts_module
 from app.services import context_builder as context_builder_module
 from app.services import document_text as document_text_module
 from app.services import project_ai as project_ai_module
@@ -2703,6 +2705,105 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertNotIn("Sibling secret description", project_context)
         self.assertNotIn("Sibling secret note", project_context)
         self.assertNotIn("Sibling secret summary", project_context)
+
+    def test_build_project_context_includes_structured_client_stakeholders(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", industry="Manufacturing")
+            project = Project(
+                name="Current Delivery",
+                client="Acme",
+                description="Current project description",
+            )
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(client)
+            session.refresh(project)
+            session.add(
+                ClientStakeholder(
+                    client_id=client.id,
+                    name="Jane Sponsor",
+                    role="Executive sponsor",
+                    influence_type="decision",
+                    relationship_status="supportive",
+                    concerns="Needs executive rollout clarity",
+                )
+            )
+            session.commit()
+
+            project_context = context_builder_module.build_project_context(
+                session=session,
+                project_id=project.id,
+            )
+
+        self.assertIn("Structured Client Stakeholders", project_context)
+        self.assertIn("Jane Sponsor", project_context)
+        self.assertIn("Executive sponsor", project_context)
+        self.assertIn("Needs executive rollout clarity", project_context)
+
+    def test_project_memory_data_and_summary_payload_include_structured_stakeholders(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", industry="Manufacturing")
+            project = Project(name="Memory Project", client="Acme")
+            session.add(client)
+            session.add(project)
+            session.commit()
+            session.refresh(client)
+            session.refresh(project)
+            session.add(
+                ClientStakeholder(
+                    client_id=client.id,
+                    name="Finance Lead",
+                    role="Finance",
+                    influence_type="budget",
+                    relationship_status="neutral",
+                    concerns="Needs payment schedule confirmation",
+                )
+            )
+            session.commit()
+
+            _, project_data, coverage = project_contexts_module.build_project_memory_data(session, project.id)
+
+        self.assertIn("Structured client stakeholders", project_data)
+        self.assertIn("Finance Lead", project_data)
+        self.assertEqual(coverage["client_stakeholders_total"], 1)
+        payload = project_contexts_module.build_project_memory_summary_payload(
+            {"client_stakeholders": coverage["client_stakeholders"]},
+            "stakeholder",
+        )
+        self.assertEqual(payload["client_stakeholders"][0]["name"], "Finance Lead")
+
+    def test_client_memory_data_and_summary_payload_include_structured_stakeholders(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", industry="Manufacturing")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(
+                ClientStakeholder(
+                    client_id=client.id,
+                    name="Procurement Owner",
+                    role="Procurement",
+                    influence_type="purchase",
+                    relationship_status="supportive",
+                    concerns="Needs procurement timeline visibility",
+                )
+            )
+            session.commit()
+
+            _, client_data, _ = client_contexts_module.build_client_memory_data(session, client.id)
+            memory = client_contexts_module.save_client_memory(
+                session,
+                client.id,
+                {"client_profile": "Acme profile"},
+                trigger="test",
+            )
+
+        self.assertIn("Structured client stakeholders", client_data)
+        self.assertIn("Procurement Owner", client_data)
+        self.assertEqual(memory["structured_stakeholders"][0]["name"], "Procurement Owner")
+        payload = client_contexts_module.build_client_memory_summary_payload(memory, "stakeholder")
+        self.assertEqual(payload["structured_stakeholders"][0]["name"], "Procurement Owner")
 
     def test_build_chat_context_project_scope_keeps_current_project_only(self):
         with Session(self.engine) as session:

@@ -9,6 +9,10 @@ from sqlmodel import Session, select
 
 from app.models.db import ClientMemorySummary, ClientRecord, Project
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
+from app.services.stakeholder_contexts import (
+    format_client_stakeholders_for_prompt,
+    list_client_stakeholder_dicts,
+)
 
 SUPPORTED_CLIENT_MEMORY_SUMMARY_TYPES = {
     "overview",
@@ -41,6 +45,7 @@ def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
         "client_profile": client.notes[:400] if client.notes else "",
         "decision_patterns": [],
         "key_contacts": [],
+        "structured_stakeholders": [],
         "lessons_learned": [],
         "project_history": [],
         "sensitive_topics": [],
@@ -104,6 +109,7 @@ def build_client_memory_data(session: Session, client_id: int) -> tuple[ClientRe
         raise HTTPException(404, "Client not found")
 
     normalized = (client.name or "").strip().lower()
+    structured_stakeholders = list_client_stakeholder_dicts(session, client_id)
     projects = [
         project
         for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
@@ -117,6 +123,9 @@ def build_client_memory_data(session: Session, client_id: int) -> tuple[ClientRe
     ]
     if client.notes:
         lines.append(f"Client notes:\n{client.notes[:1200]}")
+    stakeholder_context = format_client_stakeholders_for_prompt(structured_stakeholders)
+    if stakeholder_context:
+        lines.append(stakeholder_context)
 
     if projects:
         lines.append(f"Related projects ({len(projects)} total):")
@@ -148,9 +157,10 @@ def build_client_memory_prompt(client_data: str) -> str:
         "You are building long-term client memory for a consulting team. "
         "Use only the client and project evidence below. Do not invent missing facts. "
         "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, lessons_learned, project_history, sensitive_topics. "
+        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, project_history, sensitive_topics. "
         "Rules: decision_patterns, lessons_learned, sensitive_topics must be arrays of strings. "
         "key_contacts must be an array of objects with keys name, role, note. "
+        "structured_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note. "
         "project_history must be an array of objects with keys project_name, status, outcome, key_factor. "
         "Prefer concise, reusable guidance for future projects.\n\n"
         f"Client data:\n{client_data}"
@@ -166,7 +176,7 @@ def build_client_memory_promote_prompt(
         "You are updating client-level consulting memory using one project's structured memory. "
         "Preserve useful long-term client knowledge. Do not copy temporary delivery noise. "
         "Return valid JSON only with these exact keys: "
-        "client_profile, decision_patterns, key_contacts, lessons_learned, project_history, sensitive_topics.\n\n"
+        "client_profile, decision_patterns, key_contacts, structured_stakeholders, lessons_learned, project_history, sensitive_topics.\n\n"
         f"Current client memory JSON:\n{json.dumps(current_memory, ensure_ascii=False)}\n\n"
         f"Project to absorb: {project_name}\n"
         f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)}"
@@ -190,6 +200,15 @@ def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = (
         existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
+    )
+    structured_stakeholders = existing.get("structured_stakeholders", [])
+    parsed_stakeholders = memory.get("structured_stakeholders", [])
+    memory["structured_stakeholders"] = (
+        parsed_stakeholders
+        if isinstance(parsed_stakeholders, list) and parsed_stakeholders
+        else structured_stakeholders
+        if isinstance(structured_stakeholders, list)
+        else []
     )
     return memory
 
@@ -232,6 +251,9 @@ def save_client_memory(
         *[int(item) for item in (source_project_ids or [])],
     ]
     memory["source_project_ids"] = list(dict.fromkeys(merged_source_ids))
+    structured_stakeholders = list_client_stakeholder_dicts(session, client_id)
+    if structured_stakeholders:
+        memory["structured_stakeholders"] = structured_stakeholders
 
     client.client_memory_json = json.dumps(memory, ensure_ascii=False)
     client.client_memory_stale = False
@@ -335,6 +357,29 @@ def _trim_contacts(values: Any, limit: int = 4) -> list[dict[str, str]]:
     return contacts
 
 
+def _trim_stakeholders(values: Any, limit: int = 6) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    stakeholders: list[dict[str, str]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        row = {
+            "name": _trim_text(item.get("name", ""), 60),
+            "role": _trim_text(item.get("role", ""), 60),
+            "influence_type": _trim_text(item.get("influence_type", ""), 60),
+            "relationship_status": _trim_text(item.get("relationship_status", ""), 60),
+            "concerns": _trim_text(item.get("concerns", ""), 120),
+            "communication_preference": _trim_text(item.get("communication_preference", ""), 100),
+            "note": _trim_text(item.get("note", ""), 120),
+        }
+        if any(row.values()):
+            stakeholders.append(row)
+        if len(stakeholders) >= limit:
+            break
+    return stakeholders
+
+
 def _trim_project_history(values: Any, limit: int = 4) -> list[dict[str, str]]:
     if not isinstance(values, list):
         return []
@@ -360,6 +405,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
         "client_profile": _trim_text(memory.get("client_profile", ""), 320),
         "decision_patterns": _trim_list(memory.get("decision_patterns", [])),
         "key_contacts": _trim_contacts(memory.get("key_contacts", [])),
+        "structured_stakeholders": _trim_stakeholders(memory.get("structured_stakeholders", [])),
         "lessons_learned": _trim_list(memory.get("lessons_learned", [])),
         "project_history": _trim_project_history(memory.get("project_history", [])),
         "sensitive_topics": _trim_list(memory.get("sensitive_topics", [])),
@@ -369,6 +415,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+            "structured_stakeholders": base["structured_stakeholders"],
             "sensitive_topics": base["sensitive_topics"],
         }
     if summary_type == "lessons":
@@ -383,12 +430,14 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+            "structured_stakeholders": base["structured_stakeholders"],
         }
     if summary_type == "risk":
         return {
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+            "structured_stakeholders": base["structured_stakeholders"],
             "sensitive_topics": base["sensitive_topics"],
             "lessons_learned": base["lessons_learned"],
         }
@@ -397,6 +446,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+            "structured_stakeholders": base["structured_stakeholders"],
             "lessons_learned": base["lessons_learned"],
             "project_history": base["project_history"],
         }
@@ -405,6 +455,7 @@ def build_client_memory_summary_payload(memory: dict[str, Any], summary_type: st
             "client_profile": base["client_profile"],
             "decision_patterns": base["decision_patterns"],
             "key_contacts": base["key_contacts"],
+            "structured_stakeholders": base["structured_stakeholders"],
             "project_history": base["project_history"],
             "sensitive_topics": base["sensitive_topics"],
         }

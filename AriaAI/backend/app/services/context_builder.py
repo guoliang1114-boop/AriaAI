@@ -20,6 +20,11 @@ from app.models.db import (
 from app.services.document_text import extract_text_from_file
 from app.services.project_contexts import get_project_memory_payload
 from app.services.rag import retrieve_structured
+from app.services.stakeholder_contexts import (
+    find_client_by_name,
+    format_client_stakeholders_for_prompt,
+    list_client_stakeholder_dicts,
+)
 from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
@@ -67,6 +72,15 @@ def _format_project_memory_for_prompt(project: Project) -> str:
     if memory.get("financial_status"):
         lines.append(f"- Financial status: {memory['financial_status']}")
 
+    structured = memory.get("client_stakeholders") or []
+    if isinstance(structured, list):
+        structured_context = format_client_stakeholders_for_prompt(
+            [item for item in structured if isinstance(item, dict)],
+            title="Client stakeholders",
+        )
+        if structured_context:
+            lines.append(structured_context)
+
     if not lines:
         return ""
     return "**Structured Project Memory:**\n" + "\n".join(lines)
@@ -108,6 +122,15 @@ def _format_client_memory_for_prompt(client: ClientRecord) -> str:
             contact_bits.append(bit)
     if contact_bits:
         lines.append("- Key contacts: " + "; ".join(contact_bits))
+
+    structured = memory.get("structured_stakeholders") or []
+    if isinstance(structured, list):
+        structured_context = format_client_stakeholders_for_prompt(
+            [item for item in structured if isinstance(item, dict)],
+            title="Structured stakeholders",
+        )
+        if structured_context:
+            lines.append(structured_context)
 
     if not lines:
         return ""
@@ -263,7 +286,15 @@ def build_project_context(
         lines.append(f"**Description:** {project.description}")
     if project.contract_amount:
         lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
-    
+    client = find_client_by_name(session, project.client)
+    if client and client.id is not None:
+        stakeholder_context = format_client_stakeholders_for_prompt(
+            list_client_stakeholder_dicts(session, client.id),
+            title="**Structured Client Stakeholders**",
+        )
+        if stakeholder_context:
+            lines.append(f"\n{stakeholder_context}")
+
     # Prefer structured project memory over legacy free-form summary
     memory_context = _format_project_memory_for_prompt(project)
     if memory_context:

@@ -12,6 +12,10 @@ from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
 from app.services.project_todos import list_project_todos
+from app.services.stakeholder_contexts import (
+    format_client_stakeholders_for_prompt,
+    list_client_stakeholder_dicts_by_name,
+)
 
 MAX_SUMMARY_MILESTONES = 6
 MAX_SUMMARY_FILES = 8
@@ -103,6 +107,7 @@ def _default_project_memory(project: Project) -> dict[str, Any]:
         "financial_status": "",
         "delivery_signals": [],
         "stakeholder_notes": {"ai": [], "pinned": []},
+        "client_stakeholders": [],
         "memory_version": project.memory_version,
         "last_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else "",
         "stale": project.memory_stale,
@@ -241,6 +246,7 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
     files = list_project_files(session, project_id)
     todos = list_project_todos(session, project_id)
     payments = list_project_payments(session, project_id)
+    client_stakeholders = list_client_stakeholder_dicts_by_name(session, project.client)
 
     lines = [
         f"Project: {project.name}",
@@ -286,12 +292,17 @@ def build_project_memory_data(session: Session, project_id: int) -> tuple[Projec
             lines.append(
                 f"  - {payment.payment_date} | {payment.payment_type} | {payment.amount} | {payment.note}"
             )
+    stakeholder_context = format_client_stakeholders_for_prompt(client_stakeholders)
+    if stakeholder_context:
+        lines.append(stakeholder_context)
 
     coverage = {
         "milestones_total": len(milestones),
         "files_total": len(files),
         "todos_total": len(todos),
         "payments_total": len(payments),
+        "client_stakeholders_total": len(client_stakeholders),
+        "client_stakeholders": client_stakeholders,
         "built_at": datetime.utcnow().isoformat(),
     }
 
@@ -304,10 +315,11 @@ def build_project_memory_prompt(project_data: str) -> str:
         "Use only the project data below. Do not invent missing facts. "
         "Return valid JSON only with these exact keys: "
         "project_brief, current_stage, current_objective, recent_progress, key_risks, "
-        "open_questions, next_actions, important_documents, financial_status, delivery_signals, stakeholder_notes. "
+        "open_questions, next_actions, important_documents, financial_status, delivery_signals, stakeholder_notes, client_stakeholders. "
         "Rules: "
         "recent_progress, key_risks, open_questions, next_actions, delivery_signals, stakeholder_notes must be arrays of strings. "
         "important_documents must be an array of objects with keys name and reason. "
+        "client_stakeholders must be an array of objects with keys name, role, influence_type, relationship_status, concerns, communication_preference, note. "
         "Keep each item concise and concrete. Prefer empty string or empty arrays over guessing. "
         "Write in the same language as the project.\n\n"
         f"Project data:\n{project_data}"
@@ -460,6 +472,29 @@ def _trim_documents(values: Any) -> list[dict[str, str]]:
     return documents
 
 
+def _trim_stakeholders(values: Any, limit: int = 6) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    stakeholders: list[dict[str, str]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        row = {
+            "name": _trim_text(item.get("name", ""), 60),
+            "role": _trim_text(item.get("role", ""), 60),
+            "influence_type": _trim_text(item.get("influence_type", ""), 60),
+            "relationship_status": _trim_text(item.get("relationship_status", ""), 60),
+            "concerns": _trim_text(item.get("concerns", ""), 120),
+            "communication_preference": _trim_text(item.get("communication_preference", ""), 100),
+            "note": _trim_text(item.get("note", ""), 120),
+        }
+        if any(row.values()):
+            stakeholders.append(row)
+        if len(stakeholders) >= limit:
+            break
+    return stakeholders
+
+
 def build_project_memory_summary_payload(memory: dict[str, Any], summary_type: str) -> dict[str, Any]:
     base = {
         "project_brief": _trim_text(memory.get("project_brief", "")),
@@ -473,6 +508,7 @@ def build_project_memory_summary_payload(memory: dict[str, Any], summary_type: s
         "financial_status": _trim_text(memory.get("financial_status", "")),
         "delivery_signals": _trim_list(memory.get("delivery_signals", [])),
         "stakeholder_notes": _trim_list(memory.get("stakeholder_notes", [])),
+        "client_stakeholders": _trim_stakeholders(memory.get("client_stakeholders", [])),
     }
 
     if summary_type == "risk":
@@ -489,6 +525,7 @@ def build_project_memory_summary_payload(memory: dict[str, Any], summary_type: s
             "project_brief": base["project_brief"],
             "current_stage": base["current_stage"],
             "stakeholder_notes": base["stakeholder_notes"],
+            "client_stakeholders": base["client_stakeholders"],
             "open_questions": base["open_questions"],
             "next_actions": base["next_actions"],
         }
@@ -507,6 +544,7 @@ def build_project_memory_summary_payload(memory: dict[str, Any], summary_type: s
             "current_stage": base["current_stage"],
             "recent_progress": base["recent_progress"],
             "next_actions": base["next_actions"],
+            "client_stakeholders": base["client_stakeholders"],
         }
     if summary_type == "financial":
         return {
@@ -553,6 +591,8 @@ def parse_project_memory(raw: str, project: Project) -> dict[str, Any]:
     for key in ("recent_progress", "next_actions", "delivery_signals"):
         value = memory.get(key)
         memory[key] = value if isinstance(value, list) else []
+    client_stakeholders = memory.get("client_stakeholders")
+    memory["client_stakeholders"] = client_stakeholders if isinstance(client_stakeholders, list) else []
 
     for key in EDITABLE_MEMORY_SLOTS:
         existing_slot = existing_raw.get(key, {})
@@ -613,6 +653,8 @@ def save_project_memory(
         **(coverage or {}),
         "built_at": project.memory_updated_at.isoformat(),
     }
+    if coverage and isinstance(coverage.get("client_stakeholders"), list):
+        memory["client_stakeholders"] = coverage["client_stakeholders"]
     memory["memory_version"] = project.memory_version
     memory["last_updated_at"] = project.memory_updated_at.isoformat()
     memory["stale"] = False
