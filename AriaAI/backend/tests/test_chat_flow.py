@@ -1964,6 +1964,74 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(len(cached), 3)
         self.assertEqual(sorted(item.summary_type for item in cached), ["overview", "risk", "stakeholder"])
 
+    def test_project_meeting_briefing_combines_memory_client_and_delivery_signals(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(
+                name="Acme",
+                industry="Manufacturing",
+                client_memory_json=json.dumps(
+                    {
+                        "decision_patterns": ["CEO needs quantified upside"],
+                        "lessons_learned": ["Lock change requests before kickoff"],
+                        "sensitive_topics": ["Avoid price details in steering meeting"],
+                    },
+                    ensure_ascii=False,
+                ),
+                client_memory_version=2,
+                client_memory_stale=False,
+            )
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            session.add(
+                ClientStakeholder(
+                    client_id=client.id,
+                    name="Jane",
+                    role="Sponsor",
+                    influence_type="decision",
+                    relationship_status="supportive",
+                    concerns="Needs board-ready ROI story",
+                    sensitivities="Do not surprise procurement",
+                    last_action="Confirm security answer",
+                )
+            )
+            project = Project(
+                name="Meeting Project",
+                client="Acme",
+                status="delivering",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Second phase rollout",
+                        "current_objective": "Align on launch scope",
+                        "key_risks": ["Security review is still open"],
+                        "open_questions": ["Who signs off UAT?"],
+                        "next_actions": ["Send revised timeline"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=3,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            session.add(Milestone(project_id=project_id, title="UAT signoff", priority="high", due_date="2026-04-25"))
+            session.add(ProjectTodo(project_id=project_id, content="Prepare steering deck", due_date="2026-04-24"))
+            session.commit()
+
+        resp = self.client.get(f"/projects/{project_id}/briefing")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["project"]["name"], "Meeting Project")
+        self.assertEqual(body["client"]["name"], "Acme")
+        self.assertIn("Align on launch scope", body["meeting_card"]["say"])
+        self.assertIn("Who signs off UAT?", body["meeting_card"]["confirm"])
+        self.assertIn("CEO needs quantified upside", body["meeting_card"]["experience"])
+        self.assertEqual(body["stakeholders"][0]["name"], "Jane")
+        self.assertEqual(body["signals"]["upcoming_milestones"][0]["title"], "UAT signoff")
+
     def test_memory_jobs_list_exposes_rebuild_and_summary_warm_queue(self):
         with Session(self.engine) as session:
             project = Project(

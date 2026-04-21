@@ -4,6 +4,7 @@ import { FolderKanban, Home, Loader2, MessageSquare, RefreshCw } from "lucide-re
 import { PageTitle } from "../../components/PageTitle";
 import { ServiceErrorState } from "../../components/ServiceErrorState";
 import { ProjectAnchorsTab } from "./ProjectAnchorsTab";
+import { ProjectBriefingTab } from "./ProjectBriefingTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
@@ -22,6 +23,13 @@ function renderProjectDetailContent(
   onRefresh: () => void,
 ) {
   switch (activeTabId) {
+    case "briefing":
+      return (
+        <ProjectBriefingTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+        />
+      );
     case "documents":
       return (
         <ProjectDocumentsTab

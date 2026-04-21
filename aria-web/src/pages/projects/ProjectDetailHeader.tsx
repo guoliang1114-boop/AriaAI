@@ -54,7 +54,9 @@ export function ProjectDetailHeader({
                 ? isZh ? "项目记忆" : "Memory"
                 : tab.id === "stakeholders"
                   ? isZh ? "干系人" : "Stakeholders"
-                  : t(tab.labelKey)}
+                  : tab.id === "briefing"
+                    ? isZh ? "会前简报" : "Briefing"
+                    : t(tab.labelKey)}
             </NavLink>
           ))}
         </div>

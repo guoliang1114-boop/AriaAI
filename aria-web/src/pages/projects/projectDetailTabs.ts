@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Brain,
+  ClipboardList,
   DollarSign,
   Files,
   Flag,
@@ -14,6 +15,7 @@ import {
 
 export type ProjectDetailTabId =
   | "overview"
+  | "briefing"
   | "documents"
   | "milestones"
   | "notes"
@@ -41,6 +43,13 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     icon: LayoutDashboard,
     path: "",
     getPath: (projectId) => `/projects/${projectId}`,
+  },
+  {
+    id: "briefing",
+    labelKey: "projects.projectDetail.briefing",
+    icon: ClipboardList,
+    path: "briefing",
+    getPath: (projectId) => `/projects/${projectId}/briefing`,
   },
   {
     id: "notes",

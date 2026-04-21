@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { ProjectBriefingTab } from "./ProjectBriefingTab";
 import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMemoryTab } from "./ProjectMemoryTab";
@@ -31,6 +32,15 @@ export function buildProjectDetailRouteConfig({
           projectDetail={projectDetail}
           projectId={projectId}
           onProjectUpdate={onRefresh}
+        />
+      ),
+    },
+    {
+      path: "briefing",
+      element: (
+        <ProjectBriefingTab
+          projectDetail={projectDetail}
+          projectId={projectId}
         />
       ),
     },

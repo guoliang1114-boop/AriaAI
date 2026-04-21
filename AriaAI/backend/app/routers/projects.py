@@ -130,6 +130,7 @@ from app.services.project_todos import (
     serialize_todo,
     update_project_todo,
 )
+from app.services.stakeholder_contexts import list_client_stakeholder_dicts_by_name
 from app.services.time_utils import utc_now_naive
 from app.routers.auth import get_current_user
 
@@ -410,6 +411,171 @@ def _get_project_memory_successes(project: Project) -> list[dict]:
             }
         )
     return successes
+
+
+def _as_briefing_list(value, limit: int = 5) -> list[str]:
+    if isinstance(value, dict):
+        merged: list[str] = []
+        for key in ("pinned", "ai"):
+            nested = value.get(key, [])
+            if isinstance(nested, list):
+                merged.extend(str(item).strip() for item in nested if str(item).strip())
+        return merged[:limit]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()][:limit]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _as_briefing_dicts(value, limit: int = 5) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    rows = [item for item in value if isinstance(item, dict)]
+    return rows[:limit]
+
+
+def _first_non_empty(*values: str | None) -> str:
+    for value in values:
+        if value and value.strip():
+            return value.strip()
+    return ""
+
+
+def _build_project_briefing(session: Session, project_id: int) -> dict:
+    project = get_project_or_404(session, project_id)
+    memory = get_project_memory_payload(project)
+    client = _find_client_record_by_name(session, project.client)
+    client_memory = get_client_memory_payload(client) if client else {}
+    stakeholders = list_client_stakeholder_dicts_by_name(session, project.client, limit=8)
+
+    milestones = list_project_milestones(session, project_id)
+    todos = list_project_todos(session, project_id)
+    files = list_project_files(session, project_id)
+
+    upcoming_milestones = [
+        {
+            "id": milestone.id,
+            "title": milestone.title,
+            "due_date": milestone.due_date,
+            "priority": milestone.priority,
+        }
+        for milestone in sorted(
+            [milestone for milestone in milestones if not milestone.is_done],
+            key=lambda item: (item.due_date or "9999-12-31", item.id or 0),
+        )[:4]
+    ]
+    pending_todos = [
+        {
+            "id": todo.id,
+            "content": todo.content,
+            "due_date": todo.due_date,
+        }
+        for todo in sorted(
+            [todo for todo in todos if not todo.is_done],
+            key=lambda item: (item.due_date or "9999-12-31", item.id or 0),
+        )[:5]
+    ]
+    recent_documents = [
+        {
+            "id": file.id,
+            "name": file.name,
+            "summary": file.summary,
+            "uploaded_at": file.uploaded_at.isoformat() if file.uploaded_at else "",
+        }
+        for file in sorted(files, key=lambda item: item.uploaded_at, reverse=True)[:4]
+    ]
+
+    stakeholder_concerns = [
+        f"{row.get('name')}: {row.get('concerns')}"
+        for row in stakeholders
+        if row.get("name") and row.get("concerns")
+    ]
+    stakeholder_sensitivities = [
+        f"{row.get('name')}: {row.get('sensitivities')}"
+        for row in stakeholders
+        if row.get("name") and row.get("sensitivities")
+    ]
+    stakeholder_followups = [
+        f"{row.get('name')}: {row.get('last_action')}"
+        for row in stakeholders
+        if row.get("name") and row.get("last_action")
+    ]
+
+    key_risks = _as_briefing_list(memory.get("key_risks"), limit=5)
+    open_questions = _as_briefing_list(memory.get("open_questions"), limit=5)
+    next_actions = _as_briefing_list(memory.get("next_actions"), limit=5)
+    stakeholder_notes = _as_briefing_list(memory.get("stakeholder_notes"), limit=5)
+    client_sensitive_topics = _as_briefing_list(client_memory.get("sensitive_topics"), limit=4)
+    decision_patterns = _as_briefing_list(client_memory.get("decision_patterns"), limit=4)
+    lessons = _as_briefing_list(client_memory.get("lessons_learned"), limit=4)
+
+    say = [
+        item
+        for item in [
+            _first_non_empty(memory.get("current_objective"), memory.get("project_brief"), project.description),
+            *next_actions[:2],
+            *stakeholder_concerns[:2],
+        ]
+        if item
+    ][:5]
+    avoid = [*stakeholder_sensitivities, *client_sensitive_topics, *key_risks[:2]][:5]
+    confirm = [*open_questions, *stakeholder_followups, *[todo["content"] for todo in pending_todos[:2]]][:6]
+    experience = [*decision_patterns, *lessons][:6]
+
+    return {
+        "project": {
+            "id": project.id,
+            "name": project.name,
+            "client": project.client,
+            "status": project.status,
+            "description": project.description,
+            "contract_amount": project.contract_amount,
+            "memory_version": project.memory_version,
+            "memory_stale": project.memory_stale,
+            "memory_updated_at": project.memory_updated_at.isoformat() if project.memory_updated_at else None,
+        },
+        "client": {
+            "id": client.id if client else None,
+            "name": client.name if client else project.client,
+            "industry": client.industry if client else "",
+            "memory_version": client.client_memory_version if client else 0,
+            "memory_stale": client.client_memory_stale if client else True,
+            "memory_updated_at": client.client_memory_updated_at.isoformat() if client and client.client_memory_updated_at else None,
+        },
+        "memory": {
+            "project_brief": memory.get("project_brief", ""),
+            "current_objective": memory.get("current_objective", ""),
+            "recent_progress": _as_briefing_list(memory.get("recent_progress"), limit=4),
+            "key_risks": key_risks,
+            "open_questions": open_questions,
+            "next_actions": next_actions,
+            "delivery_signals": _as_briefing_list(memory.get("delivery_signals"), limit=4),
+            "stakeholder_notes": stakeholder_notes,
+            "financial_status": memory.get("financial_status", ""),
+            "important_documents": _as_briefing_dicts(memory.get("important_documents"), limit=4),
+        },
+        "client_memory": {
+            "client_profile": client_memory.get("client_profile", ""),
+            "decision_patterns": decision_patterns,
+            "lessons_learned": lessons,
+            "sensitive_topics": client_sensitive_topics,
+            "project_history": _as_briefing_dicts(client_memory.get("project_history"), limit=4),
+        },
+        "stakeholders": stakeholders,
+        "meeting_card": {
+            "say": say,
+            "avoid": avoid,
+            "confirm": confirm,
+            "experience": experience,
+        },
+        "signals": {
+            "upcoming_milestones": upcoming_milestones,
+            "pending_todos": pending_todos,
+            "recent_documents": recent_documents,
+        },
+        "generated_at": utc_now_naive().isoformat(),
+    }
 
 
 def _record_project_memory_failure_by_id(
@@ -924,6 +1090,12 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
     result = build_project_detail(session, project_id, init_default_folders=init_default_project_folders)
     projects_cache.set(cache_key, result, _PROJECTS_TTL)
     return result
+
+
+@router.get("/{project_id}/briefing")
+def get_project_meeting_briefing(project_id: int, session: Session = Depends(get_session)):
+    """Return a deterministic pre-meeting briefing assembled from memory and project signals."""
+    return _build_project_briefing(session, project_id)
 
 
 @router.get("/meta/dashboard-summary")

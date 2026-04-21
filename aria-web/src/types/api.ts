@@ -486,6 +486,72 @@ export interface ProjectDetail {
   financials: ProjectFinancials
 }
 
+export interface ProjectMeetingBriefing {
+  project: {
+    id: number
+    name: string
+    client: string
+    status: string
+    description: string
+    contract_amount: number
+    memory_version: number
+    memory_stale: boolean
+    memory_updated_at?: string | null
+  }
+  client: {
+    id?: number | null
+    name: string
+    industry: string
+    memory_version: number
+    memory_stale: boolean
+    memory_updated_at?: string | null
+  }
+  memory: {
+    project_brief: string
+    current_objective: string
+    recent_progress: string[]
+    key_risks: string[]
+    open_questions: string[]
+    next_actions: string[]
+    delivery_signals: string[]
+    stakeholder_notes: string[]
+    financial_status: string
+    important_documents: Array<{ name?: string; reason?: string }>
+  }
+  client_memory: {
+    client_profile: string
+    decision_patterns: string[]
+    lessons_learned: string[]
+    sensitive_topics: string[]
+    project_history: Array<{ project_name?: string; status?: string; outcome?: string; key_factor?: string }>
+  }
+  stakeholders: Array<{
+    name?: string
+    role?: string
+    organization_level?: string
+    influence_type?: string
+    relationship_status?: string
+    concerns?: string
+    sensitivities?: string
+    communication_preference?: string
+    contact?: string
+    last_action?: string
+    note?: string
+  }>
+  meeting_card: {
+    say: string[]
+    avoid: string[]
+    confirm: string[]
+    experience: string[]
+  }
+  signals: {
+    upcoming_milestones: Array<{ id: number; title: string; due_date?: string | null; priority?: string }>
+    pending_todos: Array<{ id: number; content: string; due_date?: string | null }>
+    recent_documents: Array<{ id: number; name: string; summary?: string; uploaded_at?: string }>
+  }
+  generated_at: string
+}
+
 // Skill
 export interface Skill {
   id: number
