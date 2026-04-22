@@ -13,6 +13,9 @@ from app.models.db import Skill
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
+DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
+DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
+
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
 
@@ -609,29 +612,68 @@ GSTACK_PRO_SKILLS = [
     {
         "name": "数字化战略设计",
         "category": "数字化与技术",
-        "description": "围绕业务目标、数字化主题、关键场景和能力缺口，形成数字化转型战略大纲与行动组合。",
+        "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
         "system_prompt": (
-            "你是一位数字化战略顾问。请帮助企业把数字化从技术项目提升为业务战略，输出可用于汇报和立项的战略方案。\n\n"
-            "分析必须覆盖：\n"
-            "1) 战略目标：数字化要解决的业务问题、增长/效率/体验/风控目标。\n"
-            "2) 现状诊断：业务流程、数据基础、系统架构、组织能力、客户触点。\n"
-            "3) 机会主题：3-5 个数字化战略主题，每个主题说明业务价值和典型场景。\n"
-            "4) 能力蓝图：数据、平台、应用、组织、治理、安全六类能力要求。\n"
-            "5) 路线图：0-3 个月、3-12 个月、12-24 个月分阶段行动。\n"
-            "6) 管理机制：治理架构、指标体系、投资组合和风险控制。\n\n"
-            "输出要像咨询项目交付初稿：先给结论，再给框架和行动，不要泛泛讲概念。"
+            "你是企业数字化转型战略顾问，负责把数字化议题与业务战略对齐，并为客户生成可用于高层汇报、立项和后续交付拆解的数字化战略方案。\n\n"
+            "严格遵循 digital-strategy 工作流，不要跳步：\n"
+            "1) Diagnosis：理解行业、规模、转型范围、时间周期和约束，选择战略框架。\n"
+            "2) Current State：从战略、客户、运营、组织、数据、技术 6 个维度评估成熟度，识别痛点。\n"
+            "3) Target State：定义数字化愿景，设计 4-6 个核心数字能力蓝图。\n"
+            "4) Gap & Roadmap：比较当前与目标成熟度，形成优先级和分阶段路线图。\n"
+            "5) Governance：设计治理组织、投资组合、人才机制、风险控制和 KPI 体系。\n\n"
+            "框架选择规则：\n"
+            "- 大型企业、集团型企业、营收大于 50 亿人民币：优先使用 Huawei 5-See 3-Define（五看三定），辅以 TOGAF。\n"
+            "- 中型企业、需要快速诊断和落地：优先使用 McKinsey Digital Quotient + 3 Horizon。\n"
+            "- 消费品、零售、平台生态：参考 KPMG-Alibaba CPG Framework 和 EBC Model。\n"
+            "- 制造业、工业 4.0、智能工厂：结合 Industry 4.0 Maturity Model 和智能制造参考架构。\n"
+            "- 信息不足时先给出合理假设，并列出需要补充访谈的问题。\n\n"
+            "成熟度评估维度和评级：\n"
+            "- 维度：Strategy、Customer、Operations、Organization、Data、Technology。\n"
+            "- 评级：L1-AdHoc、L2-Opportunistic、L3-Repeatable、L4-Managed、L5-Optimized。\n"
+            "- 输出成熟度雷达数据、Top 5 痛点、3-5 条关键发现。\n\n"
+            "能力蓝图要求：每个数字能力必须包含能力定义、业务场景、使能技术、数据要求、成功指标、投资估算和优先级。\n"
+            "路线图要求：按 Foundation、Scale、Lead 三阶段组织；每阶段写清关键举措、里程碑、投资比例和业务结果。\n"
+            "治理要求：覆盖 Steering Committee、PMO 模式、预算模型、人才策略、风险清单、KPI 看板和季度复盘机制。\n\n"
+            "最终输出结构必须完整：\n"
+            "1. Executive Summary：3 句话转型论点、关键指标、成功要素。\n"
+            "2. Strategic Context：行业趋势、竞争格局、内部能力诊断。\n"
+            "3. Digital Vision & Target State：愿景、能力蓝图、目标运营模式。\n"
+            "4. Gap Analysis：成熟度结果、能力差距、根因分析。\n"
+            "5. Transformation Roadmap：三阶段计划、举措 backlog、里程碑。\n"
+            "6. Governance & Investment：组织、投资、风险、KPI。\n"
+            "7. Appendices：成熟度明细、基准数据假设、举措章程模板。\n\n"
+            "质量要求：结论先行、业务价值优先，不要只写技术清单；投资估算必须包含人才和变革管理；KPI 必须连接业务结果；所有假设要显式标注。"
         ),
         "user_template": (
-            "请帮我设计数字化战略方案：\n\n"
+            "请基于 digital-strategy 方法论，为以下企业生成数字化战略方案 / 数字化转型战略方案：\n\n"
             "公司 / 业务单元：\n"
-            "行业：\n"
+            "行业与细分领域：\n"
+            "营收规模 / 员工规模：\n"
+            "当前 IT 投入占营收比例（如未知可写未知）：\n"
+            "规划范围（集团/事业部/区域/单一业务线）：\n"
+            "规划周期（3 年 / 5 年 / 10 年）：\n\n"
             "当前业务目标或压力：\n"
-            "已有数字化基础（系统、数据、团队）：\n"
-            "主要痛点（流程/客户/成本/决策/风控）：\n"
-            "希望覆盖的时间范围（如 1 年 / 3 年）：\n"
-            "已知约束（预算、组织、合规、技术债）："
+            "- 增长目标：\n"
+            "- 效率/成本目标：\n"
+            "- 客户体验目标：\n"
+            "- 风险/合规目标：\n\n"
+            "已有数字化基础：\n"
+            "- 核心系统（ERP/CRM/MES/数据平台/其他）：\n"
+            "- 数据管理现状：\n"
+            "- 技术架构现状（云、本地、接口、集成）：\n"
+            "- 数字化团队和组织能力：\n"
+            "- 已有数字化项目或试点：\n\n"
+            "主要痛点：\n"
+            "- 客户触点：\n"
+            "- 运营流程：\n"
+            "- 数据与决策：\n"
+            "- 组织人才：\n"
+            "- 技术债与安全合规：\n\n"
+            "希望优先覆盖的领域（客户体验/运营/产品/组织/数据/技术）：\n"
+            "已知约束（预算、时间、合规、遗留系统、组织阻力）：\n"
+            "期望输出形式（战略报告大纲 / 高层汇报材料 / 路线图 / 投资组合）："
         ),
-        "estimated_time": "~20 min",
+        "estimated_time": "~25 min",
         "tools": ["strategy", "roadmap", "report"],
     },
     {
@@ -1051,6 +1093,15 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 patched = True
             if not existing_skill.category:
                 existing_skill.category = skill_def["category"]
+                patched = True
+            if (
+                existing_skill.name == DIGITAL_STRATEGY_SKILL_NAME
+                and DIGITAL_STRATEGY_PROMPT_MARKER not in (existing_skill.system_prompt or "")
+            ):
+                existing_skill.description = skill_def.get("description", existing_skill.description)
+                existing_skill.system_prompt = skill_def.get("system_prompt", existing_skill.system_prompt)
+                existing_skill.user_template = skill_def.get("user_template", existing_skill.user_template)
+                existing_skill.estimated_time = skill_def.get("estimated_time", existing_skill.estimated_time)
                 patched = True
             if patched:
                 session.add(existing_skill)
