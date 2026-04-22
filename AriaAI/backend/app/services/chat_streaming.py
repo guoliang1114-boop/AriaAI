@@ -24,6 +24,8 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 
+OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
+
 
 @dataclass
 class ChatRuntime:
@@ -160,6 +162,12 @@ def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _strip_truncation_marker(chunk: str) -> tuple[str, bool]:
+    if OUTPUT_TRUNCATED_MARKER not in chunk:
+        return chunk, False
+    return chunk.replace(OUTPUT_TRUNCATED_MARKER, "").strip(), True
+
+
 async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind):
     yield _sse_event({"type": "conversation_id", "id": runtime.conv_id})
     if runtime.rag_sources:
@@ -174,6 +182,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         text_buffer = ""
         tool_use_blocks = []
         reasoning_content = ""
+        p1_truncated = False
 
         print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
         yield _sse_event(
@@ -199,6 +208,18 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             max_tokens=runtime.max_tokens,
             temperature=runtime.temperature,
         ):
+            chunk, was_truncated = _strip_truncation_marker(chunk)
+            if was_truncated:
+                p1_truncated = True
+                yield _sse_event(
+                    {
+                        "type": "status",
+                        "stage": "continuing",
+                        "message": "模型输出较长，已触发长度上限，正在尝试继续生成...",
+                    }
+                )
+                if not chunk:
+                    continue
             stripped = chunk.strip()
             if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
                 tool_name = stripped[12:-1]
@@ -232,6 +253,40 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "text", "content": chunk})
 
         print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
+        if p1_truncated and not tool_use_blocks and text_buffer.strip():
+            continuation_messages = runtime.api_messages + [
+                {"role": "assistant", "content": text_buffer.strip()},
+                {
+                    "role": "user",
+                    "content": "请从上一条回复被截断的位置继续，直接续写正文，不要重复已经写过的内容。",
+                },
+            ]
+            async for chunk in runtime.llm.stream_response(
+                continuation_messages,
+                system=runtime.system,
+                model=runtime.selected_model,
+                tools=None,
+                max_tokens=runtime.max_tokens,
+                temperature=runtime.temperature,
+            ):
+                chunk, was_truncated = _strip_truncation_marker(chunk)
+                if was_truncated:
+                    if chunk:
+                        text_buffer += chunk
+                        yield _sse_event({"type": "text", "content": chunk})
+                    text_buffer += "\n\n（内容较长，已达到单次回复长度上限。你可以继续发送“继续”，我会从这里接着展开。）"
+                    yield _sse_event(
+                        {
+                            "type": "text",
+                            "content": "\n\n（内容较长，已达到单次回复长度上限。你可以继续发送“继续”，我会从这里接着展开。）",
+                        }
+                    )
+                    break
+                if not chunk:
+                    continue
+                text_buffer += chunk
+                yield _sse_event({"type": "text", "content": chunk})
+
         if tool_use_blocks:
             yield _sse_event({"type": "status", "stage": "tools", "message": "模型已完成初稿规划，正在执行所需工具..."})
         elif not text_buffer.strip():
@@ -308,6 +363,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
+            p3_truncated = False
             async for chunk in runtime.llm.stream_response(
                 continuation_messages,
                 system=runtime.system,
@@ -316,8 +372,53 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 max_tokens=runtime.max_tokens,
                 temperature=runtime.temperature,
             ):
+                chunk, was_truncated = _strip_truncation_marker(chunk)
+                if was_truncated:
+                    p3_truncated = True
+                    yield _sse_event(
+                        {
+                            "type": "status",
+                            "stage": "continuing",
+                            "message": "最终答复较长，正在尝试继续生成...",
+                        }
+                    )
+                    if not chunk:
+                        continue
                 follow_up_text += chunk
                 yield _sse_event({"type": "text", "content": chunk})
+            if p3_truncated and follow_up_text.strip():
+                p3_continuation_messages = continuation_messages + [
+                    {"role": "assistant", "content": follow_up_text.strip()},
+                    {
+                        "role": "user",
+                        "content": "请从上一条最终答复被截断的位置继续，直接续写正文，不要重复已经写过的内容。",
+                    },
+                ]
+                async for chunk in runtime.llm.stream_response(
+                    p3_continuation_messages,
+                    system=runtime.system,
+                    model=runtime.selected_model,
+                    tools=None,
+                    max_tokens=runtime.max_tokens,
+                    temperature=runtime.temperature,
+                ):
+                    chunk, was_truncated = _strip_truncation_marker(chunk)
+                    if was_truncated:
+                        if chunk:
+                            follow_up_text += chunk
+                            yield _sse_event({"type": "text", "content": chunk})
+                        follow_up_text += "\n\n（内容较长，已达到单次回复长度上限。你可以继续发送“继续”，我会从这里接着展开。）"
+                        yield _sse_event(
+                            {
+                                "type": "text",
+                                "content": "\n\n（内容较长，已达到单次回复长度上限。你可以继续发送“继续”，我会从这里接着展开。）",
+                            }
+                        )
+                        break
+                    if not chunk:
+                        continue
+                    follow_up_text += chunk
+                    yield _sse_event({"type": "text", "content": chunk})
             print(f"[P3] done. follow_up_text_len={len(follow_up_text)}", flush=True)
 
         full_text = text_buffer.strip()

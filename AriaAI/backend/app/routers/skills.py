@@ -687,6 +687,7 @@ GSTACK_PRO_SKILLS = [
             "期望输出形式（战略报告大纲 / 高层汇报材料 / 路线图 / 投资组合）："
         ),
         "estimated_time": "~25 min",
+        "max_tokens": 8192,
         "tools": DIGITAL_STRATEGY_TOOL_NAMES,
     },
     {
@@ -1140,6 +1141,9 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 if not set(DIGITAL_STRATEGY_TOOL_NAMES).issubset(existing_tool_names):
                     existing_skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
                     existing_skill.tools = tool_names
+                    patched = True
+                if existing_skill.max_tokens < skill_def.get("max_tokens", existing_skill.max_tokens):
+                    existing_skill.max_tokens = skill_def["max_tokens"]
                     patched = True
             if patched:
                 session.add(existing_skill)

@@ -3335,6 +3335,42 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(metadata["references"][0]["title"], "project-brief.md")
             self.assertEqual(metadata["project_id"], 12)
 
+    def test_stream_chat_events_continues_truncated_plain_response(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                ["first half ", "[OUTPUT_TRUNCATED]"],
+                ["second half"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="kimi-k2.6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "long answer"}],
+            rag_sources=[],
+            tools=None,
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="long answer")
+
+        events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+        joined = "".join(events)
+
+        self.assertNotIn("[OUTPUT_TRUNCATED]", joined)
+        self.assertIn("正在尝试继续生成", joined)
+        self.assertIn("first half ", joined)
+        self.assertIn("second half", joined)
+        self.assertEqual(llm.calls, 2)
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(assistant_messages[0].content, "first half second half")
+
     def test_stream_chat_events_handles_tool_follow_up(self):
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
@@ -4157,6 +4193,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("Huawei 5-See 3-Define", strategy.system_prompt)
         self.assertIn("Foundation", strategy.system_prompt)
         self.assertIn("generate_ppt_from_skill", strategy.system_prompt)
+        self.assertEqual(strategy.max_tokens, 8192)
         self.assertIn("generate_ppt_from_skill", strategy.tools)
         self.assertIn("save_json", strategy.tools)
         tool_defs = json.loads(strategy.tools_definition_json)
@@ -4172,6 +4209,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
             system_prompt="digital-strategy 工作流\n旧提示",
             user_template="旧模板",
             estimated_time="~25 min",
+            max_tokens=4096,
             tools_definition_json=json.dumps(
                 [
                     {"name": "strategy", "type": "legacy"},
@@ -4195,6 +4233,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertGreaterEqual(changed, 1)
         self.assertEqual(second_count, 0)
         self.assertEqual(strategy.tools, ["generate_ppt_from_skill", "save_json"])
+        self.assertEqual(strategy.max_tokens, 8192)
         tool_defs = json.loads(strategy.tools_definition_json)
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertIn("generate_ppt_from_skill", tool_def_names)
