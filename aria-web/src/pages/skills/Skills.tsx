@@ -38,6 +38,16 @@ type SkillCategory = {
   count: number;
 };
 
+type ServiceLine = {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  categories: SkillCategory[];
+  count: number;
+  tone: string;
+};
+
 const SKILLS_PAGE_SIZE = 12;
 
 const extractMinutes = (estimatedTime?: string) => {
@@ -190,6 +200,81 @@ const getCategoryLabel = (category: string, isZh: boolean) => {
   return isZh ? labels[key]?.zh || labels.other.zh : labels[key]?.en || labels.other.en;
 };
 
+const buildServiceLines = (categories: SkillCategory[], isZh: boolean): ServiceLine[] => {
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter(Boolean) as SkillCategory[];
+  const makeLine = (
+    id: string,
+    title: string,
+    subtitle: string,
+    description: string,
+    categoryIds: string[],
+    tone: string,
+  ) => {
+    const lineCategories = pick(categoryIds);
+    return {
+      id,
+      title,
+      subtitle,
+      description,
+      categories: lineCategories,
+      count: lineCategories.reduce((sum, category) => sum + category.count, 0),
+      tone,
+    };
+  };
+
+  return [
+    makeLine(
+      "strategy-analytics",
+      isZh ? "战略、分析与交易" : "Strategy, Analytics & Transactions",
+      isZh ? "从增长判断到交易决策" : "From growth choices to transaction decisions",
+      isZh ? "覆盖战略增长、数据洞察、并购交易等高层决策型能力。" : "Covers executive decision capabilities across strategy, analytics, and transactions.",
+      ["strategy", "data", "manda"],
+      "from-blue-50 via-indigo-50 to-slate-50",
+    ),
+    makeLine(
+      "customer-marketing",
+      isZh ? "客户与市场" : "Customer & Marketing",
+      isZh ? "从客户洞察到增长体验" : "From customer insight to growth experience",
+      isZh ? "围绕客户、市场、增长、体验和商业化场景组织能力。" : "Organizes customer, market, growth, experience, and commercialization capabilities.",
+      ["market"],
+      "from-emerald-50 via-teal-50 to-sky-50",
+    ),
+    makeLine(
+      "human-capital",
+      isZh ? "组织与人才" : "Human Capital",
+      isZh ? "从组织机制到变革落地" : "From organization systems to change adoption",
+      isZh ? "面向组织设计、人才机制、协同效率和变革管理。" : "For organization design, talent systems, collaboration, and change management.",
+      ["org"],
+      "from-orange-50 via-amber-50 to-rose-50",
+    ),
+    makeLine(
+      "enterprise-technology",
+      isZh ? "企业技术与绩效" : "Enterprise Technology & Performance",
+      isZh ? "从数字化战略到绩效闭环" : "From digital strategy to performance impact",
+      isZh ? "连接数字化、技术架构、财务绩效、投资回报和企业能力建设。" : "Connects digital, technology architecture, finance performance, ROI, and enterprise capability building.",
+      ["digital", "finance"],
+      "from-cyan-50 via-blue-50 to-indigo-50",
+    ),
+    makeLine(
+      "core-operations",
+      isZh ? "核心业务运营" : "Core Business Operations",
+      isZh ? "从流程效能到交付执行" : "From process effectiveness to delivery execution",
+      isZh ? "承接运营、效能、通用任务、提案交付和项目复盘。" : "Supports operations, efficiency, general tasks, proposal delivery, and retrospectives.",
+      ["operations", "common"],
+      "from-teal-50 via-slate-50 to-emerald-50",
+    ),
+    makeLine(
+      "risk-advisory",
+      isZh ? "风险、监管与合规" : "Risk, Regulatory & Compliance",
+      isZh ? "从风险识别到控制机制" : "From risk discovery to control design",
+      isZh ? "覆盖风险识别、合规差距、控制机制和审查清单。" : "Covers risk discovery, compliance gaps, controls, and review checklists.",
+      ["risk"],
+      "from-rose-50 via-red-50 to-orange-50",
+    ),
+  ].filter((line) => line.categories.length > 0);
+};
+
 const safeDecode = (value?: string) => {
   try {
     return decodeURIComponent(value || "all");
@@ -328,6 +413,7 @@ export function Skills() {
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
   const [categorySearch, setCategorySearch] = useState("");
+  const serviceLines = useMemo(() => buildServiceLines(categories, isZh), [categories, isZh]);
 
   const visibleCategories = useMemo(() => {
     const keyword = categorySearch.trim().toLowerCase();
@@ -394,6 +480,39 @@ export function Skills() {
                   })}
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[1.75rem] border border-slate-200 bg-white/88 p-5 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                  <Layers3 className="h-3.5 w-3.5" />
+                  {isZh ? "服务线能力地图" : "Service-line capability map"}
+                </div>
+                <h2 className="mt-3 text-xl font-semibold text-slate-950">
+                  {isZh ? "按专业服务线组织能力，而不是只按标签平铺" : "Organize capabilities by professional service lines, not just tags"}
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                  {isZh
+                    ? "参考大型咨询公司的服务线表达方式，把 Aria Skill 归入更容易理解的能力组合。点击任一能力域即可进入具体 Skill 列表。"
+                    : "Inspired by large consulting firms' service-line taxonomy, Aria groups Skills into clearer capability portfolios. Click any capability area to open its Skill list."}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                {isZh ? `${serviceLines.length} 条服务线 · ${skills.length} 个 Skill` : `${serviceLines.length} service lines · ${skills.length} Skills`}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+              {serviceLines.map((line, index) => (
+                <ServiceLineCard
+                  key={line.id}
+                  index={index}
+                  line={line}
+                  onOpenCategory={(categoryId) => navigate(buildCategoryPath(categoryId, launchSource.searchParams))}
+                />
+              ))}
             </div>
           </section>
 
@@ -1142,6 +1261,71 @@ function buildVisiblePages(currentPage: number, totalPages: number) {
     if (page >= 1 && page <= totalPages) pages.add(page);
   }
   return Array.from(pages).sort((a, b) => a - b);
+}
+
+function ServiceLineCard({
+  index,
+  line,
+  onOpenCategory,
+}: {
+  index: number;
+  line: ServiceLine;
+  onOpenCategory: (categoryId: string) => void;
+}) {
+  const leadCategory = line.categories[0];
+  const Icon = leadCategory ? getCategoryIcon(leadCategory.id) : Brain;
+
+  return (
+    <div className={`group relative overflow-hidden rounded-[1.75rem] border border-slate-200 bg-gradient-to-br ${line.tone} p-5 transition hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(15,23,42,0.08)]`}>
+      <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/70 blur-2xl" />
+      <div className="relative">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/75 text-slate-700 shadow-sm">
+              <Icon className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                {String(index + 1).padStart(2, "0")} Portfolio
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">{line.title}</h3>
+            </div>
+          </div>
+          <div className="rounded-full border border-white/80 bg-white/75 px-3 py-1 text-xs font-semibold text-slate-600">
+            {line.count} Skills
+          </div>
+        </div>
+
+        <p className="mt-3 text-sm font-medium text-slate-700">{line.subtitle}</p>
+        <p className="mt-2 min-h-12 text-sm leading-6 text-slate-500">{line.description}</p>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {line.categories.map((category) => {
+            const CategoryIcon = getCategoryIcon(category.id);
+            return (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => onOpenCategory(category.id)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-950"
+              >
+                <CategoryIcon className="h-3.5 w-3.5" />
+                {category.label}
+                <span className="text-slate-400">{category.count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/70">
+          <div
+            className="h-full rounded-full bg-slate-900/45 transition-all"
+            style={{ width: `${Math.min(100, Math.max(16, line.count * 8))}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CategoryShowcaseCard({
