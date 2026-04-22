@@ -191,16 +191,21 @@ export function useProjectChatComposer({
             fullContent += payload.content;
             setStreamingContent(fullContent);
           } else if (payload.type === "status" && payload.message) {
+            if (payload.stage === "saving" || payload.stage === "finalizing") {
+              setStreamingToolCalls((prev) =>
+                prev.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+              );
+              continue;
+            }
             const statusCall: ToolCallEvent = {
               tool_name: "Aria",
               status: "running",
               message: payload.message,
             };
-            collectedToolCalls = [
-              ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+            setStreamingToolCalls((prev) => [
+              ...prev.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
               statusCall,
-            ];
-            setStreamingToolCalls(collectedToolCalls);
+            ]);
           } else if (payload.type === "references") {
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);
@@ -214,7 +219,9 @@ export function useProjectChatComposer({
               ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
               runningCall,
             ];
-            setStreamingToolCalls(collectedToolCalls);
+            setStreamingToolCalls([
+              ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+            ]);
           } else if (payload.type === "tool_result" && payload.result) {
             const result = payload.result;
             const toolName =
@@ -246,6 +253,7 @@ export function useProjectChatComposer({
       }
 
       setStreamingContent("");
+      setStreamingToolCalls([]);
       await fetchMessages(conversationId);
       if (
         collectedReferences.length > 0 ||
@@ -273,6 +281,7 @@ export function useProjectChatComposer({
     } catch (error) {
       console.error("Failed to send message:", error);
       setStreamingContent("");
+      setStreamingToolCalls([]);
       onSendError();
       await fetchMessages(conversationId);
       return false;
