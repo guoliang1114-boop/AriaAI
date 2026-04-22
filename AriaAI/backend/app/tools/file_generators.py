@@ -108,6 +108,104 @@ def _find_body_placeholder(slide):
     return None
 
 
+def _layout_placeholder_idx(slide, placeholder_name: str) -> int | None:
+    for placeholder in slide.slide_layout.placeholders:
+        if placeholder.name == placeholder_name:
+            return placeholder.placeholder_format.idx
+    return None
+
+
+def _placeholder_by_layout_name(slide, placeholder_name: str):
+    idx = _layout_placeholder_idx(slide, placeholder_name)
+    if idx is None:
+        return None
+    try:
+        return slide.placeholders[idx]
+    except KeyError:
+        return None
+
+
+def _shape_by_name(slide, shape_name: str):
+    for shape in slide.shapes:
+        if shape.name == shape_name:
+            return shape
+    return None
+
+
+def _set_placeholder_text(slide, placeholder_name: str, text: str) -> bool:
+    placeholder = _placeholder_by_layout_name(slide, placeholder_name)
+    if placeholder is None or not placeholder.has_text_frame:
+        return False
+    placeholder.text_frame.clear()
+    placeholder.text_frame.text = text
+    placeholder.text_frame.word_wrap = True
+    _style_text_frame(placeholder.text_frame, placeholder_name)
+    return True
+
+
+def _set_named_or_placeholder_text(slide, shape_name: str, text: str) -> bool:
+    """Write text by normal shape name first, then by layout placeholder name."""
+    shape = _shape_by_name(slide, shape_name)
+    if shape is not None and getattr(shape, "has_text_frame", False):
+        shape.text_frame.clear()
+        shape.text_frame.text = text
+        shape.text_frame.word_wrap = True
+        _style_text_frame(shape.text_frame, shape_name)
+        return True
+    return _set_placeholder_text(slide, shape_name, text)
+
+
+def _placeholder_bounds(slide, placeholder_name: str):
+    placeholder = _placeholder_by_layout_name(slide, placeholder_name)
+    if placeholder is None:
+        return None
+    return placeholder.left, placeholder.top, placeholder.width, placeholder.height
+
+
+def _bounds_by_name_or_placeholder(slide, shape_name: str):
+    shape = _shape_by_name(slide, shape_name)
+    if shape is not None:
+        return shape.left, shape.top, shape.width, shape.height
+    return _placeholder_bounds(slide, shape_name)
+
+
+def _shape_by_name_or_placeholder(slide, shape_name: str):
+    return _shape_by_name(slide, shape_name) or _placeholder_by_layout_name(slide, shape_name)
+
+
+def _resize_named_or_placeholder(slide, shape_name: str, x, y, w, h) -> bool:
+    shape = _shape_by_name_or_placeholder(slide, shape_name)
+    if shape is None:
+        return False
+    shape.left = x
+    shape.top = y
+    shape.width = w
+    shape.height = h
+    return True
+
+
+def _style_text_frame(frame, role: str):
+    """Apply a clean consulting-style baseline to template text frames."""
+    from pptx.dml.color import RGBColor
+    from pptx.util import Pt
+
+    role = role.lower()
+    is_title = "title" in role
+    is_cover = "cover" in role
+    for paragraph in frame.paragraphs:
+        paragraph.font.name = "Aptos"
+        paragraph.font.size = Pt(30 if is_cover and is_title else 21 if is_title else 12)
+        paragraph.font.bold = is_title
+        if is_cover:
+            paragraph.font.color.rgb = RGBColor.from_string("FFFFFF")
+        else:
+            paragraph.font.color.rgb = RGBColor.from_string("111827" if is_title else "334155")
+        paragraph.space_after = Pt(4 if is_title else 3)
+        paragraph.line_spacing = 1.08 if is_title else 1.18
+        if paragraph.text.strip().startswith("-"):
+            paragraph.level = 0
+
+
 def _set_content_slide_text(slide, title: str, content: str):
     """Write visible title/body text even when templates use unusual placeholders."""
     from pptx.util import Inches, Pt
@@ -132,6 +230,11 @@ def _set_content_slide_text(slide, title: str, content: str):
 
 def _set_template_cover_text(slide, title: str, subtitle: str):
     """Best-effort cover replacement for branded templates."""
+    replaced_title = _set_named_or_placeholder_text(slide, "aria_cover_title", title)
+    replaced_subtitle = bool(subtitle) and _set_named_or_placeholder_text(slide, "aria_cover_subtitle", subtitle)
+    if replaced_title and (replaced_subtitle or not subtitle):
+        return
+
     replaced_title = False
     replaced_subtitle = False
     for shape in slide.shapes:
@@ -175,9 +278,43 @@ def _remove_slide(prs, index: int):
         prs.part.drop_rel(rel_id)
 
 
+def _slide_ref(prs, index: int):
+    refs = list(prs.slides._sldIdLst)
+    if 0 <= index < len(refs):
+        return refs[index]
+    return None
+
+
+def _remove_slide_ref(prs, slide_ref):
+    if slide_ref is None:
+        return
+    slide_id_list = prs.slides._sldIdLst
+    if slide_ref not in slide_id_list:
+        return
+    rel_id = slide_ref.rId
+    slide_id_list.remove(slide_ref)
+    prs.part.drop_rel(rel_id)
+
+
+def _move_slide_ref_to_end(prs, slide_ref):
+    if slide_ref is None:
+        return
+    slide_id_list = prs.slides._sldIdLst
+    if slide_ref not in slide_id_list:
+        return
+    slide_id_list.remove(slide_ref)
+    slide_id_list.append(slide_ref)
+
+
 def _clear_text_shapes(slide):
     for shape in slide.shapes:
         if shape.has_text_frame:
+            shape.text_frame.clear()
+
+
+def _clear_generated_text_shapes(slide):
+    for shape in slide.shapes:
+        if shape.has_text_frame and not shape.is_placeholder:
             shape.text_frame.clear()
 
 
@@ -195,9 +332,11 @@ def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = F
     frame.margin_bottom = Pt(4)
     paragraph = frame.paragraphs[0]
     paragraph.text = text
+    paragraph.font.name = "Aptos"
     paragraph.font.size = Pt(size)
     paragraph.font.bold = bold
     paragraph.font.color.rgb = RGBColor.from_string(color)
+    paragraph.line_spacing = 1.08
     return box
 
 
@@ -270,23 +409,47 @@ def _add_consulting_visual_panel(slide, x, y, w, h, bullets: list[str]):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
-    _add_card(slide, x, y, w, h, fill="F8FAFC", line="CBD5E1")
-    _add_textbox(slide, x + Inches(0.22), y + Inches(0.18), w - Inches(0.44), Inches(0.35), "Strategic lens", size=12, bold=True, color="0F172A")
+    _add_card(slide, x, y, w, h, fill="FAFBFC", line="D7DEE8")
+    _add_textbox(slide, x + Inches(0.24), y + Inches(0.16), w - Inches(0.48), Inches(0.28), "Executive lens", size=11, bold=True, color="0F172A")
+    _add_textbox(slide, x + Inches(0.24), y + Inches(0.48), w - Inches(0.48), Inches(0.24), "Impact drivers", size=8, color="64748B")
 
-    colors = ["2563EB", "16A34A", "F59E0B"]
-    labels = ["Value", "Data", "Scale"]
+    colors = ["1D4ED8", "047857", "B45309"]
+    labels = ["Value", "Adoption", "Scale"]
     for idx, label in enumerate(labels):
-        top = y + Inches(0.78 + idx * 0.78)
-        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.26), top, Inches(0.36), Inches(0.36), fill=colors[idx], line=colors[idx])
-        _add_textbox(slide, x + Inches(0.72), top - Inches(0.03), w - Inches(1.0), Inches(0.32), label, size=11, bold=True, color="334155")
-        bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x + Inches(0.72), top + Inches(0.33), Inches(1.6 + idx * 0.32), Inches(0.08))
+        top = y + Inches(0.88 + idx * 0.64)
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.28), top, Inches(0.30), Inches(0.30), fill=colors[idx], line=colors[idx])
+        _add_textbox(slide, x + Inches(0.72), top - Inches(0.03), w - Inches(1.0), Inches(0.26), label, size=9, bold=True, color="334155")
+        bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x + Inches(0.72), top + Inches(0.28), Inches(1.35 + idx * 0.34), Inches(0.06))
         bar.fill.solid()
         bar.fill.fore_color.rgb = RGBColor.from_string(colors[idx])
         bar.line.fill.background()
 
     insight = bullets[0] if bullets else "Align digital investments with measurable business outcomes."
-    _add_card(slide, x + Inches(0.22), y + Inches(3.25), w - Inches(0.44), Inches(1.05), fill="EEF2FF", line="C7D2FE")
-    _add_textbox(slide, x + Inches(0.42), y + Inches(3.42), w - Inches(0.84), Inches(0.58), insight[:120], size=11, bold=True, color="1E1B4B")
+    matrix_x = x + Inches(0.26)
+    matrix_y = y + Inches(2.95)
+    matrix_w = w - Inches(0.52)
+    matrix_h = Inches(0.86)
+    _add_card(slide, matrix_x, matrix_y, matrix_w, matrix_h, fill="EEF2FF", line="C7D2FE")
+    _add_textbox(slide, matrix_x + Inches(0.16), matrix_y + Inches(0.13), matrix_w - Inches(0.32), Inches(0.46), insight[:110], size=9, bold=True, color="1E1B4B")
+    _add_textbox(slide, x + Inches(0.28), y + Inches(3.98), w - Inches(0.56), Inches(0.22), "Decision focus: prioritize high-confidence, high-impact moves", size=7, color="64748B")
+
+
+def _add_value_chain_visual(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    labels = ["Diagnose", "Design", "Mobilize", "Scale"]
+    colors = ["EFF6FF", "ECFDF5", "FFF7ED", "F8FAFC"]
+    accents = ["1D4ED8", "047857", "C2410C", "475569"]
+    step_w = w / 4 - Inches(0.08)
+    for idx, label in enumerate(labels):
+        left = x + idx * (step_w + Inches(0.1))
+        _add_card(slide, left, y, step_w, h, fill=colors[idx], line="D8DEE9")
+        _add_shape(slide, MSO_SHAPE.OVAL, left + Inches(0.12), y + Inches(0.12), Inches(0.34), Inches(0.34), fill=accents[idx], line=accents[idx])
+        _add_textbox(slide, left + Inches(0.22), y + Inches(0.19), Inches(0.14), Inches(0.12), str(idx + 1), size=7, bold=True, color="FFFFFF")
+        _add_textbox(slide, left + Inches(0.12), y + Inches(0.55), step_w - Inches(0.24), Inches(0.24), label, size=9, bold=True, color=accents[idx])
+        if idx < len(bullets):
+            _add_textbox(slide, left + Inches(0.12), y + Inches(0.88), step_w - Inches(0.24), h - Inches(1.0), bullets[idx][:80], size=7, color="475569")
 
 
 def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int) -> bool:
@@ -315,39 +478,116 @@ def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int
     return True
 
 
+def _wants_visual_slide(title: str, content: str = "") -> bool:
+    text = f"{title}\n{content}".lower()
+    keywords = (
+        "roadmap", "horizon", "phase", "blueprint", "capability", "maturity",
+        "路线", "阶段", "蓝图", "能力", "成熟度", "路径", "规划",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _render_visual_slide(slide, title: str, content: str, slide_number: int):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _clear_generated_text_shapes(slide)
+    bullets = _split_bullets(content, limit=6)
+    used_template = (
+        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
+    )
+    visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
+    if not used_template or visual_bounds is None:
+        _clear_text_shapes(slide)
+        _add_slide_header(slide, title, slide_number)
+        visual_bounds = (Inches(7.4), Inches(1.45), Inches(4.7), Inches(4.8))
+        _add_textbox(slide, Inches(0.85), Inches(1.45), Inches(5.95), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets), size=13, color="334155")
+
+    x, y, w, h = visual_bounds
+    phases = bullets[:3] or ["Foundation", "Scale", "Lead"]
+    colors = [("EFF6FF", "1D4ED8"), ("ECFDF5", "047857"), ("FFF7ED", "C2410C")]
+    card_h = h / 3 - Inches(0.16)
+    for idx, phase in enumerate(phases[:3]):
+        fill, accent = colors[idx]
+        top = y + idx * (card_h + Inches(0.22))
+        _add_card(slide, x, top, w, card_h, fill=fill, line=accent)
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.18), top + Inches(0.16), Inches(0.38), Inches(0.38), fill=accent, line=accent)
+        _add_textbox(slide, x + Inches(0.31), top + Inches(0.23), Inches(0.14), Inches(0.12), str(idx + 1), size=8, bold=True, color="FFFFFF")
+        label = ["Foundation", "Scale", "Lead"][idx]
+        _add_textbox(slide, x + Inches(0.68), top + Inches(0.12), w - Inches(0.9), Inches(0.26), label, size=11, bold=True, color=accent)
+        _add_textbox(slide, x + Inches(0.68), top + Inches(0.45), w - Inches(0.9), card_h - Inches(0.58), phase[:180], size=9, color="334155")
+
+    if not used_template:
+        _add_slide_footer(slide)
+
+
 def _render_content_slide(slide, title: str, content: str, slide_number: int):
     from pptx.util import Inches
 
-    _clear_text_shapes(slide)
-    _add_slide_header(slide, title, slide_number)
+    _clear_generated_text_shapes(slide)
     bullets = _split_bullets(content, limit=6)
     if _add_roadmap_visual(slide, title, bullets, slide_number):
         return
+    used_template = (
+        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
+    )
+    if not used_template:
+        _clear_text_shapes(slide)
+        _add_slide_header(slide, title, slide_number)
     if bullets:
         hero = bullets[0]
-        _add_card(slide, Inches(0.75), Inches(1.2), Inches(11.85), Inches(1.0), fill="EFF6FF", line="BFDBFE")
-        _add_textbox(slide, Inches(1.0), Inches(1.38), Inches(11.35), Inches(0.55), hero, size=18, bold=True, color="1E3A8A")
+        if used_template:
+            _resize_named_or_placeholder(slide, "aria_slide_body", Inches(0.95), Inches(2.2), Inches(7.58), Inches(3.38))
+            _add_card(slide, Inches(0.95), Inches(1.32), Inches(7.58), Inches(0.58), fill="F8FAFC", line="CBD5E1")
+            _add_textbox(slide, Inches(1.16), Inches(1.42), Inches(7.12), Inches(0.3), hero, size=11, bold=True, color="0F172A")
+            _add_textbox(slide, Inches(0.98), Inches(1.08), Inches(2.3), Inches(0.2), "KEY MESSAGE", size=7, bold=True, color="64748B")
+        else:
+            _add_card(slide, Inches(0.75), Inches(1.2), Inches(11.85), Inches(1.0), fill="EFF6FF", line="BFDBFE")
+            _add_textbox(slide, Inches(1.0), Inches(1.38), Inches(11.35), Inches(0.55), hero, size=18, bold=True, color="1E3A8A")
 
     card_y = Inches(2.45)
     card_h = Inches(0.72)
-    for idx, bullet in enumerate(bullets[1:6], start=1):
-        y = card_y + Inches(0.82 * (idx - 1))
-        _add_card(slide, Inches(0.85), y, Inches(7.85), card_h)
-        _add_textbox(slide, Inches(1.05), y + Inches(0.12), Inches(0.45), Inches(0.3), f"{idx}", size=11, bold=True, color="2563EB")
-        _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(6.85), Inches(0.45), bullet, size=13, color="334155")
-    _add_consulting_visual_panel(slide, Inches(9.05), Inches(2.45), Inches(3.35), Inches(4.1), bullets)
-    _add_slide_footer(slide)
+    if not used_template:
+        for idx, bullet in enumerate(bullets[1:6], start=1):
+            y = card_y + Inches(0.82 * (idx - 1))
+            _add_card(slide, Inches(0.85), y, Inches(7.85), card_h)
+            _add_textbox(slide, Inches(1.05), y + Inches(0.12), Inches(0.45), Inches(0.3), f"{idx}", size=11, bold=True, color="2563EB")
+            _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(6.85), Inches(0.45), bullet, size=13, color="334155")
+    if used_template:
+        _add_value_chain_visual(slide, Inches(0.95), Inches(5.92), Inches(7.58), Inches(0.72), bullets[1:5])
+        _add_consulting_visual_panel(slide, Inches(9.16), Inches(1.32), Inches(3.06), Inches(4.48), bullets)
+    else:
+        _add_consulting_visual_panel(slide, Inches(9.05), Inches(2.45), Inches(3.35), Inches(4.1), bullets)
+    if not used_template:
+        _add_slide_footer(slide)
 
 
 def _render_two_column_slide(slide, title: str, left_content: str, right_content: str, slide_number: int):
     from pptx.util import Inches
 
-    _clear_text_shapes(slide)
-    _add_slide_header(slide, title, slide_number)
+    _clear_generated_text_shapes(slide)
+    used_template = (
+        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        and _set_named_or_placeholder_text(slide, "aria_left_body", left_content)
+        and _set_named_or_placeholder_text(slide, "aria_right_body", right_content)
+    )
+    if not used_template:
+        _clear_text_shapes(slide)
+        _add_slide_header(slide, title, slide_number)
     columns = [
         ("Current / Foundation", left_content, "F8FAFC", "2563EB", Inches(0.85)),
         ("Target / Scale", right_content, "F0FDF4", "16A34A", Inches(6.85)),
     ]
+    if used_template:
+        from pptx.enum.shapes import MSO_SHAPE
+
+        _add_textbox(slide, Inches(0.9), Inches(1.18), Inches(2.6), Inches(0.24), "CURRENT STATE", size=7, bold=True, color="64748B")
+        _add_textbox(slide, Inches(6.95), Inches(1.18), Inches(2.6), Inches(0.24), "TARGET STATE", size=7, bold=True, color="64748B")
+        _add_shape(slide, MSO_SHAPE.CHEVRON, Inches(6.2), Inches(3.35), Inches(0.5), Inches(0.5), fill="E2E8F0", line="CBD5E1")
+        _add_textbox(slide, Inches(5.72), Inches(3.96), Inches(1.52), Inches(0.22), "transition path", size=7, bold=True, color="64748B")
+        return
     for heading, content, fill, color, x in columns:
         _add_card(slide, x, Inches(1.35), Inches(5.55), Inches(5.2), fill=fill)
         _add_textbox(slide, x + Inches(0.28), Inches(1.58), Inches(5.0), Inches(0.38), heading, size=15, bold=True, color=color)
@@ -356,7 +596,8 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
             y = Inches(2.22 + idx * 0.62)
             _add_textbox(slide, x + Inches(0.35), y, Inches(0.25), Inches(0.24), "•", size=14, bold=True, color=color)
             _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
-    _add_slide_footer(slide)
+    if not used_template:
+        _add_slide_footer(slide)
 
 
 def _render_back_cover(slide, title: str):
@@ -391,6 +632,82 @@ async def generate_ppt(
         }
 
     using_template = bool(template_path and Path(template_path).exists())
+    if using_template:
+        prs = Presentation(template_path)
+        if len(prs.slides) >= 5:
+            _set_template_cover_text(prs.slides[0], title, subtitle)
+
+            content_ref = _slide_ref(prs, 1)
+            two_col_ref = _slide_ref(prs, 2)
+            visual_ref = _slide_ref(prs, 3)
+            back_cover_ref = _slide_ref(prs, 4)
+            content_prototype = prs.slides[1]
+            two_col_prototype = prs.slides[2]
+            visual_prototype = prs.slides[3]
+            content_layout = content_prototype.slide_layout
+            two_col_layout = two_col_prototype.slide_layout
+            visual_layout = visual_prototype.slide_layout
+
+            used_content_ref = False
+            used_two_col_ref = False
+            used_visual_ref = False
+            for slide_index, slide_data in enumerate(slides):
+                slide_type = slide_data.get("type", "content")
+                slide_title = slide_data.get("title", "")
+                content = slide_data.get("content", "")
+                use_visual = slide_type == "content" and _wants_visual_slide(slide_title, content)
+
+                if slide_type == "two_column":
+                    if not used_two_col_ref:
+                        slide = two_col_prototype
+                        used_two_col_ref = True
+                    else:
+                        slide = prs.slides.add_slide(two_col_layout)
+                elif use_visual:
+                    if not used_visual_ref:
+                        slide = visual_prototype
+                        used_visual_ref = True
+                    else:
+                        slide = prs.slides.add_slide(visual_layout)
+                else:
+                    if not used_content_ref:
+                        slide = content_prototype
+                        used_content_ref = True
+                    else:
+                        slide = prs.slides.add_slide(content_layout)
+
+                if use_visual:
+                    _render_visual_slide(slide, slide_title, content, slide_index + 1)
+                elif slide_type == "two_column":
+                    _render_two_column_slide(
+                        slide,
+                        slide_title,
+                        slide_data.get("left_content", ""),
+                        slide_data.get("right_content", ""),
+                        slide_index + 1,
+                    )
+                elif "content" in slide_data:
+                    _render_content_slide(slide, slide_title, content, slide_index + 1)
+
+            if not used_content_ref:
+                _remove_slide_ref(prs, content_ref)
+            if not used_two_col_ref:
+                _remove_slide_ref(prs, two_col_ref)
+            if not used_visual_ref:
+                _remove_slide_ref(prs, visual_ref)
+            _move_slide_ref_to_end(prs, back_cover_ref)
+
+            filename = _generate_filename("pptx")
+            filepath = GENERATED_DIR / filename
+            prs.save(filepath)
+            return {
+                "success": True,
+                "file_type": "pptx",
+                "file_name": filename,
+                "file_path": str(filepath.relative_to(UPLOADS_DIR)),
+                "full_path": str(filepath),
+                "slide_count": len(prs.slides),
+            }
 
     if using_template:
         prs = Presentation(template_path)
@@ -401,8 +718,8 @@ async def generate_ppt(
         has_template_content_prototype = len(prs.slides) > 2
 
         # Layout helpers for content slides
-        content_layout = _safe_layout(prs, 1)   # 'One Column Text'
-        two_col_layout = _safe_layout(prs, 1)   # Reuse content layout and draw two columns manually.
+        content_layout = _safe_layout(prs, 1)   # aria_slide_title + aria_slide_body
+        two_col_layout = _safe_layout(prs, 2)   # aria_slide_title + aria_left_body + aria_right_body
 
     else:
         prs = Presentation()
