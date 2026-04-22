@@ -171,6 +171,55 @@ def _summarize_tool_result(result: dict) -> str:
     return ""
 
 
+def _build_completed_skill_progress(tool_call_events: list[dict], full_text: str) -> list[dict]:
+    tool_logs = []
+    if tool_call_events:
+        for event in tool_call_events:
+            status = "完成" if event.get("status") == "completed" else "失败"
+            message = event.get("summary") or event.get("message") or event.get("tool_name") or "工具执行"
+            tool_logs.append(f"{status}: {message}")
+    else:
+        tool_logs.append("本次未调用文件生成工具，模型直接生成正文结果。")
+
+    return [
+        {
+            "key": "prepare",
+            "label": "准备上下文",
+            "description": "整理会话、项目与 Skill 信息",
+            "status": "done",
+            "logs": ["已准备会话、项目与 Skill 上下文。"],
+        },
+        {
+            "key": "thinking",
+            "label": "模型规划",
+            "description": "分析需求并判断是否需要调用工具",
+            "status": "done",
+            "logs": ["模型已完成需求理解与执行规划。"],
+        },
+        {
+            "key": "tools",
+            "label": "执行工具",
+            "description": "生成 PPT / 文档 / 表格等交付物",
+            "status": "done",
+            "logs": tool_logs,
+        },
+        {
+            "key": "final",
+            "label": "整理答复",
+            "description": "汇总工具结果并形成最终回复",
+            "status": "done",
+            "logs": [f"最终答复已生成，正文长度约 {len(full_text)} 字。"],
+        },
+        {
+            "key": "saving",
+            "label": "保存结果",
+            "description": "保存回复与生成的附件",
+            "status": "done",
+            "logs": ["正在保存本次回复...", "回复已保存，执行完成。"],
+        },
+    ]
+
+
 def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -547,6 +596,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 metadata["artifacts"] = artifacts
             if req.project_id:
                 metadata["project_id"] = req.project_id
+            if req.skill_id:
+                metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
 
             need_title = persist_assistant_message(
                 bind,

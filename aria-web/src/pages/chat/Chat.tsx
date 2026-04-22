@@ -151,6 +151,24 @@ function completeProgressSteps(steps: ChatProgressStep[]): ChatProgressStep[] {
   }))
 }
 
+function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
+  if (Array.isArray(meta?.skill_progress)) return meta.skill_progress
+  const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
+  const artifacts = Array.isArray(meta?.artifacts) ? meta.artifacts : []
+  const hasSkillSignals = toolCalls.length > 0 || artifacts.length > 0 || meta?.skill_id
+  if (!hasSkillSignals) return []
+
+  const steps = completeProgressSteps(createProgressSteps())
+  steps[0].logs = ['已准备会话、项目与 Skill 上下文。']
+  steps[1].logs = ['模型已完成需求理解与执行规划。']
+  steps[2].logs = toolCalls.length
+    ? toolCalls.map((item: any) => `${item.status === 'completed' ? '完成' : '失败'}: ${item.summary || item.message || item.tool_name || '工具执行'}`)
+    : ['本次未调用文件生成工具，模型直接生成正文结果。']
+  steps[3].logs = ['已汇总工具结果并形成最终回复。']
+  steps[4].logs = ['回复已保存，执行完成。']
+  return steps
+}
+
 function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   if (!steps.length) return null
@@ -1988,7 +2006,7 @@ function MessageRow({ message }: { message: Message }) {
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = meta.references || []
-    skillProgress = Array.isArray(meta.skill_progress) ? meta.skill_progress : []
+    skillProgress = buildProgressFromMetadata(meta)
   } catch (_) {}
 
   return (
@@ -2023,9 +2041,7 @@ function MessageRow({ message }: { message: Message }) {
           ) : (
             <>
               <SkillProgressCard steps={skillProgress} />
-              <div className="md-root">
-                <MarkdownRenderer content={message.content} />
-              </div>
+              <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
             </>
           )}
         </div>
