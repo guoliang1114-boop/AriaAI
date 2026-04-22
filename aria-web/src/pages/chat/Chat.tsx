@@ -95,14 +95,15 @@ interface ChatProgressStep {
   label: string
   description: string
   status: ProgressStatus
+  logs: string[]
 }
 
 const BASE_PROGRESS_STEPS: ChatProgressStep[] = [
-  { key: 'prepare', label: '准备上下文', description: '整理会话、项目与 Skill 信息', status: 'pending' },
-  { key: 'thinking', label: '模型规划', description: '分析需求并判断是否需要调用工具', status: 'pending' },
-  { key: 'tools', label: '执行工具', description: '生成 PPT / 文档 / 表格等交付物', status: 'pending' },
-  { key: 'final', label: '整理答复', description: '汇总工具结果并形成最终回复', status: 'pending' },
-  { key: 'saving', label: '保存结果', description: '保存回复与生成的附件', status: 'pending' },
+  { key: 'prepare', label: '准备上下文', description: '整理会话、项目与 Skill 信息', status: 'pending', logs: [] },
+  { key: 'thinking', label: '模型规划', description: '分析需求并判断是否需要调用工具', status: 'pending', logs: [] },
+  { key: 'tools', label: '执行工具', description: '生成 PPT / 文档 / 表格等交付物', status: 'pending', logs: [] },
+  { key: 'final', label: '整理答复', description: '汇总工具结果并形成最终回复', status: 'pending', logs: [] },
+  { key: 'saving', label: '保存结果', description: '保存回复与生成的附件', status: 'pending', logs: [] },
 ]
 
 const STAGE_STEP_INDEX: Record<string, number> = {
@@ -118,26 +119,49 @@ const STAGE_STEP_INDEX: Record<string, number> = {
 }
 
 function createProgressSteps(): ChatProgressStep[] {
-  return BASE_PROGRESS_STEPS.map(step => ({ ...step }))
+  return BASE_PROGRESS_STEPS.map(step => ({ ...step, logs: [] }))
+}
+
+function formatProgressLog(message: string) {
+  return `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} ${message}`
 }
 
 function advanceProgressSteps(
   steps: ChatProgressStep[],
   index: number,
   description?: string,
+  log?: string,
 ): ChatProgressStep[] {
   return steps.map((step, i) => ({
     ...step,
     status: i < index ? 'done' : i === index ? 'active' : step.status === 'done' ? 'done' : 'pending',
     description: i === index && description ? description : step.description,
+    logs: i === index && log ? [...step.logs, formatProgressLog(log)].slice(-20) : step.logs,
   }))
 }
 
 function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   if (!steps.length) return null
 
   const activeIndex = steps.findIndex(step => step.status === 'active')
   const doneCount = steps.filter(step => step.status === 'done').length
+  const allLogs = steps
+    .flatMap(step => step.logs.map(log => `[${step.label}] ${log}`))
+    .join('\n')
+
+  const toggleStep = (key: string) => {
+    setExpandedKeys(prev => prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key])
+  }
+
+  const copyLogs = async () => {
+    if (!allLogs) return
+    try {
+      await navigator.clipboard.writeText(allLogs)
+    } catch (err) {
+      console.error('Failed to copy skill progress logs:', err)
+    }
+  }
 
   return (
     <div className="mt-3 mb-3 rounded-2xl border border-primary/10 bg-gradient-to-br from-white to-primary/[0.03] p-3.5 shadow-sm">
@@ -154,37 +178,68 @@ function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
             style={{ width: `${Math.max(8, (doneCount / steps.length) * 100)}%` }}
           />
         </div>
+        <button
+          type="button"
+          onClick={copyLogs}
+          disabled={!allLogs}
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-white px-2 py-1 text-[11px] text-gray-400 transition-colors hover:border-primary/20 hover:text-primary disabled:opacity-40"
+        >
+          <Copy className="w-3 h-3" />
+          复制日志
+        </button>
       </div>
       <div className="space-y-2.5">
         {steps.map((step, index) => {
           const isActive = step.status === 'active'
           const isDone = step.status === 'done'
+          const expanded = expandedKeys.includes(step.key)
           return (
-            <div key={step.key} className={`flex items-start gap-2.5 rounded-xl px-2.5 py-2 transition-colors ${
+            <div key={step.key} className={`rounded-xl px-2.5 py-2 transition-colors ${
               isActive ? 'bg-primary/[0.06]' : isDone ? 'bg-emerald-50/60' : 'bg-gray-50/70'
             }`}>
-              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-primary text-white' : 'bg-white text-gray-300 ring-1 ring-gray-200'
-              }`}>
-                {isDone ? (
-                  <Check className="w-3 h-3" />
-                ) : isActive ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <span className="text-[10px] font-semibold">{index + 1}</span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className={`text-xs font-semibold ${isActive ? 'text-primary' : isDone ? 'text-emerald-700' : 'text-gray-500'}`}>
-                    {step.label}
-                  </p>
-                  {index === activeIndex && (
-                    <span className="text-[10px] text-primary/60 bg-primary/10 rounded-full px-1.5 py-0.5">进行中</span>
+              <button type="button" onClick={() => toggleStep(step.key)} className="flex w-full items-start gap-2.5 text-left">
+                <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-primary text-white' : 'bg-white text-gray-300 ring-1 ring-gray-200'
+                }`}>
+                  {isDone ? (
+                    <Check className="w-3 h-3" />
+                  ) : isActive ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <span className="text-[10px] font-semibold">{index + 1}</span>
                   )}
                 </div>
-                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-xs font-semibold ${isActive ? 'text-primary' : isDone ? 'text-emerald-700' : 'text-gray-500'}`}>
+                      {step.label}
+                    </p>
+                    {index === activeIndex && (
+                      <span className="text-[10px] text-primary/60 bg-primary/10 rounded-full px-1.5 py-0.5">进行中</span>
+                    )}
+                    {step.logs.length > 0 && (
+                      <span className="text-[10px] text-gray-400 bg-white/80 rounded-full px-1.5 py-0.5">{step.logs.length} 条日志</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 mt-1 text-gray-300 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </button>
+              {expanded && (
+                <div className="ml-7 mt-2 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
+                  {step.logs.length ? (
+                    <div className="space-y-1.5">
+                      {step.logs.map((log, logIndex) => (
+                        <p key={`${step.key}-${logIndex}`} className="font-mono text-[11px] leading-relaxed text-gray-500">
+                          {log}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-gray-400">暂无明细日志，等待执行事件返回。</p>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
@@ -738,7 +793,7 @@ export function Chat() {
     streamingContentRef.current = ''
     setStreamingContent('')
     isStreamingRef.current = true
-    setProgressSteps(advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...'))
+    setProgressSteps(advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。'))
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -839,16 +894,23 @@ export function Chat() {
             setToolStatus(data.message)
             const stepIndex = STAGE_STEP_INDEX[data.stage as string]
             if (stepIndex !== undefined) {
-              setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), stepIndex, data.message))
+              setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), stepIndex, data.message, data.message))
             }
             setIsThinking(true)
           }
         } else if (data.type === 'tool_executing') {
           setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
-          setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 2, data.message || `正在执行 ${data.tool_name || '工具'}...`))
+          const toolMessage = data.message || `正在执行 ${data.tool_name || '工具'}...`
+          setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 2, toolMessage, toolMessage))
         } else if (data.type === 'tool_result') {
           setToolStatus(null)
-          setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 3, '工具已完成，正在整理输出...'))
+          const result = data.result || {}
+          const resultMessage = result.file_name
+            ? `工具完成，已生成 ${result.file_name}`
+            : result.error
+              ? `工具执行失败：${result.error}`
+              : '工具已完成，正在整理输出...'
+          setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 3, '工具已完成，正在整理输出...', resultMessage))
         } else if (data.type === 'done') {
           streamDone = true
           completedNormally = true
@@ -885,7 +947,11 @@ export function Chat() {
           isStreamingRef.current = false
           setIsThinking(false)
           setToolStatus(null)
-          setProgressSteps(prev => prev.length ? prev.map(step => ({ ...step, status: 'done' as const })) : [])
+          setProgressSteps(prev => prev.length ? prev.map((step, index) => ({
+            ...step,
+            status: 'done' as const,
+            logs: index === prev.length - 1 ? [...step.logs, formatProgressLog('回复已保存，执行完成。')].slice(-20) : step.logs,
+          })) : [])
 
           // Refresh conversation list to pick up the auto-generated title.
           // Delay to allow backend background title generation to complete first.
@@ -923,7 +989,11 @@ export function Chat() {
           if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
           streamErrorMessage = data.message || data.error || 'AI 生成过程中断，请稍后重试。'
           setErrorMsg(streamErrorMessage)
-          setProgressSteps(prev => prev.map(step => step.status === 'active' ? { ...step, description: streamErrorMessage || 'AI 生成过程中断，请稍后重试。' } : step))
+          setProgressSteps(prev => prev.map(step => step.status === 'active' ? {
+            ...step,
+            description: streamErrorMessage || 'AI 生成过程中断，请稍后重试。',
+            logs: [...step.logs, formatProgressLog(streamErrorMessage || 'AI 生成过程中断，请稍后重试。')].slice(-20),
+          } : step))
           isStreamingRef.current = false
           setIsThinking(false)
         }
@@ -1007,7 +1077,11 @@ export function Chat() {
             ? '连接中断了：Skill 生成内容较长或工具执行耗时较久时，流式连接可能提前断开。我们已尝试从后台同步已保存的回复。'
             : rawMessage)
         setErrorMsg(recovered ? `${friendlyMessage} 如果页面内容未更新，请刷新或重新打开该对话确认结果。` : friendlyMessage)
-        setProgressSteps(prev => prev.map(step => step.status === 'active' ? { ...step, description: '执行中断，请查看错误提示或稍后重试。' } : step))
+        setProgressSteps(prev => prev.map(step => step.status === 'active' ? {
+          ...step,
+          description: '执行中断，请查看错误提示或稍后重试。',
+          logs: [...step.logs, formatProgressLog(friendlyMessage)].slice(-20),
+        } : step))
         // Clear pending state on actual errors
         sessionStorage.removeItem('pendingStreamingConvId')
         streamingConvIdRef.current = null
