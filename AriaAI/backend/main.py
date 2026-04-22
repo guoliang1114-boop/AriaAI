@@ -21,7 +21,7 @@ from app.services import scheduler
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
 from app.tools import pdf_translation  # noqa: F401
-from app.routers.skills import DEFAULT_SKILLS
+from app.routers.skills import DEFAULT_SKILLS, ensure_builtin_pro_skills
 from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel
 from app.models.db import Project, Skill, ProjectFolder, User, UserToken
@@ -57,6 +57,7 @@ def _patch_templates():
             if not skill.user_template and skill.name in template_map:
                 skill.user_template = template_map[skill.name]
                 session.add(skill)
+        ensure_builtin_pro_skills(session)
         session.commit()
 
 

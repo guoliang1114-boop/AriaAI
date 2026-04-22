@@ -33,6 +33,7 @@ from app.models.db import (
     ProjectMember,
     ProjectPayment,
     ProjectTodo,
+    Skill,
     SystemMessage,
     SystemMessageRead,
     User,
@@ -45,6 +46,7 @@ from app.routers import clients as clients_router_module
 from app.routers import memory_operations as memory_operations_router_module
 from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
+from app.routers import skills as skills_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
 from app.services import client_contexts as client_contexts_module
@@ -4108,6 +4110,50 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
             params={"language": "en-US"},
         )
         self.assertEqual(missing_resp.status_code, 404)
+
+
+class BuiltinSkillsTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.db_path = db_path
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+        Path(self.db_path).unlink(missing_ok=True)
+
+    def test_builtin_digital_skills_are_seeded_idempotently(self):
+        expected_digital_skills = {
+            "数字化战略设计",
+            "数字化成熟度评估",
+            "企业架构蓝图设计",
+            "数据治理咨询方案",
+            "流程数字化改造",
+            "数字技术路线图",
+            "数字化组织变革",
+            "数字化 ROI 商业案例",
+            "行业数字化蓝图",
+        }
+
+        with Session(self.engine) as session:
+            first_count = skills_router_module.ensure_builtin_pro_skills(session)
+            second_count = skills_router_module.ensure_builtin_pro_skills(session)
+            digital_skills = session.exec(
+                select(Skill).where(Skill.category == "数字化与技术")
+            ).all()
+
+        self.assertGreaterEqual(first_count, len(expected_digital_skills))
+        self.assertEqual(second_count, 0)
+        names = {skill.name for skill in digital_skills}
+        self.assertTrue(expected_digital_skills.issubset(names))
+        strategy = next(skill for skill in digital_skills if skill.name == "数字化战略设计")
+        self.assertIn("数字化战略方案", strategy.user_template)
+        self.assertIn("业务战略", strategy.system_prompt)
 
 
 class MessageRouterTestCase(unittest.TestCase):

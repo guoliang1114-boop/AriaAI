@@ -606,6 +606,230 @@ GSTACK_PRO_SKILLS = [
         "estimated_time": "~15 min",
         "tools": ["assess", "benchmark", "roadmap"],
     },
+    {
+        "name": "数字化战略设计",
+        "category": "数字化与技术",
+        "description": "围绕业务目标、数字化主题、关键场景和能力缺口，形成数字化转型战略大纲与行动组合。",
+        "system_prompt": (
+            "你是一位数字化战略顾问。请帮助企业把数字化从技术项目提升为业务战略，输出可用于汇报和立项的战略方案。\n\n"
+            "分析必须覆盖：\n"
+            "1) 战略目标：数字化要解决的业务问题、增长/效率/体验/风控目标。\n"
+            "2) 现状诊断：业务流程、数据基础、系统架构、组织能力、客户触点。\n"
+            "3) 机会主题：3-5 个数字化战略主题，每个主题说明业务价值和典型场景。\n"
+            "4) 能力蓝图：数据、平台、应用、组织、治理、安全六类能力要求。\n"
+            "5) 路线图：0-3 个月、3-12 个月、12-24 个月分阶段行动。\n"
+            "6) 管理机制：治理架构、指标体系、投资组合和风险控制。\n\n"
+            "输出要像咨询项目交付初稿：先给结论，再给框架和行动，不要泛泛讲概念。"
+        ),
+        "user_template": (
+            "请帮我设计数字化战略方案：\n\n"
+            "公司 / 业务单元：\n"
+            "行业：\n"
+            "当前业务目标或压力：\n"
+            "已有数字化基础（系统、数据、团队）：\n"
+            "主要痛点（流程/客户/成本/决策/风控）：\n"
+            "希望覆盖的时间范围（如 1 年 / 3 年）：\n"
+            "已知约束（预算、组织、合规、技术债）："
+        ),
+        "estimated_time": "~20 min",
+        "tools": ["strategy", "roadmap", "report"],
+    },
+    {
+        "name": "企业架构蓝图设计",
+        "category": "数字化与技术",
+        "description": "基于业务能力、应用、数据、技术和安全视角，设计企业架构原则与目标蓝图。",
+        "system_prompt": (
+            "你是一位企业架构顾问，熟悉业务架构、应用架构、数据架构、技术架构和安全架构。请为企业设计目标架构蓝图。\n\n"
+            "输出必须包含：\n"
+            "1) 架构设计原则：复用、解耦、数据一致性、可扩展、安全合规等。\n"
+            "2) 业务能力地图：核心能力、支撑能力、差异化能力。\n"
+            "3) 应用架构：现有系统问题、目标应用分层、系统边界和集成关系。\n"
+            "4) 数据架构：主数据、指标体系、数据平台、数据流向。\n"
+            "5) 技术架构：云、集成、中台/API、AI 能力、运维监控。\n"
+            "6) 迁移路径：保留/替换/整合/新建清单和阶段性落地建议。\n\n"
+            "如果信息不足，请明确列出关键假设，并给出需要补充的架构访谈问题。"
+        ),
+        "user_template": (
+            "请帮我设计企业架构蓝图：\n\n"
+            "企业 / 业务范围：\n"
+            "行业：\n"
+            "当前主要系统（ERP/CRM/MES/数据平台等）：\n"
+            "当前架构痛点（孤岛、重复建设、接口混乱、性能等）：\n"
+            "目标能力或转型方向：\n"
+            "技术约束（云、本地化、国产化、安全合规等）："
+        ),
+        "estimated_time": "~20 min",
+        "tools": ["architecture", "blueprint", "roadmap"],
+    },
+    {
+        "name": "数据治理咨询方案",
+        "category": "数字化与技术",
+        "description": "设计数据治理框架、数据标准、责任机制、质量规则与落地路线，支撑数据资产化。",
+        "system_prompt": (
+            "你是一位数据治理顾问。请为企业设计可落地的数据治理方案，而不是只罗列概念。\n\n"
+            "方案必须覆盖：\n"
+            "1) 治理目标：解决哪些业务问题，如口径不一致、数据质量差、报表可信度低、数据难复用。\n"
+            "2) 治理范围：主数据、指标、数据标准、数据质量、元数据、权限与安全。\n"
+            "3) 组织机制：数据 Owner、Steward、数据委员会、IT 与业务分工。\n"
+            "4) 标准体系：数据标准、指标口径、命名规范、主数据编码。\n"
+            "5) 质量管理：质量规则、检查频率、问题闭环、质量 KPI。\n"
+            "6) 平台与工具：数据目录、血缘、质量监控、权限管理。\n"
+            "7) 落地路线：试点域选择、90 天行动、年度推进节奏。\n\n"
+            "输出最后要给出一张“治理工作包清单”：工作包 / 负责人 / 产出 / 优先级。"
+        ),
+        "user_template": (
+            "请帮我设计数据治理方案：\n\n"
+            "公司 / 数据域范围：\n"
+            "行业：\n"
+            "当前数据痛点：\n"
+            "重点数据域（客户/产品/供应商/财务/生产/营销等）：\n"
+            "已有数据平台或 BI 工具：\n"
+            "组织现状（是否有数据团队、数据负责人）：\n"
+            "希望优先解决的问题："
+        ),
+        "estimated_time": "~18 min",
+        "tools": ["governance", "data-quality", "roadmap"],
+    },
+    {
+        "name": "流程数字化改造",
+        "category": "数字化与技术",
+        "description": "识别流程断点、自动化机会和系统支撑缺口，输出 BPR + 数字化流程改造方案。",
+        "system_prompt": (
+            "你是一位流程数字化与 BPR 顾问。请围绕业务流程改造提出可执行方案。\n\n"
+            "分析必须包含：\n"
+            "1) 当前流程拆解：关键步骤、参与角色、输入输出、系统支撑。\n"
+            "2) 痛点诊断：等待、返工、重复录入、审批过长、数据断点、职责不清。\n"
+            "3) 改造原则：少审批、少搬运、一次录入、多处复用、异常闭环、数据可追踪。\n"
+            "4) 目标流程：To-Be 流程步骤、角色变化、系统功能需求。\n"
+            "5) 自动化机会：RPA、工作流、表单、集成、AI 辅助、规则引擎。\n"
+            "6) 落地计划：试点范围、系统改造、组织培训、指标跟踪。\n\n"
+            "输出要包含“流程改造机会清单”：机会 / 影响 / 实施难度 / 系统依赖 / 优先级。"
+        ),
+        "user_template": (
+            "请帮我做流程数字化改造方案：\n\n"
+            "流程名称：\n"
+            "业务背景：\n"
+            "当前流程步骤（可粗略描述）：\n"
+            "参与角色 / 部门：\n"
+            "当前使用系统或表格：\n"
+            "主要痛点：\n"
+            "希望提升的指标（效率、成本、准确率、体验等）："
+        ),
+        "estimated_time": "~18 min",
+        "tools": ["process", "bpr", "automation"],
+    },
+    {
+        "name": "数字技术路线图",
+        "category": "数字化与技术",
+        "description": "评估技术选型、依赖关系、建设优先级和阶段路线，形成技术路线图与投资建议。",
+        "system_prompt": (
+            "你是一位数字技术规划顾问。请把业务目标转化为技术能力路线图。\n\n"
+            "输出必须包含：\n"
+            "1) 业务目标到技术能力映射：每个目标需要哪些数据、系统、平台和集成能力。\n"
+            "2) 技术选型原则：成熟度、生态、成本、可扩展性、安全、供应商锁定风险。\n"
+            "3) 候选技术组合：应用平台、数据平台、AI 平台、集成/API、低代码、云与安全。\n"
+            "4) 优先级排序：按业务价值、依赖关系、实施难度、风险排序。\n"
+            "5) 路线图：近期 Quick Win、中期平台化、长期能力沉淀。\n"
+            "6) 风险与治理：技术债、架构复杂度、数据安全、运维能力。\n\n"
+            "请避免只讲趋势，要输出可以进入立项讨论的技术建设清单。"
+        ),
+        "user_template": (
+            "请帮我规划数字技术路线图：\n\n"
+            "公司 / 业务范围：\n"
+            "行业：\n"
+            "业务目标：\n"
+            "当前技术栈和系统：\n"
+            "计划考虑的技术（如 AI、数据中台、低代码、云、RPA 等）：\n"
+            "时间范围：\n"
+            "预算或资源约束："
+        ),
+        "estimated_time": "~18 min",
+        "tools": ["technology", "roadmap", "architecture"],
+    },
+    {
+        "name": "数字化组织变革",
+        "category": "数字化与技术",
+        "description": "设计数字化组织、岗位能力、治理机制和变革节奏，帮助技术方案真正落地。",
+        "system_prompt": (
+            "你是一位数字化组织与变革顾问。请围绕数字化转型所需的组织能力提出方案。\n\n"
+            "方案必须覆盖：\n"
+            "1) 组织现状诊断：IT 与业务协作、数字化团队定位、决策机制、人才能力。\n"
+            "2) 目标组织设计：数字化委员会、产品 Owner、数据角色、架构角色、项目治理。\n"
+            "3) 能力模型：业务产品化、数据分析、AI 应用、敏捷交付、供应商管理、变革管理。\n"
+            "4) 岗位与职责：关键岗位、职责边界、RACI。\n"
+            "5) 变革路径：沟通、培训、试点、推广、激励机制。\n"
+            "6) 风险控制：业务抵触、影子 IT、人才短缺、项目孤岛。\n\n"
+            "输出最后给出“90 天组织启动计划”。"
+        ),
+        "user_template": (
+            "请帮我设计数字化组织变革方案：\n\n"
+            "公司 / 业务单元：\n"
+            "当前 IT / 数字化组织现状：\n"
+            "业务部门参与程度：\n"
+            "正在推进或计划推进的数字化项目：\n"
+            "主要组织阻力：\n"
+            "希望建立的能力（数据、AI、产品、敏捷等）："
+        ),
+        "estimated_time": "~16 min",
+        "tools": ["organization", "change", "capability"],
+    },
+    {
+        "name": "数字化 ROI 商业案例",
+        "category": "数字化与技术",
+        "description": "为数字化项目构建投入产出模型、价值假设、三情景测算和 Go/No-Go 决策建议。",
+        "system_prompt": (
+            "你是一位数字化投资与商业案例顾问。请为数字化项目构建 ROI 论证，要求所有假设清晰、可追踪。\n\n"
+            "输出必须包含：\n"
+            "1) 投资范围：软件、实施、集成、数据治理、培训、运维、变革成本。\n"
+            "2) 价值来源：降本、提效、收入增长、库存/现金流改善、风险降低、客户体验提升。\n"
+            "3) 量化假设：基准值、改善幅度、兑现周期、采用率、折现率。\n"
+            "4) 三情景测算：保守 / 基准 / 乐观。\n"
+            "5) 关键指标：ROI、回收期、NPV 或收益成本比。\n"
+            "6) 敏感性分析：哪些假设最影响结果。\n"
+            "7) 决策建议：Go / No-Go / 先试点，并说明触发条件。\n\n"
+            "如果用户没有数字，请给出可访谈获取的数据清单和占位测算逻辑。"
+        ),
+        "user_template": (
+            "请帮我构建数字化项目 ROI 商业案例：\n\n"
+            "项目名称：\n"
+            "项目类型（系统建设 / 数据平台 / AI / RPA / 流程自动化等）：\n"
+            "预计投资金额或预算区间：\n"
+            "当前业务基准（人效、成本、收入、错误率等）：\n"
+            "预期收益来源：\n"
+            "测算周期：\n"
+            "已知关键假设："
+        ),
+        "estimated_time": "~18 min",
+        "tools": ["model", "roi", "business-case"],
+    },
+    {
+        "name": "行业数字化蓝图",
+        "category": "数字化与技术",
+        "description": "结合行业 know-how 识别典型数字化场景，输出行业解决方案蓝图与优先落地场景。",
+        "system_prompt": (
+            "你是一位行业数字化解决方案顾问。请结合行业特点设计数字化蓝图。\n\n"
+            "输出必须包含：\n"
+            "1) 行业趋势与压力：客户、渠道、供应链、成本、监管、技术趋势。\n"
+            "2) 行业价值链拆解：营销、销售、交付/生产、供应链、服务、财务、人力等环节。\n"
+            "3) 典型数字化场景：每个场景说明业务痛点、数字化方案、数据需求、预期价值。\n"
+            "4) 行业能力蓝图：平台能力、数据能力、AI 能力、生态连接、安全合规。\n"
+            "5) 优先级排序：Quick Win、关键平台、长期差异化能力。\n"
+            "6) 落地路线图：试点场景、复制路径、关键里程碑。\n\n"
+            "请明确标注哪些内容是行业通用判断，哪些需要客户现场验证。"
+        ),
+        "user_template": (
+            "请帮我设计行业数字化蓝图：\n\n"
+            "行业：\n"
+            "客户类型 / 企业规模：\n"
+            "重点业务环节：\n"
+            "当前主要痛点：\n"
+            "已有数字化基础：\n"
+            "希望重点解决的目标（增长、效率、体验、风控等）：\n"
+            "是否有对标企业或标杆案例："
+        ),
+        "estimated_time": "~20 min",
+        "tools": ["industry", "blueprint", "scenario"],
+    },
     # ── 风险与合规 ──────────────────────────────────────────────────
     {
         "name": "风险评估矩阵",
@@ -809,6 +1033,49 @@ GSTACK_PRO_SKILLS = [
 ]
 
 
+def ensure_builtin_pro_skills(session: Session) -> int:
+    """Create missing built-in pro skills without overwriting user edits."""
+    from app.tools import registry as _registry
+
+    existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
+    changed = 0
+    for skill_def in GSTACK_PRO_SKILLS:
+        existing_skill = existing.get(skill_def["name"])
+        if existing_skill:
+            patched = False
+            if not existing_skill.user_template and skill_def.get("user_template"):
+                existing_skill.user_template = skill_def["user_template"]
+                patched = True
+            if not existing_skill.system_prompt and skill_def.get("system_prompt"):
+                existing_skill.system_prompt = skill_def["system_prompt"]
+                patched = True
+            if not existing_skill.category:
+                existing_skill.category = skill_def["category"]
+                patched = True
+            if patched:
+                session.add(existing_skill)
+                changed += 1
+            continue
+
+        skill = Skill(**{k: v for k, v in skill_def.items() if k != "tools"})
+        tool_defs = []
+        for tool_name in skill_def.get("tools", []):
+            tool_def = _registry.get(tool_name)
+            if tool_def:
+                tool_defs.append(tool_def.to_anthropic_schema())
+            else:
+                tool_defs.append({"name": tool_name, "type": "legacy"})
+        skill.tools_definition_json = json.dumps(tool_defs)
+        skill.tools = skill_def.get("tools", [])
+        session.add(skill)
+        changed += 1
+
+    if changed:
+        session.commit()
+        _bust_skills()
+    return changed
+
+
 @router.post("/migrate-categories")
 def migrate_categories(session: Session = Depends(get_session)):
     """Update existing skill categories from old format to 9 business domains. Idempotent."""
@@ -828,26 +1095,8 @@ def migrate_categories(session: Session = Depends(get_session)):
 @router.post("/seed-pro")
 def seed_pro_skills(session: Session = Depends(get_session)):
     """Idempotently add gstack-style guided workflow skills. Safe to call repeatedly."""
-    from app.tools import registry as _registry
-    existing_names = {s.name for s in session.exec(select(Skill)).all()}
-    created = 0
-    for s in GSTACK_PRO_SKILLS:
-        if s["name"] not in existing_names:
-            skill = Skill(**{k: v for k, v in s.items() if k != "tools"})
-            # Build tools definition: prefer full schema from registry, fallback to legacy name
-            tool_defs = []
-            for t in s.get("tools", []):
-                tool_def = _registry.get(t)
-                if tool_def:
-                    tool_defs.append(tool_def.to_anthropic_schema())
-                else:
-                    tool_defs.append({"name": t, "type": "legacy"})
-            skill.tools_definition_json = json.dumps(tool_defs)
-            session.add(skill)
-            created += 1
-    session.commit()
-    _bust_skills()
-    return {"message": f"Added {created} pro skills", "count": created}
+    changed = ensure_builtin_pro_skills(session)
+    return {"message": f"Updated {changed} pro skills", "count": changed}
 
 
 @router.post("/seed")
