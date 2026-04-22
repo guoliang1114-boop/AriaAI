@@ -19,6 +19,7 @@ import { useToast } from '../../contexts/ToastContext'
 import type {
   ClientMemoryJob,
   ClientMemoryJobsResponse,
+  MemoryOperationsSummaryResponse,
   ProjectMemoryJob,
   ProjectMemoryJobsResponse,
 } from '../../types/api'
@@ -242,6 +243,7 @@ export function MemoryOperationsSettings() {
   const [jobs, setJobs] = useState<CombinedJob[]>([])
   const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
   const [clientBudget, setClientBudget] = useState<BudgetInfo | null>(null)
+  const [operationsSummary, setOperationsSummary] = useState<MemoryOperationsSummaryResponse | null>(null)
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
   const [recentSuccesses, setRecentSuccesses] = useState<SuccessItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -256,10 +258,12 @@ export function MemoryOperationsSettings() {
   const loadJobs = async (silent = false) => {
     try {
       if (!silent) setLoading(true)
-      const [projectData, clientData] = await Promise.all([
+      const [projectData, clientData, summaryData] = await Promise.all([
         api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs'),
         api.get<ClientMemoryJobsResponse>('/clients/memory/jobs'),
+        api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary').catch(() => null),
       ])
+      setOperationsSummary(summaryData)
       setJobs([
         ...(projectData.jobs || []).map((job) => ({ ...job, scope: 'project' as const })),
         ...(clientData.jobs || []).map((job) => ({ ...job, scope: 'client' as const })),
@@ -314,11 +318,19 @@ export function MemoryOperationsSettings() {
       llm: 0,
       unknown: 0,
     }
+    if (operationsSummary?.failure_summary.category_counts) {
+      Object.entries(operationsSummary.failure_summary.category_counts).forEach(([category, count]) => {
+        if (category in groups) {
+          groups[category as Exclude<FailureCategory, 'all'>] = count
+        }
+      })
+      return groups
+    }
     recentFailures.forEach((failure) => {
       groups[inferFailureCategory(failure)] += 1
     })
     return groups
-  }, [recentFailures])
+  }, [operationsSummary, recentFailures])
 
   const mostCommonFailureCategory = useMemo(() => {
     const entries = Object.entries(failureGroups) as Array<[Exclude<FailureCategory, 'all'>, number]>
@@ -330,6 +342,10 @@ export function MemoryOperationsSettings() {
     () => recentFailures.filter((failure) => ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))),
     [recentFailures],
   )
+  const manualAttentionCount = operationsSummary?.counts.manual_attention ?? manualAttentionFailures.length
+  const retryingJobsCount = operationsSummary?.counts.retrying_jobs ?? grouped.retrying.length
+  const projectBudgetLow = operationsSummary?.budget.project_low ?? isBudgetLow(projectBudget)
+  const clientBudgetLow = operationsSummary?.budget.client_low ?? isBudgetLow(clientBudget)
 
   const alertSummary = useMemo(() => {
     const alerts: Array<{
@@ -341,14 +357,14 @@ export function MemoryOperationsSettings() {
       onClick: () => void
     }> = []
 
-    if (manualAttentionFailures.length > 0) {
+    if (manualAttentionCount > 0) {
       alerts.push({
         key: 'manual-attention',
         severity: 'critical',
         title: isZh ? '需要人工处理的失败' : 'Manual attention needed',
         description: isZh
-          ? `${manualAttentionFailures.length} 条数据库、数据缺失或未知失败，不建议直接盲目重试。`
-          : `${manualAttentionFailures.length} database, data, or unknown failures should be inspected before retrying.`,
+          ? `${manualAttentionCount} 条数据库、数据缺失或未知失败，不建议直接盲目重试。`
+          : `${manualAttentionCount} database, data, or unknown failures should be inspected before retrying.`,
         action: isZh ? '查看人工处理项' : 'Review manual items',
         onClick: () => {
           setShowFailuresOnly(true)
@@ -375,14 +391,14 @@ export function MemoryOperationsSettings() {
       })
     }
 
-    if (grouped.retrying.length > 0) {
+    if (retryingJobsCount > 0) {
       alerts.push({
         key: 'retrying-jobs',
         severity: 'warning',
         title: isZh ? '存在重试中的任务' : 'Jobs are retrying',
         description: isZh
-          ? `${grouped.retrying.length} 个任务已经进入重试，建议确认是否被限流、超时或模型服务影响。`
-          : `${grouped.retrying.length} jobs have already retried. Check rate limit, timeout, or model issues.`,
+          ? `${retryingJobsCount} 个任务已经进入重试，建议确认是否被限流、超时或模型服务影响。`
+          : `${retryingJobsCount} jobs have already retried. Check rate limit, timeout, or model issues.`,
         action: isZh ? '查看重试任务' : 'View retrying jobs',
         onClick: () => {
           setShowFailuresOnly(false)
@@ -391,7 +407,7 @@ export function MemoryOperationsSettings() {
       })
     }
 
-    if (isBudgetLow(projectBudget)) {
+    if (projectBudgetLow) {
       alerts.push({
         key: 'project-budget',
         severity: 'warning',
@@ -408,7 +424,7 @@ export function MemoryOperationsSettings() {
       })
     }
 
-    if (isBudgetLow(clientBudget)) {
+    if (clientBudgetLow) {
       alerts.push({
         key: 'client-budget',
         severity: 'warning',
@@ -428,12 +444,14 @@ export function MemoryOperationsSettings() {
     return alerts
   }, [
     clientBudget,
-    grouped.retrying.length,
+    clientBudgetLow,
     isZh,
-    manualAttentionFailures.length,
+    manualAttentionCount,
     mostCommonFailureCategory.category,
     mostCommonFailureCategory.count,
     projectBudget,
+    projectBudgetLow,
+    retryingJobsCount,
   ])
 
   const filteredJobs = useMemo(() => {
@@ -840,27 +858,27 @@ export function MemoryOperationsSettings() {
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-9">
         <SectionCard
           title={isZh ? '进行中/排队' : 'Active jobs'}
-          value={jobs.length}
+          value={operationsSummary?.counts.jobs ?? jobs.length}
           description={isZh ? '当前排队或进行中的后台任务' : 'Queued or running background jobs'}
         />
         <SectionCard
           title={isZh ? '记忆重建' : 'Rebuild jobs'}
-          value={grouped.rebuilding.length}
+          value={operationsSummary?.counts.rebuild_jobs ?? grouped.rebuilding.length}
           description={isZh ? '项目与客户记忆重建队列' : 'Project and client rebuild queue'}
         />
         <SectionCard
           title={isZh ? '摘要预热' : 'Summary warm jobs'}
-          value={grouped.warming.length}
+          value={operationsSummary?.counts.summary_warm_jobs ?? grouped.warming.length}
           description={isZh ? '常用摘要缓存预热任务' : 'Common summary cache warm jobs'}
         />
         <SectionCard
           title={isZh ? '重试中的任务' : 'Retrying jobs'}
-          value={grouped.retrying.length}
+          value={retryingJobsCount}
           description={isZh ? '已经至少重试过一次' : 'Jobs that already retried at least once'}
         />
         <SectionCard
           title={isZh ? '失败告警' : 'Failure alerts'}
-          value={recentFailures.length}
+          value={operationsSummary?.counts.recent_failures ?? recentFailures.length}
           description={
             mostCommonFailureCategory.count > 0
               ? `${getFailureCategoryLabel(mostCommonFailureCategory.category, isZh)} ${mostCommonFailureCategory.count}`
@@ -868,11 +886,11 @@ export function MemoryOperationsSettings() {
                 ? '暂无失败记录'
                 : 'No recent failures'
           }
-          tone={recentFailures.length > 0 ? 'warning' : 'default'}
+          tone={(operationsSummary?.counts.recent_failures ?? recentFailures.length) > 0 ? 'warning' : 'default'}
         />
         <SectionCard
           title={isZh ? '最近成功' : 'Recent successes'}
-          value={recentSuccesses.length}
+          value={operationsSummary?.counts.recent_successes ?? recentSuccesses.length}
           description={
             recentSuccesses.length > 0
               ? isZh
@@ -885,9 +903,9 @@ export function MemoryOperationsSettings() {
         />
         <SectionCard
           title={isZh ? '需人工处理' : 'Manual attention'}
-          value={manualAttentionFailures.length}
+          value={manualAttentionCount}
           description={isZh ? '数据库、数据缺失或未知失败' : 'Database, data, or unknown failures'}
-          tone={manualAttentionFailures.length > 0 ? 'warning' : 'default'}
+          tone={manualAttentionCount > 0 ? 'warning' : 'default'}
         />
         <SectionCard
           title={isZh ? '项目预热预算' : 'Project warm budget'}

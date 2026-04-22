@@ -376,6 +376,42 @@ export interface ClientMemoryJobsResponse {
   }>
 }
 
+export interface MemoryOperationsSummaryResponse {
+  counts: {
+    jobs: number
+    rebuild_jobs: number
+    summary_warm_jobs: number
+    retrying_jobs: number
+    recent_failures: number
+    recent_successes: number
+    manual_attention: number
+  }
+  failure_summary: {
+    category_counts: Record<string, number>
+    scope_counts: {
+      project: number
+      client: number
+    }
+    top_category: string
+    top_category_count: number
+    manual_attention_categories: string[]
+  }
+  budget: {
+    project?: BudgetShape
+    client?: BudgetShape
+    project_low: boolean
+    client_low: boolean
+  }
+  recent_failures: Array<Record<string, unknown>>
+  recent_successes: Array<Record<string, unknown>>
+}
+
+export interface BudgetShape {
+  used: number
+  limit: number
+  remaining: number
+}
+
 export interface ClientMemoryBatchWarmSummariesResponse {
   ok: boolean
   requested_count: number

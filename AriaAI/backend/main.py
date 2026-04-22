@@ -13,7 +13,7 @@ from app.config import (
     JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
 from app.database import create_db, get_database_health, get_database_migration_governance, migrate_db, engine
-from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, artifacts, messages
+from app.routers import chat, projects, knowledge, settings, skills, schedules, templates, clients, artifacts, messages, memory_operations
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
@@ -204,6 +204,7 @@ app.include_router(templates.router)
 app.include_router(clients.router)
 app.include_router(artifacts.router)
 app.include_router(messages.router)
+app.include_router(memory_operations.router)
 
 
 @app.get("/health")

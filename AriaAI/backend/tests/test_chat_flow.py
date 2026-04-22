@@ -42,6 +42,7 @@ from app import database as database_module
 from app.routers import auth as auth_router_module
 from app.routers import chat as chat_router_module
 from app.routers import clients as clients_router_module
+from app.routers import memory_operations as memory_operations_router_module
 from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
 from app.services.cache import projects_cache
@@ -3439,6 +3440,91 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.client.close()
         self.engine.dispose()
         Path(self.db_path).unlink(missing_ok=True)
+
+    def test_memory_operations_summary_aggregates_project_and_client_failures(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Ops Project",
+                client="Acme",
+                memory_version=2,
+                context_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "summary_warm",
+                            "message": "Rate limit exceeded",
+                            "retry_count": 1,
+                            "failed_at": "2026-04-20T10:00:00",
+                        },
+                        "rebuild_log": [{"at": "2026-04-19T09:00:00", "trigger": "manual", "version": 2}],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            client = ClientRecord(
+                name="Ops Client",
+                client_memory_version=3,
+                client_memory_json=json.dumps(
+                    {
+                        "_last_failure": {
+                            "stage": "rebuild",
+                            "message": "Client not found in source data",
+                            "retry_count": 0,
+                            "failed_at": "2026-04-20T11:00:00",
+                        },
+                        "rebuild_log": [{"at": "2026-04-19T12:00:00", "trigger": "manual", "version": 3}],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            session.add(project)
+            session.add(client)
+            session.commit()
+            session.refresh(project)
+            session.refresh(client)
+            session.add(
+                ProjectMemorySummary(
+                    project_id=project.id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=2,
+                    content="cached",
+                )
+            )
+            session.add(
+                ClientMemorySummary(
+                    client_id=client.id,
+                    summary_type="overview",
+                    language="zh",
+                    memory_version=3,
+                    content="cached",
+                )
+            )
+            session.commit()
+
+        app = FastAPI()
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.include_router(memory_operations_router_module.router)
+        app.dependency_overrides[memory_operations_router_module.get_session] = override_session
+        client = TestClient(app)
+        try:
+            with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[]):
+                resp = client.get("/memory/operations/summary")
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["counts"]["recent_failures"], 2)
+        self.assertEqual(body["counts"]["manual_attention"], 1)
+        self.assertEqual(body["failure_summary"]["category_counts"]["rate_limit"], 1)
+        self.assertEqual(body["failure_summary"]["category_counts"]["data"], 1)
+        self.assertTrue(body["recent_failures"][0]["manual_attention"])
+        self.assertEqual(body["budget"]["project"]["used"], 1)
+        self.assertEqual(body["budget"]["client"]["used"], 1)
 
     def test_client_memory_snapshots_are_listed_and_can_rollback(self):
         with Session(self.engine) as session:
