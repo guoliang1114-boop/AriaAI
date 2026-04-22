@@ -55,17 +55,43 @@ class ChatRuntime:
     skill_name: str = ""
 
 
+def _should_apply_skill(content: str, skill: Skill | None) -> bool:
+    if not skill:
+        return False
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    explicit_skill = any(token in text for token in ("@skill", "@ skills", "使用skill", "调用skill", "运行skill", "执行skill", "用这个能力", "用该能力"))
+    deliverable_keywords = (
+        "生成", "制作", "创建", "输出", "产出", "写一份", "做一份", "整理成", "形成", "设计", "规划", "制定",
+        "完善", "重新生成", "导出", "下载", "交付", "ppt", "powerpoint", "deck", "slide", "slides",
+        "报告", "方案", "材料", "路线图", "roadmap", "蓝图", "blueprint", "战略", "strategy", "计划",
+    )
+    casual_prefixes = (
+        "为什么", "为啥", "怎么", "如何", "是否", "是不是", "能不能", "可以吗", "这个", "那个",
+        "我问", "解释", "说明", "检查", "看一下", "你觉得", "what", "why", "how", "can", "could", "should",
+    )
+    deliverable_intent = any(token in text for token in deliverable_keywords)
+    casual_question = text.startswith(casual_prefixes)
+    long_template_like = len(text) > 180 and ("\n" in content or ":" in content or "：" in content)
+    return explicit_skill or long_template_like or (deliverable_intent and not casual_question)
+
+
 def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
+    skill = session.get(Skill, req.skill_id) if req.skill_id else None
+    effective_skill_id = req.skill_id if _should_apply_skill(req.content, skill) else None
+    effective_skill = skill if effective_skill_id else None
+
     conv = get_or_create_conversation(
         session,
         req.conversation_id,
         project_id=req.project_id,
-        skill_id=req.skill_id,
+        skill_id=effective_skill_id,
     )
 
     metadata = build_message_metadata(
         project_id=req.project_id,
-        skill_id=req.skill_id,
+        skill_id=effective_skill_id,
         rag_doc_ids=req.rag_doc_ids,
         file_ids=req.file_ids,
     )
@@ -73,11 +99,10 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
     temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
-    skill = session.get(Skill, req.skill_id) if req.skill_id else None
 
     chat_ctx = build_chat_context(
         session=session,
-        skill_id=req.skill_id,
+        skill_id=effective_skill_id,
         project_id=req.project_id,
         knowledge_scope=req.knowledge_scope,
         rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
@@ -112,7 +137,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         tools=chat_ctx.tools,
         max_tokens=_cap_max_tokens_for_model(selected_model, chat_ctx.max_tokens),
         temperature=temperature,
-        skill_name=skill.name if skill else "",
+        skill_name=effective_skill.name if effective_skill else "",
     )
 
 
@@ -303,20 +328,32 @@ def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
             }
         )
 
-    if len(slides) < 6:
+    if len(slides) < 12:
         fallback_titles = [
-            "转型背景与业务目标",
-            "数字化成熟度诊断",
-            "目标能力蓝图",
-            "三阶段实施路线图",
-            "治理机制与投资安排",
-            "下一步行动计划",
+            "Executive Summary",
+            "Strategic Context and Transformation Thesis",
+            "Current Digital Maturity Diagnosis",
+            "Customer and Growth Experience Gaps",
+            "Digital Vision and Target State",
+            "Capability Blueprint",
+            "Gap Prioritization Matrix",
+            "Three-Horizon Roadmap",
+            "Initiative Portfolio and Milestones",
+            "Governance and Operating Model",
+            "Investment, KPI and Risk Controls",
+            "Immediate Next Steps",
         ]
         existing = {slide["title"] for slide in slides}
         for fallback_title in fallback_titles:
             if fallback_title not in existing:
-                slides.append({"type": "content", "title": fallback_title, "content": "- 基于正文进一步细化\n- 建议结合客户访谈校准"})
-            if len(slides) >= 8:
+                slides.append(
+                    {
+                        "type": "content",
+                        "title": fallback_title,
+                        "content": "- Build from the strategy narrative\n- Validate with client interviews and operating data\n- Convert into measurable initiatives and governance actions",
+                    }
+                )
+            if len(slides) >= 12:
                 break
 
     return title, slides
@@ -731,7 +768,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 metadata["artifacts"] = artifacts
             if req.project_id:
                 metadata["project_id"] = req.project_id
-            if req.skill_id:
+            if runtime.skill_name:
                 metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
             response_metadata = metadata
 

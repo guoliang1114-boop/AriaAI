@@ -194,7 +194,7 @@ function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
   }
 
   return (
-    <div className="mt-3 mb-3 rounded-2xl border border-primary/10 bg-gradient-to-br from-white to-primary/[0.03] p-3.5 shadow-sm">
+    <div className="mt-3 mb-3 w-full rounded-2xl border border-primary/10 bg-gradient-to-br from-white to-primary/[0.03] p-3.5 shadow-sm">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <p className="text-xs font-semibold text-gray-700">Skill 执行清单</p>
@@ -284,14 +284,14 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
 
   if (!compact) {
     return (
-      <div className="md-root">
+      <div className="md-root w-full">
         <MarkdownRenderer content={content} />
       </div>
     )
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-gray-100 bg-white/80 p-3.5">
+    <div className="mt-3 w-full rounded-2xl border border-gray-100 bg-white/80 p-3.5">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -335,7 +335,7 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3">
+    <div className="mt-3 w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
           <FileText className="h-4 w-4" />
@@ -388,6 +388,19 @@ function mergeArtifacts(existing: GeneratedArtifact[], next: GeneratedArtifact |
   const key = `${next.path}-${next.name}`
   if (existing.some(item => `${item.path}-${item.name}` === key)) return existing
   return [...existing, next]
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+function shouldRunSkillForMessage(message: string, skill?: Skill | null) {
+  if (!skill) return false
+  const text = message.trim().toLowerCase()
+  if (!text) return false
+  const explicitSkill = /@skill|@ skills|使用\s*skill|调用\s*skill|运行\s*skill|执行\s*skill|用这个能力|用该能力/.test(text)
+  const deliverableIntent = /(生成|制作|创建|输出|产出|写一份|做一份|整理成|形成|设计|规划|制定|完善|重新生成|导出|下载|交付|ppt|powerpoint|deck|slide|slides|报告|方案|材料|路线图|roadmap|蓝图|blueprint|战略|strategy|规划|计划)/i.test(text)
+  const casualQuestion = /^(为什么|为啥|怎么|如何|是否|是不是|能不能|可以吗|这个|那个|我问|解释|说明|检查|看一下|你觉得|what|why|how|can|could|should)\b/i.test(text)
+  const longTemplateLike = text.length > 180 && /[:：\n]/.test(message)
+  return explicitSkill || longTemplateLike || (deliverableIntent && !casualQuestion)
 }
 
 const getPromptCards = (): PromptCard[] => [
@@ -722,19 +735,27 @@ export function Chat() {
     }
   }
 
-  const recoverConversationMessages = async (id: number) => {
-    try {
-      const data = await api.get<Message[]>(`/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`)
-      if (currentConvIdRef.current === String(id)) {
-        setMessages(data)
-        setHasMore(data.length === PAGE_SIZE)
-        justLoadedRef.current = true
+  const recoverConversationMessages = async (id: number, attempts = 6) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const data = await api.get<Message[]>(`/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`)
+        const recovered = data[data.length - 1]?.role === 'assistant'
+        if (recovered && currentConvIdRef.current === String(id)) {
+          setMessages(data)
+          setHasMore(data.length === PAGE_SIZE)
+          setErrorMsg(null)
+          setStreamingContent('')
+          setStreamArtifacts([])
+          streamingContentRef.current = ''
+          justLoadedRef.current = true
+          return true
+        }
+      } catch (err) {
+        console.error('Failed to recover conversation messages:', err)
       }
-      return data[data.length - 1]?.role === 'assistant'
-    } catch (err) {
-      console.error('Failed to recover conversation messages:', err)
-      return false
+      await sleep(700 + attempt * 400)
     }
+    return false
   }
 
   // ── Load more (pagination) ────────────────────────────────────────────────
@@ -933,6 +954,7 @@ export function Chat() {
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
     if (!msgText.trim() || sending || isSendingRef.current) return
+    const skillForThisMessage = shouldRunSkillForMessage(msgText, selectedSkillData) ? selectedSkill : null
     
     isSendingRef.current = true
     setSending(true)
@@ -943,7 +965,7 @@ export function Chat() {
     setStreamingContent('')
     setStreamArtifacts([])
     isStreamingRef.current = true
-    setProgressSteps(advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。'))
+    setProgressSteps(skillForThisMessage ? advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。') : [])
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -963,7 +985,7 @@ export function Chat() {
           : t('chat.newChat', 'New Chat')
         
         const newConv = await api.post<Conversation>('/chat/conversations', {
-          project_id: selectedProject, skill_id: selectedSkill, title,
+          project_id: selectedProject, skill_id: skillForThisMessage, title,
         })
         currentConvId = newConv.id
         currentConvIdForCleanup = newConv.id
@@ -1003,7 +1025,7 @@ export function Chat() {
           conversation_id: currentConvId,
           content: msgText,
           project_id: selectedProject,
-          skill_id: selectedSkill,
+          skill_id: skillForThisMessage,
           rag_doc_ids: [],
           file_ids: [],
         }),
@@ -1220,8 +1242,15 @@ export function Chat() {
         const recovered = currentConvIdForCleanup
           ? await recoverConversationMessages(currentConvIdForCleanup)
           : false
+        if (recovered) {
+          setToolStatus(null)
+          setProgressSteps(prev => completeProgressSteps(prev))
+          sessionStorage.removeItem('pendingStreamingConvId')
+          streamingConvIdRef.current = null
+          return
+        }
         const partialContent = streamingContentRef.current.trim()
-        if (!recovered && partialContent && currentConvIdForCleanup && currentConvIdRef.current === String(currentConvIdForCleanup)) {
+        if (partialContent && currentConvIdForCleanup && currentConvIdRef.current === String(currentConvIdForCleanup)) {
           const partialMsg: Message = {
             id: Date.now() + 1,
             conversation_id: currentConvIdForCleanup,
@@ -1238,7 +1267,7 @@ export function Chat() {
           || (isGenericNetworkError
             ? '连接中断了：Skill 生成内容较长或工具执行耗时较久时，流式连接可能提前断开。我们已尝试从后台同步已保存的回复。'
             : rawMessage)
-        setErrorMsg(recovered ? `${friendlyMessage} 如果页面内容未更新，请刷新或重新打开该对话确认结果。` : friendlyMessage)
+        setErrorMsg(friendlyMessage)
         setProgressSteps(prev => prev.map(step => step.status === 'active' ? {
           ...step,
           description: '执行中断，请查看错误提示或稍后重试。',
@@ -1511,13 +1540,13 @@ export function Chat() {
 
                 {/* Streaming / thinking */}
                 {(isThinking || streamingContent) && (
-                  <div className="flex items-start gap-3.5 animate-fade-in">
+                  <div className="flex w-full items-start gap-3.5 animate-fade-in">
                     <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm shadow-primary/20">
                       <Sparkles className="w-3.5 h-3.5 text-white" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="w-full flex-1 min-w-0">
                       <p className="text-[11px] font-medium text-gray-300 mb-2">Aria</p>
-                      <div className="text-[15px] text-gray-700 leading-[1.8]">
+                      <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
                         {streamingContent ? (
                           <>
                             <SkillProgressCard steps={progressSteps} />
@@ -2102,7 +2131,7 @@ function MessageRow({ message }: { message: Message }) {
   } catch (_) {}
 
   return (
-    <div className={`flex items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex w-full items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
         isUser
@@ -2117,7 +2146,7 @@ function MessageRow({ message }: { message: Message }) {
       </div>
 
       {/* Content + actions */}
-      <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-stretch'}`}>
         {/* Role label */}
         <p className="text-[11px] font-medium text-gray-300 mb-1.5 px-0.5">
           {isUser ? t('chat.you') : 'Aria'}
