@@ -91,13 +91,13 @@ const getCategoryTone = (category: string) => {
 
 const getCategoryGradient = (category: string) => {
   const key = getCategoryKey(category);
-  if (key === "market") return "from-emerald-500 via-teal-500 to-sky-500";
-  if (key === "org") return "from-orange-500 via-amber-500 to-rose-500";
-  if (key === "digital") return "from-cyan-500 via-blue-500 to-indigo-500";
-  if (key === "strategy") return "from-blue-600 via-indigo-500 to-violet-500";
-  if (key === "finance") return "from-amber-500 via-orange-500 to-yellow-500";
-  if (key === "risk") return "from-rose-500 via-red-500 to-orange-500";
-  return "from-slate-700 via-slate-600 to-slate-500";
+  if (key === "market") return "from-emerald-50 via-teal-50 to-sky-50";
+  if (key === "org") return "from-orange-50 via-amber-50 to-rose-50";
+  if (key === "digital") return "from-cyan-50 via-blue-50 to-indigo-50";
+  if (key === "strategy") return "from-blue-50 via-indigo-50 to-violet-50";
+  if (key === "finance") return "from-amber-50 via-orange-50 to-yellow-50";
+  if (key === "risk") return "from-rose-50 via-red-50 to-orange-50";
+  return "from-slate-50 via-white to-slate-100";
 };
 
 const getCategoryDescription = (category: string, isZh: boolean) => {
@@ -269,11 +269,11 @@ export function Skills() {
   return (
     <>
       <PageTitle title={t("skills.title")} />
-      <div className="min-h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,#d9f99d_0%,transparent_28%),radial-gradient(circle_at_top_right,#bae6fd_0%,transparent_30%),linear-gradient(180deg,#f8fafc_0%,#ecfdf5_100%)]">
+      <div className="min-h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,#ecfdf5_0%,transparent_30%),radial-gradient(circle_at_top_right,#eff6ff_0%,transparent_32%),linear-gradient(180deg,#f8fafc_0%,#f7faf9_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <section className="relative overflow-hidden rounded-[2.25rem] border border-white/80 bg-white/75 p-8 shadow-[0_30px_90px_rgba(15,23,42,0.10)] backdrop-blur">
-            <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-emerald-300/35 blur-3xl" />
-            <div className="absolute bottom-0 left-1/3 h-52 w-52 rounded-full bg-cyan-300/25 blur-3xl" />
+          <section className="relative overflow-hidden rounded-[2.25rem] border border-slate-200/70 bg-white/82 p-8 shadow-[0_22px_70px_rgba(15,23,42,0.07)] backdrop-blur">
+            <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-emerald-100/70 blur-3xl" />
+            <div className="absolute bottom-0 left-1/3 h-52 w-52 rounded-full bg-sky-100/60 blur-3xl" />
             <div className="relative grid gap-8 xl:grid-cols-[1fr_380px] xl:items-end">
               <div className="max-w-4xl">
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
@@ -290,14 +290,14 @@ export function Skills() {
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-white/80 bg-slate-950 p-5 text-white shadow-2xl shadow-slate-900/10">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-white/85 p-5 text-slate-900 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white/10 p-3">
+                  <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
                     <Compass className="h-5 w-5" />
                   </div>
                   <div>
                     <div className="text-sm font-semibold">{isZh ? "能力地图" : "Capability map"}</div>
-                    <div className="text-xs text-white/55">
+                    <div className="text-xs text-slate-500">
                       {isZh ? `${categories.length - 1} 个分类 · ${skills.length} 个 Skill` : `${categories.length - 1} categories · ${skills.length} skills`}
                     </div>
                   </div>
@@ -310,11 +310,11 @@ export function Skills() {
                         key={category.id}
                         type="button"
                         onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                        className="rounded-2xl bg-white/8 p-3 text-left transition hover:bg-white/14"
+                        className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
                       >
-                        <Icon className="h-4 w-4 text-emerald-200" />
+                        <Icon className="h-4 w-4 text-emerald-600" />
                         <div className="mt-3 truncate text-xs font-semibold">{category.label}</div>
-                        <div className="mt-1 text-[11px] text-white/45">{category.count} Skills</div>
+                        <div className="mt-1 text-[11px] text-slate-500">{category.count} Skills</div>
                       </button>
                     );
                   })}
@@ -418,24 +418,24 @@ export function SkillCategoryPage() {
             {isZh ? "返回能力分类" : "Back to categories"}
           </button>
 
-          <section className={`relative overflow-hidden rounded-[2rem] bg-gradient-to-br ${getCategoryGradient(activeCategoryInfo?.id || "all")} p-8 text-white shadow-[0_28px_80px_rgba(15,23,42,0.16)]`}>
-            <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/20 blur-3xl" />
-            <div className="absolute -bottom-20 left-20 h-56 w-56 rounded-full bg-slate-950/20 blur-3xl" />
+          <section className={`relative overflow-hidden rounded-[2rem] border border-slate-200 bg-gradient-to-br ${getCategoryGradient(activeCategoryInfo?.id || "all")} p-8 text-slate-950 shadow-[0_22px_70px_rgba(15,23,42,0.07)]`}>
+            <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/70 blur-3xl" />
+            <div className="absolute -bottom-20 left-20 h-56 w-56 rounded-full bg-slate-200/35 blur-3xl" />
             <div className="relative grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
               <div>
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-700 backdrop-blur">
                   <CategoryIcon className="h-3.5 w-3.5" />
                   <span>{isZh ? "能力详情" : "Capability detail"}</span>
                 </div>
                 <h1 className="text-4xl font-semibold tracking-tight">{activeCategoryInfo?.label}</h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-white/78">
+                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
                   {getCategoryDescription(activeCategoryInfo?.id || "all", isZh)}
                 </p>
               </div>
 
-              <div className="rounded-[1.5rem] border border-white/20 bg-white/15 p-5 backdrop-blur">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white/70 p-5 backdrop-blur">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-white/15 p-3">
+                  <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <div>
@@ -443,7 +443,7 @@ export function SkillCategoryPage() {
                     <div className="text-3xl font-semibold">{filteredSkills.length}</div>
                   </div>
                 </div>
-                <p className="mt-4 text-sm leading-6 text-white/70">
+                <p className="mt-4 text-sm leading-6 text-slate-500">
                   {isZh ? "可以直接启动能力，也可以切换到其他分类继续浏览。" : "Launch a Skill directly, or switch to another category below."}
                 </p>
               </div>
@@ -462,7 +462,7 @@ export function SkillCategoryPage() {
                     onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
                     className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
                       normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
-                        ? "border-slate-900 bg-slate-950 text-white"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                         : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950"
                     }`}
                   >
@@ -489,7 +489,7 @@ export function SkillCategoryPage() {
                       type="button"
                       onClick={() => setActiveType(type)}
                       className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                        activeType === type ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
+                        activeType === type ? "bg-emerald-50 text-emerald-800 shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
                       }`}
                     >
                       {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
@@ -645,26 +645,26 @@ function CategoryShowcaseCard({
     <button
       type="button"
       onClick={onClick}
-      className={`group relative overflow-hidden rounded-[1.75rem] border p-5 text-left transition hover:-translate-y-1 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)] ${
-        isHero ? "border-transparent bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"
+      className={`group relative overflow-hidden rounded-[1.75rem] border p-5 text-left transition hover:-translate-y-1 hover:shadow-[0_20px_48px_rgba(15,23,42,0.08)] ${
+        isHero ? "border-slate-200 bg-white text-slate-950" : "border-slate-200 bg-white text-slate-950"
       }`}
     >
-      {isHero ? <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(category.id)} opacity-90`} /> : null}
-      <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/20 blur-2xl" />
+      {isHero ? <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(category.id)} opacity-70`} /> : null}
+      <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/70 blur-2xl" />
       <div className="relative">
         <div className="flex items-start justify-between gap-4">
-          <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${isHero ? "border-white/20 bg-white/15 text-white" : getCategoryTone(category.id)}`}>
+          <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${getCategoryTone(category.id)}`}>
             <Icon className="h-6 w-6" />
           </div>
-          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${isHero ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600"}`}>
+          <div className="rounded-full bg-white/75 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
             {category.count} Skills
           </div>
         </div>
         <h3 className="mt-6 text-xl font-semibold">{category.label}</h3>
-        <p className={`mt-3 line-clamp-2 text-sm leading-6 ${isHero ? "text-white/72" : "text-slate-500"}`}>
+        <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-500">
           {getCategoryDescription(category.id, isZh)}
         </p>
-        <div className={`mt-6 inline-flex items-center gap-2 text-sm font-semibold ${isHero ? "text-white" : "text-slate-900"}`}>
+        <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
           {isZh ? "进入分类" : "Open category"}
           <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
         </div>
