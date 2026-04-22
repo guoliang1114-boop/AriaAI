@@ -261,7 +261,7 @@ async def generate_ppt_from_skill(
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
     for folder in ("assets", "references"):
-        for filename in ("KPMG-Template.pptx", "template.pptx"):
+        for filename in ("KPMG-Template.pptx", "template.pptx", "Template.pptx"):
             candidate = SKILLS_DIR / skill_name / folder / filename
             if candidate.exists():
                 template_path = candidate
