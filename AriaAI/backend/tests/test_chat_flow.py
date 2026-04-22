@@ -3443,7 +3443,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         req = chat_router_module.SendMessageRequest(content="hello")
 
         events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
-        error_event = json.loads(events[1].replace("data: ", "").strip())
+        error_event = next(
+            json.loads(event.replace("data: ", "").strip())
+            for event in events
+            if json.loads(event.replace("data: ", "").strip()).get("type") == "error"
+        )
         self.assertEqual(error_event["type"], "error")
         self.assertIn("AI 服务当前繁忙", error_event["message"])
 

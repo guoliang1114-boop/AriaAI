@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from dataclasses import dataclass
+from collections.abc import AsyncIterator
 
 from sqlmodel import Session
 
@@ -25,6 +27,7 @@ from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
+STREAM_HEARTBEAT_SECONDS = 8.0
 
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
@@ -178,6 +181,60 @@ def _strip_truncation_marker(chunk: str) -> tuple[str, bool]:
     return chunk.replace(OUTPUT_TRUNCATED_MARKER, "").strip(), True
 
 
+async def _iter_with_heartbeat(
+    source: AsyncIterator[str],
+    *,
+    stage: str,
+    message: str,
+    seconds: float = STREAM_HEARTBEAT_SECONDS,
+) -> AsyncIterator[str | dict]:
+    """Keep SSE alive while waiting for slow provider chunks."""
+    iterator = source.__aiter__()
+    pending = asyncio.create_task(iterator.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait({pending}, timeout=seconds)
+            if not done:
+                yield {"type": "status", "stage": stage, "message": message}
+                continue
+            try:
+                yield pending.result()
+            except StopAsyncIteration:
+                break
+            pending = asyncio.create_task(iterator.__anext__())
+    finally:
+        if not pending.done():
+            pending.cancel()
+            try:
+                await pending
+            except (asyncio.CancelledError, StopAsyncIteration):
+                pass
+
+
+async def _await_with_heartbeat(
+    awaitable,
+    *,
+    stage: str,
+    message: str,
+    seconds: float = STREAM_HEARTBEAT_SECONDS,
+) -> AsyncIterator[dict]:
+    """Yield heartbeat events until a long-running tool awaitable completes."""
+    task = asyncio.create_task(awaitable)
+    try:
+        while not task.done():
+            done, _ = await asyncio.wait({task}, timeout=seconds)
+            if not done:
+                yield {"type": "status", "stage": stage, "message": message}
+        yield {"type": "result", "result": task.result()}
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
 async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind):
     yield _sse_event({"type": "conversation_id", "id": runtime.conv_id})
     if runtime.rag_sources:
@@ -210,14 +267,22 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     "message": f"已加载 {len(runtime.tools)} 个可用工具，正在判断是否需要调用。",
                 }
             )
-        async for chunk in runtime.llm.stream_response(
-            runtime.api_messages,
-            system=runtime.system,
-            model=runtime.selected_model,
-            tools=runtime.tools,
-            max_tokens=runtime.max_tokens,
-            temperature=runtime.temperature,
+        async for item in _iter_with_heartbeat(
+            runtime.llm.stream_response(
+                runtime.api_messages,
+                system=runtime.system,
+                model=runtime.selected_model,
+                tools=runtime.tools,
+                max_tokens=runtime.max_tokens,
+                temperature=runtime.temperature,
+            ),
+            stage="thinking",
+            message="模型仍在生成中，请稍候...",
         ):
+            if isinstance(item, dict):
+                yield _sse_event(item)
+                continue
+            chunk = item
             chunk, was_truncated = _strip_truncation_marker(chunk)
             if was_truncated:
                 p1_truncated = True
@@ -271,14 +336,22 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     "content": "请从上一条回复被截断的位置继续，直接续写正文，不要重复已经写过的内容。",
                 },
             ]
-            async for chunk in runtime.llm.stream_response(
-                continuation_messages,
-                system=runtime.system,
-                model=runtime.selected_model,
-                tools=None,
-                max_tokens=runtime.max_tokens,
-                temperature=runtime.temperature,
+            async for item in _iter_with_heartbeat(
+                runtime.llm.stream_response(
+                    continuation_messages,
+                    system=runtime.system,
+                    model=runtime.selected_model,
+                    tools=None,
+                    max_tokens=runtime.max_tokens,
+                    temperature=runtime.temperature,
+                ),
+                stage="continuing",
+                message="正在继续生成长回复，请稍候...",
             ):
+                if isinstance(item, dict):
+                    yield _sse_event(item)
+                    continue
+                chunk = item
                 chunk, was_truncated = _strip_truncation_marker(chunk)
                 if was_truncated:
                     if chunk:
@@ -315,7 +388,18 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             print(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}", flush=True)
             try:
-                result = await registry.execute(tool_name, tool_input)
+                result = None
+                async for event in _await_with_heartbeat(
+                    registry.execute(tool_name, tool_input),
+                    stage="tool_running",
+                    message=f"{tool_name} 正在执行中，文件生成类任务可能需要 1-2 分钟...",
+                ):
+                    if event.get("type") == "result":
+                        result = event.get("result")
+                    else:
+                        yield _sse_event(event)
+                if result is None:
+                    result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": "Tool returned no result"}
             except Exception as exc:
                 result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
 
@@ -374,14 +458,22 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
             p3_truncated = False
-            async for chunk in runtime.llm.stream_response(
-                continuation_messages,
-                system=runtime.system,
-                model=runtime.selected_model,
-                tools=None,
-                max_tokens=runtime.max_tokens,
-                temperature=runtime.temperature,
+            async for item in _iter_with_heartbeat(
+                runtime.llm.stream_response(
+                    continuation_messages,
+                    system=runtime.system,
+                    model=runtime.selected_model,
+                    tools=None,
+                    max_tokens=runtime.max_tokens,
+                    temperature=runtime.temperature,
+                ),
+                stage="follow_up",
+                message="工具结果已返回，模型正在整理最终答复...",
             ):
+                if isinstance(item, dict):
+                    yield _sse_event(item)
+                    continue
+                chunk = item
                 chunk, was_truncated = _strip_truncation_marker(chunk)
                 if was_truncated:
                     p3_truncated = True
@@ -404,14 +496,22 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         "content": "请从上一条最终答复被截断的位置继续，直接续写正文，不要重复已经写过的内容。",
                     },
                 ]
-                async for chunk in runtime.llm.stream_response(
-                    p3_continuation_messages,
-                    system=runtime.system,
-                    model=runtime.selected_model,
-                    tools=None,
-                    max_tokens=runtime.max_tokens,
-                    temperature=runtime.temperature,
+                async for item in _iter_with_heartbeat(
+                    runtime.llm.stream_response(
+                        p3_continuation_messages,
+                        system=runtime.system,
+                        model=runtime.selected_model,
+                        tools=None,
+                        max_tokens=runtime.max_tokens,
+                        temperature=runtime.temperature,
+                    ),
+                    stage="continuing",
+                    message="最终答复较长，正在继续生成...",
                 ):
+                    if isinstance(item, dict):
+                        yield _sse_event(item)
+                        continue
+                    chunk = item
                     chunk, was_truncated = _strip_truncation_marker(chunk)
                     if was_truncated:
                         if chunk:
