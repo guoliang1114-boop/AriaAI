@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -141,8 +142,11 @@ def _set_template_cover_text(slide, title: str, subtitle: str):
             shape.text_frame.text = f"{title}\n方案建议书"
             replaced_title = True
         elif subtitle and ("KPMG China" in current or shape.name.lower() in {"cover_subtitle", "subtitle 4"}):
-            shape.text_frame.text = subtitle
-            replaced_subtitle = True
+            if not replaced_subtitle:
+                shape.text_frame.text = subtitle
+                replaced_subtitle = True
+            elif shape.name.lower() in {"cover_subtitle", "subtitle 4"}:
+                shape.text_frame.text = ""
 
     if not replaced_title:
         from pptx.util import Inches, Pt
@@ -169,6 +173,140 @@ def _remove_slide(prs, index: int):
         rel_id = slide_id.rId
         slide_id_list.remove(slide_id)
         prs.part.drop_rel(rel_id)
+
+
+def _clear_text_shapes(slide):
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            shape.text_frame.clear()
+
+
+def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = False, color: str = "1F2937"):
+    from pptx.dml.color import RGBColor
+    from pptx.util import Pt
+
+    box = slide.shapes.add_textbox(x, y, w, h)
+    frame = box.text_frame
+    frame.clear()
+    frame.word_wrap = True
+    frame.margin_left = Pt(6)
+    frame.margin_right = Pt(6)
+    frame.margin_top = Pt(4)
+    frame.margin_bottom = Pt(4)
+    paragraph = frame.paragraphs[0]
+    paragraph.text = text
+    paragraph.font.size = Pt(size)
+    paragraph.font.bold = bold
+    paragraph.font.color.rgb = RGBColor.from_string(color)
+    return box
+
+
+def _add_card(slide, x, y, w, h, *, fill: str = "F8FAFC", line: str = "E2E8F0"):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Pt
+
+    shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, h)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor.from_string(fill)
+    shape.line.color.rgb = RGBColor.from_string(line)
+    shape.line.width = Pt(1)
+    return shape
+
+
+def _split_bullets(content: str, limit: int = 6) -> list[str]:
+    bullets: list[str] = []
+    for raw in content.splitlines():
+        item = raw.strip()
+        item = re.sub(r"^[-*•]\s*", "", item)
+        item = re.sub(r"^\d{1,2}[.、)）]\s*", "", item)
+        if item:
+            bullets.append(item)
+    if not bullets and content.strip():
+        bullets = [content.strip()]
+    return bullets[:limit]
+
+
+def _add_slide_header(slide, title: str, slide_number: int):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches, Pt
+
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.33), Inches(0.12))
+    accent.fill.solid()
+    accent.fill.fore_color.rgb = RGBColor.from_string("2563EB")
+    accent.line.fill.background()
+
+    _add_textbox(slide, Inches(0.65), Inches(0.32), Inches(10.8), Inches(0.62), title, size=22, bold=True, color="111827")
+    _add_textbox(slide, Inches(11.65), Inches(0.42), Inches(1.1), Inches(0.35), f"{slide_number:02d}", size=11, bold=True, color="94A3B8")
+
+
+def _add_slide_footer(slide, label: str = "AriaAI generated deck"):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.65), Inches(7.02), Inches(12), Inches(0.02))
+    line.fill.solid()
+    line.fill.fore_color.rgb = RGBColor.from_string("E5E7EB")
+    line.line.fill.background()
+    _add_textbox(slide, Inches(0.65), Inches(7.08), Inches(5.5), Inches(0.25), label, size=8, color="94A3B8")
+
+
+def _render_content_slide(slide, title: str, content: str, slide_number: int):
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    bullets = _split_bullets(content, limit=6)
+    if bullets:
+        hero = bullets[0]
+        _add_card(slide, Inches(0.75), Inches(1.2), Inches(11.85), Inches(1.0), fill="EFF6FF", line="BFDBFE")
+        _add_textbox(slide, Inches(1.0), Inches(1.38), Inches(11.35), Inches(0.55), hero, size=18, bold=True, color="1E3A8A")
+
+    card_y = Inches(2.45)
+    card_h = Inches(0.72)
+    for idx, bullet in enumerate(bullets[1:6], start=1):
+        y = card_y + Inches(0.82 * (idx - 1))
+        _add_card(slide, Inches(0.85), y, Inches(11.6), card_h)
+        _add_textbox(slide, Inches(1.05), y + Inches(0.12), Inches(0.45), Inches(0.3), f"{idx}", size=11, bold=True, color="2563EB")
+        _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(10.55), Inches(0.45), bullet, size=13, color="334155")
+    _add_slide_footer(slide)
+
+
+def _render_two_column_slide(slide, title: str, left_content: str, right_content: str, slide_number: int):
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    columns = [
+        ("Current / Foundation", left_content, "F8FAFC", "2563EB", Inches(0.85)),
+        ("Target / Scale", right_content, "F0FDF4", "16A34A", Inches(6.85)),
+    ]
+    for heading, content, fill, color, x in columns:
+        _add_card(slide, x, Inches(1.35), Inches(5.55), Inches(5.2), fill=fill)
+        _add_textbox(slide, x + Inches(0.28), Inches(1.58), Inches(5.0), Inches(0.38), heading, size=15, bold=True, color=color)
+        bullets = _split_bullets(content, limit=6)
+        for idx, bullet in enumerate(bullets):
+            y = Inches(2.22 + idx * 0.62)
+            _add_textbox(slide, x + Inches(0.35), y, Inches(0.25), Inches(0.24), "•", size=14, bold=True, color=color)
+            _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
+    _add_slide_footer(slide)
+
+
+def _render_back_cover(slide, title: str):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    background = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.33), Inches(7.5))
+    background.fill.solid()
+    background.fill.fore_color.rgb = RGBColor.from_string("0F172A")
+    background.line.fill.background()
+    _add_textbox(slide, Inches(0.9), Inches(2.35), Inches(11.5), Inches(0.7), "Thank you", size=34, bold=True, color="FFFFFF")
+    _add_textbox(slide, Inches(0.9), Inches(3.15), Inches(11.5), Inches(0.45), title, size=16, color="CBD5E1")
+    _add_textbox(slide, Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.3), "Generated by AriaAI", size=10, color="94A3B8")
 
 
 async def generate_ppt(
@@ -230,30 +368,16 @@ async def generate_ppt(
             slide = prs.slides.add_slide(layout)
 
         if slide_type == "content" and "content" in slide_data:
-            _set_content_slide_text(slide, slide_title, slide_data["content"])
+            _render_content_slide(slide, slide_title, slide_data["content"], slide_index + 1)
 
         elif slide_type == "two_column":
-            if slide.shapes.title:
-                slide.shapes.title.text = slide_title
-            else:
-                title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.0), Inches(0.6))
-                title_box.text_frame.text = slide_title
-                title_box.text_frame.paragraphs[0].font.size = Pt(24)
-                title_box.text_frame.paragraphs[0].font.bold = True
-            slide_h = prs.slide_height
-            col_w   = Inches(5.2)
-            top     = Inches(1.6)
-            height  = slide_h - Inches(2.0)
-            margin  = Inches(0.5)
-            gap     = Inches(0.3)
-
-            left_box = slide.shapes.add_textbox(margin, top, col_w, height)
-            left_box.text_frame.word_wrap = True
-            left_box.text_frame.text = slide_data.get("left_content", "")
-
-            right_box = slide.shapes.add_textbox(margin + col_w + gap, top, col_w, height)
-            right_box.text_frame.word_wrap = True
-            right_box.text_frame.text = slide_data.get("right_content", "")
+            _render_two_column_slide(
+                slide,
+                slide_title,
+                slide_data.get("left_content", ""),
+                slide_data.get("right_content", ""),
+                slide_index + 1,
+            )
 
     # ── Move back cover to the end ────────────────────────────────────────────
     # Template order after adding slides:
@@ -266,6 +390,7 @@ async def generate_ppt(
         back_cover_ref = list(sldIdLst)[back_cover_index]
         sldIdLst.remove(back_cover_ref)
         sldIdLst.append(back_cover_ref)
+        _render_back_cover(prs.slides[-1], title)
 
     # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")

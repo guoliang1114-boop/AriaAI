@@ -233,7 +233,11 @@ def _should_auto_generate_digital_strategy_ppt(runtime: ChatRuntime, req: SendMe
 
 
 def _clean_slide_line(line: str) -> str:
-    return line.strip().lstrip("-*•0123456789.、)） ").strip()
+    cleaned = line.strip()
+    cleaned = cleaned.lstrip("-*• ").strip()
+    import re
+
+    return re.sub(r"^\d{1,2}[.、)）]\s*", "", cleaned).strip()
 
 
 def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
