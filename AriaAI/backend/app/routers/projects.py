@@ -442,6 +442,64 @@ def _first_non_empty(*values: str | None) -> str:
     return ""
 
 
+def _briefing_excerpt(value: str | None, limit: int = 220) -> str:
+    text = " ".join((value or "").replace("\r", " ").replace("\n", " ").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _list_project_communication_sources(session: Session, project: Project, limit: int = 6) -> list[dict]:
+    sources: list[dict] = []
+    if project.md_notes and project.md_notes.strip():
+        sources.append(
+            {
+                "type": "markdown_note",
+                "label": "Project markdown notes",
+                "excerpt": _briefing_excerpt(project.md_notes),
+                "target": "notes",
+                "created_at": project.updated_at.isoformat() if project.updated_at else "",
+            }
+        )
+    if project.notes and project.notes.strip():
+        sources.append(
+            {
+                "type": "project_note",
+                "label": "Project notes",
+                "excerpt": _briefing_excerpt(project.notes),
+                "target": "notes",
+                "created_at": project.updated_at.isoformat() if project.updated_at else "",
+            }
+        )
+
+    chat_rows = session.exec(
+        select(Message, Conversation)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(Conversation.project_id == project.id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(max(limit - len(sources), 0))
+    ).all()
+    for message, conversation in chat_rows:
+        excerpt = _briefing_excerpt(message.content)
+        if not excerpt:
+            continue
+        sources.append(
+            {
+                "type": "chat",
+                "label": conversation.title or "Project chat",
+                "conversation_id": conversation.id,
+                "message_id": message.id,
+                "role": message.role,
+                "excerpt": excerpt,
+                "target": "chat",
+                "created_at": message.created_at.isoformat() if message.created_at else "",
+            }
+        )
+        if len(sources) >= limit:
+            break
+    return sources[:limit]
+
+
 def _build_project_briefing(session: Session, project_id: int) -> dict:
     project = get_project_or_404(session, project_id)
     memory = get_project_memory_payload(project)
@@ -485,6 +543,7 @@ def _build_project_briefing(session: Session, project_id: int) -> dict:
         }
         for file in sorted(files, key=lambda item: item.uploaded_at, reverse=True)[:4]
     ]
+    communication_sources = _list_project_communication_sources(session, project, limit=6)
 
     stakeholder_concerns = [
         f"{row.get('name')}: {row.get('concerns')}"
@@ -573,6 +632,7 @@ def _build_project_briefing(session: Session, project_id: int) -> dict:
             "upcoming_milestones": upcoming_milestones,
             "pending_todos": pending_todos,
             "recent_documents": recent_documents,
+            "communication_sources": communication_sources,
         },
         "generated_at": utc_now_naive().isoformat(),
     }

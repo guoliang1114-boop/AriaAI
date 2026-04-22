@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, FileText, Loader2, MessageSquare, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type { ProjectDetail, ProjectMeetingBriefing } from "../../types/api";
 
@@ -104,6 +104,16 @@ function formatDate(value?: string | null, isZh = true) {
   });
 }
 
+function formatDateTime(value?: string | null, isZh = true) {
+  if (!value) return "";
+  return new Date(value).toLocaleString(isZh ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function formatPromptSection(title: string, items: string[]) {
   if (!items.length) return `${title}\n- 暂无`;
   return `${title}\n${items.map((item) => `- ${item}`).join("\n")}`;
@@ -153,10 +163,21 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
       formatPromptSection("需要避开什么", briefing.meeting_card.avoid),
       formatPromptSection("需要确认的问题", briefing.meeting_card.confirm),
       formatPromptSection("历史经验提醒", briefing.meeting_card.experience),
+      formatPromptSection(
+        "最近沟通来源",
+        briefing.signals.communication_sources.map((source) => `${source.label}${source.role ? ` / ${source.role}` : ""}: ${source.excerpt}`),
+      ),
       "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。",
     ].join("\n\n");
     const params = new URLSearchParams({ q: prompt });
     navigate(`/projects/${projectId}/chat?${params.toString()}`);
+  };
+  const openCommunicationSource = (source: ProjectMeetingBriefing["signals"]["communication_sources"][number]) => {
+    if (source.target === "chat") {
+      navigate(`/projects/${projectId}/chat`);
+      return;
+    }
+    navigate(`/projects/${projectId}/notes`);
   };
 
   if (isLoading && !briefing) {
@@ -342,6 +363,46 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
               {!briefing?.signals.upcoming_milestones.length && !briefing?.signals.pending_todos.length ? (
                 <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-500">
                   {isZh ? "暂无近期里程碑或待办。" : "No near-term milestones or todos."}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              {isZh ? "最近沟通来源" : "Recent communication sources"}
+            </div>
+            <div className="space-y-3">
+              {(briefing?.signals.communication_sources ?? []).map((item, index) => (
+                <div key={`source-${item.type}-${index}`} className="rounded-2xl bg-gray-50 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-gray-900">{item.label}</div>
+                      {item.created_at ? (
+                        <div className="mt-1 text-xs text-gray-400">{formatDateTime(item.created_at, isZh)}</div>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-full bg-white px-2 py-1 text-xs text-gray-500">
+                        {item.type === "chat" ? item.role || "chat" : isZh ? "笔记" : "note"}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openCommunicationSource(item)}
+                        className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {isZh ? "打开" : "Open"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 line-clamp-3 text-xs leading-5 text-gray-500">{item.excerpt}</div>
+                </div>
+              ))}
+              {!briefing?.signals.communication_sources.length ? (
+                <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-500">
+                  {isZh ? "暂无项目笔记或最近对话片段。" : "No project notes or recent chat snippets yet."}
                 </div>
               ) : null}
             </div>

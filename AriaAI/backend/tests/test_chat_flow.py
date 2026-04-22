@@ -1999,6 +1999,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 name="Meeting Project",
                 client="Acme",
                 status="delivering",
+                md_notes="客户上次会议要求补充安全合规结论。",
                 context_memory_json=json.dumps(
                     {
                         "project_brief": "Second phase rollout",
@@ -2018,6 +2019,17 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
             session.add(Milestone(project_id=project_id, title="UAT signoff", priority="high", due_date="2026-04-25"))
             session.add(ProjectTodo(project_id=project_id, content="Prepare steering deck", due_date="2026-04-24"))
+            conversation = Conversation(project_id=project_id, title="Steering prep")
+            session.add(conversation)
+            session.commit()
+            session.refresh(conversation)
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="user",
+                    content="李总监提醒业务侧还在等安全合规问题的书面答复。",
+                )
+            )
             session.commit()
 
         resp = self.client.get(f"/projects/{project_id}/briefing")
@@ -2031,6 +2043,12 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn("CEO needs quantified upside", body["meeting_card"]["experience"])
         self.assertEqual(body["stakeholders"][0]["name"], "Jane")
         self.assertEqual(body["signals"]["upcoming_milestones"][0]["title"], "UAT signoff")
+        self.assertEqual(body["signals"]["communication_sources"][0]["type"], "markdown_note")
+        self.assertEqual(body["signals"]["communication_sources"][0]["target"], "notes")
+        self.assertIn("安全合规", body["signals"]["communication_sources"][0]["excerpt"])
+        self.assertEqual(body["signals"]["communication_sources"][1]["type"], "chat")
+        self.assertEqual(body["signals"]["communication_sources"][1]["target"], "chat")
+        self.assertIsNotNone(body["signals"]["communication_sources"][1]["conversation_id"])
 
     def test_memory_jobs_list_exposes_rebuild_and_summary_warm_queue(self):
         with Session(self.engine) as session:

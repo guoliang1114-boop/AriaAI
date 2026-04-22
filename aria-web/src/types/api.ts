@@ -548,6 +548,16 @@ export interface ProjectMeetingBriefing {
     upcoming_milestones: Array<{ id: number; title: string; due_date?: string | null; priority?: string }>
     pending_todos: Array<{ id: number; content: string; due_date?: string | null }>
     recent_documents: Array<{ id: number; name: string; summary?: string; uploaded_at?: string }>
+    communication_sources: Array<{
+      type: 'markdown_note' | 'project_note' | 'chat' | string
+      label: string
+      target?: 'notes' | 'chat' | string
+      conversation_id?: number
+      message_id?: number
+      role?: string
+      excerpt: string
+      created_at?: string
+    }>
   }
   generated_at: string
 }
