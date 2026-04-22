@@ -248,6 +248,45 @@ function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
   )
 }
 
+function StreamingAnswerPreview({ content, compact }: { content: string; compact: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!content.trim()) return null
+
+  if (!compact) {
+    return (
+      <div className="md-root">
+        <MarkdownRenderer content={content} />
+      </div>
+    )
+  }
+
+  const preview = content.length > 180 ? `${content.slice(0, 180).trim()}...` : content
+
+  return (
+    <div className="mt-3 rounded-2xl border border-gray-100 bg-white/80 p-3.5">
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <p className="text-xs font-semibold text-gray-700">AI 正文预览</p>
+          <p className="mt-0.5 text-[11px] text-gray-400">执行期间默认收起，避免遮挡 Skill 进度。</p>
+        </div>
+        <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-1 text-[11px] text-gray-400">
+          {expanded ? '收起' : '展开'}
+          <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      <div className={`mt-3 ${expanded ? '' : 'max-h-24 overflow-hidden'}`}>
+        <div className="md-root text-sm text-gray-600">
+          <MarkdownRenderer content={expanded ? content : preview} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const getPromptCards = (): PromptCard[] => [
   {
     icon: TrendingUp,
@@ -1359,9 +1398,7 @@ export function Chat() {
                         {streamingContent ? (
                           <>
                             <SkillProgressCard steps={progressSteps} />
-                            <div className="md-root">
-                              <MarkdownRenderer content={streamingContent} />
-                            </div>
+                            <StreamingAnswerPreview content={streamingContent} compact={!!selectedSkillData && progressSteps.length > 0} />
                             {toolStatus && (
                               <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
                                 <Loader2 className="w-3 h-3 animate-spin" />
