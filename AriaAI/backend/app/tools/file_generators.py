@@ -107,6 +107,70 @@ def _find_body_placeholder(slide):
     return None
 
 
+def _set_content_slide_text(slide, title: str, content: str):
+    """Write visible title/body text even when templates use unusual placeholders."""
+    from pptx.util import Inches, Pt
+
+    if slide.shapes.title:
+        slide.shapes.title.text = title
+    else:
+        title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.0), Inches(0.6))
+        title_box.text_frame.text = title
+        title_box.text_frame.paragraphs[0].font.size = Pt(24)
+        title_box.text_frame.paragraphs[0].font.bold = True
+
+    body = _find_body_placeholder(slide)
+    if body is not None:
+        body.text_frame.text = content
+        body.text_frame.word_wrap = True
+    else:
+        body_box = slide.shapes.add_textbox(Inches(0.8), Inches(1.25), Inches(11.6), Inches(5.7))
+        body_box.text_frame.word_wrap = True
+        body_box.text_frame.text = content
+
+
+def _set_template_cover_text(slide, title: str, subtitle: str):
+    """Best-effort cover replacement for branded templates."""
+    replaced_title = False
+    replaced_subtitle = False
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        current = (shape.text or "").strip()
+        if "客户名称" in current or "方案建议名称" in current or shape.name.lower() in {"cover_title", "title 3"}:
+            shape.text_frame.text = f"{title}\n方案建议书"
+            replaced_title = True
+        elif subtitle and ("KPMG China" in current or shape.name.lower() in {"cover_subtitle", "subtitle 4"}):
+            shape.text_frame.text = subtitle
+            replaced_subtitle = True
+
+    if not replaced_title:
+        from pptx.util import Inches, Pt
+
+        title_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.2), Inches(10.8), Inches(1.2))
+        title_box.text_frame.text = f"{title}\n方案建议书"
+        for paragraph in title_box.text_frame.paragraphs:
+            paragraph.font.size = Pt(28)
+            paragraph.font.bold = True
+    if subtitle and not replaced_subtitle:
+        from pptx.util import Inches, Pt
+
+        subtitle_box = slide.shapes.add_textbox(Inches(0.8), Inches(3.6), Inches(10.8), Inches(0.5))
+        subtitle_box.text_frame.text = subtitle
+        subtitle_box.text_frame.paragraphs[0].font.size = Pt(14)
+
+
+def _remove_slide(prs, index: int):
+    """Remove a template slide by index."""
+    slide_id_list = prs.slides._sldIdLst
+    slides = list(slide_id_list)
+    if 0 <= index < len(slides):
+        slide_id = slides[index]
+        rel_id = slide_id.rId
+        slide_id_list.remove(slide_id)
+        prs.part.drop_rel(rel_id)
+
+
 async def generate_ppt(
     title: str,
     slides: list[dict],
@@ -130,20 +194,16 @@ async def generate_ppt(
 
         # ── Cover slide (template slide 0) ──────────────────────────────────
         cover_slide = prs.slides[0]
-        for shape in cover_slide.shapes:
-            if not shape.has_text_frame:
-                continue
-            if shape.name == "cover_title":
-                shape.text_frame.text = title
-            elif shape.name == "cover_subtitle":
-                shape.text_frame.text = subtitle
+        _set_template_cover_text(cover_slide, title, subtitle)
+        has_template_content_prototype = len(prs.slides) > 2
 
         # Layout helpers for content slides
-        content_layout = _safe_layout(prs, 0)   # '1_One Column Text'
-        two_col_layout = _safe_layout(prs, 1)   # 'Custom Layout' (minimal)
+        content_layout = _safe_layout(prs, 1)   # 'One Column Text'
+        two_col_layout = _safe_layout(prs, 1)   # Reuse content layout and draw two columns manually.
 
     else:
         prs = Presentation()
+        has_template_content_prototype = False
 
         # Blank template: add a simple cover slide
         cover_layout = _safe_layout(prs, 0)
@@ -159,22 +219,27 @@ async def generate_ppt(
         two_col_layout = _safe_layout(prs, 1)
 
     # ── Content slides ───────────────────────────────────────────────────────
-    for slide_data in slides:
+    for slide_index, slide_data in enumerate(slides):
         slide_type  = slide_data.get("type", "content")
         slide_title = slide_data.get("title", "")
 
         layout = two_col_layout if slide_type == "two_column" else content_layout
-        slide  = prs.slides.add_slide(layout)
-
-        if slide.shapes.title:
-            slide.shapes.title.text = slide_title
+        if using_template and has_template_content_prototype and slide_index == 0:
+            slide = prs.slides[1]
+        else:
+            slide = prs.slides.add_slide(layout)
 
         if slide_type == "content" and "content" in slide_data:
-            body = _find_body_placeholder(slide)
-            if body is not None:
-                body.text_frame.text = slide_data["content"]
+            _set_content_slide_text(slide, slide_title, slide_data["content"])
 
         elif slide_type == "two_column":
+            if slide.shapes.title:
+                slide.shapes.title.text = slide_title
+            else:
+                title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.0), Inches(0.6))
+                title_box.text_frame.text = slide_title
+                title_box.text_frame.paragraphs[0].font.size = Pt(24)
+                title_box.text_frame.paragraphs[0].font.bold = True
             slide_h = prs.slide_height
             col_w   = Inches(5.2)
             top     = Inches(1.6)
@@ -191,11 +256,14 @@ async def generate_ppt(
             right_box.text_frame.text = slide_data.get("right_content", "")
 
     # ── Move back cover to the end ────────────────────────────────────────────
-    # Template order after adding slides: [cover, back_cover, content1, content2, ...]
-    # Desired order:                       [cover, content1, content2, ..., back_cover]
+    # Template order after adding slides:
+    # - With prototype: [cover, content1(prototype), back_cover, content2, ...]
+    # - Without:        [cover, back_cover, content1, ...]
+    # Desired order:    [cover, content1, content2, ..., back_cover]
     if using_template and len(prs.slides) >= 2:
         sldIdLst = prs.slides._sldIdLst
-        back_cover_ref = list(sldIdLst)[1]   # index 1 = back cover
+        back_cover_index = 2 if has_template_content_prototype and len(prs.slides) > 2 else 1
+        back_cover_ref = list(sldIdLst)[back_cover_index]
         sldIdLst.remove(back_cover_ref)
         sldIdLst.append(back_cover_ref)
 
