@@ -4156,6 +4156,49 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("业务战略", strategy.system_prompt)
         self.assertIn("Huawei 5-See 3-Define", strategy.system_prompt)
         self.assertIn("Foundation", strategy.system_prompt)
+        self.assertIn("generate_ppt_from_skill", strategy.system_prompt)
+        self.assertIn("generate_ppt_from_skill", strategy.tools)
+        self.assertIn("save_json", strategy.tools)
+        tool_defs = json.loads(strategy.tools_definition_json)
+        tool_def_names = {tool.get("name") for tool in tool_defs}
+        self.assertIn("generate_ppt_from_skill", tool_def_names)
+        self.assertIn("save_json", tool_def_names)
+
+    def test_existing_digital_strategy_skill_tools_are_upgraded(self):
+        old_skill = Skill(
+            name="数字化战略设计",
+            category="数字化与技术",
+            description="old",
+            system_prompt="digital-strategy 工作流\n旧提示",
+            user_template="旧模板",
+            estimated_time="~25 min",
+            tools_definition_json=json.dumps(
+                [
+                    {"name": "strategy", "type": "legacy"},
+                    {"name": "roadmap", "type": "legacy"},
+                    {"name": "report", "type": "legacy"},
+                ]
+            ),
+        )
+        old_skill.tools = ["strategy", "roadmap", "report"]
+
+        with Session(self.engine) as session:
+            session.add(old_skill)
+            session.commit()
+
+            changed = skills_router_module.ensure_builtin_pro_skills(session)
+            strategy = session.exec(
+                select(Skill).where(Skill.name == "数字化战略设计")
+            ).one()
+            second_count = skills_router_module.ensure_builtin_pro_skills(session)
+
+        self.assertGreaterEqual(changed, 1)
+        self.assertEqual(second_count, 0)
+        self.assertEqual(strategy.tools, ["generate_ppt_from_skill", "save_json"])
+        tool_defs = json.loads(strategy.tools_definition_json)
+        tool_def_names = {tool.get("name") for tool in tool_defs}
+        self.assertIn("generate_ppt_from_skill", tool_def_names)
+        self.assertNotIn("strategy", tool_def_names)
 
     def test_digital_strategy_file_skill_assets_exist(self):
         repo_root = Path(__file__).resolve().parents[2]
@@ -4169,6 +4212,8 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         framework_text = (skill_dir / "references" / "frameworks.md").read_text(encoding="utf-8")
         industry_text = (skill_dir / "references" / "industry-notes.md").read_text(encoding="utf-8")
         self.assertIn("name: digital-strategy", skill_text)
+        self.assertIn("generate_ppt_from_skill", skill_text)
+        self.assertIn("save_json", skill_text)
         self.assertIn("Huawei 5-See 3-Define", framework_text)
         self.assertIn("Manufacturing", industry_text)
 

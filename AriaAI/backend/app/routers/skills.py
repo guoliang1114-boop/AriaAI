@@ -10,11 +10,13 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import Skill
+from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
 DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
 DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
+DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill", "save_json"]
 
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
@@ -650,6 +652,9 @@ GSTACK_PRO_SKILLS = [
             "5. Transformation Roadmap：三阶段计划、举措 backlog、里程碑。\n"
             "6. Governance & Investment：组织、投资、风险、KPI。\n"
             "7. Appendices：成熟度明细、基准数据假设、举措章程模板。\n\n"
+            "PPT 交付要求：如果用户要求高层汇报、PPT、演示文稿、材料或可下载交付物，必须先生成 12-18 页 slide-by-slide 内容，"
+            "然后调用 generate_ppt_from_skill，skill_name 固定为 digital-strategy；slides 必须使用 title/content/two_column 结构，"
+            "每页包含行动导向标题、核心结论和支撑要点。建议同时调用 save_json 保存成熟度评分、能力蓝图、路线图和投资假设等结构化数据。\n\n"
             "质量要求：结论先行、业务价值优先，不要只写技术清单；投资估算必须包含人才和变革管理；KPI 必须连接业务结果；所有假设要显式标注。"
         ),
         "user_template": (
@@ -682,7 +687,7 @@ GSTACK_PRO_SKILLS = [
             "期望输出形式（战略报告大纲 / 高层汇报材料 / 路线图 / 投资组合）："
         ),
         "estimated_time": "~25 min",
-        "tools": ["strategy", "roadmap", "report"],
+        "tools": DIGITAL_STRATEGY_TOOL_NAMES,
     },
     {
         "name": "企业架构蓝图设计",
@@ -1087,6 +1092,16 @@ def ensure_builtin_pro_skills(session: Session) -> int:
     """Create missing built-in pro skills without overwriting user edits."""
     from app.tools import registry as _registry
 
+    def build_tool_defs(tool_names: list[str]) -> list[dict[str, Any]]:
+        tool_defs = []
+        for tool_name in tool_names:
+            tool_def = _registry.get(tool_name)
+            if tool_def:
+                tool_defs.append(tool_def.to_anthropic_schema())
+            else:
+                tool_defs.append({"name": tool_name, "type": "legacy"})
+        return tool_defs
+
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
     changed = 0
     for skill_def in GSTACK_PRO_SKILLS:
@@ -1111,20 +1126,28 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 existing_skill.user_template = skill_def.get("user_template", existing_skill.user_template)
                 existing_skill.estimated_time = skill_def.get("estimated_time", existing_skill.estimated_time)
                 patched = True
+            if existing_skill.name == DIGITAL_STRATEGY_SKILL_NAME:
+                tool_names = skill_def.get("tools", [])
+                try:
+                    existing_tool_defs = json.loads(existing_skill.tools_definition_json or "[]")
+                except json.JSONDecodeError:
+                    existing_tool_defs = []
+                existing_tool_names = {
+                    item.get("name")
+                    for item in existing_tool_defs
+                    if isinstance(item, dict)
+                }
+                if not set(DIGITAL_STRATEGY_TOOL_NAMES).issubset(existing_tool_names):
+                    existing_skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
+                    existing_skill.tools = tool_names
+                    patched = True
             if patched:
                 session.add(existing_skill)
                 changed += 1
             continue
 
         skill = Skill(**{k: v for k, v in skill_def.items() if k != "tools"})
-        tool_defs = []
-        for tool_name in skill_def.get("tools", []):
-            tool_def = _registry.get(tool_name)
-            if tool_def:
-                tool_defs.append(tool_def.to_anthropic_schema())
-            else:
-                tool_defs.append({"name": tool_name, "type": "legacy"})
-        skill.tools_definition_json = json.dumps(tool_defs)
+        skill.tools_definition_json = json.dumps(build_tool_defs(skill_def.get("tools", [])))
         skill.tools = skill_def.get("tools", [])
         session.add(skill)
         changed += 1

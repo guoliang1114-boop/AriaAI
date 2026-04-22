@@ -223,14 +223,47 @@ Before delivering, verify:
 
 ## Deliverable Format
 
-This skill produces **structured strategic content** (text outline + detailed section content).
+This skill produces **structured strategic content** and can hand it to AriaAI generation tools for downloadable deliverables.
 
-- **For PPT delivery**: Pass content to `pptx` skill for slide rendering
+- **For PPT delivery**: call `generate_ppt_from_skill` with `skill_name: "digital-strategy"` after the strategic content is complete
 - **For document delivery**: Pass content to `docx` skill for document formatting
 - **For roadmap visualization**: Generate timeline data in table format, render with `xlsx` skill for Gantt or phased timeline
 - **For architecture diagrams**: Use `generate_image` for capability blueprint or target operating model visualization
 
-Do not produce PPT, Excel, or image files directly. Produce content that collaborating skills can render.
+### PPT Tool Call
+
+When the user asks for a PPT, leadership deck, presentation material, downloadable deliverable, or slide version, always create a slide-by-slide outline first and then call `generate_ppt_from_skill`.
+
+```json
+{
+  "skill_name": "digital-strategy",
+  "title": "[Company] Digital Transformation Strategy",
+  "subtitle": "Digital Strategy, Capability Blueprint, Roadmap and Governance",
+  "slides": [
+    {
+      "type": "content",
+      "title": "Executive Summary",
+      "content": "- Transformation thesis\n- Investment and timeline\n- Expected business outcomes"
+    },
+    {
+      "type": "two_column",
+      "title": "Current State vs Target State",
+      "left_content": "Current maturity, pain points, constraints",
+      "right_content": "Target capabilities, operating model, success metrics"
+    }
+  ]
+}
+```
+
+Recommended PPT structure: 12-18 slides covering executive summary, strategic context, maturity assessment, target vision, capability blueprint, gap analysis, roadmap, governance, investment, risk and next steps.
+
+If the analysis produces reusable structured data, also call `save_json` with maturity scores, capability blueprint, roadmap initiatives, investment assumptions, and KPI framework.
+
+## Dependencies
+
+- `generate_ppt_from_skill` - creates `.pptx` files through AriaAI's `python-pptx` backend tool
+- `save_json` - stores structured analysis data for follow-up editing and reuse
+- Optional template: place `KPMG-Template.pptx` or `template.pptx` under `assets/` or `references/`; without a template, AriaAI falls back to the default PPT layout
 
 ## References
 
