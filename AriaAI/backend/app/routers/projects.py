@@ -123,6 +123,7 @@ from app.services.project_milestones import (
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
+from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -2984,6 +2985,41 @@ def get_project_memory_snapshot(project_id: int, snapshot_id: int, session: Sess
         "trigger": snapshot.trigger,
         "memory": json.loads(snapshot.memory_json or "{}"),
         "created_at": snapshot.created_at.isoformat(),
+    }
+
+
+@router.get("/{project_id}/memory/snapshots/{snapshot_id}/diff")
+def get_project_memory_snapshot_diff(project_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    project = get_project_or_404(session, project_id)
+    snapshot = session.get(ProjectMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Memory snapshot not found")
+    try:
+        snapshot_memory = parse_snapshot_memory(snapshot.memory_json)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Memory snapshot is corrupted")
+
+    current_memory = get_project_memory_payload(project)
+    diff = build_memory_snapshot_diff(
+        snapshot_memory,
+        current_memory,
+        ignored_fields={"last_updated_at", "rebuild_log", "stale"},
+    )
+    return {
+        "scope": "project",
+        "entity_id": project_id,
+        "from_snapshot": {
+            "id": snapshot.id,
+            "memory_version": snapshot.memory_version,
+            "trigger": snapshot.trigger,
+            "created_at": snapshot.created_at.isoformat(),
+        },
+        "to": {
+            "type": "current",
+            "memory_version": project.memory_version or 0,
+            "created_at": project.memory_updated_at.isoformat() if project.memory_updated_at else None,
+        },
+        **diff,
     }
 
 

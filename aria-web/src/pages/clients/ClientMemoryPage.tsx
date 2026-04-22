@@ -7,6 +7,7 @@ import {
   Building2,
   Clock3,
   ExternalLink,
+  GitCompare,
   Loader2,
   RefreshCw,
   Users,
@@ -19,6 +20,7 @@ import type {
   ClientMemorySnapshot,
   ClientMemoryStatusResponse,
   ClientMemorySummaryType,
+  MemorySnapshotDiffResponse,
 } from '../../types/api'
 import { useClientMemorySummary } from './useClientMemorySummary'
 
@@ -57,6 +59,12 @@ function formatDateTime(value?: string | null, isZh = true) {
   })
 }
 
+function formatDiffValue(value: unknown) {
+  if (value === undefined || value === null || value === '') return '空'
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
 function getAsyncStatusLabel(status: string | undefined, isZh: boolean) {
   switch (status) {
     case 'queued':
@@ -84,6 +92,9 @@ export function ClientMemoryPage() {
   const [memory, setMemory] = useState<ClientMemory | null>(null)
   const [snapshots, setSnapshots] = useState<ClientMemorySnapshot[]>([])
   const [rollingBackSnapshotId, setRollingBackSnapshotId] = useState<number | null>(null)
+  const [rollbackConfirmSnapshot, setRollbackConfirmSnapshot] = useState<ClientMemorySnapshot | null>(null)
+  const [snapshotDiff, setSnapshotDiff] = useState<MemorySnapshotDiffResponse | null>(null)
+  const [diffLoadingSnapshotId, setDiffLoadingSnapshotId] = useState<number | null>(null)
 
   useEffect(() => {
     if (id) {
@@ -186,6 +197,20 @@ export function ClientMemoryPage() {
       console.error('Failed to rollback client memory snapshot:', error)
     } finally {
       setRollingBackSnapshotId(null)
+      setRollbackConfirmSnapshot(null)
+    }
+  }
+
+  const loadSnapshotDiff = async (snapshot: ClientMemorySnapshot) => {
+    if (!id) return
+    try {
+      setDiffLoadingSnapshotId(snapshot.id)
+      const response = await api.get<MemorySnapshotDiffResponse>(`/clients/${id}/memory/snapshots/${snapshot.id}/diff`)
+      setSnapshotDiff(response)
+    } catch (error) {
+      console.error('Failed to load client memory snapshot diff:', error)
+    } finally {
+      setDiffLoadingSnapshotId(null)
     }
   }
 
@@ -474,15 +499,26 @@ export function ClientMemoryPage() {
                       <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                         {isZh ? '触发' : 'Trigger'}: {snapshot.trigger || '-'}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void rollbackSnapshot(snapshot)}
-                        disabled={isCurrent || isRollingBack}
-                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
-                      >
-                        {isRollingBack ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                        {isZh ? '恢复到这一版' : 'Restore this version'}
-                      </button>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => void loadSnapshotDiff(snapshot)}
+                          disabled={diffLoadingSnapshotId === snapshot.id}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:text-gray-400"
+                        >
+                          {diffLoadingSnapshotId === snapshot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />}
+                          {isZh ? '查看变化' : 'View diff'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRollbackConfirmSnapshot(snapshot)}
+                          disabled={isCurrent || isRollingBack}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
+                        >
+                          {isRollingBack ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                          {isZh ? '恢复到这一版' : 'Restore this version'}
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -492,7 +528,98 @@ export function ClientMemoryPage() {
                 {isZh ? '暂无客户记忆历史。下一次更新客户记忆后会自动生成快照。' : 'No client memory history yet. The next update will create a snapshot automatically.'}
               </div>
             )}
+            {snapshotDiff ? (
+              <div className="mt-4 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-on-surface">
+                      {isZh
+                        ? `版本 ${snapshotDiff.from_snapshot.memory_version} 与当前版本 ${snapshotDiff.to.memory_version} 的变化`
+                        : `Version ${snapshotDiff.from_snapshot.memory_version} vs current ${snapshotDiff.to.memory_version}`}
+                    </div>
+                    <p className="mt-1 text-xs text-on-surface-muted">
+                      {isZh ? `变化字段 ${snapshotDiff.summary.changed} 个，未变化 ${snapshotDiff.summary.unchanged} 个。` : `${snapshotDiff.summary.changed} changed fields, ${snapshotDiff.summary.unchanged} unchanged.`}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setSnapshotDiff(null)} className="text-sm font-medium text-emerald-700 hover:text-emerald-900">
+                    {isZh ? '收起' : 'Collapse'}
+                  </button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {snapshotDiff.fields.length ? (
+                    snapshotDiff.fields.slice(0, 8).map((field) => (
+                      <div key={field.field} className="rounded-xl border border-outline bg-surface-muted/40 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{field.label}</div>
+                        {field.kind === 'list' ? (
+                          <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+                            <div className="rounded-lg bg-emerald-50 p-2 text-emerald-800">
+                              <div className="text-xs font-semibold">{isZh ? '新增' : 'Added'}</div>
+                              <div className="mt-1 whitespace-pre-wrap">{(field.added || []).map(formatDiffValue).join('\n') || (isZh ? '无' : 'None')}</div>
+                            </div>
+                            <div className="rounded-lg bg-rose-50 p-2 text-rose-800">
+                              <div className="text-xs font-semibold">{isZh ? '移除' : 'Removed'}</div>
+                              <div className="mt-1 whitespace-pre-wrap">{(field.removed || []).map(formatDiffValue).join('\n') || (isZh ? '无' : 'None')}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+                            <div className="rounded-lg bg-rose-50 p-2 text-rose-800">
+                              <div className="text-xs font-semibold">{isZh ? '旧版本' : 'Before'}</div>
+                              <div className="mt-1 whitespace-pre-wrap">{formatDiffValue(field.before)}</div>
+                            </div>
+                            <div className="rounded-lg bg-emerald-50 p-2 text-emerald-800">
+                              <div className="text-xs font-semibold">{isZh ? '当前版本' : 'Current'}</div>
+                              <div className="mt-1 whitespace-pre-wrap">{formatDiffValue(field.after)}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl bg-surface-muted p-3 text-sm text-on-surface-muted">{isZh ? '这个快照与当前记忆没有可见差异。' : 'No visible differences from current memory.'}</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </section>
+
+          {rollbackConfirmSnapshot ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+              <div className="w-full max-w-md rounded-3xl bg-surface p-6 shadow-2xl">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-amber-100 p-2 text-amber-700">
+                    <Clock3 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-on-surface">{isZh ? '确认恢复客户记忆？' : 'Restore client memory?'}</h3>
+                    <p className="mt-2 text-sm leading-6 text-on-surface-muted">
+                      {isZh
+                        ? `将恢复到版本 ${rollbackConfirmSnapshot.memory_version}，系统会生成一个新的当前版本，历史快照仍会保留。`
+                        : `This restores version ${rollbackConfirmSnapshot.memory_version} and creates a new current version. Existing snapshots remain available.`}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRollbackConfirmSnapshot(null)}
+                    className="rounded-xl border border-outline px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-muted"
+                  >
+                    {isZh ? '取消' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void rollbackSnapshot(rollbackConfirmSnapshot)}
+                    disabled={rollingBackSnapshotId === rollbackConfirmSnapshot.id}
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-wait disabled:bg-emerald-300"
+                  >
+                    {rollingBackSnapshotId === rollbackConfirmSnapshot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {isZh ? '确认恢复' : 'Restore'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="space-y-6">

@@ -218,6 +218,39 @@ export interface ProjectMemorySnapshot {
   created_at: string
 }
 
+export interface MemorySnapshotDiffField {
+  field: string
+  label: string
+  kind: 'value' | 'list' | 'object' | string
+  before?: unknown
+  after?: unknown
+  added?: unknown[]
+  removed?: unknown[]
+}
+
+export interface MemorySnapshotDiffResponse {
+  scope: 'project' | 'client'
+  entity_id: number
+  from_snapshot: {
+    id: number
+    memory_version: number
+    trigger: string
+    created_at: string
+  }
+  to: {
+    type: 'current' | string
+    memory_version: number
+    created_at?: string | null
+  }
+  summary: {
+    changed: number
+    added: number
+    removed: number
+    unchanged: number
+  }
+  fields: MemorySnapshotDiffField[]
+}
+
 export interface ClientMemory {
   client_profile: string
   decision_patterns: string[]

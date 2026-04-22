@@ -38,6 +38,7 @@ from app.services.client_contexts import (
     save_client_memory_summary_cache,
     save_client_memory,
 )
+from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.project_contexts import normalize_summary_language
 from app.services.project_llm import complete_with_selected_model
 from app.services.time_utils import utc_now_naive
@@ -1110,6 +1111,43 @@ def get_client_memory_snapshot(client_id: int, snapshot_id: int, session: Sessio
         "trigger": snapshot.trigger,
         "memory": json.loads(snapshot.memory_json or "{}"),
         "created_at": snapshot.created_at.isoformat(),
+    }
+
+
+@router.get("/{client_id}/memory/snapshots/{snapshot_id}/diff")
+def get_client_memory_snapshot_diff(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    snapshot = session.get(ClientMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Client memory snapshot not found")
+    try:
+        snapshot_memory = parse_snapshot_memory(snapshot.memory_json)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Client memory snapshot is corrupted")
+
+    current_memory = get_client_memory_payload(client)
+    diff = build_memory_snapshot_diff(
+        snapshot_memory,
+        current_memory,
+        ignored_fields={"last_updated_at", "rebuild_log", "stale"},
+    )
+    return {
+        "scope": "client",
+        "entity_id": client_id,
+        "from_snapshot": {
+            "id": snapshot.id,
+            "memory_version": snapshot.memory_version,
+            "trigger": snapshot.trigger,
+            "created_at": snapshot.created_at.isoformat(),
+        },
+        "to": {
+            "type": "current",
+            "memory_version": client.client_memory_version or 0,
+            "created_at": client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
+        },
+        **diff,
     }
 
 

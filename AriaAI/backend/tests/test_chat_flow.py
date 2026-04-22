@@ -2136,6 +2136,16 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(detail_resp.json()["memory"]["project_brief"], "Version one")
 
+        diff_resp = self.client.get(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}/diff")
+        self.assertEqual(diff_resp.status_code, 200)
+        diff_body = diff_resp.json()
+        self.assertEqual(diff_body["scope"], "project")
+        changed_fields = {item["field"]: item for item in diff_body["fields"]}
+        self.assertEqual(changed_fields["project_brief"]["before"], "Version one")
+        self.assertEqual(changed_fields["project_brief"]["after"], "Version two")
+        self.assertEqual(changed_fields["key_risks"]["added"], ["Risk B"])
+        self.assertEqual(changed_fields["key_risks"]["removed"], ["Risk A"])
+
         rollback_resp = self.client.post(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}/rollback")
         self.assertEqual(rollback_resp.status_code, 200)
         self.assertEqual(rollback_resp.json()["memory"]["project_brief"], "Version one")
@@ -3460,6 +3470,16 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         detail_resp = self.client.get(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}")
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(detail_resp.json()["memory"]["client_profile"], "Version one")
+
+        diff_resp = self.client.get(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}/diff")
+        self.assertEqual(diff_resp.status_code, 200)
+        diff_body = diff_resp.json()
+        self.assertEqual(diff_body["scope"], "client")
+        changed_fields = {item["field"]: item for item in diff_body["fields"]}
+        self.assertEqual(changed_fields["client_profile"]["before"], "Version one")
+        self.assertEqual(changed_fields["client_profile"]["after"], "Version two")
+        self.assertEqual(changed_fields["decision_patterns"]["added"], ["Pattern B"])
+        self.assertEqual(changed_fields["decision_patterns"]["removed"], ["Pattern A"])
 
         rollback_resp = self.client.post(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}/rollback")
         self.assertEqual(rollback_resp.status_code, 200)
