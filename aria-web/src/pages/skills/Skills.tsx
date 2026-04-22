@@ -38,6 +38,8 @@ type SkillCategory = {
   count: number;
 };
 
+const SKILLS_PAGE_SIZE = 12;
+
 const extractMinutes = (estimatedTime?: string) => {
   if (!estimatedTime) return 0;
   const match = estimatedTime.match(/(\d+)/);
@@ -412,6 +414,7 @@ export function SkillCategoryPage() {
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"));
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState<SkillTypeFilter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const activeCategory = safeDecode(categoryId);
 
   const activeCategoryInfo = useMemo(() => {
@@ -439,6 +442,16 @@ export function SkillCategoryPage() {
     });
   }, [activeCategoryInfo, activeType, search, skills]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeCategoryInfo?.id, activeType, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSkills.length / SKILLS_PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedSkills = filteredSkills.slice(
+    (safeCurrentPage - 1) * SKILLS_PAGE_SIZE,
+    safeCurrentPage * SKILLS_PAGE_SIZE,
+  );
   const CategoryIcon = activeCategoryInfo?.id === "all" ? Layers3 : getCategoryIcon(activeCategoryInfo?.id || "all");
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
@@ -547,11 +560,22 @@ export function SkillCategoryPage() {
             </div>
           ) : (
             <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-              {filteredSkills.map((skill) => (
+              {paginatedSkills.map((skill) => (
                 <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
               ))}
             </section>
           )}
+
+          {filteredSkills.length > SKILLS_PAGE_SIZE ? (
+            <SkillPagination
+              currentPage={safeCurrentPage}
+              isZh={isZh}
+              onPageChange={setCurrentPage}
+              pageSize={SKILLS_PAGE_SIZE}
+              totalItems={filteredSkills.length}
+              totalPages={totalPages}
+            />
+          ) : null}
         </div>
       </div>
     </>
@@ -1014,6 +1038,78 @@ function PromptBlock({ content, title }: { content: string; title: string }) {
       </pre>
     </div>
   );
+}
+
+function SkillPagination({
+  currentPage,
+  isZh,
+  onPageChange,
+  pageSize,
+  totalItems,
+  totalPages,
+}: {
+  currentPage: number;
+  isZh: boolean;
+  onPageChange: (page: number) => void;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}) {
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalItems);
+  const visiblePages = buildVisiblePages(currentPage, totalPages);
+
+  return (
+    <div className="mt-6 flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+      <div className="text-sm text-slate-500">
+        {isZh
+          ? `显示 ${start}-${end}，共 ${totalItems} 个 Skill`
+          : `Showing ${start}-${end} of ${totalItems} Skills`}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {isZh ? "上一页" : "Previous"}
+        </button>
+        {visiblePages.map((page) => (
+          <button
+            key={page}
+            type="button"
+            onClick={() => onPageChange(page)}
+            className={`h-9 min-w-9 rounded-xl border px-3 text-sm font-semibold transition ${
+              page === currentPage
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-white text-slate-600 hover:text-slate-950"
+            }`}
+          >
+            {page}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {isZh ? "下一页" : "Next"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function buildVisiblePages(currentPage: number, totalPages: number) {
+  const pages = new Set<number>();
+  pages.add(1);
+  pages.add(totalPages);
+  for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
+    if (page >= 1 && page <= totalPages) pages.add(page);
+  }
+  return Array.from(pages).sort((a, b) => a - b);
 }
 
 function CategoryShowcaseCard({
