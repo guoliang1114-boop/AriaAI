@@ -37,6 +37,7 @@ const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Wel
 const Chat = lazy(() => loadChat().then((module) => ({ default: module.Chat })))
 const Skills = lazy(() => loadSkills().then((module) => ({ default: module.Skills })))
 const SkillCategoryPage = lazy(() => loadSkills().then((module) => ({ default: module.SkillCategoryPage })))
+const SkillDetailPage = lazy(() => loadSkills().then((module) => ({ default: module.SkillDetailPage })))
 const Projects = lazy(() => loadProjects().then((module) => ({ default: module.Projects })))
 const ProjectDetail = lazy(() => loadProjectDetail().then((module) => ({ default: module.ProjectDetail })))
 const NewProject = lazy(() => loadNewProject().then((module) => ({ default: module.NewProject })))
@@ -158,6 +159,14 @@ function AppRoutes() {
           element={
             <LazyPage>
               <SkillCategoryPage />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="skills/item/:skillId"
+          element={
+            <LazyPage>
+              <SkillDetailPage />
             </LazyPage>
           }
         />

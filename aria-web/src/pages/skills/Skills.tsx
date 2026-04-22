@@ -5,9 +5,11 @@ import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
+  BookOpen,
   Brain,
   Briefcase,
   CheckCircle2,
+  ClipboardList,
   Clock3,
   Compass,
   Cpu,
@@ -26,7 +28,7 @@ import {
 
 import { api } from "../../api/client";
 import { PageTitle } from "../../components/PageTitle";
-import type { SkillSummary } from "../../types/api";
+import type { Skill, SkillSummary } from "../../types/api";
 
 type SkillTypeFilter = "all" | "quick" | "deep";
 
@@ -175,6 +177,12 @@ const buildSkillsPath = (searchParams: URLSearchParams) => {
   return `/skills${query ? `?${query}` : ""}`;
 };
 
+const buildSkillDetailPath = (skillId: number, searchParams: URLSearchParams) => {
+  const params = new URLSearchParams(searchParams);
+  const query = params.toString();
+  return `/skills/item/${skillId}${query ? `?${query}` : ""}`;
+};
+
 const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
   const projectId = searchParams.get("project");
   const clientProjectId = searchParams.get("clientProject");
@@ -233,6 +241,39 @@ function useSkillsData(allLabel: string) {
   const categories = useMemo(() => buildCategories(skills, allLabel), [allLabel, skills]);
 
   return { categories, loading, skills };
+}
+
+function useSkillDetail(skillId?: string) {
+  const [loading, setLoading] = useState(true);
+  const [skill, setSkill] = useState<Skill | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const id = Number(skillId);
+    if (!Number.isFinite(id) || id <= 0) {
+      setLoading(false);
+      setError("invalid");
+      return;
+    }
+
+    const fetchSkill = async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await api.get<Skill>(`/skills/${id}`);
+        setSkill(data);
+      } catch (fetchError) {
+        console.error("Failed to fetch skill:", fetchError);
+        setError("not_found");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void fetchSkill();
+  }, [skillId]);
+
+  return { error, loading, skill };
 }
 
 function useLaunchSource() {
@@ -510,17 +551,196 @@ export function SkillCategoryPage() {
             <>
               <section className="mt-8 grid gap-6 lg:grid-cols-2">
                 {featuredSkills.map((skill) => (
-                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))} />
+                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
                 ))}
               </section>
 
               <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
                 {regularSkills.map((skill) => (
-                  <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))} />
+                  <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
                 ))}
               </section>
             </>
           )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function SkillDetailPage() {
+  const { skillId } = useParams();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
+  const navigate = useNavigate();
+  const launchSource = useLaunchSource();
+  const { error, loading, skill } = useSkillDetail(skillId);
+
+  const toolNames = useMemo(() => parseToolNames(skill?.tools_definition_json), [skill?.tools_definition_json]);
+  const inputHints = useMemo(() => buildInputHints(skill, isZh), [isZh, skill]);
+  const outputHints = useMemo(() => buildOutputHints(skill, isZh), [isZh, skill]);
+  const usageSteps = useMemo(() => buildUsageSteps(skill, isZh), [isZh, skill]);
+  const Icon = skill ? getCategoryIcon(skill.category) : Brain;
+  const tone = skill ? getCategoryTone(skill.category) : "bg-slate-50 text-slate-700 border-slate-200";
+  const isQuick = extractMinutes(skill?.estimated_time) <= 10;
+
+  if (loading) return <SkillsLoading title={t("skills.title")} />;
+
+  if (error || !skill) {
+    return (
+      <>
+        <PageTitle title={isZh ? "能力未找到" : "Skill not found"} />
+        <div className="flex min-h-full items-center justify-center bg-slate-50 px-6">
+          <div className="max-w-md rounded-[1.75rem] border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <Brain className="mx-auto h-10 w-10 text-slate-300" />
+            <h1 className="mt-4 text-xl font-semibold text-slate-950">{isZh ? "这个能力暂时不可用" : "This Skill is unavailable"}</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              {isZh ? "可能已被删除，或者当前链接不正确。可以返回能力分类重新选择。" : "It may have been deleted, or the link is invalid. Go back to the capability map and choose again."}
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(buildSkillsPath(launchSource.searchParams))}
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {isZh ? "返回能力分类" : "Back to categories"}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageTitle title={skill.name} />
+      <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#f5f8f7_100%)]">
+        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(buildCategoryPath(normalizeCategory(skill.category), launchSource.searchParams))}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {isZh ? "返回所属分类" : "Back to category"}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary"
+            >
+              <MessageSquare className="h-4 w-4" />
+              {t("skills.useSkill")}
+            </button>
+          </div>
+
+          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-8 shadow-[0_22px_70px_rgba(15,23,42,0.07)]">
+            <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(skill.category)} opacity-80`} />
+            <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/70 blur-3xl" />
+            <div className="relative grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
+              <div>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span className={`inline-flex items-center gap-2 rounded-full border bg-white/75 px-3 py-1.5 text-xs font-semibold ${tone}`}>
+                    <Icon className="h-3.5 w-3.5" />
+                    {skill.category}
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    {skill.estimated_time || t("skills.timeFallback")}
+                  </span>
+                </div>
+                <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-slate-950">{skill.name}</h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{skill.description}</p>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white/75 p-5 backdrop-blur">
+                <div className="text-sm font-semibold text-slate-950">{isZh ? "使用定位" : "Usage profile"}</div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <SkillMetric label={isZh ? "类型" : "Type"} value={isQuick ? t("skills.types.quick") : t("skills.types.deep")} />
+                  <SkillMetric label={isZh ? "工具" : "Tools"} value={toolNames.length ? String(toolNames.length) : isZh ? "无" : "None"} />
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-500">
+                  {isZh ? "建议先补充足够背景，再启动 Skill；项目或客户入口会自动带入上下文。" : "Add enough context before launching. Project and client entry points automatically carry context into chat."}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
+
+          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
+            <div className="space-y-6">
+              <DetailSection
+                icon={BookOpen}
+                title={isZh ? "这个能力解决什么问题" : "What this Skill is for"}
+                items={[
+                  skill.description,
+                  getCategoryDescription(skill.category, isZh),
+                  isZh ? "适合需要结构化思考、快速形成专业交付草稿的场景。" : "Best for turning messy context into a structured professional draft.",
+                ]}
+              />
+
+              <DetailSection
+                icon={ClipboardList}
+                title={isZh ? "建议输入" : "Recommended inputs"}
+                items={inputHints}
+              />
+
+              <DetailSection
+                icon={CheckCircle2}
+                title={isZh ? "预期输出" : "Expected outputs"}
+                items={outputHints}
+              />
+
+              <PromptPreview
+                isZh={isZh}
+                systemPrompt={skill.system_prompt}
+                userTemplate={skill.user_template}
+              />
+            </div>
+
+            <aside className="space-y-6">
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "怎么使用" : "How to use"}</h2>
+                <div className="mt-4 space-y-3">
+                  {usageSteps.map((step, index) => (
+                    <div key={step} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                        {index + 1}
+                      </div>
+                      <p className="text-sm leading-6 text-slate-600">{step}</p>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  {t("skills.useSkill")}
+                </button>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "可用工具" : "Available tools"}</h2>
+                {toolNames.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {toolNames.map((tool) => (
+                      <span key={tool} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                        {tool}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm leading-6 text-slate-500">
+                    {isZh ? "这个 Skill 当前不依赖额外工具，主要通过对话和上下文完成。" : "This Skill does not require extra tools yet; it mainly works through chat and context."}
+                  </p>
+                )}
+              </div>
+            </aside>
+          </div>
         </div>
       </div>
     </>
@@ -627,6 +847,185 @@ function LaunchSourceBanner({
   );
 }
 
+function parseToolNames(raw?: string) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((tool) => {
+        if (typeof tool === "string") return tool;
+        if (tool && typeof tool === "object") {
+          const record = tool as Record<string, unknown>;
+          return String(record.name || record.tool_name || record.title || "").trim();
+        }
+        return "";
+      })
+      .filter(Boolean);
+  } catch {
+    return raw
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+}
+
+function buildInputHints(skill: Skill | null, isZh: boolean) {
+  if (!skill) return [];
+  const templateLines = skill.user_template
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[\[\]{}]/g, "").trim())
+    .filter((line) => line.length > 0 && line.length < 120)
+    .slice(0, 5);
+
+  if (templateLines.length >= 3) return templateLines;
+
+  return isZh
+    ? [
+        "业务背景：项目、客户、行业或当前要解决的问题。",
+        "目标对象：这份输出给谁看，用于决策、汇报还是执行。",
+        "已有材料：粘贴关键事实、数据、访谈记录、文档摘要或约束条件。",
+        "期望格式：如果你需要表格、清单、PPT 大纲或行动计划，可以提前说明。",
+      ]
+    : [
+        "Business context: project, client, industry, or the problem to solve.",
+        "Audience: who will use the output and for what decision or action.",
+        "Source material: facts, data, notes, document summaries, or constraints.",
+        "Preferred format: table, checklist, slide outline, or action plan.",
+      ];
+}
+
+function buildOutputHints(skill: Skill | null, isZh: boolean) {
+  if (!skill) return [];
+  const key = getCategoryKey(skill.category);
+  const common = isZh
+    ? ["结构化结论和关键判断", "可直接复制到项目文档或会议材料的内容", "下一步行动建议"]
+    : ["Structured conclusions and key judgment", "Content ready to copy into project documents or meeting materials", "Recommended next actions"];
+  const byCategory: Record<string, string[]> = {
+    market: isZh ? ["客户/市场洞察", "机会优先级与增长抓手"] : ["Customer or market insights", "Opportunity priorities and growth levers"],
+    org: isZh ? ["组织/人才问题诊断", "机制设计或变革建议"] : ["Organization or talent diagnosis", "Mechanism design or change recommendations"],
+    digital: isZh ? ["数字化场景拆解", "系统、数据、流程或 ROI 建议"] : ["Digital use-case breakdown", "System, data, process, or ROI recommendations"],
+    finance: isZh ? ["财务影响判断", "关键假设和测算框架"] : ["Financial impact assessment", "Key assumptions and modeling frame"],
+    risk: isZh ? ["风险清单", "缓释措施和责任建议"] : ["Risk register", "Mitigation actions and ownership suggestions"],
+    proposals: isZh ? ["交付结构", "提案/复盘/启动材料草稿"] : ["Delivery structure", "Proposal, retrospective, or kickoff draft"],
+  };
+  return [...(byCategory[key] || []), ...common].slice(0, 5);
+}
+
+function buildUsageSteps(skill: Skill | null, isZh: boolean) {
+  if (!skill) return [];
+  return isZh
+    ? [
+        "先阅读建议输入，准备项目背景、目标受众和关键材料。",
+        "点击“使用 Skill”进入 Chat，系统会自动带入该能力的专业提示词。",
+        "如果从项目或客户空间进入，Chat 会同步带入对应上下文。",
+        "生成后可以继续追问、细化，也可以沉淀为项目笔记或文档。",
+      ]
+    : [
+        "Review the recommended inputs and prepare context, audience, and source material.",
+        "Click Use Skill to open Chat with this Skill's expert prompt applied.",
+        "If launched from a project or client workspace, related context is carried over.",
+        "Refine the result in chat, then save it as a project note or document when useful.",
+      ];
+}
+
+function SkillMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function DetailSection({
+  icon: Icon,
+  items,
+  title,
+}: {
+  icon: typeof Brain;
+  items: string[];
+  title: string;
+}) {
+  return (
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="rounded-2xl bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
+          <Icon className="h-5 w-5" />
+        </div>
+        <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {items.map((item) => (
+          <div key={item} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-sm leading-6 text-slate-600">
+            {item}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PromptPreview({
+  isZh,
+  systemPrompt,
+  userTemplate,
+}: {
+  isZh: boolean;
+  systemPrompt: string;
+  userTemplate: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasPrompt = Boolean(systemPrompt || userTemplate);
+
+  return (
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-2xl bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">{isZh ? "提示词与输入模板" : "Prompt and input template"}</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isZh ? "用于说明该能力背后的执行方式，默认折叠，避免页面过重。" : "Explains how the Skill runs. Collapsed by default to keep the page light."}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950"
+        >
+          {expanded ? (isZh ? "收起" : "Collapse") : isZh ? "展开查看" : "Expand"}
+        </button>
+      </div>
+
+      {expanded ? (
+        hasPrompt ? (
+          <div className="mt-5 space-y-4">
+            <PromptBlock title={isZh ? "系统提示词" : "System prompt"} content={systemPrompt || (isZh ? "暂无" : "Not configured")} />
+            <PromptBlock title={isZh ? "用户输入模板" : "User template"} content={userTemplate || (isZh ? "暂无" : "Not configured")} />
+          </div>
+        ) : (
+          <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">{isZh ? "这个 Skill 暂未配置提示词模板。" : "No prompt template is configured for this Skill yet."}</p>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+function PromptBlock({ content, title }: { content: string; title: string }) {
+  return (
+    <div>
+      <div className="mb-2 text-sm font-semibold text-slate-700">{title}</div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-950 p-4 text-xs leading-6 text-slate-100">
+        {content}
+      </pre>
+    </div>
+  );
+}
+
 function CategoryShowcaseCard({
   category,
   index,
@@ -680,7 +1079,8 @@ function FeaturedSkillCard({
   skill: SkillSummary;
   onUse: () => void;
 }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const Icon = getCategoryIcon(skill.category);
   const tone = getCategoryTone(skill.category);
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
@@ -712,8 +1112,8 @@ function FeaturedSkillCard({
         onClick={onUse}
         className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary"
       >
-        <MessageSquare className="h-4 w-4" />
-        <span>{t("skills.useSkill")}</span>
+        <BookOpen className="h-4 w-4" />
+        <span>{isZh ? "查看详情" : "View details"}</span>
         <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -727,7 +1127,8 @@ function SkillCard({
   skill: SkillSummary;
   onUse: () => void;
 }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const Icon = getCategoryIcon(skill.category);
   const tone = getCategoryTone(skill.category);
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
@@ -759,8 +1160,8 @@ function SkillCard({
         onClick={onUse}
         className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary transition hover:bg-primary/10"
       >
-        <MessageSquare className="h-4 w-4" />
-        <span>{t("skills.useSkill")}</span>
+        <BookOpen className="h-4 w-4" />
+        <span>{isZh ? "查看详情" : "View details"}</span>
       </button>
     </div>
   );
