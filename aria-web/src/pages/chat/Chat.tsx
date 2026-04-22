@@ -413,6 +413,21 @@ export function Chat() {
     }
   }
 
+  const recoverConversationMessages = async (id: number) => {
+    try {
+      const data = await api.get<Message[]>(`/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`)
+      if (currentConvIdRef.current === String(id)) {
+        setMessages(data)
+        setHasMore(data.length === PAGE_SIZE)
+        justLoadedRef.current = true
+      }
+      return data[data.length - 1]?.role === 'assistant'
+    } catch (err) {
+      console.error('Failed to recover conversation messages:', err)
+      return false
+    }
+  }
+
   // ── Load more (pagination) ────────────────────────────────────────────────
   const loadMoreMessages = useCallback(async () => {
     if (!conversationId || loadingMore || !hasMore) return
@@ -623,6 +638,7 @@ export function Chat() {
     // Will be set when conversation is created/confirmed
     let currentConvIdForCleanup: number | null = null
     let completedNormally = false
+    let streamErrorMessage: string | null = null
 
     try {
       let currentConvId = conversation?.id
@@ -790,7 +806,8 @@ export function Chat() {
         } else if (data.type === 'error') {
           setToolStatus(null)
           if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
-          setErrorMsg(data.message || data.error || 'An error occurred. Please try again.')
+          streamErrorMessage = data.message || data.error || 'AI 生成过程中断，请稍后重试。'
+          setErrorMsg(streamErrorMessage)
           isStreamingRef.current = false
           setIsThinking(false)
         }
@@ -852,7 +869,28 @@ export function Chat() {
         // Keep sessionStorage in case user wants to resume
       } else {
         console.error('Send failed:', err)
-        setErrorMsg('Failed to send message. Please check your connection.')
+        const recovered = currentConvIdForCleanup
+          ? await recoverConversationMessages(currentConvIdForCleanup)
+          : false
+        const partialContent = streamingContentRef.current.trim()
+        if (!recovered && partialContent && currentConvIdForCleanup && currentConvIdRef.current === String(currentConvIdForCleanup)) {
+          const partialMsg: Message = {
+            id: Date.now() + 1,
+            conversation_id: currentConvIdForCleanup,
+            role: 'assistant',
+            content: `${partialContent}\n\n（连接中断，以上为已收到的部分内容。）`,
+            metadata_json: '{}',
+            created_at: new Date().toISOString(),
+          }
+          setMessages(prev => [...prev, partialMsg])
+        }
+        const rawMessage = typeof err?.message === 'string' ? err.message : ''
+        const isGenericNetworkError = !rawMessage || /failed to fetch|network|body stream|load failed/i.test(rawMessage)
+        const friendlyMessage = streamErrorMessage
+          || (isGenericNetworkError
+            ? '连接中断了：Skill 生成内容较长或工具执行耗时较久时，流式连接可能提前断开。我们已尝试从后台同步已保存的回复。'
+            : rawMessage)
+        setErrorMsg(recovered ? `${friendlyMessage} 如果页面内容未更新，请刷新或重新打开该对话确认结果。` : friendlyMessage)
         // Clear pending state on actual errors
         sessionStorage.removeItem('pendingStreamingConvId')
         streamingConvIdRef.current = null
