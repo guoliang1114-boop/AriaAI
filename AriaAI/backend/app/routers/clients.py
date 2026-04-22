@@ -20,7 +20,7 @@ from app.config import (
     MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
 )
 from app.database import engine, get_session
-from app.models.db import ClientMemorySummary, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
+from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
 from app.services.cache import clients_cache
 from app.services.claude import complete
 from app.services import scheduler as scheduler_service
@@ -1069,6 +1069,81 @@ def get_client_memory_status(client_id: int, session: Session = Depends(get_sess
         memory_updated_at=client.client_memory_updated_at.isoformat() if client.client_memory_updated_at else None,
         memory_rebuild_status=client.client_memory_rebuild_status,
         memory_rebuild_failed_at=client.client_memory_rebuild_failed_at.isoformat() if client.client_memory_rebuild_failed_at else None,
+    )
+
+
+@router.get("/{client_id}/memory/snapshots")
+def list_client_memory_snapshots(client_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    snapshots = session.exec(
+        select(ClientMemorySnapshot)
+        .where(ClientMemorySnapshot.client_id == client_id)
+        .order_by(ClientMemorySnapshot.created_at.desc(), ClientMemorySnapshot.id.desc())
+        .limit(30)
+    ).all()
+    return [
+        {
+            "id": snapshot.id,
+            "client_id": snapshot.client_id,
+            "memory_version": snapshot.memory_version,
+            "trigger": snapshot.trigger,
+            "created_at": snapshot.created_at.isoformat(),
+        }
+        for snapshot in snapshots
+    ]
+
+
+@router.get("/{client_id}/memory/snapshots/{snapshot_id}")
+def get_client_memory_snapshot(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    snapshot = session.get(ClientMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Client memory snapshot not found")
+    return {
+        "id": snapshot.id,
+        "client_id": snapshot.client_id,
+        "memory_version": snapshot.memory_version,
+        "trigger": snapshot.trigger,
+        "memory": json.loads(snapshot.memory_json or "{}"),
+        "created_at": snapshot.created_at.isoformat(),
+    }
+
+
+@router.post("/{client_id}/memory/snapshots/{snapshot_id}/rollback", response_model=ClientMemoryResponse)
+def rollback_client_memory_snapshot(client_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    snapshot = session.get(ClientMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Client memory snapshot not found")
+    try:
+        memory = json.loads(snapshot.memory_json or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Client memory snapshot is corrupted")
+
+    payload = save_client_memory(
+        session,
+        client_id,
+        memory,
+        trigger=f"rollback:{snapshot.memory_version}",
+    )
+    clients_cache.delete(_CLIENTS_KEY)
+    refreshed = session.get(ClientRecord, client_id)
+    return ClientMemoryResponse(
+        client_id=client_id,
+        memory=payload,
+        memory_version=refreshed.client_memory_version if refreshed else 0,
+        memory_stale=refreshed.client_memory_stale if refreshed else True,
+        memory_updated_at=refreshed.client_memory_updated_at.isoformat() if refreshed and refreshed.client_memory_updated_at else None,
+        memory_rebuild_status=refreshed.client_memory_rebuild_status if refreshed else "idle",
+        memory_rebuild_failed_at=refreshed.client_memory_rebuild_failed_at.isoformat()
+        if refreshed and refreshed.client_memory_rebuild_failed_at
+        else None,
     )
 
 

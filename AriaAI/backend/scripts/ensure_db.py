@@ -200,6 +200,35 @@ def _ensure_projectmemorysnapshot(conn, inspector, report_only: bool) -> None:
     conn.execute(text("CREATE INDEX ix_projectmemorysnapshot_created_at ON projectmemorysnapshot (created_at)"))
 
 
+def _ensure_clientmemorysnapshot(conn, inspector, report_only: bool) -> None:
+    if "clientmemorysnapshot" in inspector.get_table_names():
+        print("clientmemorysnapshot already exists")
+        return
+
+    print("Create table clientmemorysnapshot")
+    if report_only:
+        return
+    conn.execute(
+        text(
+            """
+            CREATE TABLE clientmemorysnapshot (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                memory_version INTEGER NOT NULL,
+                trigger VARCHAR NOT NULL DEFAULT '',
+                memory_json TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_clientmemorysnapshot_client FOREIGN KEY (client_id) REFERENCES clientrecord(id)
+            )
+            """
+        )
+    )
+    conn.execute(text("CREATE INDEX ix_clientmemorysnapshot_client_id ON clientmemorysnapshot (client_id)"))
+    conn.execute(text("CREATE INDEX ix_clientmemorysnapshot_memory_version ON clientmemorysnapshot (memory_version)"))
+    conn.execute(text("CREATE INDEX ix_clientmemorysnapshot_trigger ON clientmemorysnapshot (trigger)"))
+    conn.execute(text("CREATE INDEX ix_clientmemorysnapshot_created_at ON clientmemorysnapshot (created_at)"))
+
+
 def _ensure_alembic_version(conn, inspector, report_only: bool) -> None:
     tables = inspector.get_table_names()
     governance = get_database_migration_governance(tables=tables)
@@ -316,6 +345,7 @@ def main() -> None:
         _ensure_knowledge_document_project(conn, inspector, args.report_only)
         _ensure_clientstakeholder(conn, inspector, args.report_only)
         _ensure_projectmemorysnapshot(conn, inspector, args.report_only)
+        _ensure_clientmemorysnapshot(conn, inspector, args.report_only)
 
         inspector = inspect(conn)
         _ensure_alembic_version(conn, inspector, args.report_only)

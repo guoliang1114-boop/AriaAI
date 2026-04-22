@@ -1409,6 +1409,24 @@ async def refine_project_meeting_briefing(
         }
 
 
+@router.post("/{project_id}/stakeholder-candidates")
+def list_project_stakeholder_candidates(
+    project_id: int,
+    body: ProjectStakeholderCaptureRequest,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Linked client not found")
+    return {
+        "project_id": project_id,
+        "client_id": client.id,
+        "client_name": client.name,
+        "candidates": _extract_stakeholder_candidates_from_text(body.text),
+    }
+
+
 @router.post("/{project_id}/stakeholder-candidates/apply")
 def apply_project_stakeholder_candidates(
     project_id: int,

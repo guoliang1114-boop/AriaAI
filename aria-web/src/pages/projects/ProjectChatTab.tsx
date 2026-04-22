@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Loader2, Users, X } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type {
@@ -32,6 +33,14 @@ import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 import { useProjectChatPanel } from "./useProjectChatPanel";
+
+type StakeholderCandidate = {
+  name: string;
+  role: string;
+  influence_type?: string;
+  relationship_status?: string;
+  note?: string;
+};
 
 export function ProjectChatTab({
   project,
@@ -74,6 +83,13 @@ export function ProjectChatTab({
     skill: Skill;
     variables: { name: string; value: string }[];
   } | null>(null);
+  const [stakeholderCapture, setStakeholderCapture] = useState<{
+    candidates: StakeholderCandidate[];
+    clientName: string;
+    message: Message;
+  } | null>(null);
+  const [isCapturingStakeholders, setIsCapturingStakeholders] = useState(false);
+  const [isApplyingStakeholders, setIsApplyingStakeholders] = useState(false);
   const autoRefreshAttemptedRef = useRef("");
   const processedSkillRef = useRef<string | null>(null);
   const processedLaunchRef = useRef<string | null>(null);
@@ -304,30 +320,47 @@ export function ProjectChatTab({
 
   const handleApplyStakeholders = async (message: Message) => {
     try {
-      const result = await api.post<{ created: Array<{ name: string }>; skipped: Array<{ name: string }> }>(
-        `/projects/${project.id}/stakeholder-candidates/apply`,
+      setIsCapturingStakeholders(true);
+      const result = await api.post<{ client_name: string; candidates: StakeholderCandidate[] }>(
+        `/projects/${project.id}/stakeholder-candidates`,
         { text: message.content },
       );
-      if (result.created.length > 0) {
-        toast.success(
-          isZh
-            ? `已加入 ${result.created.length} 个客户干系人`
-            : `Added ${result.created.length} client stakeholder(s)`,
-        );
+      if (result.candidates.length > 0) {
+        setStakeholderCapture({
+          candidates: result.candidates,
+          clientName: result.client_name,
+          message,
+        });
         return;
       }
-      toast.info(
-        result.skipped.length > 0
-          ? isZh
-            ? "候选干系人已存在，无需重复加入"
-            : "Stakeholder candidates already exist"
-          : isZh
-            ? "这条消息里暂未识别到明确的客户干系人"
-            : "No clear client stakeholders detected in this message",
+      toast.info(isZh ? "这条消息里暂未识别到明确的客户干系人" : "No clear client stakeholders detected in this message");
+    } catch (error) {
+      console.error("Failed to detect stakeholder candidates:", error);
+      toast.error(isZh ? "识别客户干系人失败" : "Failed to detect client stakeholders");
+    } finally {
+      setIsCapturingStakeholders(false);
+    }
+  };
+
+  const confirmApplyStakeholders = async () => {
+    if (!stakeholderCapture) return;
+    try {
+      setIsApplyingStakeholders(true);
+      const result = await api.post<{ created: Array<{ name: string }>; skipped: Array<{ name: string }> }>(
+        `/projects/${project.id}/stakeholder-candidates/apply`,
+        { text: stakeholderCapture.message.content },
       );
+      if (result.created.length > 0) {
+        toast.success(isZh ? `已加入 ${result.created.length} 个客户干系人` : `Added ${result.created.length} client stakeholder(s)`);
+      } else {
+        toast.info(isZh ? "候选干系人已存在，无需重复加入" : "Stakeholder candidates already exist");
+      }
+      setStakeholderCapture(null);
     } catch (error) {
       console.error("Failed to apply stakeholder candidates:", error);
       toast.error(isZh ? "加入客户干系人失败" : "Failed to add client stakeholders");
+    } finally {
+      setIsApplyingStakeholders(false);
     }
   };
 
@@ -581,6 +614,82 @@ export function ProjectChatTab({
           void deleteConversation(conversationPendingDelete.id);
         }}
       />
+
+      {stakeholderCapture ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-lg font-semibold text-gray-950">
+                  <Users className="h-5 w-5 text-emerald-600" />
+                  {isZh ? "确认加入客户干系人" : "Confirm client stakeholders"}
+                </div>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  {isZh
+                    ? `将下面候选加入「${stakeholderCapture.clientName}」的结构化客户干系人。确认后会标记客户记忆待刷新。`
+                    : `Add these candidates into ${stakeholderCapture.clientName}'s structured stakeholders. Client memory will be marked stale.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStakeholderCapture(null)}
+                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label={isZh ? "关闭" : "Close"}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {stakeholderCapture.candidates.map((candidate, index) => (
+                <div key={`${candidate.name}-${candidate.role}-${index}`} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-gray-950">{candidate.name}</div>
+                      <div className="mt-1 text-xs text-emerald-700">
+                        {[candidate.role, candidate.influence_type, candidate.relationship_status].filter(Boolean).join(" / ") || "-"}
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-1 text-xs text-emerald-700">
+                      {isZh ? "候选" : "Candidate"}
+                    </span>
+                  </div>
+                  {candidate.note ? <p className="mt-3 line-clamp-3 text-xs leading-5 text-gray-600">{candidate.note}</p> : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setStakeholderCapture(null)}
+                disabled={isApplyingStakeholders}
+                className="inline-flex items-center justify-center rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {isZh ? "先不加入" : "Not now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmApplyStakeholders()}
+                disabled={isApplyingStakeholders}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {isApplyingStakeholders ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                {isZh ? "确认加入" : "Confirm add"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isCapturingStakeholders ? (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm text-emerald-700 shadow-lg">
+          <span className="inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {isZh ? "正在识别客户干系人..." : "Detecting client stakeholders..."}
+          </span>
+        </div>
+      ) : null}
 
       {showSkillTemplateModal && skillTemplateData ? (
         <ProjectChatSkillTemplateModal

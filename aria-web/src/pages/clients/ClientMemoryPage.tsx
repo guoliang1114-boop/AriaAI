@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Brain,
   Building2,
+  Clock3,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -15,6 +16,7 @@ import { PageTitle } from '../../components/PageTitle'
 import type {
   ClientMemory,
   ClientMemoryResponse,
+  ClientMemorySnapshot,
   ClientMemoryStatusResponse,
   ClientMemorySummaryType,
 } from '../../types/api'
@@ -80,6 +82,8 @@ export function ClientMemoryPage() {
   const [projects, setProjects] = useState<RelatedProject[]>([])
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [memory, setMemory] = useState<ClientMemory | null>(null)
+  const [snapshots, setSnapshots] = useState<ClientMemorySnapshot[]>([])
+  const [rollingBackSnapshotId, setRollingBackSnapshotId] = useState<number | null>(null)
 
   useEffect(() => {
     if (id) {
@@ -109,6 +113,7 @@ export function ClientMemoryPage() {
         api.get<ClientMemoryStatusResponse>(`/clients/${id}/memory/status`),
         api.get<ClientMemoryResponse>(`/clients/${id}/memory`),
         api.get<RelatedProject[]>(`/clients/${id}/projects`),
+        refreshSnapshots(),
       ])
       setClient(clientData)
       setMemoryStatus(statusData)
@@ -118,6 +123,19 @@ export function ClientMemoryPage() {
       console.error('Failed to load client memory page:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const refreshSnapshots = async () => {
+    if (!id) return []
+    try {
+      const data = await api.get<ClientMemorySnapshot[]>(`/clients/${id}/memory/snapshots`)
+      setSnapshots(data)
+      return data
+    } catch (error) {
+      console.error('Failed to load client memory snapshots:', error)
+      setSnapshots([])
+      return []
     }
   }
 
@@ -136,10 +154,38 @@ export function ClientMemoryPage() {
         memory_rebuild_status: response.memory_rebuild_status,
         memory_rebuild_failed_at: response.memory_rebuild_failed_at,
       })
+      await refreshSnapshots()
     } catch (error) {
       console.error('Failed to rebuild client memory:', error)
     } finally {
       setRebuilding(false)
+    }
+  }
+
+  const rollbackSnapshot = async (snapshot: ClientMemorySnapshot) => {
+    if (!id) return
+    try {
+      setRollingBackSnapshotId(snapshot.id)
+      const response = await api.post<ClientMemoryResponse>(
+        `/clients/${id}/memory/snapshots/${snapshot.id}/rollback`,
+        {},
+        { timeout: 60000 },
+      )
+      setMemory(response.memory)
+      setMemoryStatus({
+        client_id: response.client_id,
+        has_memory: true,
+        memory_version: response.memory_version,
+        memory_stale: response.memory_stale,
+        memory_updated_at: response.memory_updated_at,
+        memory_rebuild_status: response.memory_rebuild_status,
+        memory_rebuild_failed_at: response.memory_rebuild_failed_at,
+      })
+      await refreshSnapshots()
+    } catch (error) {
+      console.error('Failed to rollback client memory snapshot:', error)
+    } finally {
+      setRollingBackSnapshotId(null)
     }
   }
 
@@ -380,6 +426,72 @@ export function ClientMemoryPage() {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-emerald-700" />
+                  <h2 className="text-lg font-semibold text-on-surface">{isZh ? '客户记忆历史版本' : 'Client memory history'}</h2>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-on-surface-muted">
+                  {isZh
+                    ? '客户记忆每次重建、项目经验沉淀或回滚都会保留快照，方便审计长期客户资产的变化。'
+                    : 'Every rebuild, project promotion, or rollback keeps a snapshot so long-term client knowledge stays auditable.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void refreshSnapshots()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {isZh ? '刷新历史' : 'Refresh history'}
+              </button>
+            </div>
+
+            {snapshots.length ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {snapshots.slice(0, 6).map((snapshot) => {
+                  const isCurrent = snapshot.memory_version === (memory?.memory_version ?? memoryStatus?.memory_version)
+                  const isRollingBack = rollingBackSnapshotId === snapshot.id
+                  return (
+                    <div key={snapshot.id} className="rounded-2xl border border-emerald-100 bg-white/85 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-on-surface">
+                            {isZh ? `版本 ${snapshot.memory_version}` : `Version ${snapshot.memory_version}`}
+                          </div>
+                          <div className="mt-1 text-xs text-on-surface-muted">{formatDateTime(snapshot.created_at, isZh)}</div>
+                        </div>
+                        {isCurrent ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                            {isZh ? '当前' : 'Current'}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        {isZh ? '触发' : 'Trigger'}: {snapshot.trigger || '-'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void rollbackSnapshot(snapshot)}
+                        disabled={isCurrent || isRollingBack}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
+                      >
+                        {isRollingBack ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                        {isZh ? '恢复到这一版' : 'Restore this version'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-emerald-200 bg-white/70 p-4 text-sm text-on-surface-muted">
+                {isZh ? '暂无客户记忆历史。下一次更新客户记忆后会自动生成快照。' : 'No client memory history yet. The next update will create a snapshot automatically.'}
+              </div>
+            )}
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">

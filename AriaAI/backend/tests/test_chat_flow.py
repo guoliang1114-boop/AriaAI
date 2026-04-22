@@ -19,6 +19,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import (
     ClientMemorySummary,
+    ClientMemorySnapshot,
     ClientRecord,
     ClientStakeholder,
     Conversation,
@@ -2159,6 +2160,13 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
             client_id = client.id
 
+        preview = self.client.post(
+            f"/projects/{project_id}/stakeholder-candidates",
+            json={"text": "李总监提醒采购负责人还在关注预算审批，CFO 需要看到回款计划。"},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertGreaterEqual(len(preview.json()["candidates"]), 2)
+
         resp = self.client.post(
             f"/projects/{project_id}/stakeholder-candidates/apply",
             json={"text": "李总监提醒采购负责人还在关注预算审批，CFO 需要看到回款计划。"},
@@ -3421,6 +3429,48 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         self.client.close()
         self.engine.dispose()
         Path(self.db_path).unlink(missing_ok=True)
+
+    def test_client_memory_snapshots_are_listed_and_can_rollback(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Snapshot Client", industry="Tech")
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            client_id = client.id
+
+            client_contexts_module.save_client_memory(
+                session,
+                client_id,
+                {"client_profile": "Version one", "decision_patterns": ["Pattern A"]},
+                trigger="first_build",
+            )
+            client_contexts_module.save_client_memory(
+                session,
+                client_id,
+                {"client_profile": "Version two", "decision_patterns": ["Pattern B"]},
+                trigger="second_build",
+            )
+
+        snapshots_resp = self.client.get(f"/clients/{client_id}/memory/snapshots")
+        self.assertEqual(snapshots_resp.status_code, 200)
+        snapshots = snapshots_resp.json()
+        self.assertEqual(len(snapshots), 2)
+        older_snapshot = next(item for item in snapshots if item["memory_version"] == 1)
+
+        detail_resp = self.client.get(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(detail_resp.json()["memory"]["client_profile"], "Version one")
+
+        rollback_resp = self.client.post(f"/clients/{client_id}/memory/snapshots/{older_snapshot['id']}/rollback")
+        self.assertEqual(rollback_resp.status_code, 200)
+        self.assertEqual(rollback_resp.json()["memory"]["client_profile"], "Version one")
+        self.assertEqual(rollback_resp.json()["memory_version"], 3)
+
+        with Session(self.engine) as session:
+            snapshots = session.exec(
+                select(ClientMemorySnapshot).where(ClientMemorySnapshot.client_id == client_id)
+            ).all()
+        self.assertEqual(len(snapshots), 3)
 
     def test_client_memory_rebuild_flow(self):
         with Session(self.engine) as session:

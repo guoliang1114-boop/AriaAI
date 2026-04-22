@@ -7,7 +7,7 @@ import json
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.models.db import ClientMemorySummary, ClientRecord, Project
+from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, Project
 from app.services.project_contexts import _resolve_output_language, normalize_summary_language
 from app.services.stakeholder_contexts import (
     format_client_stakeholders_for_prompt,
@@ -261,6 +261,15 @@ def save_client_memory(
     client.client_memory_rebuild_status = "idle"
     client.client_memory_rebuild_failed_at = None
     session.add(client)
+    session.add(
+        ClientMemorySnapshot(
+            client_id=client_id,
+            memory_version=client.client_memory_version,
+            trigger=trigger,
+            memory_json=client.client_memory_json,
+            created_at=client.client_memory_updated_at,
+        )
+    )
     session.commit()
     session.refresh(client)
     return get_client_memory_payload(client)

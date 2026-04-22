@@ -252,6 +252,14 @@ export interface ClientMemoryStatusResponse {
   memory_rebuild_failed_at?: string | null
 }
 
+export interface ClientMemorySnapshot {
+  id: number
+  client_id: number
+  memory_version: number
+  trigger: string
+  created_at: string
+}
+
 export interface ClientStakeholder {
   id: number
   client_id: number
