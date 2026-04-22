@@ -431,7 +431,7 @@ export function Skills() {
                   <span>{isZh ? "能力分类优先" : "Capability-first browsing"}</span>
                 </div>
                 <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-                  {isZh ? "先选方向，再进入具体 Skill" : "Pick the domain, then choose the Skill"}
+                  {isZh ? "择路而后行，执术以成事" : "Pick the domain, then choose the Skill"}
                 </h1>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
                   {isZh
