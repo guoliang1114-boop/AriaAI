@@ -356,9 +356,11 @@ async def stream_response(
             if not choices:
                 continue
 
-            choice = choices[0]
+            choice = choices[0] or {}
             finish_reason = choice.get("finish_reason") or finish_reason
-            delta = choice.get("delta", {})
+            delta = choice.get("delta") or {}
+            if not isinstance(delta, dict):
+                continue
 
             # Text content
             text = delta.get("content")
@@ -374,9 +376,10 @@ async def stream_response(
             tool_call_deltas = delta.get("tool_calls", [])
             for tc_delta in tool_call_deltas:
                 idx = tc_delta.get("index", 0)
+                function_delta = tc_delta.get("function") or {}
                 if idx not in tool_call_buffers:
                     in_tool_call = True
-                    name = tc_delta.get("function", {}).get("name", "")
+                    name = function_delta.get("name", "")
                     tool_call_buffers[idx] = {
                         "id": tc_delta.get("id", f"call_{idx}"),
                         "name": name,
@@ -384,9 +387,15 @@ async def stream_response(
                     }
                     if name:
                         yield f"\n\n[TOOL_START:{name}]\n\n"
-                else:
-                    # accumulate arguments fragment
-                    frag = tc_delta.get("function", {}).get("arguments", "")
+
+                # Kimi/OpenAI-compatible providers may include argument fragments
+                # in the same delta that first announces the tool call.
+                name = function_delta.get("name", "")
+                if name and not tool_call_buffers[idx].get("name"):
+                    tool_call_buffers[idx]["name"] = name
+                    yield f"\n\n[TOOL_START:{name}]\n\n"
+                frag = function_delta.get("arguments", "")
+                if frag:
                     tool_call_buffers[idx]["arguments"] += frag
 
         # Emit complete tool_use blocks after stream ends

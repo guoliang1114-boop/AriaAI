@@ -690,6 +690,8 @@ export function Chat() {
       let pendingContent = ''
       updateTimerRef.current = null
       let streamDone = false
+      let streamBuffer = ''
+      const decoder = new TextDecoder()
 
       const flushUpdate = () => {
         // Guard: only update UI if the user is still viewing THIS conversation
@@ -701,108 +703,127 @@ export function Chat() {
         }
       }
 
+      const handleStreamEvent = async (data: any) => {
+        if ((data.type === 'text' || data.type === 'chunk') && data.content) {
+          assistantContent += data.content
+          streamingContentRef.current = assistantContent
+          if (!updateTimerRef.current) {
+            updateTimerRef.current = setTimeout(() => { flushUpdate(); updateTimerRef.current = null }, 80)
+          }
+        } else if (data.type === 'status') {
+          if (data.message) {
+            setToolStatus(data.message)
+            setIsThinking(true)
+          }
+        } else if (data.type === 'tool_executing') {
+          setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
+        } else if (data.type === 'tool_result') {
+          setToolStatus(null)
+        } else if (data.type === 'done') {
+          streamDone = true
+          completedNormally = true
+          if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
+          flushUpdate()
+          // Message is now persisted in DB (backend saves before sending 'done').
+          // Release the SSE connection — no need to keep it open any longer.
+          // Safe to abort here even if the user navigated away, because the
+          // message is already saved and loadConversation() will fetch it on return.
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+            abortControllerRef.current = null
+          }
+          // Clear pending streaming state as it's complete
+          sessionStorage.removeItem('pendingStreamingConvId')
+          streamingConvIdRef.current = null
+          await new Promise(r => setTimeout(r, 50))
+          const assistantMsg: Message = {
+            id: Date.now() + 1,
+            conversation_id: currentConvId!,
+            role: 'assistant',
+            content: assistantContent,
+            metadata_json: JSON.stringify({ references: data.references || [] }),
+            created_at: new Date().toISOString(),
+          }
+          // Only append to message list if the user is still viewing this conversation.
+          // If they navigated away, the backend has persisted the message;
+          // loadConversation() will fetch it when they return.
+          if (currentConvIdRef.current === String(currentConvId)) {
+            setMessages(prev => [...prev, assistantMsg])
+          }
+          setStreamingContent('')
+          streamingContentRef.current = ''
+          isStreamingRef.current = false
+          setIsThinking(false)
+          setToolStatus(null)
+
+          // Refresh conversation list to pick up the auto-generated title.
+          // Delay to allow backend background title generation to complete first.
+          if (isNewConvRef.current) {
+            isNewConvRef.current = false
+            const targetConvId = currentConvId
+            const targetTitle = firstMessageRef.current
+            firstMessageRef.current = ''
+
+            setTimeout(async () => {
+              try {
+                // First, try to rename the conversation with the first message
+                if (targetConvId && targetTitle) {
+                  const cleanTitle = targetTitle
+                    .replace(/[#*`\[\]]/g, '')
+                    .trim()
+                    .slice(0, 15) + (targetTitle.replace(/[#*`\[\]]/g, '').trim().length > 15 ? '...' : '')
+
+                  await api.patch(`/chat/conversations/${targetConvId}`, { title: cleanTitle })
+
+                  // Update current conversation
+                  setConversation(prev => prev ? { ...prev, title: cleanTitle } : prev)
+                }
+
+                // Then refresh the full list
+                const data = await api.get<Conversation[]>('/chat/conversations?standalone=true')
+                setConversations(data)
+              } catch (err) {
+                console.error('Failed to rename conversation:', err)
+              }
+            }, 500)
+          }
+        } else if (data.type === 'error') {
+          setToolStatus(null)
+          if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
+          setErrorMsg(data.message || data.error || 'An error occurred. Please try again.')
+          isStreamingRef.current = false
+          setIsThinking(false)
+        }
+      }
+
+      const processStreamBuffer = async (force = false) => {
+        const events = streamBuffer.split('\n\n')
+        streamBuffer = force ? '' : (events.pop() || '')
+        const readyEvents = force ? events.filter(Boolean) : events
+
+        for (const event of readyEvents) {
+          const line = event
+            .split('\n')
+            .map((item) => item.trim())
+            .find((item) => item.startsWith('data: '))
+          if (!line) continue
+          try {
+            await handleStreamEvent(JSON.parse(line.replace(/^data:\s*/, '')))
+          } catch (error) {
+            console.error('Failed to parse stream event:', error)
+          }
+        }
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
-        const lines = new TextDecoder().decode(value).split('\n')
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const data = JSON.parse(line.slice(6))
-            if ((data.type === 'text' || data.type === 'chunk') && data.content) {
-              assistantContent += data.content
-              streamingContentRef.current = assistantContent
-              if (!updateTimerRef.current) {
-                updateTimerRef.current = setTimeout(() => { flushUpdate(); updateTimerRef.current = null }, 80)
-              }
-            } else if (data.type === 'status') {
-              if (data.message) {
-                setToolStatus(data.message)
-                setIsThinking(true)
-              }
-            } else if (data.type === 'tool_executing') {
-              setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
-            } else if (data.type === 'tool_result') {
-              setToolStatus(null)
-            } else if (data.type === 'done') {
-              streamDone = true
-              completedNormally = true
-              if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
-              flushUpdate()
-              // Message is now persisted in DB (backend saves before sending 'done').
-              // Release the SSE connection — no need to keep it open any longer.
-              // Safe to abort here even if the user navigated away, because the
-              // message is already saved and loadConversation() will fetch it on return.
-              if (abortControllerRef.current) {
-                abortControllerRef.current.abort()
-                abortControllerRef.current = null
-              }
-              // Clear pending streaming state as it's complete
-              sessionStorage.removeItem('pendingStreamingConvId')
-              streamingConvIdRef.current = null
-              await new Promise(r => setTimeout(r, 50))
-              const assistantMsg: Message = {
-                id: Date.now() + 1,
-                conversation_id: currentConvId!,
-                role: 'assistant',
-                content: assistantContent,
-                metadata_json: JSON.stringify({ references: data.references || [] }),
-                created_at: new Date().toISOString(),
-              }
-              // Only append to message list if the user is still viewing this conversation.
-              // If they navigated away, the backend has persisted the message;
-              // loadConversation() will fetch it when they return.
-              if (currentConvIdRef.current === String(currentConvId)) {
-                setMessages(prev => [...prev, assistantMsg])
-              }
-              setStreamingContent('')
-              streamingContentRef.current = ''
-              isStreamingRef.current = false
-              setIsThinking(false)
-              setToolStatus(null)
-
-              // Refresh conversation list to pick up the auto-generated title.
-              // Delay to allow backend background title generation to complete first.
-              if (isNewConvRef.current) {
-                isNewConvRef.current = false
-                const targetConvId = currentConvId
-                const targetTitle = firstMessageRef.current
-                firstMessageRef.current = ''
-                
-                setTimeout(async () => {
-                  try {
-                    // First, try to rename the conversation with the first message
-                    if (targetConvId && targetTitle) {
-                      const cleanTitle = targetTitle
-                        .replace(/[#*`\[\]]/g, '')
-                        .trim()
-                        .slice(0, 15) + (targetTitle.replace(/[#*`\[\]]/g, '').trim().length > 15 ? '...' : '')
-                      
-                      await api.patch(`/chat/conversations/${targetConvId}`, { title: cleanTitle })
-                      
-                      // Update current conversation
-                      setConversation(prev => prev ? { ...prev, title: cleanTitle } : prev)
-                    }
-                    
-                    // Then refresh the full list
-                    const data = await api.get<Conversation[]>('/chat/conversations?standalone=true')
-                    setConversations(data)
-                  } catch (err) {
-                    console.error('Failed to rename conversation:', err)
-                  }
-                }, 500)
-              }
-            } else if (data.type === 'error') {
-              setToolStatus(null)
-              if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
-              setErrorMsg(data.message || data.error || 'An error occurred. Please try again.')
-              isStreamingRef.current = false
-              setIsThinking(false)
-            }
-          } catch (_) { /* partial chunk */ }
-        }
+        streamBuffer += decoder.decode(value, { stream: true })
+        await processStreamBuffer()
       }
+
+      streamBuffer += decoder.decode()
+      await processStreamBuffer(true)
 
       // Stream ended but no 'done' event (e.g. aborted)
       if (!streamDone && assistantContent) {
