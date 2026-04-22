@@ -153,7 +153,7 @@ function completeProgressSteps(steps: ChatProgressStep[]): ChatProgressStep[] {
 }
 
 function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
-  if (Array.isArray(meta?.skill_progress)) return meta.skill_progress
+  if (Array.isArray(meta?.skill_progress) && meta.skill_progress.length > 0) return meta.skill_progress
   const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
   const artifacts = Array.isArray(meta?.artifacts) ? meta.artifacts : []
   const hasSkillSignals = toolCalls.length > 0 || artifacts.length > 0 || meta?.skill_id
@@ -1112,12 +1112,18 @@ export function Chat() {
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
           await new Promise(r => setTimeout(r, 50))
-          const hasSkillProgress = skillRunActiveRef.current || Array.isArray(data.skill_progress)
-          const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
           const finalArtifacts = Array.isArray(data.artifacts) && data.artifacts.length
             ? data.artifacts
             : collectedArtifacts
           const finalToolCalls = data.tool_calls || []
+          const hasSkillProgress = (
+            skillRunActiveRef.current
+            || progressStepsRef.current.length > 0
+            || finalArtifacts.length > 0
+            || finalToolCalls.length > 0
+            || (Array.isArray(data.skill_progress) && data.skill_progress.length > 0)
+          )
+          const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
           const assistantMsg: Message = {
             id: Date.now() + 1,
             conversation_id: currentConvId!,
@@ -1127,6 +1133,7 @@ export function Chat() {
               references: data.references || [],
               tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
+              skill_id: skillForThisMessage || undefined,
               skill_progress: hasSkillProgress ? (data.skill_progress || completedProgressSteps) : undefined,
             }),
             created_at: new Date().toISOString(),
