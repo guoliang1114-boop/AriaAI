@@ -241,7 +241,14 @@ def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
     title = "数字化战略方案"
     for line in lines[:10]:
         cleaned = line.strip("# ").strip()
-        if cleaned and len(cleaned) <= 60:
+        if (
+            cleaned
+            and len(cleaned) <= 60
+            and not cleaned.startswith(">")
+            and not cleaned[:1].isdigit()
+            and not cleaned.startswith(("-", "*", "•"))
+            and ("方案" in cleaned or "战略" in cleaned or "转型" in cleaned)
+        ):
             title = cleaned
             break
 
@@ -705,6 +712,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
+        response_metadata = {}
         if full_text:
             metadata = {}
             if runtime.rag_sources:
@@ -717,6 +725,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 metadata["project_id"] = req.project_id
             if req.skill_id:
                 metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
+            response_metadata = metadata
 
             need_title = persist_assistant_message(
                 bind,
@@ -733,7 +742,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
         return
 
-    yield _sse_event({"type": "done"})
+    yield _sse_event({"type": "done", **response_metadata})
 
     if need_title and full_text:
         schedule_title_generation(

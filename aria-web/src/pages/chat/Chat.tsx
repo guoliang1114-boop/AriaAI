@@ -1056,7 +1056,9 @@ export function Chat() {
             content: assistantContent,
             metadata_json: JSON.stringify({
               references: data.references || [],
-              skill_progress: completedProgressSteps,
+              tool_calls: data.tool_calls || [],
+              artifacts: data.artifacts || [],
+              skill_progress: data.skill_progress || completedProgressSteps,
             }),
             created_at: new Date().toISOString(),
           }
