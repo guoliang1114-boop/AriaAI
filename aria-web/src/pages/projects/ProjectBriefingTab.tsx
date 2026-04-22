@@ -213,7 +213,14 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   };
   const openCommunicationSource = (source: ProjectMeetingBriefing["signals"]["communication_sources"][number]) => {
     if (source.target === "chat") {
-      navigate(`/projects/${projectId}/chat`);
+      const params = new URLSearchParams();
+      if (source.conversation_id) {
+        params.set("conversation", String(source.conversation_id));
+      }
+      if (source.message_id) {
+        params.set("message", String(source.message_id));
+      }
+      navigate(`/projects/${projectId}/chat${params.toString() ? `?${params.toString()}` : ""}`);
       return;
     }
     navigate(`/projects/${projectId}/notes`);

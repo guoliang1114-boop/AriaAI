@@ -27,6 +27,7 @@ from app.models.db import (
     Project,
     ProjectFile,
     ProjectFolder,
+    ProjectMemorySnapshot,
     ProjectMemorySummary,
     ProjectMember,
     ProjectPayment,
@@ -2103,6 +2104,82 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             ).first()
         self.assertIsNotNone(cached)
 
+    def test_project_memory_snapshots_are_listed_and_can_rollback(self):
+        with Session(self.engine) as session:
+            project = Project(name="Snapshot Project", client="Client", memory_version=0)
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {"project_brief": "Version one", "key_risks": ["Risk A"]},
+                trigger="first_build",
+            )
+            project_contexts_module.save_project_memory(
+                session,
+                project_id,
+                {"project_brief": "Version two", "key_risks": ["Risk B"]},
+                trigger="second_build",
+            )
+
+        snapshots_resp = self.client.get(f"/projects/{project_id}/memory/snapshots")
+        self.assertEqual(snapshots_resp.status_code, 200)
+        snapshots = snapshots_resp.json()
+        self.assertEqual(len(snapshots), 2)
+        older_snapshot = next(item for item in snapshots if item["memory_version"] == 1)
+
+        detail_resp = self.client.get(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(detail_resp.json()["memory"]["project_brief"], "Version one")
+
+        rollback_resp = self.client.post(f"/projects/{project_id}/memory/snapshots/{older_snapshot['id']}/rollback")
+        self.assertEqual(rollback_resp.status_code, 200)
+        self.assertEqual(rollback_resp.json()["memory"]["project_brief"], "Version one")
+        self.assertEqual(rollback_resp.json()["memory_version"], 3)
+
+        with Session(self.engine) as session:
+            snapshot_count = session.exec(
+                select(ProjectMemorySnapshot).where(ProjectMemorySnapshot.project_id == project_id)
+            ).all()
+        self.assertEqual(len(snapshot_count), 3)
+
+    def test_project_chat_text_can_apply_stakeholder_candidates(self):
+        with Session(self.engine) as session:
+            client = ClientRecord(name="Acme", client_memory_stale=False)
+            session.add(client)
+            session.commit()
+            session.refresh(client)
+            project = Project(name="Stakeholder Capture", client="Acme")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            client_id = client.id
+
+        resp = self.client.post(
+            f"/projects/{project_id}/stakeholder-candidates/apply",
+            json={"text": "李总监提醒采购负责人还在关注预算审批，CFO 需要看到回款计划。"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertGreaterEqual(len(body["created"]), 2)
+        created_names = {item["name"] for item in body["created"]}
+        self.assertIn("李总监", created_names)
+        self.assertIn("采购负责人", created_names)
+
+        with Session(self.engine) as session:
+            stakeholders = session.exec(
+                select(ClientStakeholder).where(ClientStakeholder.client_id == client_id)
+            ).all()
+            client = session.get(ClientRecord, client_id)
+
+        self.assertGreaterEqual(len(stakeholders), 2)
+        self.assertTrue(client.client_memory_stale)
+
     def test_memory_jobs_list_exposes_rebuild_and_summary_warm_queue(self):
         with Session(self.engine) as session:
             project = Project(
@@ -2220,9 +2297,13 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["jobs"][0]["retry_count"], 1)
         self.assertEqual(body["jobs"][0]["trigger"], "project_updated")
         self.assertEqual(body["recent_failures"][0]["message"], "Rate limit exceeded")
-        self.assertEqual(body["recent_successes"][0]["project_id"], project_id)
-        self.assertEqual(body["recent_successes"][0]["completed_at"], "2026-04-18T09:00:00")
-        self.assertEqual(body["recent_successes"][0]["version"], 3)
+        success_stages = {item["stage"] for item in body["recent_successes"]}
+        self.assertIn("rebuild", success_stages)
+        self.assertIn("summary_cache:overview", success_stages)
+        rebuild_success = next(item for item in body["recent_successes"] if item["stage"] == "rebuild")
+        self.assertEqual(rebuild_success["project_id"], project_id)
+        self.assertEqual(rebuild_success["completed_at"], "2026-04-18T09:00:00")
+        self.assertEqual(rebuild_success["version"], 3)
 
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []

@@ -11,6 +11,7 @@ import type {
   ProjectMemory,
   ProjectMemoryResponse,
   ProjectMemoryStatusResponse,
+  Message,
   Skill,
 } from "../../types/api";
 import { downloadArtifact } from "./downloadArtifact";
@@ -113,6 +114,10 @@ export function ProjectChatTab({
   const panel = useProjectChatPanel();
   const launchSkillParam = searchParams.get("skill");
   const launchPrompt = searchParams.get("q");
+  const sourceConversationParam = searchParams.get("conversation");
+  const sourceMessageParam = searchParams.get("message");
+  const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
+  const highlightedMessageId = parsedSourceMessageId && Number.isFinite(parsedSourceMessageId) ? parsedSourceMessageId : null;
 
   const {
     isLoading,
@@ -232,6 +237,30 @@ export function ProjectChatTab({
   }, [isLoadingConversations, launchPrompt, launchSkillParam, panel, setSearchParams, startNewChat]);
 
   useEffect(() => {
+    if (!sourceConversationParam || isLoadingConversations) {
+      return;
+    }
+    const conversationId = Number(sourceConversationParam);
+    if (!Number.isFinite(conversationId)) {
+      return;
+    }
+    if (activeConvId !== conversationId) {
+      setActiveConvId(conversationId);
+    }
+  }, [activeConvId, isLoadingConversations, setActiveConvId, sourceConversationParam]);
+
+  useEffect(() => {
+    if (!highlightedMessageId || isLoadingMessages) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const element = document.getElementById(`message-${highlightedMessageId}`);
+      element?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [highlightedMessageId, isLoadingMessages, messages.length]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadMemoryStatus = async () => {
@@ -270,6 +299,35 @@ export function ProjectChatTab({
     } catch (error) {
       console.error("Failed to download artifact:", error);
       toast.error(isZh ? "生成物下载失败" : "Artifact download failed");
+    }
+  };
+
+  const handleApplyStakeholders = async (message: Message) => {
+    try {
+      const result = await api.post<{ created: Array<{ name: string }>; skipped: Array<{ name: string }> }>(
+        `/projects/${project.id}/stakeholder-candidates/apply`,
+        { text: message.content },
+      );
+      if (result.created.length > 0) {
+        toast.success(
+          isZh
+            ? `已加入 ${result.created.length} 个客户干系人`
+            : `Added ${result.created.length} client stakeholder(s)`,
+        );
+        return;
+      }
+      toast.info(
+        result.skipped.length > 0
+          ? isZh
+            ? "候选干系人已存在，无需重复加入"
+            : "Stakeholder candidates already exist"
+          : isZh
+            ? "这条消息里暂未识别到明确的客户干系人"
+            : "No clear client stakeholders detected in this message",
+      );
+    } catch (error) {
+      console.error("Failed to apply stakeholder candidates:", error);
+      toast.error(isZh ? "加入客户干系人失败" : "Failed to add client stakeholders");
     }
   };
 
@@ -443,6 +501,7 @@ export function ProjectChatTab({
         isLoading={isLoading}
         isFullscreen={isFullscreen}
         isAutoFollow={panel.isAutoFollow}
+        highlightedMessageId={highlightedMessageId}
         isLoadingMemoryStatus={isLoadingMemoryStatus}
         isLoadingMessages={isLoadingMessages}
         showScrollToBottom={panel.showScrollToBottom}
@@ -455,6 +514,7 @@ export function ProjectChatTab({
         messages={messages}
         messagesContainerRef={panel.messagesContainerRef}
         onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
+        onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
         onEnableAutoFollow={panel.enableAutoFollow}
         onInputChange={panel.setInputValue}
         onJumpToBottom={() => panel.scrollToBottom(true)}

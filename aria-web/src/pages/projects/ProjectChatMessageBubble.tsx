@@ -8,6 +8,7 @@ import {
   FileText,
   Save,
   Sparkles,
+  Users,
   Wrench,
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
@@ -50,14 +51,16 @@ const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title
 });
 
 interface ProjectChatMessageBubbleProps {
+  highlight?: boolean;
   msg: Message;
   onDownloadArtifact?: (artifact: GeneratedArtifact) => void;
+  onApplyStakeholders?: (message: Message) => void;
   onSaveToNotes?: () => void;
   projectId: number;
 }
 
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
-  ({ msg, onDownloadArtifact, onSaveToNotes, projectId }) => {
+  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onSaveToNotes, projectId }) => {
     const { t, i18n } = useTranslation();
     const isUser = msg.role === "user";
     const isZh = i18n.language.startsWith("zh");
@@ -79,7 +82,12 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     };
 
     return (
-      <div className={`mx-auto flex max-w-5xl items-start gap-3.5 group ${isUser ? "flex-row-reverse" : ""}`}>
+      <div
+        id={`message-${msg.id}`}
+        className={`mx-auto flex max-w-5xl items-start gap-3.5 rounded-2xl p-2 transition ${
+          highlight ? "bg-amber-100/80 ring-2 ring-amber-300" : ""
+        } group ${isUser ? "flex-row-reverse" : ""}`}
+      >
         <div
           className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
             isUser ? "bg-gray-200" : "bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20"
@@ -157,6 +165,15 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             </span>
             {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}
             {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} title={copy.saveToNotes} />}
+            {onApplyStakeholders ? (
+              <button
+                onClick={() => onApplyStakeholders(msg)}
+                className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                title={isZh ? "从这条消息加入客户干系人" : "Add client stakeholders from this message"}
+              >
+                <Users className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -164,9 +181,11 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
   },
   (prev, next) =>
     prev.msg.id === next.msg.id &&
+    prev.highlight === next.highlight &&
     prev.msg.content === next.msg.content &&
     prev.msg.metadata_json === next.msg.metadata_json &&
     prev.projectId === next.projectId &&
+    prev.onApplyStakeholders === next.onApplyStakeholders &&
     prev.onDownloadArtifact === next.onDownloadArtifact &&
     prev.onSaveToNotes === next.onSaveToNotes,
 );

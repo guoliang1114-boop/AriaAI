@@ -84,6 +84,15 @@ class ProjectMemorySummary(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
+class ProjectMemorySnapshot(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    memory_version: int = Field(index=True)
+    trigger: str = Field(default="", index=True)
+    memory_json: str = ""
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ClientMemorySummary(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clientrecord.id", index=True)

@@ -20,6 +20,7 @@ import type {
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
   ProjectMemoryResponse,
+  ProjectMemorySnapshot,
 } from "../../types/api";
 import { ProjectMemoryInsightCard } from "./ProjectMemoryInsightCard";
 import { ProjectMemorySlotCard } from "./ProjectMemorySlotCard";
@@ -234,6 +235,8 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
   const [clientPromotionMessage, setClientPromotionMessage] = useState<string | null>(null);
   const [linkedClient, setLinkedClient] = useState<ClientSummary | null>(null);
   const [clientMemory, setClientMemory] = useState<ClientMemory | null>(null);
+  const [snapshots, setSnapshots] = useState<ProjectMemorySnapshot[]>([]);
+  const [isRollingBackSnapshotId, setIsRollingBackSnapshotId] = useState<number | null>(null);
 
   const overviewInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成项目记忆摘要失败，请稍后重试" : "Failed to generate project memory summary",
@@ -269,6 +272,16 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       setMemory(null);
     } finally {
       setIsLoadingMemory(false);
+    }
+  };
+
+  const refreshSnapshots = async () => {
+    try {
+      const data = await api.get<ProjectMemorySnapshot[]>(`/projects/${projectId}/memory/snapshots`);
+      setSnapshots(data);
+    } catch (error) {
+      console.error("Failed to load project memory snapshots:", error);
+      setSnapshots([]);
     }
   };
 
@@ -323,9 +336,43 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         overviewInsight.refresh(true),
         riskInsight.refresh(true),
         stakeholderInsight.refresh(true),
+        refreshSnapshots(),
       ]);
     } finally {
       setIsRebuildingMemory(false);
+    }
+  };
+
+  const rollbackSnapshot = async (snapshot: ProjectMemorySnapshot) => {
+    setIsRollingBackSnapshotId(snapshot.id);
+    try {
+      const data = await api.post<ProjectMemoryResponse>(
+        `/projects/${projectId}/memory/snapshots/${snapshot.id}/rollback`,
+        {},
+        { timeout: 60000 },
+      );
+      setMemoryMeta({
+        project_id: Number(projectId),
+        memory: data.memory,
+        memory_version: data.memory_version,
+        memory_stale: false,
+        memory_updated_at: data.memory.last_updated_at,
+        memory_rebuild_status: "idle",
+        memory_rebuild_failed_at: null,
+      });
+      setMemory(data.memory);
+      dispatchProjectMemoryStateUpdated({
+        projectId: Number(projectId),
+        memory_stale: false,
+        memory_updated_at: data.memory.last_updated_at,
+        memory_version: data.memory_version,
+        memory_rebuild_status: "idle",
+        memory_rebuild_failed_at: null,
+        project_brief: data.memory.project_brief,
+      });
+      await Promise.all([refreshSnapshots(), overviewInsight.refresh(true), riskInsight.refresh(true), stakeholderInsight.refresh(true)]);
+    } finally {
+      setIsRollingBackSnapshotId(null);
     }
   };
 
@@ -401,6 +448,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
 
   useEffect(() => {
     void refreshMemory();
+    void refreshSnapshots();
   }, [projectId]);
 
   useEffect(() => {
@@ -666,6 +714,71 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 font-semibold text-gray-950">
+              <Clock3 className="h-4 w-4 text-indigo-600" />
+              {isZh ? "记忆历史版本" : "Memory history"}
+            </div>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              {isZh
+                ? "每次项目记忆重建或回滚都会保留快照，方便追踪 AI 记忆变化，并在摘要跑偏时恢复到上一版。"
+                : "Every rebuild or rollback keeps a snapshot, so you can audit memory changes and restore a previous version if needed."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshSnapshots()}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            {isZh ? "刷新历史" : "Refresh history"}
+          </button>
+        </div>
+
+        {snapshots.length ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {snapshots.slice(0, 6).map((snapshot) => {
+              const isCurrent = snapshot.memory_version === (memory?.memory_version ?? project.memory_version);
+              const isRollingBack = isRollingBackSnapshotId === snapshot.id;
+              return (
+                <div key={snapshot.id} className="rounded-xl border border-indigo-100 bg-white/85 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-950">
+                        {isZh ? `版本 ${snapshot.memory_version}` : `Version ${snapshot.memory_version}`}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">{formatProjectMemoryUpdatedAt(snapshot.created_at, isZh)}</div>
+                    </div>
+                    {isCurrent ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                        {isZh ? "当前" : "Current"}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+                    {isZh ? "触发" : "Trigger"}: {snapshot.trigger || "-"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void rollbackSnapshot(snapshot)}
+                    disabled={isCurrent || isRollingBack}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
+                  >
+                    {isRollingBack ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+                    {isZh ? "恢复到这一版" : "Restore this version"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-indigo-200 bg-white/70 p-4 text-sm text-gray-500">
+            {isZh ? "暂无记忆历史。下一次刷新项目记忆后会自动生成快照。" : "No memory history yet. The next rebuild will create a snapshot automatically."}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

@@ -91,12 +91,14 @@ type ProjectChatMessagesProps = {
   streamingToolCalls: ToolCallEvent[];
   isLoading: boolean;
   isLoadingMessages: boolean;
+  highlightedMessageId?: number | null;
   projectId: number;
   startConversationLabel: string;
   choosePromptLabel: string;
   thinkingLabel: string;
   quickPrompts: ProjectQuickPrompt[];
   onQuickPrompt: (content: string) => void;
+  onApplyStakeholders?: (message: Message) => void;
   onSaveMessage: (messageId: number) => void;
 };
 
@@ -109,12 +111,14 @@ export function ProjectChatMessages({
   streamingToolCalls,
   isLoading,
   isLoadingMessages,
+  highlightedMessageId,
   projectId,
   startConversationLabel,
   choosePromptLabel,
   thinkingLabel,
   quickPrompts,
   onQuickPrompt,
+  onApplyStakeholders,
   onSaveMessage,
 }: ProjectChatMessagesProps) {
   const { i18n } = useTranslation();
@@ -159,8 +163,10 @@ export function ProjectChatMessages({
           {messages.map((msg) => (
             <ProjectChatMessageBubble
               key={msg.id}
+              highlight={highlightedMessageId === msg.id}
               msg={msg}
               onDownloadArtifact={onDownloadArtifact}
+              onApplyStakeholders={onApplyStakeholders}
               projectId={projectId}
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
             />

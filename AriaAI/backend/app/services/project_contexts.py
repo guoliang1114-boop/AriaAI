@@ -7,7 +7,7 @@ import json
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.models.db import Project, ProjectMemorySummary
+from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
 from app.services.project_files import list_project_files
 from app.services.project_financials import list_project_payments
 from app.services.project_milestones import list_project_milestones
@@ -665,6 +665,15 @@ def save_project_memory(
     project.memory_rebuild_failed_at = None
     project.updated_at = utc_now_naive()
     session.add(project)
+    session.add(
+        ProjectMemorySnapshot(
+            project_id=project_id,
+            memory_version=project.memory_version,
+            trigger=trigger,
+            memory_json=project.context_memory_json,
+            created_at=project.memory_updated_at,
+        )
+    )
     session.commit()
     session.refresh(project)
     return get_project_memory_payload(project)

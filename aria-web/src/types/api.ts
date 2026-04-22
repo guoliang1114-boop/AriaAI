@@ -210,6 +210,14 @@ export interface ProjectMemorySummariesResponse {
   summaries: Partial<Record<ProjectMemorySummaryType, ProjectMemorySummaryResponse>>
 }
 
+export interface ProjectMemorySnapshot {
+  id: number
+  project_id: number
+  memory_version: number
+  trigger: string
+  created_at: string
+}
+
 export interface ClientMemory {
   client_profile: string
   decision_patterns: string[]

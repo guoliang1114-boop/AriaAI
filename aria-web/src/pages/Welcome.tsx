@@ -300,6 +300,73 @@ export function Welcome() {
     () => messages.find((message) => !message.is_read && message.is_published) || null,
     [messages],
   )
+  const todayActions = useMemo(() => {
+    const actions: Array<{
+      key: string
+      title: string
+      description: string
+      badge: string
+      icon: typeof AlertCircle
+      path: string
+      tone: string
+    }> = []
+
+    overdueTodos.slice(0, 2).forEach((todo) => {
+      actions.push({
+        key: `overdue-${todo.id}`,
+        title: isZh ? `处理逾期待办：${todo.content}` : `Clear overdue todo: ${todo.content}`,
+        description: `${todo.project_name}${todo.due_date ? ` · ${todo.due_date}` : ''}`,
+        badge: isZh ? '逾期' : 'Overdue',
+        icon: AlertCircle,
+        path: `/projects/${todo.project_id}/todos`,
+        tone: 'border-red-200 bg-red-50 text-red-900',
+      })
+    })
+
+    dueSoonTodos.slice(0, 2).forEach((todo) => {
+      actions.push({
+        key: `due-${todo.id}`,
+        title: isZh ? `推进临期待办：${todo.content}` : `Move due-soon todo: ${todo.content}`,
+        description: `${todo.project_name}${todo.due_date ? ` · ${todo.due_date}` : ''}`,
+        badge: isZh ? '三天内' : 'Due soon',
+        icon: ListTodo,
+        path: `/projects/${todo.project_id}/todos`,
+        tone: 'border-amber-200 bg-amber-50 text-amber-900',
+      })
+    })
+
+    projects
+      .filter((project) => project.status !== 'archived' && (project.memory_stale || (project.memory_version || 0) === 0))
+      .slice(0, 2)
+      .forEach((project) => {
+        actions.push({
+          key: `project-memory-${project.id}`,
+          title: isZh ? `刷新项目记忆：${project.name}` : `Refresh project memory: ${project.name}`,
+          description: project.client || (isZh ? '未填写客户' : 'No client'),
+          badge: isZh ? '项目记忆' : 'Project memory',
+          icon: Brain,
+          path: `/projects/${project.id}/memory`,
+          tone: 'border-indigo-200 bg-indigo-50 text-indigo-900',
+        })
+      })
+
+    clients
+      .filter((client) => client.client_memory_stale || (client.client_memory_version || 0) === 0)
+      .slice(0, 2)
+      .forEach((client) => {
+        actions.push({
+          key: `client-memory-${client.id}`,
+          title: isZh ? `刷新客户记忆：${client.name}` : `Refresh client memory: ${client.name}`,
+          description: client.industry || (isZh ? '未填写行业' : 'No industry'),
+          badge: isZh ? '客户记忆' : 'Client memory',
+          icon: Users,
+          path: `/clients/${client.id}/memory`,
+          tone: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+        })
+      })
+
+    return actions.slice(0, 6)
+  }, [clients, dueSoonTodos, isZh, overdueTodos, projects])
 
   const markAnnouncementRead = async (messageId: number) => {
     setMessages((current) =>
@@ -524,6 +591,51 @@ export function Welcome() {
                 ))}
               </div>
             </div>
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-on-surface">{isZh ? '今天建议先做' : 'Recommended next actions'}</h2>
+                <p className="mt-1 text-sm text-on-surface-muted">
+                  {isZh
+                    ? '自动从待办、项目记忆和客户记忆里挑出最值得先处理的动作。'
+                    : 'Automatically pulled from todos, project memory, and client memory signals.'}
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/settings/memory-ops')}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                {isZh ? '打开任务中心' : 'Open operations'}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+
+            {todayActions.length ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {todayActions.map((action) => (
+                  <button
+                    key={action.key}
+                    onClick={() => navigate(action.path)}
+                    className={`group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${action.tone}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">{action.badge}</span>
+                        <div className="mt-3 line-clamp-2 text-sm font-semibold">{action.title}</div>
+                        <div className="mt-1 truncate text-xs opacity-75">{action.description}</div>
+                      </div>
+                      <action.icon className="h-4 w-4 shrink-0 transition group-hover:scale-110" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-on-surface-muted">
+                {isZh ? '今天没有明显阻塞项，可以从新对话或最近项目继续推进。' : 'No obvious blockers today. Continue from a new chat or recent projects.'}
+              </div>
+            )}
           </section>
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

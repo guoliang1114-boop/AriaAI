@@ -25,6 +25,7 @@ interface ProjectChatMainPanelProps {
   inputValue: string;
   isLoading: boolean;
   isLoadingMessages: boolean;
+  highlightedMessageId?: number | null;
   isFullscreen: boolean;
   isAutoFollow: boolean;
   showScrollToBottom: boolean;
@@ -38,6 +39,7 @@ interface ProjectChatMainPanelProps {
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
+  onApplyStakeholders?: (message: Message) => void;
   onOpenConversationSaveModal: () => void;
   onQuickPrompt: (content: string) => void;
   onRebuildMemory: () => void;
@@ -76,6 +78,7 @@ export function ProjectChatMainPanel({
   inputValue,
   isLoading,
   isLoadingMessages,
+  highlightedMessageId,
   isFullscreen,
   isAutoFollow,
   showScrollToBottom,
@@ -89,6 +92,7 @@ export function ProjectChatMainPanel({
   messages,
   messagesContainerRef,
   onInputChange,
+  onApplyStakeholders,
   onKnowledgeScopeChange,
   onOpenConversationSaveModal,
   onQuickPrompt,
@@ -235,12 +239,14 @@ export function ProjectChatMainPanel({
           streamingToolCalls={streamingToolCalls}
           isLoading={isLoading}
           isLoadingMessages={isLoadingMessages}
+          highlightedMessageId={highlightedMessageId}
           projectId={projectId}
           startConversationLabel={startConversationLabel}
           choosePromptLabel={choosePromptLabel}
           thinkingLabel={thinkingLabel}
           quickPrompts={quickPrompts}
           onQuickPrompt={onQuickPrompt}
+          onApplyStakeholders={onApplyStakeholders}
           onSaveMessage={onSaveMessage}
         />
 

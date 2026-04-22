@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,7 +26,7 @@ from app.config import (
     UPLOADS_DIR,
 )
 from app.database import engine, get_session
-from app.models.db import Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySummary, User, ClientRecord
+from app.models.db import ClientStakeholder, Conversation, Message, Project, Milestone, ProjectFile, ProjectFolder, ProjectPayment, ProjectTodo, ProjectMember, ProjectMemorySnapshot, ProjectMemorySummary, User, ClientRecord
 from app.services import claude as _claude_svc, openai_compat as _kimi_svc
 from app.services import scheduler as scheduler_service
 from app.models.db import Setting as _Setting
@@ -414,6 +415,44 @@ def _get_project_memory_successes(project: Project) -> list[dict]:
     return successes
 
 
+def _get_project_summary_cache_successes(
+    session: Session,
+    project_lookup: dict[int, Project],
+    limit: int = 16,
+) -> list[dict]:
+    rows = session.exec(
+        select(ProjectMemorySummary)
+        .order_by(ProjectMemorySummary.updated_at.desc())
+        .limit(limit)
+    ).all()
+    successes: list[dict] = []
+    for item in rows:
+        project = project_lookup.get(item.project_id)
+        if not project:
+            continue
+        is_briefing = item.summary_type.startswith("briefing:")
+        readable_type = item.summary_type.removeprefix("briefing:") if is_briefing else item.summary_type
+        successes.append(
+            {
+                "scope": "project",
+                "project_id": project.id,
+                "project_name": project.name,
+                "client": project.client,
+                "stage": f"briefing_refine:{readable_type}" if is_briefing else f"summary_cache:{readable_type}",
+                "status": "success",
+                "message": (
+                    f"AI refined meeting briefing cached for {readable_type}."
+                    if is_briefing
+                    else f"Project summary cache updated for {readable_type}."
+                ),
+                "trigger": "cache_write",
+                "version": item.memory_version,
+                "completed_at": item.updated_at.isoformat(),
+            }
+        )
+    return successes
+
+
 def _as_briefing_list(value, limit: int = 5) -> list[str]:
     if isinstance(value, dict):
         merged: list[str] = []
@@ -695,6 +734,64 @@ def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, lan
         "确定性简报 JSON：\n"
         f"{json.dumps(compact_briefing, ensure_ascii=False, indent=2, default=str)}"
     )
+
+
+_STAKEHOLDER_ROLE_PATTERN = re.compile(
+    r"(?P<name>[\u4e00-\u9fa5]{1,4})(?P<role>总监|经理|负责人|主管|主任|老板|采购|财务|法务|安全|运维|商务|产品|技术|业务方|使用方)"
+)
+_STAKEHOLDER_TITLE_PATTERN = re.compile(
+    r"(?P<title>CEO|CFO|CTO|CIO|采购负责人|财务负责人|法务负责人|安全负责人|业务负责人|技术负责人|项目负责人)",
+    re.IGNORECASE,
+)
+_STAKEHOLDER_NAME_STOPWORDS = {"提醒", "表示", "认为", "需要", "关注", "等待", "确认", "补充", "客户", "业务", "项目"}
+
+
+def _extract_stakeholder_candidates_from_text(text: str, limit: int = 8) -> list[dict[str, str]]:
+    compact_text = " ".join((text or "").replace("\r", " ").replace("\n", " ").split())
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for match in _STAKEHOLDER_ROLE_PATTERN.finditer(compact_text):
+        raw_name = match.group("name").strip()
+        role = match.group("role").strip()
+        if len(raw_name) > 4 or raw_name in _STAKEHOLDER_NAME_STOPWORDS:
+            continue
+        name = f"{raw_name}{role}" if len(raw_name) == 1 else raw_name
+        key = f"{name}:{role}".lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "name": name,
+                "role": role,
+                "influence_type": role if role in {"采购", "财务", "法务", "安全", "商务"} else "",
+                "relationship_status": "unknown",
+                "note": _briefing_excerpt(compact_text, limit=180),
+            }
+        )
+        if len(candidates) >= limit:
+            return candidates
+
+    for match in _STAKEHOLDER_TITLE_PATTERN.finditer(compact_text):
+        title = match.group("title").strip()
+        key = title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "name": title,
+                "role": title,
+                "influence_type": title,
+                "relationship_status": "unknown",
+                "note": _briefing_excerpt(compact_text, limit=180),
+            }
+        )
+        if len(candidates) >= limit:
+            return candidates
+
+    return candidates
 
 
 def _record_project_memory_failure_by_id(
@@ -1166,6 +1263,10 @@ class ProjectBriefingRefineRequest(BaseModel):
     force_refresh: bool = False
 
 
+class ProjectStakeholderCaptureRequest(BaseModel):
+    text: str
+
+
 # ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -1306,6 +1407,73 @@ async def refine_project_meeting_briefing(
             "generated_at": cached.updated_at.isoformat(),
             "cached": False,
         }
+
+
+@router.post("/{project_id}/stakeholder-candidates/apply")
+def apply_project_stakeholder_candidates(
+    project_id: int,
+    body: ProjectStakeholderCaptureRequest,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Linked client not found")
+
+    candidates = _extract_stakeholder_candidates_from_text(body.text)
+    if not candidates:
+        return {"project_id": project_id, "client_id": client.id, "candidates": [], "created": [], "skipped": []}
+
+    existing = {
+        _normalize_name(stakeholder.name)
+        for stakeholder in session.exec(select(ClientStakeholder).where(ClientStakeholder.client_id == client.id)).all()
+    }
+    created: list[dict] = []
+    skipped: list[dict] = []
+    now = utc_now_naive()
+    for candidate in candidates:
+        normalized_name = _normalize_name(candidate.get("name"))
+        if not normalized_name or normalized_name in existing:
+            skipped.append({**candidate, "reason": "exists" if normalized_name in existing else "empty_name"})
+            continue
+        stakeholder = ClientStakeholder(
+            client_id=client.id,
+            name=candidate.get("name", ""),
+            role=candidate.get("role", ""),
+            influence_type=candidate.get("influence_type", ""),
+            relationship_status=candidate.get("relationship_status", "unknown"),
+            note=candidate.get("note", ""),
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(stakeholder)
+        session.commit()
+        session.refresh(stakeholder)
+        existing.add(normalized_name)
+        created.append(
+            {
+                "id": stakeholder.id,
+                "client_id": stakeholder.client_id,
+                "name": stakeholder.name,
+                "role": stakeholder.role,
+                "influence_type": stakeholder.influence_type,
+                "relationship_status": stakeholder.relationship_status,
+                "note": stakeholder.note,
+            }
+        )
+
+    if created:
+        mark_client_memory_stale_by_name(session, project.client)
+        _bust_project(project_id)
+
+    return {
+        "project_id": project_id,
+        "client_id": client.id,
+        "client_name": client.name,
+        "candidates": candidates,
+        "created": created,
+        "skipped": skipped,
+    }
 
 
 @router.get("/meta/dashboard-summary")
@@ -2244,6 +2412,7 @@ def list_project_memory_jobs(session: Session = Depends(get_session)):
                 }
             )
         recent_successes.extend(_get_project_memory_successes(project))
+    recent_successes.extend(_get_project_summary_cache_successes(session, project_lookup))
     recent_failures.sort(key=lambda item: item.get("failed_at", ""), reverse=True)
     recent_successes.sort(key=lambda item: item.get("completed_at", ""), reverse=True)
     return {
@@ -2761,6 +2930,69 @@ def get_project_memory_summary(
         project_id=project_id,
         summary_type=normalized_summary_type,
     )
+
+
+@router.get("/{project_id}/memory/snapshots")
+def list_project_memory_snapshots(project_id: int, session: Session = Depends(get_session)):
+    get_project_or_404(session, project_id)
+    snapshots = session.exec(
+        select(ProjectMemorySnapshot)
+        .where(ProjectMemorySnapshot.project_id == project_id)
+        .order_by(ProjectMemorySnapshot.created_at.desc(), ProjectMemorySnapshot.id.desc())
+        .limit(30)
+    ).all()
+    return [
+        {
+            "id": snapshot.id,
+            "project_id": snapshot.project_id,
+            "memory_version": snapshot.memory_version,
+            "trigger": snapshot.trigger,
+            "created_at": snapshot.created_at.isoformat(),
+        }
+        for snapshot in snapshots
+    ]
+
+
+@router.get("/{project_id}/memory/snapshots/{snapshot_id}")
+def get_project_memory_snapshot(project_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    get_project_or_404(session, project_id)
+    snapshot = session.get(ProjectMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Memory snapshot not found")
+    return {
+        "id": snapshot.id,
+        "project_id": snapshot.project_id,
+        "memory_version": snapshot.memory_version,
+        "trigger": snapshot.trigger,
+        "memory": json.loads(snapshot.memory_json or "{}"),
+        "created_at": snapshot.created_at.isoformat(),
+    }
+
+
+@router.post("/{project_id}/memory/snapshots/{snapshot_id}/rollback")
+def rollback_project_memory_snapshot(project_id: int, snapshot_id: int, session: Session = Depends(get_session)):
+    get_project_or_404(session, project_id)
+    snapshot = session.get(ProjectMemorySnapshot, snapshot_id)
+    if not snapshot or snapshot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Memory snapshot not found")
+    try:
+        memory = json.loads(snapshot.memory_json or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Memory snapshot is corrupted")
+    restored = save_project_memory(
+        session,
+        project_id,
+        memory,
+        trigger=f"rollback:{snapshot.memory_version}",
+    )
+    _bust_project(project_id)
+    return {
+        "project_id": project_id,
+        "restored_from_snapshot_id": snapshot.id,
+        "restored_from_version": snapshot.memory_version,
+        "memory": restored,
+        "memory_version": restored.get("memory_version", 0),
+    }
 
 
 # ── Project notes (沉淀到项目) ─────────────────────────────────────────────────
