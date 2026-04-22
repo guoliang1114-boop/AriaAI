@@ -140,6 +140,17 @@ function advanceProgressSteps(
   }))
 }
 
+function completeProgressSteps(steps: ChatProgressStep[]): ChatProgressStep[] {
+  const source = steps.length ? steps : createProgressSteps()
+  return source.map((step, index) => ({
+    ...step,
+    status: 'done' as const,
+    logs: index === source.length - 1
+      ? [...step.logs, formatProgressLog('回复已保存，执行完成。')].slice(-20)
+      : step.logs,
+  }))
+}
+
 function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   if (!steps.length) return null
@@ -413,6 +424,7 @@ export function Chat() {
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const skillDropdownRef = useRef<HTMLDivElement>(null)
   const streamingContentRef = useRef('')
+  const progressStepsRef = useRef<ChatProgressStep[]>([])
   const isStreamingRef = useRef(false)
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
@@ -425,6 +437,10 @@ export function Chat() {
   const justLoadedRef = useRef(false)
   // prevent loadConversation from firing when sendMessage triggers navigate to the new conv
   const skipNextConvLoadRef = useRef(false)
+
+  useEffect(() => {
+    progressStepsRef.current = progressSteps
+  }, [progressSteps])
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => { fetchInitialData() }, [])
@@ -969,12 +985,16 @@ export function Chat() {
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
           await new Promise(r => setTimeout(r, 50))
+          const completedProgressSteps = completeProgressSteps(progressStepsRef.current)
           const assistantMsg: Message = {
             id: Date.now() + 1,
             conversation_id: currentConvId!,
             role: 'assistant',
             content: assistantContent,
-            metadata_json: JSON.stringify({ references: data.references || [] }),
+            metadata_json: JSON.stringify({
+              references: data.references || [],
+              skill_progress: completedProgressSteps,
+            }),
             created_at: new Date().toISOString(),
           }
           // Only append to message list if the user is still viewing this conversation.
@@ -988,11 +1008,7 @@ export function Chat() {
           isStreamingRef.current = false
           setIsThinking(false)
           setToolStatus(null)
-          setProgressSteps(prev => prev.length ? prev.map((step, index) => ({
-            ...step,
-            status: 'done' as const,
-            logs: index === prev.length - 1 ? [...step.logs, formatProgressLog('回复已保存，执行完成。')].slice(-20) : step.logs,
-          })) : [])
+          setProgressSteps(completedProgressSteps)
 
           // Refresh conversation list to pick up the auto-generated title.
           // Delay to allow backend background title generation to complete first.
@@ -1968,9 +1984,11 @@ function MessageRow({ message }: { message: Message }) {
 
   // Parse references from metadata_json
   let references: Array<{ type: string; id: number; title: string }> = []
+  let skillProgress: ChatProgressStep[] = []
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = meta.references || []
+    skillProgress = Array.isArray(meta.skill_progress) ? meta.skill_progress : []
   } catch (_) {}
 
   return (
@@ -2003,9 +2021,12 @@ function MessageRow({ message }: { message: Message }) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="md-root">
-              <MarkdownRenderer content={message.content} />
-            </div>
+            <>
+              <SkillProgressCard steps={skillProgress} />
+              <div className="md-root">
+                <MarkdownRenderer content={message.content} />
+              </div>
+            </>
           )}
         </div>
 
