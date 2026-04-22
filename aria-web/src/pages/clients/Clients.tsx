@@ -240,7 +240,7 @@ export function Clients() {
                   <span>{isZh ? '客户工作台' : 'Client Workspace'}</span>
                 </div>
                 <h1 className="text-4xl font-semibold tracking-tight text-slate-900">
-                  {isZh ? '把客户关系、项目推进和经验沉淀放在一个工作台里判断' : 'See relationships, delivery signals, and reusable context in one client workspace'}
+                  {isZh ? '知客情而知势，掌项进以汇识' : 'See relationships, delivery signals, and reusable context in one client workspace'}
                 </h1>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
                   {isZh
