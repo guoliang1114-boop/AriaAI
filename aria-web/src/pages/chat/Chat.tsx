@@ -260,8 +260,6 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
     )
   }
 
-  const preview = content.length > 180 ? `${content.slice(0, 180).trim()}...` : content
-
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white/80 p-3.5">
       <button
@@ -270,19 +268,23 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
         className="flex w-full items-center justify-between gap-3 text-left"
       >
         <div>
-          <p className="text-xs font-semibold text-gray-700">AI 正文预览</p>
-          <p className="mt-0.5 text-[11px] text-gray-400">执行期间默认收起，避免遮挡 Skill 进度。</p>
+          <p className="text-xs font-semibold text-gray-700">AI 正文</p>
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            执行期间默认隐藏正文，只展示 Skill 清单。已生成约 {content.length.toLocaleString()} 字。
+          </p>
         </div>
         <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-1 text-[11px] text-gray-400">
-          {expanded ? '收起' : '展开'}
+          {expanded ? '收起正文' : '查看正文'}
           <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </span>
       </button>
-      <div className={`mt-3 ${expanded ? '' : 'max-h-24 overflow-hidden'}`}>
-        <div className="md-root text-sm text-gray-600">
-          <MarkdownRenderer content={expanded ? content : preview} />
+      {expanded && (
+        <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2">
+          <div className="md-root text-sm text-gray-600">
+            <MarkdownRenderer content={content} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -1398,7 +1400,7 @@ export function Chat() {
                         {streamingContent ? (
                           <>
                             <SkillProgressCard steps={progressSteps} />
-                            <StreamingAnswerPreview content={streamingContent} compact={!!selectedSkillData && progressSteps.length > 0} />
+                            <StreamingAnswerPreview content={streamingContent} compact={progressSteps.length > 0} />
                             {toolStatus && (
                               <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
                                 <Loader2 className="w-3 h-3 animate-spin" />
