@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from sqlmodel import Session
 
 from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
+from app.models.db import Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_store import (
     build_message_metadata,
@@ -51,6 +52,7 @@ class ChatRuntime:
     tools: list | None
     max_tokens: int
     temperature: float
+    skill_name: str = ""
 
 
 def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
@@ -71,6 +73,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
     temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
+    skill = session.get(Skill, req.skill_id) if req.skill_id else None
 
     chat_ctx = build_chat_context(
         session=session,
@@ -109,6 +112,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         tools=chat_ctx.tools,
         max_tokens=_cap_max_tokens_for_model(selected_model, chat_ctx.max_tokens),
         temperature=temperature,
+        skill_name=skill.name if skill else "",
     )
 
 
@@ -218,6 +222,89 @@ def _build_completed_skill_progress(tool_call_events: list[dict], full_text: str
             "logs": ["正在保存本次回复...", "回复已保存，执行完成。"],
         },
     ]
+
+
+def _should_auto_generate_digital_strategy_ppt(runtime: ChatRuntime, req: SendMessageRequest, full_text: str, tool_call_events: list[dict]) -> bool:
+    if not req.skill_id or not full_text.strip() or tool_call_events:
+        return False
+    skill_name = runtime.skill_name or ""
+    system = runtime.system or ""
+    return "数字化战略设计" in skill_name or "digital-strategy" in system
+
+
+def _clean_slide_line(line: str) -> str:
+    return line.strip().lstrip("-*•0123456789.、)） ").strip()
+
+
+def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
+    lines = [line.strip() for line in full_text.splitlines() if line.strip()]
+    title = "数字化战略方案"
+    for line in lines[:10]:
+        cleaned = line.strip("# ").strip()
+        if cleaned and len(cleaned) <= 60:
+            title = cleaned
+            break
+
+    sections: list[tuple[str, list[str]]] = []
+    current_title = ""
+    current_lines: list[str] = []
+    for line in lines:
+        normalized = line.strip()
+        heading = ""
+        if normalized.startswith("#"):
+            heading = normalized.strip("# ").strip()
+        elif len(normalized) <= 40 and (
+            normalized[:2] in ("一、", "二、", "三、", "四、", "五、", "六、", "七、", "八、", "九、")
+            or normalized.lower().startswith(("executive", "strategic", "digital", "gap", "transformation", "governance"))
+        ):
+            heading = normalized
+
+        if heading:
+            if current_title:
+                sections.append((current_title, current_lines))
+            current_title = heading
+            current_lines = []
+        elif current_title:
+            cleaned = _clean_slide_line(normalized)
+            if cleaned:
+                current_lines.append(cleaned)
+    if current_title:
+        sections.append((current_title, current_lines))
+
+    if not sections:
+        chunks = ["\n".join(lines[i : i + 8]) for i in range(0, min(len(lines), 56), 8)]
+        sections = [(f"核心内容 {index + 1}", chunk.splitlines()) for index, chunk in enumerate(chunks)]
+
+    slides: list[dict] = []
+    for section_title, content_lines in sections[:14]:
+        bullets = [item for item in content_lines if item and item != section_title][:8]
+        if not bullets:
+            bullets = ["详见战略正文。"]
+        slides.append(
+            {
+                "type": "content",
+                "title": section_title[:80],
+                "content": "\n".join(f"- {bullet[:160]}" for bullet in bullets),
+            }
+        )
+
+    if len(slides) < 6:
+        fallback_titles = [
+            "转型背景与业务目标",
+            "数字化成熟度诊断",
+            "目标能力蓝图",
+            "三阶段实施路线图",
+            "治理机制与投资安排",
+            "下一步行动计划",
+        ]
+        existing = {slide["title"] for slide in slides}
+        for fallback_title in fallback_titles:
+            if fallback_title not in existing:
+                slides.append({"type": "content", "title": fallback_title, "content": "- 基于正文进一步细化\n- 建议结合客户访谈校准"})
+            if len(slides) >= 8:
+                break
+
+    return title, slides
 
 
 def _sse_event(payload: dict) -> str:
@@ -583,6 +670,38 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         full_text = text_buffer.strip()
         if follow_up_text.strip():
             full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
+
+        if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, tool_call_events):
+            ppt_title, ppt_slides = _build_slides_from_strategy_text(full_text)
+            tool_name = "generate_ppt_from_skill"
+            tool_input = {
+                "skill_name": "digital-strategy",
+                "title": ppt_title,
+                "subtitle": "自动根据数字化战略正文生成",
+                "slides": ppt_slides,
+            }
+            yield _sse_event({"type": "status", "stage": "tools", "message": "检测到数字化战略 Skill 未生成 PPT，正在自动创建可下载材料..."})
+            yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
+            print(f"[P2-fallback] executing tool: {tool_name}, slides={len(ppt_slides)}", flush=True)
+            try:
+                result = await registry.execute(tool_name, tool_input)
+            except Exception as exc:
+                result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
+
+            yield _sse_event({"type": "tool_result", "result": result})
+            tool_call_events.append(
+                {
+                    "tool_name": tool_name,
+                    "status": "error" if result.get("status") == "error" or result.get("success") is False else "completed",
+                    "message": _tool_progress_payload(tool_name, tool_input).get("message", ""),
+                    "summary": _summarize_tool_result(result),
+                    **({"error": str(result.get("error"))} if result.get("error") else {}),
+                }
+            )
+            artifact = _extract_artifact(result)
+            if artifact:
+                artifacts.append(artifact)
+            yield _sse_event({"type": "status", "stage": "follow_up", "message": "PPT 已生成，正在保存正文和附件..."})
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})

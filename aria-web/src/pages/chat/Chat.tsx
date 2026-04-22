@@ -40,7 +40,8 @@ import { exportConversationFile } from '../../api/chatExport'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
-import type { Conversation, Message, Project, Skill } from '../../types/api'
+import { downloadArtifact } from '../projects/downloadArtifact'
+import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
 
 const API_BASE_URL = getApiBaseUrl()
 const PAGE_SIZE = 20
@@ -134,7 +135,7 @@ function advanceProgressSteps(
 ): ChatProgressStep[] {
   return steps.map((step, i) => ({
     ...step,
-    status: i < index ? 'done' : i === index ? 'active' : step.status === 'done' ? 'done' : 'pending',
+    status: i < index ? 'done' : i === index ? 'active' : step.status,
     description: i === index && description ? description : step.description,
     logs: i === index && log ? [...step.logs, formatProgressLog(log)].slice(-20) : step.logs,
   }))
@@ -314,6 +315,50 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
+  const [downloading, setDownloading] = useState(false)
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      await downloadArtifact({ artifact })
+    } catch (err) {
+      console.error('Failed to download artifact:', err)
+      alert('生成物下载失败，请稍后重试。')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
+          <FileText className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-gray-900">{artifact.name}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <span className="rounded-full border border-emerald-100 bg-white px-2 py-0.5">
+              {artifact.file_type.toUpperCase()}
+            </span>
+            {artifact.description ? <span className="truncate">{artifact.description}</span> : null}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={downloading}
+          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+        >
+          {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          下载
+        </button>
+      </div>
     </div>
   )
 }
@@ -2003,9 +2048,11 @@ function MessageRow({ message }: { message: Message }) {
   // Parse references from metadata_json
   let references: Array<{ type: string; id: number; title: string }> = []
   let skillProgress: ChatProgressStep[] = []
+  let artifacts: GeneratedArtifact[] = []
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = meta.references || []
+    artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
   } catch (_) {}
 
@@ -2041,6 +2088,9 @@ function MessageRow({ message }: { message: Message }) {
           ) : (
             <>
               <SkillProgressCard steps={skillProgress} />
+              {artifacts.map((artifact) => (
+                <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
+              ))}
               <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
             </>
           )}
