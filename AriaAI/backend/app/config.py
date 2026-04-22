@@ -83,7 +83,7 @@ MODEL_ALIASES = {
 # =============================================================================
 # Generation Settings
 # =============================================================================
-DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "4096"))
+DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "8192"))
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
 DEFAULT_TOP_P = float(os.getenv("DEFAULT_TOP_P", "1.0"))
 

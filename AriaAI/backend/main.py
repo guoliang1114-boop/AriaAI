@@ -24,7 +24,7 @@ from app.tools import pdf_translation  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS, ensure_builtin_pro_skills
 from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel
-from app.models.db import Project, Skill, ProjectFolder, User, UserToken
+from app.models.db import Project, Setting, Skill, ProjectFolder, User, UserToken
 from app.config import JWT_SECRET  # Fallback for admin seed
 
 # Configure logging from unified config
@@ -61,6 +61,24 @@ def _patch_templates():
         session.commit()
 
 
+def _patch_runtime_llm_settings():
+    """Raise legacy runtime output limits to the current long-answer baseline."""
+    with Session(engine) as session:
+        setting = session.get(Setting, "max_tokens")
+        if not setting:
+            session.add(Setting(key="max_tokens", value="8192"))
+            session.commit()
+            return
+        try:
+            current = int(setting.value)
+        except (TypeError, ValueError):
+            current = 0
+        if current < 8192:
+            setting.value = "8192"
+            session.add(setting)
+            session.commit()
+
+
 def _fix_pg_sequences():
     """Reset all id sequences to MAX(id)+1 for PostgreSQL (prevents duplicate key errors after migrations)."""
     if "postgresql" not in str(engine.url).lower():
@@ -92,6 +110,7 @@ async def lifespan(app: FastAPI):
     _fix_pg_sequences()
     _backfill_folders()
     _patch_templates()
+    _patch_runtime_llm_settings()
     # Seed default admin (only if no users exist)
     from app.config import os as config_os  # Import os locally to avoid shadowing
     admin_email = config_os.getenv("ADMIN_EMAIL", "admin@d2cgo.com")

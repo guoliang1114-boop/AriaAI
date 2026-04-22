@@ -4193,7 +4193,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("Huawei 5-See 3-Define", strategy.system_prompt)
         self.assertIn("Foundation", strategy.system_prompt)
         self.assertIn("generate_ppt_from_skill", strategy.system_prompt)
-        self.assertEqual(strategy.max_tokens, 8192)
+        self.assertEqual(strategy.max_tokens, 32768)
         self.assertIn("generate_ppt_from_skill", strategy.tools)
         self.assertIn("save_json", strategy.tools)
         tool_defs = json.loads(strategy.tools_definition_json)
@@ -4233,7 +4233,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertGreaterEqual(changed, 1)
         self.assertEqual(second_count, 0)
         self.assertEqual(strategy.tools, ["generate_ppt_from_skill", "save_json"])
-        self.assertEqual(strategy.max_tokens, 8192)
+        self.assertEqual(strategy.max_tokens, 32768)
         tool_defs = json.loads(strategy.tools_definition_json)
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertIn("generate_ppt_from_skill", tool_def_names)

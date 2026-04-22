@@ -687,7 +687,7 @@ GSTACK_PRO_SKILLS = [
             "期望输出形式（战略报告大纲 / 高层汇报材料 / 路线图 / 投资组合）："
         ),
         "estimated_time": "~25 min",
-        "max_tokens": 8192,
+        "max_tokens": 32768,
         "tools": DIGITAL_STRATEGY_TOOL_NAMES,
     },
     {

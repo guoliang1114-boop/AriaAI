@@ -42,7 +42,7 @@ SCHEDULER_ENABLED=true
 
 ### Examples
 ```python
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 8192
 DEFAULT_TEMPERATURE = 0.7
 CHUNK_SIZE = 800
 TOP_K_RESULTS = 5
@@ -94,7 +94,7 @@ Example: `max_tokens`
 value = (
     get_db_setting("max_tokens")  # Layer 3
     or os.getenv("MAX_TOKENS")     # Layer 1
-    or 4096                        # Layer 2
+    or 8192                        # Layer 2
 )
 ```
 

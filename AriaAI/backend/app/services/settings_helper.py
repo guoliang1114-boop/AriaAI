@@ -54,7 +54,7 @@ class LLMSettings:
     
     @property
     def max_tokens(self) -> int:
-        return get_int_setting(self._session, "max_tokens", 4096)
+        return get_int_setting(self._session, "max_tokens", 8192)
     
     @property
     def temperature(self) -> float:

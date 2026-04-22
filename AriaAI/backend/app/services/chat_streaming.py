@@ -27,6 +27,16 @@ from app.tools import registry
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 
 
+def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
+    """Keep long-output defaults aligned with provider/model limits."""
+    normalized = (model or "").lower()
+    if normalized.startswith(("kimi-k2.6", "kimi-k2.5")):
+        return min(max_tokens, 32768)
+    if normalized.startswith("claude-"):
+        return min(max_tokens, 8192)
+    return min(max_tokens, 8192)
+
+
 @dataclass
 class ChatRuntime:
     conv_id: int
@@ -94,7 +104,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
         tools=chat_ctx.tools,
-        max_tokens=chat_ctx.max_tokens,
+        max_tokens=_cap_max_tokens_for_model(selected_model, chat_ctx.max_tokens),
         temperature=temperature,
     )
 

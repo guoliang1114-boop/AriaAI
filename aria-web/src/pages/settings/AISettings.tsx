@@ -40,7 +40,7 @@ const models: AIModel[] = [
     name: 'Claude 3 Opus',
     provider: 'anthropic',
     description: 'Anthropic 最强大的模型，适合复杂推理和深度分析',
-    maxTokens: 4096,
+    maxTokens: 8192,
     supportsTools: true,
     supportsVision: true,
     icon: '🧠',
@@ -50,7 +50,7 @@ const models: AIModel[] = [
     name: 'Claude 3.5 Sonnet',
     provider: 'anthropic',
     description: '平衡性能与速度，适合大多数任务',
-    maxTokens: 4096,
+    maxTokens: 8192,
     supportsTools: true,
     supportsVision: true,
     icon: '🎯',
@@ -60,7 +60,7 @@ const models: AIModel[] = [
     name: 'Claude 3.5 Haiku',
     provider: 'anthropic',
     description: '快速响应，适合简单任务和实时交互',
-    maxTokens: 4096,
+    maxTokens: 8192,
     supportsTools: true,
     supportsVision: false,
     icon: '⚡',
@@ -201,7 +201,7 @@ export function AISettings() {
   
   // Parameters
   const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(4096)
+  const [maxTokens, setMaxTokens] = useState(8192)
   const [topP, setTopP] = useState(1.0)
   const [presencePenalty, setPresencePenalty] = useState(0)
   const [frequencyPenalty, setFrequencyPenalty] = useState(0)
@@ -422,6 +422,16 @@ export function AISettings() {
 
   const selectedModelData = models.find(m => m.id === selectedModel)
   const selectedProvider = selectedModelData?.provider || 'anthropic'
+
+  useEffect(() => {
+    if (!selectedModelData) return
+    setMaxTokens((current) => Math.min(current, selectedModelData.maxTokens))
+  }, [selectedModelData])
+
+  const handleModelSelect = (model: AIModel) => {
+    setSelectedModel(model.id)
+    setMaxTokens((current) => Math.min(current, model.maxTokens))
+  }
   
   // Only test connection for supported providers
   const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'bigmodel'].includes(provider)
@@ -490,7 +500,7 @@ export function AISettings() {
               {models.map(model => (
                 <div
                   key={model.id}
-                  onClick={() => setSelectedModel(model.id)}
+                  onClick={() => handleModelSelect(model)}
                   className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
                     selectedModel === model.id
                       ? 'border-primary bg-primary/5'
