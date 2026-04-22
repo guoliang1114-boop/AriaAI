@@ -149,9 +149,13 @@ def _to_user_friendly_error(error_msg: str) -> str:
 
 
 def _extract_artifact(result: dict) -> dict | None:
-    artifact_path = result.get("file_path") or result.get("path")
-    artifact_name = result.get("file_name") or result.get("name")
-    artifact_type = result.get("file_type")
+    source = result
+    if not (result.get("file_path") or result.get("path")) and isinstance(result.get("output"), dict):
+        source = result["output"]
+
+    artifact_path = source.get("file_path") or source.get("path")
+    artifact_name = source.get("file_name") or source.get("name")
+    artifact_type = source.get("file_type")
     if not artifact_path or not artifact_name or not artifact_type:
         return None
 
@@ -159,7 +163,7 @@ def _extract_artifact(result: dict) -> dict | None:
         "name": artifact_name,
         "file_type": artifact_type,
         "path": artifact_path,
-        "description": result.get("note") or result.get("message") or "",
+        "description": source.get("note") or source.get("message") or source.get("description") or "",
     }
 
 

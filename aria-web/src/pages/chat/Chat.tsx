@@ -363,6 +363,33 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   )
 }
 
+function artifactFromToolResult(result: any): GeneratedArtifact | null {
+  const source = result?.file_path || result?.path ? result : result?.output
+  if (!source) return null
+  const path = source.file_path || source.path
+  const name = source.file_name || source.name
+  const fileType = source.file_type
+  if (!path || !name || !fileType) return null
+  return {
+    id: source.id,
+    conversation_id: source.conversation_id,
+    project_id: source.project_id,
+    name,
+    file_type: fileType,
+    path,
+    size_bytes: source.size_bytes,
+    description: source.note || source.message || source.description || '',
+    created_at: source.created_at,
+  }
+}
+
+function mergeArtifacts(existing: GeneratedArtifact[], next: GeneratedArtifact | null) {
+  if (!next) return existing
+  const key = `${next.path}-${next.name}`
+  if (existing.some(item => `${item.path}-${item.name}` === key)) return existing
+  return [...existing, next]
+}
+
 const getPromptCards = (): PromptCard[] => [
   {
     icon: TrendingUp,
@@ -458,6 +485,7 @@ export function Chat() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
+  const [streamArtifacts, setStreamArtifacts] = useState<GeneratedArtifact[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)
@@ -835,6 +863,7 @@ export function Chat() {
     setConversation(null)
     setMessages([])
     setStreamingContent('')
+    setStreamArtifacts([])
     setSending(false)
     setLoading(false)
     setHasMore(false)
@@ -912,6 +941,7 @@ export function Chat() {
     setErrorMsg(null)
     streamingContentRef.current = ''
     setStreamingContent('')
+    setStreamArtifacts([])
     isStreamingRef.current = true
     setProgressSteps(advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。'))
 
@@ -990,6 +1020,7 @@ export function Chat() {
       updateTimerRef.current = null
       let streamDone = false
       let streamBuffer = ''
+      let collectedArtifacts: GeneratedArtifact[] = []
       const decoder = new TextDecoder()
 
       const flushUpdate = () => {
@@ -1025,6 +1056,11 @@ export function Chat() {
         } else if (data.type === 'tool_result') {
           setToolStatus(null)
           const result = data.result || {}
+          const artifact = artifactFromToolResult(result)
+          if (artifact) {
+            collectedArtifacts = mergeArtifacts(collectedArtifacts, artifact)
+            setStreamArtifacts(prev => mergeArtifacts(prev, artifact))
+          }
           const resultMessage = result.file_name
             ? `工具完成，已生成 ${result.file_name}`
             : result.error
@@ -1049,6 +1085,9 @@ export function Chat() {
           streamingConvIdRef.current = null
           await new Promise(r => setTimeout(r, 50))
           const completedProgressSteps = completeProgressSteps(progressStepsRef.current)
+          const finalArtifacts = Array.isArray(data.artifacts) && data.artifacts.length
+            ? data.artifacts
+            : collectedArtifacts
           const assistantMsg: Message = {
             id: Date.now() + 1,
             conversation_id: currentConvId!,
@@ -1057,7 +1096,7 @@ export function Chat() {
             metadata_json: JSON.stringify({
               references: data.references || [],
               tool_calls: data.tool_calls || [],
-              artifacts: data.artifacts || [],
+              artifacts: finalArtifacts,
               skill_progress: data.skill_progress || completedProgressSteps,
             }),
             created_at: new Date().toISOString(),
@@ -1069,6 +1108,7 @@ export function Chat() {
             setMessages(prev => [...prev, assistantMsg])
           }
           setStreamingContent('')
+          setStreamArtifacts([])
           streamingContentRef.current = ''
           isStreamingRef.current = false
           setIsThinking(false)
@@ -1481,6 +1521,9 @@ export function Chat() {
                         {streamingContent ? (
                           <>
                             <SkillProgressCard steps={progressSteps} />
+                            {streamArtifacts.map((artifact) => (
+                              <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
+                            ))}
                             <StreamingAnswerPreview content={streamingContent} compact={progressSteps.length > 0} />
                             {toolStatus && (
                               <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
@@ -2074,16 +2117,16 @@ function MessageRow({ message }: { message: Message }) {
       </div>
 
       {/* Content + actions */}
-      <div className={`flex-1 flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
         {/* Role label */}
         <p className="text-[11px] font-medium text-gray-300 mb-1.5 px-0.5">
           {isUser ? t('chat.you') : 'Aria'}
         </p>
 
-        <div className={`max-w-[85%] ${
+        <div className={`${
           isUser
-            ? 'px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]'
-            : 'text-[15px] leading-[1.8] text-gray-700'
+            ? 'max-w-[85%] px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]'
+            : 'w-full max-w-none text-[15px] leading-[1.8] text-gray-700'
         }`}>
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
