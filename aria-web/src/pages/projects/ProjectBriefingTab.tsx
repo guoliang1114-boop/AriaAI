@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Users } from "lucide-react";
 import { api } from "../../api/client";
-import type { ProjectDetail, ProjectMeetingBriefing } from "../../types/api";
+import type { ProjectDetail, ProjectMeetingBriefing, ProjectMeetingBriefingRefineResponse } from "../../types/api";
 
 interface ProjectBriefingTabProps {
   projectDetail: ProjectDetail;
@@ -127,6 +127,9 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [meetingTemplateId, setMeetingTemplateId] = useState<MeetingTemplateId>("status");
+  const [refinedBriefing, setRefinedBriefing] = useState<ProjectMeetingBriefingRefineResponse | null>(null);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineError, setRefineError] = useState("");
 
   const loadBriefing = async () => {
     setIsLoading(true);
@@ -143,14 +146,49 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   };
 
   useEffect(() => {
+    setRefinedBriefing(null);
+    setRefineError("");
     void loadBriefing();
   }, [projectId]);
+
+  useEffect(() => {
+    setRefinedBriefing(null);
+    setRefineError("");
+  }, [meetingTemplateId]);
 
   const project = briefing?.project ?? projectDetail.project;
   const generatedAt = briefing?.generated_at
     ? new Date(briefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
     : "";
   const selectedTemplate = MEETING_TEMPLATES.find((template) => template.id === meetingTemplateId) ?? MEETING_TEMPLATES[0];
+  const refinedGeneratedAt = refinedBriefing?.generated_at
+    ? new Date(refinedBriefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
+    : "";
+  const refineBriefing = async (forceRefresh = false) => {
+    setIsRefining(true);
+    setRefineError("");
+    try {
+      const data = await api.post<ProjectMeetingBriefingRefineResponse>(
+        `/projects/${projectId}/briefing/refine`,
+        {
+          meeting_type: meetingTemplateId,
+          language: isZh ? "zh" : "en",
+          force_refresh: forceRefresh,
+        },
+        { timeout: 60000 },
+      );
+      setRefinedBriefing(data);
+    } catch (err) {
+      console.error("Failed to refine project briefing:", err);
+      setRefineError(
+        isZh
+          ? "AI 精炼版生成失败，可能是模型繁忙或网络超时。确定性简报仍可继续使用。"
+          : "Failed to generate the AI-refined briefing. The deterministic briefing is still usable.",
+      );
+    } finally {
+      setIsRefining(false);
+    }
+  };
   const openChatWithBriefing = () => {
     if (!briefing) return;
     const prompt = [
@@ -167,8 +205,9 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
         "最近沟通来源",
         briefing.signals.communication_sources.map((source) => `${source.label}${source.role ? ` / ${source.role}` : ""}: ${source.excerpt}`),
       ),
+      refinedBriefing?.content ? `AI 精炼版\n${refinedBriefing.content}` : "",
       "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。",
-    ].join("\n\n");
+    ].filter(Boolean).join("\n\n");
     const params = new URLSearchParams({ q: prompt });
     navigate(`/projects/${projectId}/chat?${params.toString()}`);
   };
@@ -281,6 +320,66 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
             );
           })}
         </div>
+      </div>
+
+      <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+              <Sparkles className="h-4 w-4 text-emerald-600" />
+              {isZh ? "AI 精炼版会前简报" : "AI-refined meeting briefing"}
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-900/75">
+              {isZh
+                ? "确定性简报不调用模型；如果你需要更像“会前作战卡”的表达，可以手动生成一次 AI 精炼版。相同输入会优先使用缓存，降低 Kimi 限流风险。"
+                : "The deterministic briefing does not call the model. Generate this optional battle-card style summary manually; identical inputs reuse cache to reduce rate-limit pressure."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void refineBriefing(false)}
+              disabled={isRefining || !briefing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {isRefining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {refinedBriefing ? (isZh ? "读取/更新精炼版" : "Load refined") : isZh ? "生成 AI 精炼版" : "Generate refined"}
+            </button>
+            {refinedBriefing ? (
+              <button
+                type="button"
+                onClick={() => void refineBriefing(true)}
+                disabled={isRefining}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {isZh ? "重新精炼" : "Regenerate"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {refineError ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{refineError}</div>
+        ) : null}
+
+        {refinedBriefing ? (
+          <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/80 p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-emerald-700">
+              <span className="rounded-full bg-emerald-100 px-2 py-1">
+                {refinedBriefing.cached ? (isZh ? "缓存命中" : "Cache hit") : isZh ? "刚刚生成" : "Generated"}
+              </span>
+              {refinedGeneratedAt ? <span>{refinedGeneratedAt}</span> : null}
+            </div>
+            <div className="whitespace-pre-wrap text-sm leading-7 text-gray-800">{refinedBriefing.content}</div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-dashed border-emerald-200 bg-white/60 p-4 text-sm text-emerald-900/70">
+            {isZh
+              ? "还没有生成 AI 精炼版。日常快速扫读可以直接看下面的确定性简报；重要会议前再点一次生成即可。"
+              : "No AI-refined version yet. Use the deterministic briefing below for quick review, then generate this before important meetings."}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">

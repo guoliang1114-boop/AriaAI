@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import shutil
 from datetime import datetime, timedelta
@@ -638,6 +639,64 @@ def _build_project_briefing(session: Session, project_id: int) -> dict:
     }
 
 
+def _normalize_briefing_meeting_type(value: str | None) -> str:
+    normalized = (value or "status").strip().lower()
+    if normalized not in {"status", "executive", "risk", "commercial"}:
+        return "status"
+    return normalized
+
+
+def _briefing_cache_type(meeting_type: str) -> str:
+    return f"briefing:{_normalize_briefing_meeting_type(meeting_type)}"
+
+
+def _briefing_source_version(briefing: dict, meeting_type: str) -> int:
+    source = {
+        "meeting_type": _normalize_briefing_meeting_type(meeting_type),
+        "project": briefing.get("project", {}),
+        "client": briefing.get("client", {}),
+        "memory": briefing.get("memory", {}),
+        "client_memory": briefing.get("client_memory", {}),
+        "stakeholders": briefing.get("stakeholders", []),
+        "meeting_card": briefing.get("meeting_card", {}),
+        "signals": briefing.get("signals", {}),
+    }
+    payload = json.dumps(source, ensure_ascii=False, sort_keys=True, default=str)
+    return int(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12], 16) % 2_000_000_000 + 1
+
+
+def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, language: str | None) -> str:
+    normalized_language = normalize_summary_language(language)
+    output_language = "中文" if normalized_language == "zh" else "English"
+    meeting_type_label = {
+        "status": "项目例会 / status meeting",
+        "executive": "高层汇报 / executive briefing",
+        "risk": "风险沟通 / risk alignment",
+        "commercial": "商务推进 / commercial push",
+    }[_normalize_briefing_meeting_type(meeting_type)]
+    compact_briefing = dict(briefing)
+    compact_briefing.pop("generated_at", None)
+    return (
+        "你是资深项目负责人。请基于下面的确定性会前简报，生成一份可直接用于客户会议前准备的 AI 精炼版。\n"
+        f"输出语言：{output_language}\n"
+        f"会议类型：{meeting_type_label}\n\n"
+        "要求：\n"
+        "1. 不要编造未提供的事实。\n"
+        "2. 优先突出客户侧干系人、风险、确认事项和下一步推进动作。\n"
+        "3. 如果某部分输入不足，要明确写“暂无足够信息”，不要空泛发挥。\n"
+        "4. 使用清晰短标题，控制在 600-900 字以内。\n\n"
+        "建议结构：\n"
+        "- 30 秒会议判断\n"
+        "- 这次应该主打什么\n"
+        "- 需要谨慎表达的点\n"
+        "- 关键客户干系人策略\n"
+        "- 必问问题\n"
+        "- 会后行动清单\n\n"
+        "确定性简报 JSON：\n"
+        f"{json.dumps(compact_briefing, ensure_ascii=False, indent=2, default=str)}"
+    )
+
+
 def _record_project_memory_failure_by_id(
     project_id: int,
     *,
@@ -1101,6 +1160,12 @@ class InitPresalesTemplateRequest(BaseModel):
     overwrite: bool = False
 
 
+class ProjectBriefingRefineRequest(BaseModel):
+    meeting_type: str = "status"
+    language: Optional[str] = None
+    force_refresh: bool = False
+
+
 # ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -1156,6 +1221,91 @@ def get_project_detail(project_id: int, session: Session = Depends(get_session))
 def get_project_meeting_briefing(project_id: int, session: Session = Depends(get_session)):
     """Return a deterministic pre-meeting briefing assembled from memory and project signals."""
     return _build_project_briefing(session, project_id)
+
+
+@router.post("/{project_id}/briefing/refine")
+async def refine_project_meeting_briefing(
+    project_id: int,
+    body: ProjectBriefingRefineRequest,
+    session: Session = Depends(get_session),
+):
+    """Generate or reuse an AI-refined briefing for the current deterministic briefing payload."""
+    project = get_project_or_404(session, project_id)
+    meeting_type = _normalize_briefing_meeting_type(body.meeting_type)
+    normalized_language = normalize_summary_language(body.language)
+    briefing = _build_project_briefing(session, project_id)
+    cache_type = _briefing_cache_type(meeting_type)
+    source_version = _briefing_source_version(briefing, meeting_type)
+
+    if not body.force_refresh:
+        cached = get_project_memory_summary_cache(
+            session,
+            project_id=project_id,
+            summary_type=cache_type,
+            language=normalized_language,
+            memory_version=source_version,
+        )
+        if cached:
+            return {
+                "project_id": project_id,
+                "meeting_type": meeting_type,
+                "content": cached.content,
+                "source_memory_version": source_version,
+                "generated_at": cached.updated_at.isoformat(),
+                "cached": True,
+            }
+
+    lock_key = _project_summary_lock_key(project_id, cache_type, normalized_language, source_version)
+    summary_lock = _get_project_summary_lock(lock_key)
+    async with summary_lock:
+        if not body.force_refresh:
+            fresh_cached = get_project_memory_summary_cache(
+                session,
+                project_id=project_id,
+                summary_type=cache_type,
+                language=normalized_language,
+                memory_version=source_version,
+            )
+            if fresh_cached:
+                return {
+                    "project_id": project_id,
+                    "meeting_type": meeting_type,
+                    "content": fresh_cached.content,
+                    "source_memory_version": source_version,
+                    "generated_at": fresh_cached.updated_at.isoformat(),
+                    "cached": True,
+                }
+
+        try:
+            content = await complete_with_selected_model(
+                messages=[{"role": "user", "content": _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)}],
+                max_tokens=1800,
+            )
+        except Exception as e:
+            _set_project_memory_failure(
+                session,
+                project,
+                stage=f"briefing_refine:{meeting_type}",
+                message=str(e),
+            )
+            raise
+
+        cached = save_project_memory_summary_cache(
+            session,
+            project_id=project_id,
+            summary_type=cache_type,
+            language=normalized_language,
+            memory_version=source_version,
+            content=content.strip(),
+        )
+        return {
+            "project_id": project_id,
+            "meeting_type": meeting_type,
+            "content": cached.content,
+            "source_memory_version": source_version,
+            "generated_at": cached.updated_at.isoformat(),
+            "cached": False,
+        }
 
 
 @router.get("/meta/dashboard-summary")

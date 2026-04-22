@@ -562,6 +562,15 @@ export interface ProjectMeetingBriefing {
   generated_at: string
 }
 
+export interface ProjectMeetingBriefingRefineResponse {
+  project_id: number
+  meeting_type: string
+  content: string
+  source_memory_version: number
+  generated_at: string
+  cached?: boolean
+}
+
 // Skill
 export interface Skill {
   id: number

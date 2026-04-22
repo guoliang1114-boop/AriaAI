@@ -2050,6 +2050,59 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(body["signals"]["communication_sources"][1]["target"], "chat")
         self.assertIsNotNone(body["signals"]["communication_sources"][1]["conversation_id"])
 
+    def test_project_meeting_briefing_refine_uses_cache_for_same_sources(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Refine Project",
+                client="Acme",
+                status="delivering",
+                md_notes="客户关心上线节奏和风险边界。",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Launch readiness",
+                        "current_objective": "Align launch scope",
+                        "key_risks": ["Procurement delay"],
+                        "open_questions": ["Who confirms go-live?"],
+                        "next_actions": ["Share launch checklist"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=4,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        mock_complete = AsyncMock(return_value="30 秒判断：主打上线范围和采购风险。\n会后行动：发送清单。")
+        with patch.object(projects_router_module, "complete_with_selected_model", mock_complete):
+            first = self.client.post(
+                f"/projects/{project_id}/briefing/refine",
+                json={"meeting_type": "risk", "language": "zh"},
+            )
+            second = self.client.post(
+                f"/projects/{project_id}/briefing/refine",
+                json={"meeting_type": "risk", "language": "zh"},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["cached"])
+        self.assertTrue(second.json()["cached"])
+        self.assertEqual(first.json()["content"], second.json()["content"])
+        self.assertEqual(mock_complete.await_count, 1)
+
+        with Session(self.engine) as session:
+            cached = session.exec(
+                select(ProjectMemorySummary).where(
+                    ProjectMemorySummary.project_id == project_id,
+                    ProjectMemorySummary.summary_type == "briefing:risk",
+                    ProjectMemorySummary.language == "zh",
+                )
+            ).first()
+        self.assertIsNotNone(cached)
+
     def test_memory_jobs_list_exposes_rebuild_and_summary_warm_queue(self):
         with Session(self.engine) as session:
             project = Project(
