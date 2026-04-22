@@ -439,8 +439,6 @@ export function SkillCategoryPage() {
     });
   }, [activeCategoryInfo, activeType, search, skills]);
 
-  const featuredSkills = filteredSkills.slice(0, 2);
-  const regularSkills = filteredSkills.slice(2);
   const CategoryIcon = activeCategoryInfo?.id === "all" ? Layers3 : getCategoryIcon(activeCategoryInfo?.id || "all");
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
@@ -548,19 +546,11 @@ export function SkillCategoryPage() {
               <p className="mt-2 text-sm">{t("skills.createFirst")}</p>
             </div>
           ) : (
-            <>
-              <section className="mt-8 grid gap-6 lg:grid-cols-2">
-                {featuredSkills.map((skill) => (
-                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
-                ))}
-              </section>
-
-              <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-                {regularSkills.map((skill) => (
-                  <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
-                ))}
-              </section>
-            </>
+            <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+              {filteredSkills.map((skill) => (
+                <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
+              ))}
+            </section>
           )}
         </div>
       </div>
@@ -1069,54 +1059,6 @@ function CategoryShowcaseCard({
         </div>
       </div>
     </button>
-  );
-}
-
-function FeaturedSkillCard({
-  skill,
-  onUse,
-}: {
-  skill: SkillSummary;
-  onUse: () => void;
-}) {
-  const { i18n, t } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
-  const Icon = getCategoryIcon(skill.category);
-  const tone = getCategoryTone(skill.category);
-  const isQuick = extractMinutes(skill.estimated_time) <= 10;
-
-  return (
-    <div className="group overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.08)]">
-      <div className="flex items-start justify-between gap-4">
-        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${tone}`}>
-          <Icon className="h-6 w-6" />
-        </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>{skill.category}</span>
-      </div>
-
-      <h3 className="mt-5 text-xl font-semibold text-slate-900 transition-colors group-hover:text-primary">{skill.name}</h3>
-      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{skill.description}</p>
-
-      <div className="mt-6 flex items-center gap-3 text-sm text-slate-500">
-        <span className={`rounded-full px-3 py-1 ${isQuick ? "bg-emerald-50 text-emerald-700" : "bg-primary/10 text-primary"}`}>
-          {isQuick ? t("skills.types.quick") : t("skills.types.deep")}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Clock3 className="h-4 w-4" />
-          {skill.estimated_time || t("skills.timeFallback")}
-        </span>
-      </div>
-
-      <button
-        type="button"
-        onClick={onUse}
-        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary"
-      >
-        <BookOpen className="h-4 w-4" />
-        <span>{isZh ? "查看详情" : "View details"}</span>
-        <ArrowRight className="h-4 w-4" />
-      </button>
-    </div>
   );
 }
 
