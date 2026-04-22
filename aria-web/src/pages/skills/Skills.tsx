@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Users,
   Zap,
+  Layers3,
 } from "lucide-react";
 
 import { api } from "../../api/client";
@@ -31,28 +32,100 @@ const extractMinutes = (estimatedTime?: string) => {
 
 const normalizeCategory = (value: string) => value.replace(/\?/g, "").trim();
 
-const getCategoryIcon = (category: string) => {
+const getCategoryKey = (category: string) => {
   const normalized = normalizeCategory(category).toLowerCase();
-  if (normalized.includes("strategy")) return TrendingUp;
-  if (normalized.includes("market")) return Target;
-  if (normalized.includes("finance")) return DollarSign;
-  if (normalized.includes("risk")) return Shield;
-  if (normalized.includes("digital")) return Cpu;
-  if (normalized.includes("proposal")) return FileText;
-  if (normalized.includes("operation")) return Briefcase;
-  if (normalized.includes("org")) return Users;
-  if (normalized.includes("data")) return BarChart3;
+  if (normalized.includes("strategy") || normalized.includes("战略")) return "strategy";
+  if (normalized.includes("market") || normalized.includes("customer") || normalized.includes("市场") || normalized.includes("客户")) return "market";
+  if (normalized.includes("finance") || normalized.includes("财务")) return "finance";
+  if (normalized.includes("risk") || normalized.includes("compliance") || normalized.includes("风险") || normalized.includes("合规")) return "risk";
+  if (normalized.includes("digital") || normalized.includes("technology") || normalized.includes("数字化") || normalized.includes("技术")) return "digital";
+  if (normalized.includes("proposal") || normalized.includes("delivery") || normalized.includes("提案") || normalized.includes("交付")) return "proposals";
+  if (normalized.includes("operation") || normalized.includes("efficiency") || normalized.includes("运营") || normalized.includes("效能")) return "operations";
+  if (normalized.includes("org") || normalized.includes("talent") || normalized.includes("组织") || normalized.includes("人才")) return "org";
+  if (normalized.includes("m&a") || normalized.includes("transactions") || normalized.includes("并购") || normalized.includes("交易")) return "manda";
+  if (normalized.includes("data") || normalized.includes("数据")) return "data";
+  return "other";
+};
+
+const categoryOrder = ["all", "market", "org", "digital", "strategy", "operations", "finance", "risk", "proposals", "manda", "other"];
+
+const getCategoryIcon = (category: string) => {
+  const key = getCategoryKey(category);
+  if (key === "strategy") return TrendingUp;
+  if (key === "market") return Target;
+  if (key === "finance") return DollarSign;
+  if (key === "risk") return Shield;
+  if (key === "digital") return Cpu;
+  if (key === "proposals") return FileText;
+  if (key === "operations") return Briefcase;
+  if (key === "org") return Users;
+  if (key === "manda") return BarChart3;
+  if (key === "data") return BarChart3;
   return Brain;
 };
 
 const getCategoryTone = (category: string) => {
-  const normalized = normalizeCategory(category).toLowerCase();
-  if (normalized.includes("strategy")) return "bg-blue-50 text-blue-700 border-blue-100";
-  if (normalized.includes("market")) return "bg-emerald-50 text-emerald-700 border-emerald-100";
-  if (normalized.includes("finance")) return "bg-amber-50 text-amber-700 border-amber-100";
-  if (normalized.includes("risk")) return "bg-rose-50 text-rose-700 border-rose-100";
-  if (normalized.includes("digital")) return "bg-violet-50 text-violet-700 border-violet-100";
+  const key = getCategoryKey(category);
+  if (key === "strategy") return "bg-blue-50 text-blue-700 border-blue-100";
+  if (key === "market") return "bg-emerald-50 text-emerald-700 border-emerald-100";
+  if (key === "finance") return "bg-amber-50 text-amber-700 border-amber-100";
+  if (key === "risk") return "bg-rose-50 text-rose-700 border-rose-100";
+  if (key === "digital") return "bg-cyan-50 text-cyan-700 border-cyan-100";
+  if (key === "org") return "bg-orange-50 text-orange-700 border-orange-100";
+  if (key === "operations") return "bg-teal-50 text-teal-700 border-teal-100";
+  if (key === "proposals") return "bg-indigo-50 text-indigo-700 border-indigo-100";
   return "bg-slate-50 text-slate-700 border-slate-200";
+};
+
+const getCategoryDescription = (category: string, isZh: boolean) => {
+  const key = getCategoryKey(category);
+  const descriptions: Record<string, { zh: string; en: string }> = {
+    all: {
+      zh: "浏览全部能力，适合还不确定要从哪个咨询场景开始。",
+      en: "Browse every capability when you are still choosing the right consulting angle.",
+    },
+    market: {
+      zh: "客户洞察、市场进入、GTM、画像与增长策略。",
+      en: "Customer insight, market entry, GTM, personas, and growth strategy.",
+    },
+    org: {
+      zh: "组织设计、人才机制、OKR、变革管理与协同效率。",
+      en: "Organization design, talent systems, OKRs, change, and collaboration.",
+    },
+    digital: {
+      zh: "数字化战略、AI 场景、架构、数据治理、流程与 ROI。",
+      en: "Digital strategy, AI use cases, architecture, data governance, process, and ROI.",
+    },
+    strategy: {
+      zh: "战略判断、增长机会、竞争分析与业务组合设计。",
+      en: "Strategic choices, growth opportunities, competition, and portfolio design.",
+    },
+    operations: {
+      zh: "运营诊断、根因分析、效率提升与流程优化。",
+      en: "Operational diagnosis, root causes, efficiency, and process improvement.",
+    },
+    finance: {
+      zh: "财务诊断、商业案例、投资测算与决策支持。",
+      en: "Financial diagnostics, business cases, investment modeling, and decisions.",
+    },
+    risk: {
+      zh: "风险识别、合规差距、控制机制与审查清单。",
+      en: "Risk discovery, compliance gaps, controls, and review checklists.",
+    },
+    proposals: {
+      zh: "提案、交付审查、项目启动和项目复盘。",
+      en: "Proposals, delivery review, project kickoff, and retrospectives.",
+    },
+    manda: {
+      zh: "并购、交易、尽调和整合规划。",
+      en: "M&A, transactions, due diligence, and integration planning.",
+    },
+    other: {
+      zh: "其他可复用的专业能力。",
+      en: "Other reusable expert capabilities.",
+    },
+  };
+  return isZh ? descriptions[key]?.zh || descriptions.other.zh : descriptions[key]?.en || descriptions.other.en;
 };
 
 export function Skills() {
@@ -97,18 +170,32 @@ export function Skills() {
     navigate(targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`);
   };
 
-  const categories = useMemo(
-    () => [
-      { id: "all", label: t("skills.categories.all") },
-      ...Array.from(new Map(skills.map((skill) => [normalizeCategory(skill.category), skill.category])).values()).map(
-        (category) => ({
-          id: category,
-          label: category,
-        }),
-      ),
-    ],
-    [skills, t],
-  );
+  const categories = useMemo(() => {
+    const categoryMap = new Map<string, { id: string; label: string; count: number }>();
+    skills.forEach((skill) => {
+      const id = normalizeCategory(skill.category);
+      const current = categoryMap.get(id);
+      categoryMap.set(id, {
+        id,
+        label: skill.category,
+        count: (current?.count ?? 0) + 1,
+      });
+    });
+
+    const sorted = Array.from(categoryMap.values()).sort((a, b) => {
+      const aOrder = categoryOrder.indexOf(getCategoryKey(a.id));
+      const bOrder = categoryOrder.indexOf(getCategoryKey(b.id));
+      const safeAOrder = aOrder === -1 ? categoryOrder.length : aOrder;
+      const safeBOrder = bOrder === -1 ? categoryOrder.length : bOrder;
+      if (safeAOrder !== safeBOrder) return safeAOrder - safeBOrder;
+      return b.count - a.count;
+    });
+
+    return [
+      { id: "all", label: t("skills.categories.all"), count: skills.length },
+      ...sorted,
+    ];
+  }, [skills, t]);
 
   const filteredSkills = useMemo(() => {
     return skills.filter((skill) => {
@@ -133,6 +220,7 @@ export function Skills() {
 
   const featuredSkills = filteredSkills.slice(0, 2);
   const regularSkills = filteredSkills.slice(2);
+  const activeCategoryInfo = categories.find((category) => category.id === activeCategory) ?? categories[0];
   const hasProjectSource = Boolean(projectId);
   const hasClientSource = Boolean(clientId && !projectId);
   const clientTargetText = clientProjectId
@@ -159,25 +247,50 @@ export function Skills() {
       <PageTitle title={t("skills.title")} />
       <div className="min-h-full bg-[linear-gradient(180deg,#f7f8fb_0%,#eef3f8_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#dcecff_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
-            <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#d6f5f3_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
+            <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-emerald-200/40 blur-3xl" />
+            <div className="absolute -bottom-24 left-16 h-52 w-52 rounded-full bg-sky-200/35 blur-3xl" />
             <div className="relative">
-              <div className="max-w-3xl">
+              <div className="grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
+                <div className="max-w-3xl">
                 <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white/80 px-3 py-1.5 text-xs font-medium text-primary shadow-sm backdrop-blur">
                   <Brain className="h-3.5 w-3.5" />
                   <span>{t("skills.title")}</span>
                 </div>
                 <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-slate-900">
-                  {t("skills.workbenchTitle")}
+                  {isZh ? "按能力分类启动 Skill" : "Start with capability categories"}
                 </h1>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                  {t("skills.workbenchSubtitle")}
+                  {isZh
+                    ? "先选择咨询能力领域，再挑选具体 Skill。市场与客户、组织与人才、数字化转型这些分类，才是用户真正理解工作的方式。"
+                    : "Choose the consulting capability first, then pick the specific Skill. Categories mirror how users think about the work."}
                 </p>
+                </div>
+                <div className="rounded-3xl border border-white/70 bg-white/75 p-5 shadow-sm backdrop-blur">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-slate-900 p-3 text-white">
+                      <Layers3 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-950">
+                        {isZh ? "当前能力地图" : "Capability map"}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {isZh ? `${categories.length - 1} 个分类，${skills.length} 个 Skill` : `${categories.length - 1} categories, ${skills.length} skills`}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-slate-600">
+                    {isZh
+                      ? "搜索仍然保留，但默认路径变为：先选分类，再在分类内寻找合适能力。"
+                      : "Search stays available, but the default path is now category first, search second."}
+                  </p>
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur">
+          <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
             {hasProjectSource ? (
               <LaunchSourceBanner
                 buttonLabel={isZh ? "返回项目空间" : "Back to project"}
@@ -202,38 +315,47 @@ export function Skills() {
               />
             ) : null}
 
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="relative w-full min-w-0 flex-1 xl:max-w-2xl">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-950">
+                  {isZh ? "选择能力分类" : "Choose a capability category"}
+                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  {isZh ? "分类是主入口；搜索用于在当前分类里精确定位。" : "Categories are the primary entry; search narrows within the selected category."}
+                </p>
+              </div>
+              <div className="relative w-full min-w-0 md:max-w-md">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t("skills.searchPlaceholder")}
+                  placeholder={isZh ? "在当前分类内搜索 Skill" : "Search within this category"}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
                 />
               </div>
+            </div>
 
-              <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
-                <div className="relative min-w-[220px] xl:min-w-[260px]">
-                  <select
-                    value={activeCategory}
-                    onChange={(event) => setActiveCategory(event.target.value)}
-                    className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-4 pr-10 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
-                  >
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {categories.map((category) => (
+                <CategoryTile
+                  key={category.id}
+                  category={category}
+                  isActive={activeCategory === category.id}
+                  isZh={isZh}
+                  onClick={() => setActiveCategory(category.id)}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{activeCategoryInfo?.label}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {getCategoryDescription(activeCategoryInfo?.id || "all", isZh)}
                 </div>
-
-                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1">
                   {(["all", "quick", "deep"] as const).map((type) => (
                     <button
                       key={type}
@@ -322,6 +444,46 @@ function LaunchSourceBanner({
         </button>
       </div>
     </div>
+  );
+}
+
+function CategoryTile({
+  category,
+  isActive,
+  isZh,
+  onClick,
+}: {
+  category: { id: string; label: string; count: number };
+  isActive: boolean;
+  isZh: boolean;
+  onClick: () => void;
+}) {
+  const Icon = category.id === "all" ? Layers3 : getCategoryIcon(category.id);
+  const tone = category.id === "all" ? "bg-slate-900 text-white border-slate-900" : getCategoryTone(category.id);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group rounded-2xl border p-4 text-left transition ${
+        isActive
+          ? "border-slate-900 bg-slate-950 text-white shadow-[0_18px_36px_rgba(15,23,42,0.16)]"
+          : "border-slate-200 bg-white text-slate-900 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-xl border ${isActive ? "border-white/15 bg-white/10 text-white" : tone}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-600"}`}>
+          {category.count}
+        </div>
+      </div>
+      <div className="mt-4 text-sm font-semibold">{category.label}</div>
+      <p className={`mt-2 line-clamp-2 text-xs leading-5 ${isActive ? "text-white/70" : "text-slate-500"}`}>
+        {getCategoryDescription(category.id, isZh)}
+      </p>
+    </button>
   );
 }
 
