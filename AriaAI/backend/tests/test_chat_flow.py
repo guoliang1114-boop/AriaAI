@@ -4154,6 +4154,23 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         strategy = next(skill for skill in digital_skills if skill.name == "数字化战略设计")
         self.assertIn("数字化战略方案", strategy.user_template)
         self.assertIn("业务战略", strategy.system_prompt)
+        self.assertIn("Huawei 5-See 3-Define", strategy.system_prompt)
+        self.assertIn("Foundation", strategy.system_prompt)
+
+    def test_digital_strategy_file_skill_assets_exist(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        skill_dir = repo_root / "skills" / "digital-strategy"
+
+        self.assertTrue((skill_dir / "SKILL.md").exists())
+        self.assertTrue((skill_dir / "references" / "frameworks.md").exists())
+        self.assertTrue((skill_dir / "references" / "industry-notes.md").exists())
+
+        skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        framework_text = (skill_dir / "references" / "frameworks.md").read_text(encoding="utf-8")
+        industry_text = (skill_dir / "references" / "industry-notes.md").read_text(encoding="utf-8")
+        self.assertIn("name: digital-strategy", skill_text)
+        self.assertIn("Huawei 5-See 3-Define", framework_text)
+        self.assertIn("Manufacturing", industry_text)
 
 
     def test_get_skill_detail_by_id(self):
