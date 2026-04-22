@@ -412,17 +412,7 @@ export function Skills() {
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
-  const [categorySearch, setCategorySearch] = useState("");
   const serviceLines = useMemo(() => buildServiceLines(categories, isZh), [categories, isZh]);
-
-  const visibleCategories = useMemo(() => {
-    const keyword = categorySearch.trim().toLowerCase();
-    if (!keyword) return categories;
-    return categories.filter((category) => {
-      const description = getCategoryDescription(category.id, isZh).toLowerCase();
-      return category.label.toLowerCase().includes(keyword) || description.includes(keyword);
-    });
-  }, [categories, categorySearch, isZh]);
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
@@ -516,39 +506,6 @@ export function Skills() {
             </div>
           </section>
 
-          <section className="mt-6 rounded-[1.75rem] border border-white/80 bg-white/85 p-5 shadow-sm backdrop-blur">
-            <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
-
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950">{isZh ? "能力分类" : "Capability categories"}</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {isZh ? "点击任意分类进入详情页，在里面查看并启动具体能力。" : "Click any category to view and launch its specific Skills."}
-                </p>
-              </div>
-              <div className="relative w-full md:max-w-sm">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={categorySearch}
-                  onChange={(event) => setCategorySearch(event.target.value)}
-                  placeholder={isZh ? "搜索能力分类" : "Search categories"}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {visibleCategories.map((category, index) => (
-                <CategoryShowcaseCard
-                  key={category.id}
-                  category={category}
-                  index={index}
-                  isZh={isZh}
-                  onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                />
-              ))}
-            </div>
-          </section>
         </div>
       </div>
     </>
@@ -1325,52 +1282,6 @@ function ServiceLineCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function CategoryShowcaseCard({
-  category,
-  index,
-  isZh,
-  onClick,
-}: {
-  category: SkillCategory;
-  index: number;
-  isZh: boolean;
-  onClick: () => void;
-}) {
-  const Icon = category.id === "all" ? Layers3 : getCategoryIcon(category.id);
-  const isHero = index > 0 && index <= 3;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group relative overflow-hidden rounded-[1.75rem] border p-5 text-left transition hover:-translate-y-1 hover:shadow-[0_20px_48px_rgba(15,23,42,0.08)] ${
-        isHero ? "border-slate-200 bg-white text-slate-950" : "border-slate-200 bg-white text-slate-950"
-      }`}
-    >
-      {isHero ? <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(category.id)} opacity-70`} /> : null}
-      <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/70 blur-2xl" />
-      <div className="relative">
-        <div className="flex items-start justify-between gap-4">
-          <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${getCategoryTone(category.id)}`}>
-            <Icon className="h-6 w-6" />
-          </div>
-          <div className="rounded-full bg-white/75 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-            {category.count} Skills
-          </div>
-        </div>
-        <h3 className="mt-6 text-xl font-semibold">{category.label}</h3>
-        <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-500">
-          {getCategoryDescription(category.id, isZh)}
-        </p>
-        <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-          {isZh ? "进入分类" : "Open category"}
-          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
-        </div>
-      </div>
-    </button>
   );
 }
 
