@@ -50,12 +50,23 @@ const normalizeCategory = (value: string) => value.replace(/\?/g, "").trim();
 
 const getCategoryKey = (category: string) => {
   const normalized = normalizeCategory(category).toLowerCase();
+  if (
+    normalized.includes("proposal") ||
+    normalized.includes("delivery") ||
+    normalized.includes("deep task") ||
+    normalized.includes("deep_task") ||
+    normalized.includes("quick tool") ||
+    normalized.includes("quick_tool") ||
+    normalized.includes("guided workflow") ||
+    normalized.includes("guided_workflow") ||
+    normalized.includes("提案") ||
+    normalized.includes("交付")
+  ) return "common";
   if (normalized.includes("strategy") || normalized.includes("战略")) return "strategy";
   if (normalized.includes("market") || normalized.includes("customer") || normalized.includes("市场") || normalized.includes("客户")) return "market";
   if (normalized.includes("finance") || normalized.includes("财务")) return "finance";
   if (normalized.includes("risk") || normalized.includes("compliance") || normalized.includes("风险") || normalized.includes("合规")) return "risk";
   if (normalized.includes("digital") || normalized.includes("technology") || normalized.includes("数字化") || normalized.includes("技术")) return "digital";
-  if (normalized.includes("proposal") || normalized.includes("delivery") || normalized.includes("提案") || normalized.includes("交付")) return "proposals";
   if (normalized.includes("operation") || normalized.includes("efficiency") || normalized.includes("运营") || normalized.includes("效能")) return "operations";
   if (normalized.includes("org") || normalized.includes("talent") || normalized.includes("组织") || normalized.includes("人才")) return "org";
   if (normalized.includes("m&a") || normalized.includes("transactions") || normalized.includes("并购") || normalized.includes("交易")) return "manda";
@@ -63,7 +74,7 @@ const getCategoryKey = (category: string) => {
   return "other";
 };
 
-const categoryOrder = ["all", "market", "org", "digital", "strategy", "operations", "finance", "risk", "proposals", "manda", "data", "other"];
+const categoryOrder = ["all", "market", "org", "digital", "common", "strategy", "operations", "finance", "risk", "manda", "data", "other"];
 
 const getCategoryIcon = (category: string) => {
   const key = getCategoryKey(category);
@@ -72,7 +83,7 @@ const getCategoryIcon = (category: string) => {
   if (key === "finance") return DollarSign;
   if (key === "risk") return Shield;
   if (key === "digital") return Cpu;
-  if (key === "proposals") return FileText;
+  if (key === "common") return FileText;
   if (key === "operations") return Briefcase;
   if (key === "org") return Users;
   if (key === "manda") return BarChart3;
@@ -89,7 +100,7 @@ const getCategoryTone = (category: string) => {
   if (key === "digital") return "bg-cyan-50 text-cyan-700 border-cyan-100";
   if (key === "org") return "bg-orange-50 text-orange-700 border-orange-100";
   if (key === "operations") return "bg-teal-50 text-teal-700 border-teal-100";
-  if (key === "proposals") return "bg-indigo-50 text-indigo-700 border-indigo-100";
+  if (key === "common") return "bg-indigo-50 text-indigo-700 border-indigo-100";
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
 
@@ -98,6 +109,7 @@ const getCategoryGradient = (category: string) => {
   if (key === "market") return "from-emerald-50 via-teal-50 to-sky-50";
   if (key === "org") return "from-orange-50 via-amber-50 to-rose-50";
   if (key === "digital") return "from-cyan-50 via-blue-50 to-indigo-50";
+  if (key === "common") return "from-indigo-50 via-slate-50 to-emerald-50";
   if (key === "strategy") return "from-blue-50 via-indigo-50 to-violet-50";
   if (key === "finance") return "from-amber-50 via-orange-50 to-yellow-50";
   if (key === "risk") return "from-rose-50 via-red-50 to-orange-50";
@@ -139,9 +151,9 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
       zh: "风险识别、合规差距、控制机制与审查清单。",
       en: "Risk discovery, compliance gaps, controls, and review checklists.",
     },
-    proposals: {
-      zh: "提案、交付审查、项目启动和项目复盘。",
-      en: "Proposals, delivery review, project kickoff, and retrospectives.",
+    common: {
+      zh: "通用任务、提案交付、项目复盘、深度分析和跨场景工作流。",
+      en: "General tasks, proposal delivery, retrospectives, deep analysis, and cross-scenario workflows.",
     },
     manda: {
       zh: "并购、交易、尽调和整合规划。",
@@ -157,6 +169,25 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
     },
   };
   return isZh ? descriptions[key]?.zh || descriptions.other.zh : descriptions[key]?.en || descriptions.other.en;
+};
+
+const getCategoryLabel = (category: string, isZh: boolean) => {
+  const key = getCategoryKey(category);
+  const labels: Record<string, { zh: string; en: string }> = {
+    all: { zh: "全部能力", en: "All capabilities" },
+    market: { zh: "市场与客户", en: "Market & Customers" },
+    org: { zh: "组织与人才", en: "Organization & Talent" },
+    digital: { zh: "数字化与技术", en: "Digital & Technology" },
+    common: { zh: "通用能力", en: "General Capabilities" },
+    strategy: { zh: "战略与增长", en: "Strategy & Growth" },
+    operations: { zh: "运营与效能", en: "Operations & Efficiency" },
+    finance: { zh: "财务咨询", en: "Finance" },
+    risk: { zh: "风险与合规", en: "Risk & Compliance" },
+    manda: { zh: "并购与交易", en: "M&A & Transactions" },
+    data: { zh: "数据与洞察", en: "Data & Insights" },
+    other: { zh: "其他能力", en: "Other Capabilities" },
+  };
+  return isZh ? labels[key]?.zh || labels.other.zh : labels[key]?.en || labels.other.en;
 };
 
 const safeDecode = (value?: string) => {
@@ -196,14 +227,14 @@ const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
   return targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`;
 };
 
-const buildCategories = (skills: SkillSummary[], allLabel: string) => {
+const buildCategories = (skills: SkillSummary[], allLabel: string, isZh: boolean) => {
   const categoryMap = new Map<string, SkillCategory>();
   skills.forEach((skill) => {
-    const id = normalizeCategory(skill.category);
+    const id = getCategoryKey(skill.category);
     const current = categoryMap.get(id);
     categoryMap.set(id, {
       id,
-      label: skill.category,
+      label: getCategoryLabel(skill.category, isZh),
       count: (current?.count ?? 0) + 1,
     });
   });
@@ -220,7 +251,7 @@ const buildCategories = (skills: SkillSummary[], allLabel: string) => {
   return [{ id: "all", label: allLabel, count: skills.length }, ...sorted];
 };
 
-function useSkillsData(allLabel: string) {
+function useSkillsData(allLabel: string, isZh: boolean) {
   const [loading, setLoading] = useState(true);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
 
@@ -240,7 +271,7 @@ function useSkillsData(allLabel: string) {
     void fetchSkills();
   }, []);
 
-  const categories = useMemo(() => buildCategories(skills, allLabel), [allLabel, skills]);
+  const categories = useMemo(() => buildCategories(skills, allLabel, isZh), [allLabel, isZh, skills]);
 
   return { categories, loading, skills };
 }
@@ -295,7 +326,7 @@ export function Skills() {
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
-  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"));
+  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
   const [categorySearch, setCategorySearch] = useState("");
 
   const visibleCategories = useMemo(() => {
@@ -411,14 +442,15 @@ export function SkillCategoryPage() {
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
-  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"));
+  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState<SkillTypeFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const activeCategory = safeDecode(categoryId);
 
   const activeCategoryInfo = useMemo(() => {
-    return categories.find((category) => normalizeCategory(category.id) === normalizeCategory(activeCategory)) ?? categories[0];
+    const activeKey = activeCategory === "all" ? "all" : getCategoryKey(activeCategory);
+    return categories.find((category) => category.id === activeKey) ?? categories[0];
   }, [activeCategory, categories]);
 
   const filteredSkills = useMemo(() => {
@@ -430,7 +462,7 @@ export function SkillCategoryPage() {
         skill.description.toLowerCase().includes(normalizedSearch) ||
         skill.category.toLowerCase().includes(normalizedSearch);
       const matchesCategory =
-        activeCategoryInfo?.id === "all" || normalizeCategory(skill.category) === normalizeCategory(activeCategoryInfo?.id || "all");
+        activeCategoryInfo?.id === "all" || getCategoryKey(skill.category) === activeCategoryInfo?.id;
       const minutes = extractMinutes(skill.estimated_time);
       const isQuick = minutes <= 10;
       const matchesType =
@@ -633,7 +665,7 @@ export function SkillDetailPage() {
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => navigate(buildCategoryPath(normalizeCategory(skill.category), launchSource.searchParams))}
+              onClick={() => navigate(buildCategoryPath(getCategoryKey(skill.category), launchSource.searchParams))}
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -657,7 +689,7 @@ export function SkillDetailPage() {
                 <div className="mb-4 flex flex-wrap items-center gap-3">
                   <span className={`inline-flex items-center gap-2 rounded-full border bg-white/75 px-3 py-1.5 text-xs font-semibold ${tone}`}>
                     <Icon className="h-3.5 w-3.5" />
-                    {skill.category}
+                    {getCategoryLabel(skill.category, isZh)}
                   </span>
                   <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3 py-1.5 text-xs font-semibold text-slate-600">
                     <Clock3 className="h-3.5 w-3.5" />
@@ -921,7 +953,7 @@ function buildOutputHints(skill: Skill | null, isZh: boolean) {
     digital: isZh ? ["数字化场景拆解", "系统、数据、流程或 ROI 建议"] : ["Digital use-case breakdown", "System, data, process, or ROI recommendations"],
     finance: isZh ? ["财务影响判断", "关键假设和测算框架"] : ["Financial impact assessment", "Key assumptions and modeling frame"],
     risk: isZh ? ["风险清单", "缓释措施和责任建议"] : ["Risk register", "Mitigation actions and ownership suggestions"],
-    proposals: isZh ? ["交付结构", "提案/复盘/启动材料草稿"] : ["Delivery structure", "Proposal, retrospective, or kickoff draft"],
+    common: isZh ? ["通用任务结构", "提案/交付/复盘/深度分析草稿"] : ["General task structure", "Proposal, delivery, retrospective, or deep-analysis draft"],
   };
   return [...(byCategory[key] || []), ...common].slice(0, 5);
 }
@@ -1170,6 +1202,7 @@ function SkillCard({
   const Icon = getCategoryIcon(skill.category);
   const tone = getCategoryTone(skill.category);
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
+  const categoryLabel = getCategoryLabel(skill.category, isZh);
 
   return (
     <div className="flex h-full flex-col rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -1177,7 +1210,7 @@ function SkillCard({
         <div className={`flex h-11 w-11 items-center justify-center rounded-xl border ${tone}`}>
           <Icon className="h-5 w-5" />
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${tone}`}>{skill.category}</span>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${tone}`}>{categoryLabel}</span>
       </div>
 
       <h4 className="mt-4 text-base font-semibold text-slate-900">{skill.name}</h4>
