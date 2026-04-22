@@ -530,6 +530,7 @@ export function Chat() {
   const streamingContentRef = useRef('')
   const progressStepsRef = useRef<ChatProgressStep[]>([])
   const isStreamingRef = useRef(false)
+  const skillRunActiveRef = useRef(false)
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -890,6 +891,7 @@ export function Chat() {
     setHasMore(false)
     setErrorMsg(null)
     setProgressSteps([])
+    skillRunActiveRef.current = false
     navigate('/chat', { replace: true })
   }
 
@@ -965,6 +967,7 @@ export function Chat() {
     setStreamingContent('')
     setStreamArtifacts([])
     isStreamingRef.current = true
+    skillRunActiveRef.current = !!skillForThisMessage
     setProgressSteps(skillForThisMessage ? advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。') : [])
 
     const controller = new AbortController()
@@ -1064,14 +1067,17 @@ export function Chat() {
           }
         } else if (data.type === 'status') {
           if (data.message) {
-            setToolStatus(data.message)
-            const stepIndex = STAGE_STEP_INDEX[data.stage as string]
-            if (stepIndex !== undefined) {
-              setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), stepIndex, data.message, data.message))
+            if (skillRunActiveRef.current) {
+              setToolStatus(data.message)
+              const stepIndex = STAGE_STEP_INDEX[data.stage as string]
+              if (stepIndex !== undefined) {
+                setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), stepIndex, data.message, data.message))
+              }
             }
             setIsThinking(true)
           }
         } else if (data.type === 'tool_executing') {
+          skillRunActiveRef.current = true
           setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
           const toolMessage = data.message || `正在执行 ${data.tool_name || '工具'}...`
           setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 2, toolMessage, toolMessage))
@@ -1106,10 +1112,12 @@ export function Chat() {
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
           await new Promise(r => setTimeout(r, 50))
-          const completedProgressSteps = completeProgressSteps(progressStepsRef.current)
+          const hasSkillProgress = skillRunActiveRef.current || Array.isArray(data.skill_progress)
+          const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
           const finalArtifacts = Array.isArray(data.artifacts) && data.artifacts.length
             ? data.artifacts
             : collectedArtifacts
+          const finalToolCalls = data.tool_calls || []
           const assistantMsg: Message = {
             id: Date.now() + 1,
             conversation_id: currentConvId!,
@@ -1117,9 +1125,9 @@ export function Chat() {
             content: assistantContent,
             metadata_json: JSON.stringify({
               references: data.references || [],
-              tool_calls: data.tool_calls || [],
+              tool_calls: finalToolCalls,
               artifacts: finalArtifacts,
-              skill_progress: data.skill_progress || completedProgressSteps,
+              skill_progress: hasSkillProgress ? (data.skill_progress || completedProgressSteps) : undefined,
             }),
             created_at: new Date().toISOString(),
           }
@@ -1133,9 +1141,10 @@ export function Chat() {
           setStreamArtifacts([])
           streamingContentRef.current = ''
           isStreamingRef.current = false
+          skillRunActiveRef.current = false
           setIsThinking(false)
           setToolStatus(null)
-          setProgressSteps(completedProgressSteps)
+          setProgressSteps(hasSkillProgress ? completedProgressSteps : [])
 
           // Refresh conversation list to pick up the auto-generated title.
           // Delay to allow backend background title generation to complete first.
@@ -1244,7 +1253,8 @@ export function Chat() {
           : false
         if (recovered) {
           setToolStatus(null)
-          setProgressSteps(prev => completeProgressSteps(prev))
+          setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : [])
+          skillRunActiveRef.current = false
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
           return
@@ -1279,6 +1289,7 @@ export function Chat() {
       }
       setIsThinking(false)
       isStreamingRef.current = false
+      skillRunActiveRef.current = false
       // Clear partial streaming content
       if (streamingContentRef.current) {
         setStreamingContent('')
