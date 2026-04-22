@@ -4156,6 +4156,45 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("业务战略", strategy.system_prompt)
 
 
+    def test_get_skill_detail_by_id(self):
+        with Session(self.engine) as session:
+            skill = Skill(
+                name="Detail Skill",
+                category="Digital",
+                description="Detail page skill",
+                system_prompt="System prompt",
+                user_template="User template",
+                estimated_time="~5 min",
+                tools_definition_json="[]",
+            )
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            skill_id = skill.id
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app = FastAPI()
+        app.include_router(skills_router_module.router)
+        app.dependency_overrides[skills_router_module.get_session] = override_session
+        client = TestClient(app)
+        try:
+            resp = client.get(f"/skills/{skill_id}")
+            missing_resp = client.get("/skills/999999")
+        finally:
+            client.close()
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["id"], skill_id)
+        self.assertEqual(body["name"], "Detail Skill")
+        self.assertEqual(body["system_prompt"], "System prompt")
+        self.assertEqual(body["user_template"], "User template")
+        self.assertEqual(missing_resp.status_code, 404)
+
+
 class MessageRouterTestCase(unittest.TestCase):
     def setUp(self):
         fd, db_path = tempfile.mkstemp(suffix=".db")

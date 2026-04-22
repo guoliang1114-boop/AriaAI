@@ -103,6 +103,14 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
     return result
 
 
+@router.get("/{skill_id}")
+def get_skill(skill_id: int, session: Session = Depends(get_session)):
+    skill = session.get(Skill, skill_id)
+    if not skill:
+        raise HTTPException(404, "Skill not found")
+    return skill
+
+
 @router.post("", status_code=201)
 def create_skill(data: SkillCreate, session: Session = Depends(get_session)):
     skill = Skill(**data.model_dump())
