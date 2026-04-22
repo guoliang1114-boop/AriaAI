@@ -214,6 +214,18 @@ def _add_card(slide, x, y, w, h, *, fill: str = "F8FAFC", line: str = "E2E8F0"):
     return shape
 
 
+def _add_shape(slide, shape_type, x, y, w, h, *, fill: str = "E0F2FE", line: str = "BAE6FD"):
+    from pptx.dml.color import RGBColor
+    from pptx.util import Pt
+
+    shape = slide.shapes.add_shape(shape_type, x, y, w, h)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor.from_string(fill)
+    shape.line.color.rgb = RGBColor.from_string(line)
+    shape.line.width = Pt(1)
+    return shape
+
+
 def _split_bullets(content: str, limit: int = 6) -> list[str]:
     bullets: list[str] = []
     for raw in content.splitlines():
@@ -253,12 +265,64 @@ def _add_slide_footer(slide, label: str = "AriaAI generated deck"):
     _add_textbox(slide, Inches(0.65), Inches(7.08), Inches(5.5), Inches(0.25), label, size=8, color="94A3B8")
 
 
+def _add_consulting_visual_panel(slide, x, y, w, h, bullets: list[str]):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _add_card(slide, x, y, w, h, fill="F8FAFC", line="CBD5E1")
+    _add_textbox(slide, x + Inches(0.22), y + Inches(0.18), w - Inches(0.44), Inches(0.35), "Strategic lens", size=12, bold=True, color="0F172A")
+
+    colors = ["2563EB", "16A34A", "F59E0B"]
+    labels = ["Value", "Data", "Scale"]
+    for idx, label in enumerate(labels):
+        top = y + Inches(0.78 + idx * 0.78)
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.26), top, Inches(0.36), Inches(0.36), fill=colors[idx], line=colors[idx])
+        _add_textbox(slide, x + Inches(0.72), top - Inches(0.03), w - Inches(1.0), Inches(0.32), label, size=11, bold=True, color="334155")
+        bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x + Inches(0.72), top + Inches(0.33), Inches(1.6 + idx * 0.32), Inches(0.08))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = RGBColor.from_string(colors[idx])
+        bar.line.fill.background()
+
+    insight = bullets[0] if bullets else "Align digital investments with measurable business outcomes."
+    _add_card(slide, x + Inches(0.22), y + Inches(3.25), w - Inches(0.44), Inches(1.05), fill="EEF2FF", line="C7D2FE")
+    _add_textbox(slide, x + Inches(0.42), y + Inches(3.42), w - Inches(0.84), Inches(0.58), insight[:120], size=11, bold=True, color="1E1B4B")
+
+
+def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int) -> bool:
+    if not any(token in title.lower() for token in ("roadmap", "horizon", "phase", "路线", "阶段")):
+        return False
+
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    phases = bullets[:3] or ["Foundation", "Scale", "Lead"]
+    colors = [("DBEAFE", "2563EB"), ("DCFCE7", "16A34A"), ("FEF3C7", "D97706")]
+    for idx, phase in enumerate(phases):
+        x = Inches(0.85 + idx * 4.05)
+        fill, accent = colors[idx % len(colors)]
+        _add_card(slide, x, Inches(1.55), Inches(3.55), Inches(4.55), fill=fill, line=accent)
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.25), Inches(1.85), Inches(0.58), Inches(0.58), fill=accent, line=accent)
+        _add_textbox(slide, x + Inches(0.42), Inches(1.97), Inches(0.28), Inches(0.22), str(idx + 1), size=11, bold=True, color="FFFFFF")
+        label = ["Foundation", "Scale", "Lead"][idx] if idx < 3 else f"Phase {idx + 1}"
+        _add_textbox(slide, x + Inches(0.95), Inches(1.88), Inches(2.2), Inches(0.35), label, size=15, bold=True, color=accent)
+        _add_textbox(slide, x + Inches(0.35), Inches(2.55), Inches(2.95), Inches(2.45), phase[:260], size=12, color="334155")
+        if idx < len(phases) - 1:
+            _add_shape(slide, MSO_SHAPE.CHEVRON, x + Inches(3.38), Inches(3.42), Inches(0.48), Inches(0.44), fill="E5E7EB", line="E5E7EB")
+    _add_slide_footer(slide)
+    return True
+
+
 def _render_content_slide(slide, title: str, content: str, slide_number: int):
     from pptx.util import Inches
 
     _clear_text_shapes(slide)
     _add_slide_header(slide, title, slide_number)
     bullets = _split_bullets(content, limit=6)
+    if _add_roadmap_visual(slide, title, bullets, slide_number):
+        return
     if bullets:
         hero = bullets[0]
         _add_card(slide, Inches(0.75), Inches(1.2), Inches(11.85), Inches(1.0), fill="EFF6FF", line="BFDBFE")
@@ -268,9 +332,10 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
     card_h = Inches(0.72)
     for idx, bullet in enumerate(bullets[1:6], start=1):
         y = card_y + Inches(0.82 * (idx - 1))
-        _add_card(slide, Inches(0.85), y, Inches(11.6), card_h)
+        _add_card(slide, Inches(0.85), y, Inches(7.85), card_h)
         _add_textbox(slide, Inches(1.05), y + Inches(0.12), Inches(0.45), Inches(0.3), f"{idx}", size=11, bold=True, color="2563EB")
-        _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(10.55), Inches(0.45), bullet, size=13, color="334155")
+        _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(6.85), Inches(0.45), bullet, size=13, color="334155")
+    _add_consulting_visual_panel(slide, Inches(9.05), Inches(2.45), Inches(3.35), Inches(4.1), bullets)
     _add_slide_footer(slide)
 
 
@@ -390,7 +455,6 @@ async def generate_ppt(
         back_cover_ref = list(sldIdLst)[back_cover_index]
         sldIdLst.remove(back_cover_ref)
         sldIdLst.append(back_cover_ref)
-        _render_back_cover(prs.slides[-1], title)
 
     # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")
