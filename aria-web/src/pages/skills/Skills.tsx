@@ -1,28 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   Brain,
   Briefcase,
+  CheckCircle2,
   Clock3,
+  Compass,
   Cpu,
   DollarSign,
   FileText,
+  Layers3,
   MessageSquare,
   Search,
   Shield,
+  Sparkles,
   Target,
   TrendingUp,
   Users,
   Zap,
-  Layers3,
 } from "lucide-react";
 
 import { api } from "../../api/client";
 import { PageTitle } from "../../components/PageTitle";
 import type { SkillSummary } from "../../types/api";
+
+type SkillTypeFilter = "all" | "quick" | "deep";
+
+type SkillCategory = {
+  id: string;
+  label: string;
+  count: number;
+};
 
 const extractMinutes = (estimatedTime?: string) => {
   if (!estimatedTime) return 0;
@@ -47,7 +59,7 @@ const getCategoryKey = (category: string) => {
   return "other";
 };
 
-const categoryOrder = ["all", "market", "org", "digital", "strategy", "operations", "finance", "risk", "proposals", "manda", "other"];
+const categoryOrder = ["all", "market", "org", "digital", "strategy", "operations", "finance", "risk", "proposals", "manda", "data", "other"];
 
 const getCategoryIcon = (category: string) => {
   const key = getCategoryKey(category);
@@ -77,11 +89,22 @@ const getCategoryTone = (category: string) => {
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
 
+const getCategoryGradient = (category: string) => {
+  const key = getCategoryKey(category);
+  if (key === "market") return "from-emerald-500 via-teal-500 to-sky-500";
+  if (key === "org") return "from-orange-500 via-amber-500 to-rose-500";
+  if (key === "digital") return "from-cyan-500 via-blue-500 to-indigo-500";
+  if (key === "strategy") return "from-blue-600 via-indigo-500 to-violet-500";
+  if (key === "finance") return "from-amber-500 via-orange-500 to-yellow-500";
+  if (key === "risk") return "from-rose-500 via-red-500 to-orange-500";
+  return "from-slate-700 via-slate-600 to-slate-500";
+};
+
 const getCategoryDescription = (category: string, isZh: boolean) => {
   const key = getCategoryKey(category);
   const descriptions: Record<string, { zh: string; en: string }> = {
     all: {
-      zh: "浏览全部能力，适合还不确定要从哪个咨询场景开始。",
+      zh: "浏览全部能力，适合还不确定从哪个咨询场景开始。",
       en: "Browse every capability when you are still choosing the right consulting angle.",
     },
     market: {
@@ -120,6 +143,10 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
       zh: "并购、交易、尽调和整合规划。",
       en: "M&A, transactions, due diligence, and integration planning.",
     },
+    data: {
+      zh: "数据分析、指标体系、看板设计和洞察交付。",
+      en: "Analytics, KPI systems, dashboard design, and insight delivery.",
+    },
     other: {
       zh: "其他可复用的专业能力。",
       en: "Other reusable expert capabilities.",
@@ -128,22 +155,64 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
   return isZh ? descriptions[key]?.zh || descriptions.other.zh : descriptions[key]?.en || descriptions.other.en;
 };
 
-export function Skills() {
-  const { i18n, t } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+const safeDecode = (value?: string) => {
+  try {
+    return decodeURIComponent(value || "all");
+  } catch {
+    return "all";
+  }
+};
+
+const buildCategoryPath = (categoryId: string, searchParams: URLSearchParams) => {
+  const params = new URLSearchParams(searchParams);
+  const query = params.toString();
+  return `/skills/${encodeURIComponent(categoryId)}${query ? `?${query}` : ""}`;
+};
+
+const buildSkillsPath = (searchParams: URLSearchParams) => {
+  const params = new URLSearchParams(searchParams);
+  const query = params.toString();
+  return `/skills${query ? `?${query}` : ""}`;
+};
+
+const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
+  const projectId = searchParams.get("project");
+  const clientProjectId = searchParams.get("clientProject");
+  const prefilledPrompt = searchParams.get("q");
+  const targetProjectId = projectId || clientProjectId;
+  const nextParams = new URLSearchParams({ skill: String(skillId) });
+  if (targetProjectId) nextParams.set("project", targetProjectId);
+  if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
+  return targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`;
+};
+
+const buildCategories = (skills: SkillSummary[], allLabel: string) => {
+  const categoryMap = new Map<string, SkillCategory>();
+  skills.forEach((skill) => {
+    const id = normalizeCategory(skill.category);
+    const current = categoryMap.get(id);
+    categoryMap.set(id, {
+      id,
+      label: skill.category,
+      count: (current?.count ?? 0) + 1,
+    });
+  });
+
+  const sorted = Array.from(categoryMap.values()).sort((a, b) => {
+    const aOrder = categoryOrder.indexOf(getCategoryKey(a.id));
+    const bOrder = categoryOrder.indexOf(getCategoryKey(b.id));
+    const safeAOrder = aOrder === -1 ? categoryOrder.length : aOrder;
+    const safeBOrder = bOrder === -1 ? categoryOrder.length : bOrder;
+    if (safeAOrder !== safeBOrder) return safeAOrder - safeBOrder;
+    return b.count - a.count;
+  });
+
+  return [{ id: "all", label: allLabel, count: skills.length }, ...sorted];
+};
+
+function useSkillsData(allLabel: string) {
   const [loading, setLoading] = useState(true);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
-  const [search, setSearch] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [activeType, setActiveType] = useState<"all" | "quick" | "deep">("all");
-  const clientId = searchParams.get("client");
-  const clientName = searchParams.get("clientName");
-  const clientProjectId = searchParams.get("clientProject");
-  const projectId = searchParams.get("project");
-  const projectName = searchParams.get("projectName");
-  const prefilledPrompt = searchParams.get("q");
 
   useEffect(() => {
     const fetchSkills = async () => {
@@ -161,41 +230,152 @@ export function Skills() {
     void fetchSkills();
   }, []);
 
-  const handleUseSkill = (skillId: number) => {
-    const targetProjectId = projectId || clientProjectId;
-    const nextParams = new URLSearchParams({ skill: String(skillId) });
-    if (targetProjectId) nextParams.set("project", targetProjectId);
-    if (prefilledPrompt) nextParams.set("q", prefilledPrompt);
+  const categories = useMemo(() => buildCategories(skills, allLabel), [allLabel, skills]);
 
-    navigate(targetProjectId ? `/projects/${targetProjectId}/chat?${nextParams.toString()}` : `/chat?${nextParams.toString()}`);
+  return { categories, loading, skills };
+}
+
+function useLaunchSource() {
+  const [searchParams] = useSearchParams();
+  return {
+    clientId: searchParams.get("client"),
+    clientName: searchParams.get("clientName"),
+    clientProjectId: searchParams.get("clientProject"),
+    projectId: searchParams.get("project"),
+    projectName: searchParams.get("projectName"),
+    searchParams,
   };
+}
 
-  const categories = useMemo(() => {
-    const categoryMap = new Map<string, { id: string; label: string; count: number }>();
-    skills.forEach((skill) => {
-      const id = normalizeCategory(skill.category);
-      const current = categoryMap.get(id);
-      categoryMap.set(id, {
-        id,
-        label: skill.category,
-        count: (current?.count ?? 0) + 1,
-      });
+export function Skills() {
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
+  const navigate = useNavigate();
+  const launchSource = useLaunchSource();
+  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"));
+  const [categorySearch, setCategorySearch] = useState("");
+
+  const visibleCategories = useMemo(() => {
+    const keyword = categorySearch.trim().toLowerCase();
+    if (!keyword) return categories;
+    return categories.filter((category) => {
+      const description = getCategoryDescription(category.id, isZh).toLowerCase();
+      return category.label.toLowerCase().includes(keyword) || description.includes(keyword);
     });
+  }, [categories, categorySearch, isZh]);
 
-    const sorted = Array.from(categoryMap.values()).sort((a, b) => {
-      const aOrder = categoryOrder.indexOf(getCategoryKey(a.id));
-      const bOrder = categoryOrder.indexOf(getCategoryKey(b.id));
-      const safeAOrder = aOrder === -1 ? categoryOrder.length : aOrder;
-      const safeBOrder = bOrder === -1 ? categoryOrder.length : bOrder;
-      if (safeAOrder !== safeBOrder) return safeAOrder - safeBOrder;
-      return b.count - a.count;
-    });
+  if (loading) return <SkillsLoading title={t("skills.title")} />;
 
-    return [
-      { id: "all", label: t("skills.categories.all"), count: skills.length },
-      ...sorted,
-    ];
-  }, [skills, t]);
+  return (
+    <>
+      <PageTitle title={t("skills.title")} />
+      <div className="min-h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,#d9f99d_0%,transparent_28%),radial-gradient(circle_at_top_right,#bae6fd_0%,transparent_30%),linear-gradient(180deg,#f8fafc_0%,#ecfdf5_100%)]">
+        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
+          <section className="relative overflow-hidden rounded-[2.25rem] border border-white/80 bg-white/75 p-8 shadow-[0_30px_90px_rgba(15,23,42,0.10)] backdrop-blur">
+            <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-emerald-300/35 blur-3xl" />
+            <div className="absolute bottom-0 left-1/3 h-52 w-52 rounded-full bg-cyan-300/25 blur-3xl" />
+            <div className="relative grid gap-8 xl:grid-cols-[1fr_380px] xl:items-end">
+              <div className="max-w-4xl">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>{isZh ? "能力分类优先" : "Capability-first browsing"}</span>
+                </div>
+                <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+                  {isZh ? "先选方向，再进入具体 Skill" : "Pick the domain, then choose the Skill"}
+                </h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
+                  {isZh
+                    ? "市场和客户、组织和人才、数字化转型这些分类才是用户真正理解工作的入口。这里做成能力地图，点击分类直接进入详情页。"
+                    : "Market and customers, organization and talent, and digital transformation are the real entry points. Click a category to open its dedicated Skill page."}
+                </p>
+              </div>
+
+              <div className="rounded-[1.75rem] border border-white/80 bg-slate-950 p-5 text-white shadow-2xl shadow-slate-900/10">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <Compass className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? "能力地图" : "Capability map"}</div>
+                    <div className="text-xs text-white/55">
+                      {isZh ? `${categories.length - 1} 个分类 · ${skills.length} 个 Skill` : `${categories.length - 1} categories · ${skills.length} skills`}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  {categories.slice(1, 4).map((category) => {
+                    const Icon = getCategoryIcon(category.id);
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                        className="rounded-2xl bg-white/8 p-3 text-left transition hover:bg-white/14"
+                      >
+                        <Icon className="h-4 w-4 text-emerald-200" />
+                        <div className="mt-3 truncate text-xs font-semibold">{category.label}</div>
+                        <div className="mt-1 text-[11px] text-white/45">{category.count} Skills</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-[1.75rem] border border-white/80 bg-white/85 p-5 shadow-sm backdrop-blur">
+            <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
+
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-950">{isZh ? "能力分类" : "Capability categories"}</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {isZh ? "点击任意分类进入详情页，在里面查看并启动具体能力。" : "Click any category to view and launch its specific Skills."}
+                </p>
+              </div>
+              <div className="relative w-full md:max-w-sm">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={categorySearch}
+                  onChange={(event) => setCategorySearch(event.target.value)}
+                  placeholder={isZh ? "搜索能力分类" : "Search categories"}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {visibleCategories.map((category, index) => (
+                <CategoryShowcaseCard
+                  key={category.id}
+                  category={category}
+                  index={index}
+                  isZh={isZh}
+                  onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function SkillCategoryPage() {
+  const { categoryId } = useParams();
+  const { i18n, t } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
+  const navigate = useNavigate();
+  const launchSource = useLaunchSource();
+  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"));
+  const [search, setSearch] = useState("");
+  const [activeType, setActiveType] = useState<SkillTypeFilter>("all");
+  const activeCategory = safeDecode(categoryId);
+
+  const activeCategoryInfo = useMemo(() => {
+    return categories.find((category) => normalizeCategory(category.id) === normalizeCategory(activeCategory)) ?? categories[0];
+  }, [activeCategory, categories]);
 
   const filteredSkills = useMemo(() => {
     return skills.filter((skill) => {
@@ -206,7 +386,7 @@ export function Skills() {
         skill.description.toLowerCase().includes(normalizedSearch) ||
         skill.category.toLowerCase().includes(normalizedSearch);
       const matchesCategory =
-        activeCategory === "all" || normalizeCategory(skill.category) === normalizeCategory(activeCategory);
+        activeCategoryInfo?.id === "all" || normalizeCategory(skill.category) === normalizeCategory(activeCategoryInfo?.id || "all");
       const minutes = extractMinutes(skill.estimated_time);
       const isQuick = minutes <= 10;
       const matchesType =
@@ -216,164 +396,105 @@ export function Skills() {
 
       return matchesSearch && matchesCategory && matchesType;
     });
-  }, [activeCategory, activeType, search, skills]);
+  }, [activeCategoryInfo, activeType, search, skills]);
 
   const featuredSkills = filteredSkills.slice(0, 2);
   const regularSkills = filteredSkills.slice(2);
-  const activeCategoryInfo = categories.find((category) => category.id === activeCategory) ?? categories[0];
-  const hasProjectSource = Boolean(projectId);
-  const hasClientSource = Boolean(clientId && !projectId);
-  const clientTargetText = clientProjectId
-    ? isZh
-      ? "选择后会进入该客户最近关联项目的 Chat 执行，输出可保存为项目文档或笔记。"
-      : "After selection, this will open the client's latest related project chat so outputs can be saved as project notes or documents."
-    : isZh
-      ? "该客户暂无关联项目，将先进入通用 Chat 兜底；建议后续关联项目后再沉淀为项目资产。"
-      : "No related project is available, so this falls back to general Chat. Link a project later to persist outputs as project assets.";
+  const CategoryIcon = activeCategoryInfo?.id === "all" ? Layers3 : getCategoryIcon(activeCategoryInfo?.id || "all");
 
-  if (loading) {
-    return (
-      <>
-        <PageTitle title={t("skills.title")} />
-        <div className="flex min-h-full items-center justify-center bg-slate-50">
-          <Zap className="h-8 w-8 animate-pulse text-primary" />
-        </div>
-      </>
-    );
-  }
+  if (loading) return <SkillsLoading title={t("skills.title")} />;
 
   return (
     <>
-      <PageTitle title={t("skills.title")} />
-      <div className="min-h-full bg-[linear-gradient(180deg,#f7f8fb_0%,#eef3f8_100%)]">
+      <PageTitle title={activeCategoryInfo?.label || t("skills.title")} />
+      <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#eef6f3_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#d6f5f3_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
-            <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-emerald-200/40 blur-3xl" />
-            <div className="absolute -bottom-24 left-16 h-52 w-52 rounded-full bg-sky-200/35 blur-3xl" />
-            <div className="relative">
-              <div className="grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
-                <div className="max-w-3xl">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/10 bg-white/80 px-3 py-1.5 text-xs font-medium text-primary shadow-sm backdrop-blur">
-                  <Brain className="h-3.5 w-3.5" />
-                  <span>{t("skills.title")}</span>
+          <button
+            type="button"
+            onClick={() => navigate(buildSkillsPath(launchSource.searchParams))}
+            className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {isZh ? "返回能力分类" : "Back to categories"}
+          </button>
+
+          <section className={`relative overflow-hidden rounded-[2rem] bg-gradient-to-br ${getCategoryGradient(activeCategoryInfo?.id || "all")} p-8 text-white shadow-[0_28px_80px_rgba(15,23,42,0.16)]`}>
+            <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/20 blur-3xl" />
+            <div className="absolute -bottom-20 left-20 h-56 w-56 rounded-full bg-slate-950/20 blur-3xl" />
+            <div className="relative grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
+              <div>
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+                  <CategoryIcon className="h-3.5 w-3.5" />
+                  <span>{isZh ? "能力详情" : "Capability detail"}</span>
                 </div>
-                <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-slate-900">
-                  {isZh ? "按能力分类启动 Skill" : "Start with capability categories"}
-                </h1>
-                <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                  {isZh
-                    ? "先选择咨询能力领域，再挑选具体 Skill。市场与客户、组织与人才、数字化转型这些分类，才是用户真正理解工作的方式。"
-                    : "Choose the consulting capability first, then pick the specific Skill. Categories mirror how users think about the work."}
+                <h1 className="text-4xl font-semibold tracking-tight">{activeCategoryInfo?.label}</h1>
+                <p className="mt-4 max-w-2xl text-base leading-7 text-white/78">
+                  {getCategoryDescription(activeCategoryInfo?.id || "all", isZh)}
                 </p>
-                </div>
-                <div className="rounded-3xl border border-white/70 bg-white/75 p-5 shadow-sm backdrop-blur">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-slate-900 p-3 text-white">
-                      <Layers3 className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-slate-950">
-                        {isZh ? "当前能力地图" : "Capability map"}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {isZh ? `${categories.length - 1} 个分类，${skills.length} 个 Skill` : `${categories.length - 1} categories, ${skills.length} skills`}
-                      </div>
-                    </div>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-white/20 bg-white/15 p-5 backdrop-blur">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-white/15 p-3">
+                    <CheckCircle2 className="h-5 w-5" />
                   </div>
-                  <p className="mt-4 text-sm leading-6 text-slate-600">
-                    {isZh
-                      ? "搜索仍然保留，但默认路径变为：先选分类，再在分类内寻找合适能力。"
-                      : "Search stays available, but the default path is now category first, search second."}
-                  </p>
+                  <div>
+                    <div className="text-sm font-semibold">{isZh ? "当前分类能力" : "Skills in this category"}</div>
+                    <div className="text-3xl font-semibold">{filteredSkills.length}</div>
+                  </div>
                 </div>
+                <p className="mt-4 text-sm leading-6 text-white/70">
+                  {isZh ? "可以直接启动能力，也可以切换到其他分类继续浏览。" : "Launch a Skill directly, or switch to another category below."}
+                </p>
               </div>
             </div>
           </section>
 
-          <section className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
-            {hasProjectSource ? (
-              <LaunchSourceBanner
-                buttonLabel={isZh ? "返回项目空间" : "Back to project"}
-                description={
-                  isZh
-                    ? "选择一个 Skill 后，会进入当前项目 Chat，并自动带入项目记忆、文档、待办、财务和客户线索。输出后可保存为项目文档或笔记。"
-                    : "Choose a Skill to open this project chat with memory, documents, todos, financials, and client signals prefilled. Outputs can be saved as project notes or documents."
-                }
-                onBack={() => navigate(`/projects/${projectId}`)}
-                title={projectName ? (isZh ? `来自项目空间：${projectName}` : `From project: ${projectName}`) : isZh ? "来自项目空间" : "From project workspace"}
-                tone="indigo"
-              />
-            ) : null}
+          <section className="mt-6 rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+            <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
 
-            {hasClientSource ? (
-              <LaunchSourceBanner
-                buttonLabel={isZh ? "返回客户空间" : "Back to client"}
-                description={clientTargetText}
-                onBack={() => navigate(`/clients/${clientId}`)}
-                title={clientName ? (isZh ? `来自客户空间：${clientName}` : `From client: ${clientName}`) : isZh ? "来自客户空间" : "From client workspace"}
-                tone="emerald"
-              />
-            ) : null}
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                    className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
+                      normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
+                        ? "border-slate-900 bg-slate-950 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950"
+                    }`}
+                  >
+                    {category.label}
+                    <span className="ml-2 opacity-60">{category.count}</span>
+                  </button>
+                ))}
+              </div>
 
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-950">
-                  {isZh ? "选择能力分类" : "Choose a capability category"}
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="relative w-full md:w-72">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={isZh ? "搜索本分类 Skill" : "Search this category"}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
+                  />
                 </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  {isZh ? "分类是主入口；搜索用于在当前分类里精确定位。" : "Categories are the primary entry; search narrows within the selected category."}
-                </p>
-              </div>
-              <div className="relative w-full min-w-0 md:max-w-md">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={isZh ? "在当前分类内搜索 Skill" : "Search within this category"}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-              {categories.map((category) => (
-                <CategoryTile
-                  key={category.id}
-                  category={category}
-                  isActive={activeCategory === category.id}
-                  isZh={isZh}
-                  onClick={() => setActiveCategory(category.id)}
-                />
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{activeCategoryInfo?.label}</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {getCategoryDescription(activeCategoryInfo?.id || "all", isZh)}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1">
+                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
                   {(["all", "quick", "deep"] as const).map((type) => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setActiveType(type)}
                       className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                        activeType === type
-                          ? "bg-slate-900 text-white shadow-sm"
-                          : "text-slate-600 hover:bg-white hover:text-slate-900"
+                        activeType === type ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
                       }`}
                     >
                       {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
                     </button>
                   ))}
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  {t("skills.resultsCount", { count: filteredSkills.length })}
                 </div>
               </div>
             </div>
@@ -389,19 +510,78 @@ export function Skills() {
             <>
               <section className="mt-8 grid gap-6 lg:grid-cols-2">
                 {featuredSkills.map((skill) => (
-                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => handleUseSkill(skill.id)} />
+                  <FeaturedSkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))} />
                 ))}
               </section>
 
               <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
                 {regularSkills.map((skill) => (
-                  <SkillCard key={skill.id} skill={skill} onUse={() => handleUseSkill(skill.id)} />
+                  <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))} />
                 ))}
               </section>
             </>
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+function SkillsLoading({ title }: { title: string }) {
+  return (
+    <>
+      <PageTitle title={title} />
+      <div className="flex min-h-full items-center justify-center bg-slate-50">
+        <Zap className="h-8 w-8 animate-pulse text-primary" />
+      </div>
+    </>
+  );
+}
+
+function LaunchContextBanners({
+  isZh,
+  launchSource,
+}: {
+  isZh: boolean;
+  launchSource: ReturnType<typeof useLaunchSource>;
+}) {
+  const navigate = useNavigate();
+  const { clientId, clientName, clientProjectId, projectId, projectName } = launchSource;
+  const hasProjectSource = Boolean(projectId);
+  const hasClientSource = Boolean(clientId && !projectId);
+  const clientTargetText = clientProjectId
+    ? isZh
+      ? "选择后会进入该客户最近关联项目的 Chat 执行，输出可保存为项目文档或笔记。"
+      : "After selection, this will open the client's latest related project chat so outputs can be saved as project notes or documents."
+    : isZh
+      ? "该客户暂无关联项目，将先进入通用 Chat 兜底；建议后续关联项目后再沉淀为项目资产。"
+      : "No related project is available, so this falls back to general Chat. Link a project later to persist outputs as project assets.";
+
+  return (
+    <>
+      {hasProjectSource ? (
+        <LaunchSourceBanner
+          buttonLabel={isZh ? "返回项目空间" : "Back to project"}
+          description={
+            isZh
+              ? "选择一个 Skill 后，会进入当前项目 Chat，并自动带入项目记忆、文档、待办、财务和客户线索。输出后可保存为项目文档或笔记。"
+              : "Choose a Skill to open this project chat with memory, documents, todos, financials, and client signals prefilled. Outputs can be saved as project notes or documents."
+          }
+          onBack={() => navigate(`/projects/${projectId}`)}
+          title={projectName ? (isZh ? `来自项目空间：${projectName}` : `From project: ${projectName}`) : isZh ? "来自项目空间" : "From project workspace"}
+          tone="indigo"
+        />
+      ) : null}
+
+      {hasClientSource ? (
+        <LaunchSourceBanner
+          buttonLabel={isZh ? "返回客户空间" : "Back to client"}
+          description={clientTargetText}
+          onBack={() => navigate(`/clients/${clientId}`)}
+          title={clientName ? (isZh ? `来自客户空间：${clientName}` : `From client: ${clientName}`) : isZh ? "来自客户空间" : "From client workspace"}
+          tone="emerald"
+        />
+      ) : null}
     </>
   );
 }
@@ -447,42 +627,48 @@ function LaunchSourceBanner({
   );
 }
 
-function CategoryTile({
+function CategoryShowcaseCard({
   category,
-  isActive,
+  index,
   isZh,
   onClick,
 }: {
-  category: { id: string; label: string; count: number };
-  isActive: boolean;
+  category: SkillCategory;
+  index: number;
   isZh: boolean;
   onClick: () => void;
 }) {
   const Icon = category.id === "all" ? Layers3 : getCategoryIcon(category.id);
-  const tone = category.id === "all" ? "bg-slate-900 text-white border-slate-900" : getCategoryTone(category.id);
+  const isHero = index > 0 && index <= 3;
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group rounded-2xl border p-4 text-left transition ${
-        isActive
-          ? "border-slate-900 bg-slate-950 text-white shadow-[0_18px_36px_rgba(15,23,42,0.16)]"
-          : "border-slate-200 bg-white text-slate-900 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
+      className={`group relative overflow-hidden rounded-[1.75rem] border p-5 text-left transition hover:-translate-y-1 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)] ${
+        isHero ? "border-transparent bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-11 w-11 items-center justify-center rounded-xl border ${isActive ? "border-white/15 bg-white/10 text-white" : tone}`}>
-          <Icon className="h-5 w-5" />
+      {isHero ? <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(category.id)} opacity-90`} /> : null}
+      <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/20 blur-2xl" />
+      <div className="relative">
+        <div className="flex items-start justify-between gap-4">
+          <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${isHero ? "border-white/20 bg-white/15 text-white" : getCategoryTone(category.id)}`}>
+            <Icon className="h-6 w-6" />
+          </div>
+          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${isHero ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {category.count} Skills
+          </div>
         </div>
-        <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-600"}`}>
-          {category.count}
+        <h3 className="mt-6 text-xl font-semibold">{category.label}</h3>
+        <p className={`mt-3 line-clamp-2 text-sm leading-6 ${isHero ? "text-white/72" : "text-slate-500"}`}>
+          {getCategoryDescription(category.id, isZh)}
+        </p>
+        <div className={`mt-6 inline-flex items-center gap-2 text-sm font-semibold ${isHero ? "text-white" : "text-slate-900"}`}>
+          {isZh ? "进入分类" : "Open category"}
+          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
         </div>
       </div>
-      <div className="mt-4 text-sm font-semibold">{category.label}</div>
-      <p className={`mt-2 line-clamp-2 text-xs leading-5 ${isActive ? "text-white/70" : "text-slate-500"}`}>
-        {getCategoryDescription(category.id, isZh)}
-      </p>
     </button>
   );
 }
@@ -508,9 +694,7 @@ function FeaturedSkillCard({
         <span className={`rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>{skill.category}</span>
       </div>
 
-      <h3 className="mt-5 text-xl font-semibold text-slate-900 transition-colors group-hover:text-primary">
-        {skill.name}
-      </h3>
+      <h3 className="mt-5 text-xl font-semibold text-slate-900 transition-colors group-hover:text-primary">{skill.name}</h3>
       <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{skill.description}</p>
 
       <div className="mt-6 flex items-center gap-3 text-sm text-slate-500">
