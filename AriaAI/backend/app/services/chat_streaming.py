@@ -156,10 +156,14 @@ def _summarize_tool_result(result: dict) -> str:
     return ""
 
 
+def _sse_event(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind):
-    yield f"data: {json.dumps({'type': 'conversation_id', 'id': runtime.conv_id})}\n\n"
+    yield _sse_event({"type": "conversation_id", "id": runtime.conv_id})
     if runtime.rag_sources:
-        yield f"data: {json.dumps({'type': 'references', 'references': runtime.rag_sources})}\n\n"
+        yield _sse_event({"type": "references", "references": runtime.rag_sources})
 
     full_text = ""
     need_title = False
@@ -172,6 +176,21 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         reasoning_content = ""
 
         print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
+        yield _sse_event(
+            {
+                "type": "status",
+                "stage": "thinking",
+                "message": "正在理解你的需求，并准备调用模型生成方案...",
+            }
+        )
+        if runtime.tools:
+            yield _sse_event(
+                {
+                    "type": "status",
+                    "stage": "planning",
+                    "message": f"已加载 {len(runtime.tools)} 个可用工具，正在判断是否需要调用。",
+                }
+            )
         async for chunk in runtime.llm.stream_response(
             runtime.api_messages,
             system=runtime.system,
@@ -183,7 +202,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             stripped = chunk.strip()
             if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
                 tool_name = stripped[12:-1]
-                yield f"data: {json.dumps({'type': 'tool_executing', 'tool_name': tool_name, 'message': 'Generating 15 slides... (this may take 1-2 minutes)'})}\n\n"
+                yield _sse_event({"type": "tool_executing", "tool_name": tool_name, "message": "Generating 15 slides... (this may take 1-2 minutes)"})
                 continue
 
             if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
@@ -195,6 +214,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             flush=True,
                         )
                         tool_use_blocks.append(block)
+                        yield _sse_event(
+                            {
+                                "type": "status",
+                                "stage": "tool_planned",
+                                "message": f"模型已规划调用工具：{block.get('name')}",
+                            }
+                        )
                         continue
                     if block.get("type") == "reasoning_content":
                         reasoning_content = block.get("content", "")
@@ -203,9 +229,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     pass
 
             text_buffer += chunk
-            yield f"data: {json.dumps({'type': 'text', 'content': chunk})}\n\n"
+            yield _sse_event({"type": "text", "content": chunk})
 
         print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
+        if tool_use_blocks:
+            yield _sse_event({"type": "status", "stage": "tools", "message": "模型已完成初稿规划，正在执行所需工具..."})
+        elif not text_buffer.strip():
+            yield _sse_event({"type": "status", "stage": "finalizing", "message": "模型已返回，正在整理结果..."})
 
         tool_result_blocks = []
         for tool_data in tool_use_blocks:
@@ -216,7 +246,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if not tool_name or not isinstance(tool_input, dict):
                 continue
 
-            yield f"data: {json.dumps({'type': 'tool_executing', 'tool_name': tool_name, **_tool_progress_payload(tool_name, tool_input)})}\n\n"
+            yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 
             print(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}", flush=True)
             try:
@@ -225,7 +255,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
 
             print(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}", flush=True)
-            yield f"data: {json.dumps({'type': 'tool_result', 'result': result})}\n\n"
+            yield _sse_event({"type": "tool_result", "result": result})
 
             tool_call_events.append(
                 {
@@ -277,6 +307,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             ]
 
             print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
+            yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
             async for chunk in runtime.llm.stream_response(
                 continuation_messages,
                 system=runtime.system,
@@ -286,7 +317,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 temperature=runtime.temperature,
             ):
                 follow_up_text += chunk
-                yield f"data: {json.dumps({'type': 'text', 'content': chunk})}\n\n"
+                yield _sse_event({"type": "text", "content": chunk})
             print(f"[P3] done. follow_up_text_len={len(follow_up_text)}", flush=True)
 
         full_text = text_buffer.strip()
@@ -294,6 +325,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
+        yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
         if full_text:
             metadata = {}
             if runtime.rag_sources:
@@ -317,10 +349,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         import traceback
 
         print(f"[event_stream error] {exc}\n{traceback.format_exc()}", flush=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': _to_user_friendly_error(str(exc))})}\n\n"
+        yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
         return
 
-    yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+    yield _sse_event({"type": "done"})
 
     if need_title and full_text:
         schedule_title_generation(

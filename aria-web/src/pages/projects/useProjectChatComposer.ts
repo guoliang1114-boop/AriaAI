@@ -190,6 +190,17 @@ export function useProjectChatComposer({
           if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
             fullContent += payload.content;
             setStreamingContent(fullContent);
+          } else if (payload.type === "status" && payload.message) {
+            const statusCall: ToolCallEvent = {
+              tool_name: "Aria",
+              status: "running",
+              message: payload.message,
+            };
+            collectedToolCalls = [
+              ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+              statusCall,
+            ];
+            setStreamingToolCalls(collectedToolCalls);
           } else if (payload.type === "references") {
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);

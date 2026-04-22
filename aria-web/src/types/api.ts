@@ -744,9 +744,10 @@ export interface SendMessageRequest {
 }
 
 export interface StreamEvent {
-  type: 'conversation_id' | 'chunk' | 'text' | 'references' | 'tool_executing' | 'tool_result' | 'done' | 'error'
+  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'done' | 'error'
   id?: number
   content?: string
+  stage?: string
   references?: Reference[]
   tool_name?: string
   message?: string

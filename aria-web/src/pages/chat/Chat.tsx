@@ -622,6 +622,7 @@ export function Chat() {
     
     // Will be set when conversation is created/confirmed
     let currentConvIdForCleanup: number | null = null
+    let completedNormally = false
 
     try {
       let currentConvId = conversation?.id
@@ -715,12 +716,18 @@ export function Chat() {
               if (!updateTimerRef.current) {
                 updateTimerRef.current = setTimeout(() => { flushUpdate(); updateTimerRef.current = null }, 80)
               }
+            } else if (data.type === 'status') {
+              if (data.message) {
+                setToolStatus(data.message)
+                setIsThinking(true)
+              }
             } else if (data.type === 'tool_executing') {
               setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
             } else if (data.type === 'tool_result') {
               setToolStatus(null)
             } else if (data.type === 'done') {
               streamDone = true
+              completedNormally = true
               if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
               flushUpdate()
               // Message is now persisted in DB (backend saves before sending 'done').
@@ -819,7 +826,7 @@ export function Chat() {
       isStreamingRef.current = false
       setIsThinking(false)
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
+      if (err?.name === 'AbortError' || completedNormally) {
         // normal stop — already handled above
         // Keep sessionStorage in case user wants to resume
       } else {
