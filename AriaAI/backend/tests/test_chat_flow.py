@@ -58,7 +58,7 @@ from app.services import project_contexts as project_contexts_module
 from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
-from app.services.chat_streaming import ChatRuntime, stream_chat_events
+from app.services.chat_streaming import ChatRuntime, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
 
 
@@ -2847,6 +2847,42 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(conv)
             return conv.id
+
+    def test_digital_strategy_ppt_tool_is_forced_to_skill_template(self):
+        runtime = SimpleNamespace(
+            skill_name="数字化战略",
+            system="",
+        )
+
+        routed_name, routed_input = _route_ppt_tool_for_skill(
+            runtime,
+            "generate_ppt",
+            {
+                "title": "Godiva Digital Strategy",
+                "slides": [{"type": "content", "title": "Digital transformation roadmap", "content": "- Horizon 1"}],
+            },
+        )
+
+        self.assertEqual(routed_name, "generate_ppt_from_skill")
+        self.assertEqual(routed_input["skill_name"], "digital-strategy")
+
+    def test_digital_strategy_tool_input_routes_even_with_legacy_runtime(self):
+        runtime = SimpleNamespace(
+            skill_name="",
+            system="",
+        )
+
+        routed_name, routed_input = _route_ppt_tool_for_skill(
+            runtime,
+            "generate_ppt",
+            {
+                "title": "Digital transformation strategy",
+                "slides": [{"type": "content", "title": "Three-Horizon Roadmap", "content": "- Scale"}],
+            },
+        )
+
+        self.assertEqual(routed_name, "generate_ppt_from_skill")
+        self.assertEqual(routed_input["skill_name"], "digital-strategy")
 
     def test_project_chat_context_disables_global_rag_auto_trigger(self):
         with Session(self.engine) as session:

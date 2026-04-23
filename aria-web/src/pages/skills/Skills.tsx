@@ -1369,12 +1369,6 @@ function ServiceLineCard({
           })}
         </div>
 
-        <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/70">
-          <div
-            className="h-full rounded-full bg-slate-900/45 transition-all"
-            style={{ width: `${Math.min(100, Math.max(16, line.count * 8))}%` }}
-          />
-        </div>
       </div>
     </div>
   );

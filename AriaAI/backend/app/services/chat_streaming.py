@@ -256,20 +256,41 @@ def _build_completed_skill_progress(tool_call_events: list[dict], full_text: str
 def _should_auto_generate_digital_strategy_ppt(runtime: ChatRuntime, req: SendMessageRequest, full_text: str, tool_call_events: list[dict]) -> bool:
     if not req.skill_id or not full_text.strip() or tool_call_events:
         return False
-    skill_name = runtime.skill_name or ""
-    system = runtime.system or ""
-    return "数字化战略设计" in skill_name or "digital-strategy" in system
+    return _is_digital_strategy_runtime(runtime)
 
 
 def _is_digital_strategy_runtime(runtime: ChatRuntime) -> bool:
-    skill_name = runtime.skill_name or ""
-    system = runtime.system or ""
-    return "数字化战略设计" in skill_name or "digital-strategy" in system
+    text = f"{runtime.skill_name or ''}\n{runtime.system or ''}".lower()
+    markers = (
+        "digital-strategy",
+        "数字化战略",
+        "数字化转型战略",
+        "数字化赋能",
+        "数字化成熟度",
+        "kimi_agent_数字化",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _looks_like_digital_strategy_tool_input(tool_input: dict) -> bool:
+    text = json.dumps(tool_input, ensure_ascii=False).lower()
+    markers = (
+        "digital-strategy",
+        "数字化战略",
+        "数字化转型",
+        "digital transformation",
+        "digital strategy",
+        "three-horizon",
+        "horizon",
+        "maturity",
+    )
+    return any(marker in text for marker in markers)
 
 
 def _route_ppt_tool_for_skill(runtime: ChatRuntime, tool_name: str, tool_input: dict) -> tuple[str, dict]:
     """Force digital-strategy PPT generation through its Skill template."""
-    if tool_name != "generate_ppt" or not _is_digital_strategy_runtime(runtime):
+    should_route = _is_digital_strategy_runtime(runtime) or _looks_like_digital_strategy_tool_input(tool_input)
+    if tool_name not in {"generate_ppt", "generate_ppt_from_skill"} or not should_route:
         return tool_name, tool_input
     routed_input = dict(tool_input)
     routed_input["skill_name"] = "digital-strategy"
