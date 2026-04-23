@@ -4296,6 +4296,64 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("Huawei 5-See 3-Define", framework_text)
         self.assertIn("Manufacturing", industry_text)
 
+    def test_ppt_generation_clones_template_slide_artwork(self):
+        from pptx import Presentation
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches
+        from app.tools.file_generators import generate_ppt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = Path(tmpdir) / "Template.pptx"
+            prs = Presentation()
+            blank = prs.slide_layouts[6]
+            while len(prs.slides) > 0:
+                slide_id = list(prs.slides._sldIdLst)[0]
+                prs.slides._sldIdLst.remove(slide_id)
+
+            cover = prs.slides.add_slide(blank)
+            title = cover.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
+            title.name = "aria_cover_title"
+            subtitle = cover.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(1))
+            subtitle.name = "aria_cover_subtitle"
+
+            content = prs.slides.add_slide(blank)
+            content.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(7)).name = "brand_artifact"
+            content.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1)).name = "aria_slide_title"
+            content.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(3)).name = "aria_slide_body"
+
+            two_col = prs.slides.add_slide(blank)
+            two_col.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1)).name = "aria_slide_title"
+            two_col.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(3)).name = "aria_left_body"
+            two_col.shapes.add_textbox(Inches(6), Inches(2), Inches(4), Inches(3)).name = "aria_right_body"
+
+            visual = prs.slides.add_slide(blank)
+            visual.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1)).name = "aria_slide_title"
+            visual.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(3)).name = "aria_slide_body"
+            visual.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(7), Inches(2), Inches(3), Inches(3)).name = "aria_visual_area"
+
+            prs.slides.add_slide(blank)
+            prs.save(template_path)
+
+            result = asyncio.run(generate_ppt(
+                "Template clone check",
+                [
+                    {"type": "content", "title": "One", "content": "- A"},
+                    {"type": "content", "title": "Two", "content": "- B"},
+                    {"type": "content", "title": "Three", "content": "- C"},
+                ],
+                "Subtitle",
+                str(template_path),
+            ))
+
+            self.assertTrue(result["success"])
+            generated_path = Path(result["full_path"])
+            generated = Presentation(generated_path)
+            body_slides = list(generated.slides)[1:4]
+            self.assertEqual(len(body_slides), 3)
+            for slide in body_slides:
+                self.assertIn("brand_artifact", {shape.name for shape in slide.shapes})
+            generated_path.unlink(missing_ok=True)
+
 
     def test_get_skill_detail_by_id(self):
         with Session(self.engine) as session:

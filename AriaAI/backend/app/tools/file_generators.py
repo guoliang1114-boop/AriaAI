@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -304,6 +305,46 @@ def _move_slide_ref_to_end(prs, slide_ref):
         return
     slide_id_list.remove(slide_ref)
     slide_id_list.append(slide_ref)
+
+
+def _replace_relationship_ids(element, rel_id_map: dict[str, str]) -> None:
+    if not rel_id_map:
+        return
+    for node in element.iter():
+        for attr_name, attr_value in list(node.attrib.items()):
+            if attr_value in rel_id_map:
+                node.attrib[attr_name] = rel_id_map[attr_value]
+
+
+def _clone_slide_from_prototype(prs, source_slide):
+    """Duplicate a normal template slide so custom slide-level artwork survives.
+
+    python-pptx's add_slide(layout) only applies the master/layout. It does not
+    copy shapes that designers place on a normal slide, which made generated
+    decks look like empty layouts. This clones the prototype slide's XML shapes
+    and non-layout relationships before the content renderer writes text.
+    """
+    slide = prs.slides.add_slide(source_slide.slide_layout)
+    sp_tree = slide.shapes._spTree
+    for shape in list(slide.shapes):
+        sp_tree.remove(shape.element)
+
+    cloned_elements = [deepcopy(shape.element) for shape in source_slide.shapes]
+    rel_id_map: dict[str, str] = {}
+    for rel in source_slide.part.rels.values():
+        if rel.reltype.endswith("/slideLayout") or rel.reltype.endswith("/notesSlide"):
+            continue
+        new_rel_id = slide.part.rels._add_relationship(
+            rel.reltype,
+            rel._target,
+            getattr(rel, "is_external", False),
+        )
+        rel_id_map[rel.rId] = new_rel_id
+
+    for element in cloned_elements:
+        _replace_relationship_ids(element, rel_id_map)
+        sp_tree.insert_element_before(element, "p:extLst")
+    return slide
 
 
 def _clear_text_shapes(slide):
@@ -751,13 +792,7 @@ async def generate_ppt(
             content_prototype = prs.slides[1]
             two_col_prototype = prs.slides[2]
             visual_prototype = prs.slides[3]
-            content_layout = content_prototype.slide_layout
-            two_col_layout = two_col_prototype.slide_layout
-            visual_layout = visual_prototype.slide_layout
 
-            used_content_ref = False
-            used_two_col_ref = False
-            used_visual_ref = False
             for slide_index, slide_data in enumerate(slides):
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
@@ -765,23 +800,11 @@ async def generate_ppt(
                 use_visual = slide_type == "content" and _wants_visual_slide(slide_title, content)
 
                 if slide_type == "two_column":
-                    if not used_two_col_ref:
-                        slide = two_col_prototype
-                        used_two_col_ref = True
-                    else:
-                        slide = prs.slides.add_slide(two_col_layout)
+                    slide = _clone_slide_from_prototype(prs, two_col_prototype)
                 elif use_visual:
-                    if not used_visual_ref:
-                        slide = visual_prototype
-                        used_visual_ref = True
-                    else:
-                        slide = prs.slides.add_slide(visual_layout)
+                    slide = _clone_slide_from_prototype(prs, visual_prototype)
                 else:
-                    if not used_content_ref:
-                        slide = content_prototype
-                        used_content_ref = True
-                    else:
-                        slide = prs.slides.add_slide(content_layout)
+                    slide = _clone_slide_from_prototype(prs, content_prototype)
 
                 if use_visual:
                     _render_visual_slide(slide, slide_title, content, slide_index + 1)
@@ -796,12 +819,9 @@ async def generate_ppt(
                 elif "content" in slide_data:
                     _render_content_slide(slide, slide_title, content, slide_index + 1)
 
-            if not used_content_ref:
-                _remove_slide_ref(prs, content_ref)
-            if not used_two_col_ref:
-                _remove_slide_ref(prs, two_col_ref)
-            if not used_visual_ref:
-                _remove_slide_ref(prs, visual_ref)
+            _remove_slide_ref(prs, content_ref)
+            _remove_slide_ref(prs, two_col_ref)
+            _remove_slide_ref(prs, visual_ref)
             _move_slide_ref_to_end(prs, back_cover_ref)
 
             filename = _generate_filename("pptx")
@@ -815,6 +835,8 @@ async def generate_ppt(
                 "full_path": str(filepath),
                 "template_path": str(template_path),
                 "template_name": Path(template_path).name,
+                "template_applied": True,
+                "template_mode": "cloned_prototype_slides",
                 "slide_count": len(prs.slides),
             }
 
@@ -893,7 +915,12 @@ async def generate_ppt(
         "file_name": filename,
         "file_path": str(filepath.relative_to(UPLOADS_DIR)),
         "full_path": str(filepath),
-        **({"template_path": str(template_path), "template_name": Path(template_path).name} if using_template else {}),
+        **({
+            "template_path": str(template_path),
+            "template_name": Path(template_path).name,
+            "template_applied": True,
+            "template_mode": "layout_fallback",
+        } if using_template else {"template_applied": False}),
         "slide_count": len(slides) + 2,  # cover + content + back cover
     }
 
@@ -947,9 +974,11 @@ async def generate_ppt_from_skill(
 
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
+    searched_paths: list[str] = []
     for folder in ("assets", "references"):
         for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx"):
             candidate = SKILLS_DIR / skill_name / folder / filename
+            searched_paths.append(str(candidate))
             if candidate.exists():
                 template_path = candidate
                 break
@@ -957,6 +986,13 @@ async def generate_ppt_from_skill(
             break
 
     if not template_path:
+        if skill_name == "digital-strategy":
+            return {
+                "success": False,
+                "error": "digital-strategy template not found; refusing to generate a blank deck.",
+                "searched_paths": searched_paths,
+                "template_applied": False,
+            }
         # Fallback to default generation
         return await generate_ppt(title, slides, subtitle)
 
