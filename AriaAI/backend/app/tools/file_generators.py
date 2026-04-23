@@ -528,8 +528,6 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
         and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
     )
     visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
-    if used_template:
-        _add_template_frame(slide, title, slide_number, section="Roadmap / blueprint")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
@@ -565,18 +563,16 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
         _set_named_or_placeholder_text(slide, "aria_slide_title", title)
         and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
     )
-    if used_template:
-        _add_template_frame(slide, title, slide_number, section="Digital strategy")
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
     if bullets:
         hero = bullets[0]
         if used_template:
-            _resize_named_or_placeholder(slide, "aria_slide_body", Inches(0.95), Inches(2.2), Inches(7.58), Inches(3.38))
-            _add_card(slide, Inches(0.95), Inches(1.32), Inches(7.58), Inches(0.58), fill="F8FAFC", line="CBD5E1")
-            _add_textbox(slide, Inches(1.16), Inches(1.42), Inches(7.12), Inches(0.3), hero, size=11, bold=True, color="0F172A")
-            _add_textbox(slide, Inches(0.98), Inches(1.08), Inches(2.3), Inches(0.2), "KEY MESSAGE", size=7, bold=True, color="64748B")
+            # Template-first mode: keep the user's slide geometry intact and
+            # only write into named placeholders. Extra visuals are reserved
+            # for pages that explicitly expose aria_visual_area.
+            return
         else:
             _add_card(slide, Inches(0.75), Inches(1.2), Inches(11.85), Inches(1.0), fill="EFF6FF", line="BFDBFE")
             _add_textbox(slide, Inches(1.0), Inches(1.38), Inches(11.35), Inches(0.55), hero, size=18, bold=True, color="1E3A8A")
@@ -589,12 +585,8 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
             _add_card(slide, Inches(0.85), y, Inches(7.85), card_h)
             _add_textbox(slide, Inches(1.05), y + Inches(0.12), Inches(0.45), Inches(0.3), f"{idx}", size=11, bold=True, color="2563EB")
             _add_textbox(slide, Inches(1.55), y + Inches(0.08), Inches(6.85), Inches(0.45), bullet, size=13, color="334155")
-    if used_template:
-        _add_value_chain_visual(slide, Inches(0.95), Inches(5.92), Inches(7.58), Inches(0.72), bullets[1:5])
-        _add_consulting_visual_panel(slide, Inches(9.16), Inches(1.32), Inches(3.06), Inches(4.48), bullets)
-    else:
-        _add_consulting_visual_panel(slide, Inches(9.05), Inches(2.45), Inches(3.35), Inches(4.1), bullets)
     if not used_template:
+        _add_consulting_visual_panel(slide, Inches(9.05), Inches(2.45), Inches(3.35), Inches(4.1), bullets)
         _add_slide_footer(slide)
 
 
@@ -607,8 +599,6 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
         and _set_named_or_placeholder_text(slide, "aria_left_body", left_content)
         and _set_named_or_placeholder_text(slide, "aria_right_body", right_content)
     )
-    if used_template:
-        _add_template_frame(slide, title, slide_number, section="Current vs target")
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
@@ -617,12 +607,7 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
         ("Target / Scale", right_content, "F0FDF4", "16A34A", Inches(6.85)),
     ]
     if used_template:
-        from pptx.enum.shapes import MSO_SHAPE
-
-        _add_textbox(slide, Inches(0.9), Inches(1.18), Inches(2.6), Inches(0.24), "CURRENT STATE", size=7, bold=True, color="64748B")
-        _add_textbox(slide, Inches(6.95), Inches(1.18), Inches(2.6), Inches(0.24), "TARGET STATE", size=7, bold=True, color="64748B")
-        _add_shape(slide, MSO_SHAPE.CHEVRON, Inches(6.2), Inches(3.35), Inches(0.5), Inches(0.5), fill="E2E8F0", line="CBD5E1")
-        _add_textbox(slide, Inches(5.72), Inches(3.96), Inches(1.52), Inches(0.22), "transition path", size=7, bold=True, color="64748B")
+        # Keep the user's two-column template untouched apart from named text.
         return
     for heading, content, fill, color, x in columns:
         _add_card(slide, x, Inches(1.35), Inches(5.55), Inches(5.2), fill=fill)

@@ -61,6 +61,26 @@ const normalizeCategory = (value: string) => value.replace(/\?/g, "").trim();
 const getCategoryKey = (category: string) => {
   const normalized = normalizeCategory(category).toLowerCase();
   if (
+    [
+      "consulting_scoping",
+      "consulting_delivery",
+      "consulting_review",
+      "consulting_learning",
+      "common",
+      "market",
+      "org",
+      "digital",
+      "strategy",
+      "operations",
+      "finance",
+      "risk",
+      "manda",
+      "data",
+      "other",
+      "all",
+    ].includes(normalized)
+  ) return normalized;
+  if (
     normalized.includes("proposal") ||
     normalized.includes("delivery") ||
     normalized.includes("deep task") ||
@@ -84,7 +104,47 @@ const getCategoryKey = (category: string) => {
   return "other";
 };
 
-const categoryOrder = ["all", "market", "org", "digital", "common", "strategy", "operations", "finance", "risk", "manda", "data", "other"];
+const getSkillCategoryKey = (skill: Pick<SkillSummary, "name" | "description" | "category">) => {
+  const baseKey = getCategoryKey(skill.category);
+  if (baseKey !== "common") return baseKey;
+
+  const text = `${skill.name} ${skill.description}`.toLowerCase();
+  if (text.includes("启动") || text.includes("brief") || text.includes("scoping") || text.includes("kickoff")) {
+    return "consulting_scoping";
+  }
+  if (text.includes("复盘") || text.includes("retro") || text.includes("learning") || text.includes("沉淀")) {
+    return "consulting_learning";
+  }
+  if (
+    text.includes("挑战") ||
+    text.includes("审查") ||
+    text.includes("review") ||
+    text.includes("challenge") ||
+    text.includes("quality")
+  ) {
+    return "consulting_review";
+  }
+  return "consulting_delivery";
+};
+
+const categoryOrder = [
+  "all",
+  "consulting_scoping",
+  "consulting_delivery",
+  "consulting_review",
+  "consulting_learning",
+  "market",
+  "org",
+  "digital",
+  "strategy",
+  "operations",
+  "finance",
+  "risk",
+  "manda",
+  "data",
+  "common",
+  "other",
+];
 
 const getCategoryIcon = (category: string) => {
   const key = getCategoryKey(category);
@@ -93,7 +153,7 @@ const getCategoryIcon = (category: string) => {
   if (key === "finance") return DollarSign;
   if (key === "risk") return Shield;
   if (key === "digital") return Cpu;
-  if (key === "common") return FileText;
+  if (key.startsWith("consulting_") || key === "common") return FileText;
   if (key === "operations") return Briefcase;
   if (key === "org") return Users;
   if (key === "manda") return BarChart3;
@@ -110,6 +170,7 @@ const getCategoryTone = (category: string) => {
   if (key === "digital") return "bg-cyan-50 text-cyan-700 border-cyan-100";
   if (key === "org") return "bg-orange-50 text-orange-700 border-orange-100";
   if (key === "operations") return "bg-teal-50 text-teal-700 border-teal-100";
+  if (key.startsWith("consulting_")) return "bg-violet-50 text-violet-700 border-violet-100";
   if (key === "common") return "bg-indigo-50 text-indigo-700 border-indigo-100";
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
@@ -119,6 +180,7 @@ const getCategoryGradient = (category: string) => {
   if (key === "market") return "from-emerald-50 via-teal-50 to-sky-50";
   if (key === "org") return "from-orange-50 via-amber-50 to-rose-50";
   if (key === "digital") return "from-cyan-50 via-blue-50 to-indigo-50";
+  if (key.startsWith("consulting_")) return "from-violet-50 via-slate-50 to-sky-50";
   if (key === "common") return "from-indigo-50 via-slate-50 to-emerald-50";
   if (key === "strategy") return "from-blue-50 via-indigo-50 to-violet-50";
   if (key === "finance") return "from-amber-50 via-orange-50 to-yellow-50";
@@ -165,6 +227,22 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
       zh: "通用任务、提案交付、项目复盘、深度分析和跨场景工作流。",
       en: "General tasks, proposal delivery, retrospectives, deep analysis, and cross-scenario workflows.",
     },
+    consulting_scoping: {
+      zh: "把客户问题讲清楚：问题定义、项目启动、范围界定和第一周行动计划。",
+      en: "Clarify the real client problem: scoping, kickoff, project brief, and week-one plan.",
+    },
+    consulting_delivery: {
+      zh: "把复杂材料变成可交付内容：执行摘要、客户报告、提案叙事和结构化输出。",
+      en: "Turn messy material into deliverables: executive summaries, client reports, proposals, and structured output.",
+    },
+    consulting_review: {
+      zh: "在交付前做合伙人式挑战：前提假设、逻辑完整性、数据一致性和质量把关。",
+      en: "Partner-style challenge before delivery: assumptions, logic, consistency, and quality control.",
+    },
+    consulting_learning: {
+      zh: "把项目经验沉淀成可复用资产：复盘、方法论提炼、模板和下次起点。",
+      en: "Convert project experience into reusable assets: retrospectives, methods, templates, and next-start points.",
+    },
     manda: {
       zh: "并购、交易、尽调和整合规划。",
       en: "M&A, transactions, due diligence, and integration planning.",
@@ -189,6 +267,10 @@ const getCategoryLabel = (category: string, isZh: boolean) => {
     org: { zh: "组织与人才", en: "Organization & Talent" },
     digital: { zh: "数字化与技术", en: "Digital & Technology" },
     common: { zh: "通用能力", en: "General Capabilities" },
+    consulting_scoping: { zh: "问题定义与启动", en: "Scoping & Kickoff" },
+    consulting_delivery: { zh: "摘要与交付", en: "Synthesis & Delivery" },
+    consulting_review: { zh: "质量挑战与审查", en: "Challenge & Review" },
+    consulting_learning: { zh: "复盘与沉淀", en: "Retrospective & Learning" },
     strategy: { zh: "战略与增长", en: "Strategy & Growth" },
     operations: { zh: "运营与效能", en: "Operations & Efficiency" },
     finance: { zh: "财务咨询", en: "Finance" },
@@ -225,6 +307,14 @@ const buildServiceLines = (categories: SkillCategory[], isZh: boolean): ServiceL
 
   return [
     makeLine(
+      "consulting-foundation",
+      isZh ? "顾问基础能力" : "Consulting Foundations",
+      isZh ? "从问题定义到交付复盘" : "From problem framing to delivery learning",
+      isZh ? "承接顾问日常最常用的基础工作流：启动、摘要、提案交付、质量审查和项目复盘。" : "Covers the everyday consulting workflows: scoping, synthesis, proposal delivery, quality review, and retrospectives.",
+      ["consulting_scoping", "consulting_delivery", "consulting_review", "consulting_learning", "common"],
+      "from-violet-50 via-slate-50 to-sky-50",
+    ),
+    makeLine(
       "strategy-analytics",
       isZh ? "战略、分析与交易" : "Strategy, Analytics & Transactions",
       isZh ? "从增长判断到交易决策" : "From growth choices to transaction decisions",
@@ -259,9 +349,9 @@ const buildServiceLines = (categories: SkillCategory[], isZh: boolean): ServiceL
     makeLine(
       "core-operations",
       isZh ? "核心业务运营" : "Core Business Operations",
-      isZh ? "从流程效能到交付执行" : "From process effectiveness to delivery execution",
-      isZh ? "承接运营、效能、通用任务、提案交付和项目复盘。" : "Supports operations, efficiency, general tasks, proposal delivery, and retrospectives.",
-      ["operations", "common"],
+      isZh ? "从流程诊断到效能提升" : "From process diagnosis to performance improvement",
+      isZh ? "聚焦运营诊断、根因分析、流程优化和效率提升，不再混放通用顾问工作流。" : "Focuses on operational diagnosis, root causes, process optimization, and efficiency improvement without mixing general consulting workflows.",
+      ["operations"],
       "from-teal-50 via-slate-50 to-emerald-50",
     ),
     makeLine(
@@ -315,11 +405,11 @@ const buildSkillChatPath = (skillId: number, searchParams: URLSearchParams) => {
 const buildCategories = (skills: SkillSummary[], allLabel: string, isZh: boolean) => {
   const categoryMap = new Map<string, SkillCategory>();
   skills.forEach((skill) => {
-    const id = getCategoryKey(skill.category);
+    const id = getSkillCategoryKey(skill);
     const current = categoryMap.get(id);
     categoryMap.set(id, {
       id,
-      label: getCategoryLabel(skill.category, isZh),
+      label: getCategoryLabel(id, isZh),
       count: (current?.count ?? 0) + 1,
     });
   });
@@ -538,7 +628,7 @@ export function SkillCategoryPage() {
         skill.description.toLowerCase().includes(normalizedSearch) ||
         skill.category.toLowerCase().includes(normalizedSearch);
       const matchesCategory =
-        activeCategoryInfo?.id === "all" || getCategoryKey(skill.category) === activeCategoryInfo?.id;
+        activeCategoryInfo?.id === "all" || getSkillCategoryKey(skill) === activeCategoryInfo?.id;
       const minutes = extractMinutes(skill.estimated_time);
       const isQuick = minutes <= 10;
       const matchesType =
@@ -702,8 +792,9 @@ export function SkillDetailPage() {
   const inputHints = useMemo(() => buildInputHints(skill, isZh), [isZh, skill]);
   const outputHints = useMemo(() => buildOutputHints(skill, isZh), [isZh, skill]);
   const usageSteps = useMemo(() => buildUsageSteps(skill, isZh), [isZh, skill]);
-  const Icon = skill ? getCategoryIcon(skill.category) : Brain;
-  const tone = skill ? getCategoryTone(skill.category) : "bg-slate-50 text-slate-700 border-slate-200";
+  const skillCategoryKey = skill ? getSkillCategoryKey(skill) : "other";
+  const Icon = skill ? getCategoryIcon(skillCategoryKey) : Brain;
+  const tone = skill ? getCategoryTone(skillCategoryKey) : "bg-slate-50 text-slate-700 border-slate-200";
   const isQuick = extractMinutes(skill?.estimated_time) <= 10;
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
@@ -741,7 +832,7 @@ export function SkillDetailPage() {
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => navigate(buildCategoryPath(getCategoryKey(skill.category), launchSource.searchParams))}
+              onClick={() => navigate(buildCategoryPath(getSkillCategoryKey(skill), launchSource.searchParams))}
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -765,7 +856,7 @@ export function SkillDetailPage() {
                 <div className="mb-4 flex flex-wrap items-center gap-3">
                   <span className={`inline-flex items-center gap-2 rounded-full border bg-white/75 px-3 py-1.5 text-xs font-semibold ${tone}`}>
                     <Icon className="h-3.5 w-3.5" />
-                    {getCategoryLabel(skill.category, isZh)}
+                    {getCategoryLabel(skillCategoryKey, isZh)}
                   </span>
                   <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3 py-1.5 text-xs font-semibold text-slate-600">
                     <Clock3 className="h-3.5 w-3.5" />
@@ -798,7 +889,7 @@ export function SkillDetailPage() {
                 title={isZh ? "这个能力解决什么问题" : "What this Skill is for"}
                 items={[
                   skill.description,
-                  getCategoryDescription(skill.category, isZh),
+                  getCategoryDescription(skillCategoryKey, isZh),
                   isZh ? "适合需要结构化思考、快速形成专业交付草稿的场景。" : "Best for turning messy context into a structured professional draft.",
                 ]}
               />
@@ -1019,7 +1110,7 @@ function buildInputHints(skill: Skill | null, isZh: boolean) {
 
 function buildOutputHints(skill: Skill | null, isZh: boolean) {
   if (!skill) return [];
-  const key = getCategoryKey(skill.category);
+  const key = getSkillCategoryKey(skill);
   const common = isZh
     ? ["结构化结论和关键判断", "可直接复制到项目文档或会议材料的内容", "下一步行动建议"]
     : ["Structured conclusions and key judgment", "Content ready to copy into project documents or meeting materials", "Recommended next actions"];
@@ -1029,6 +1120,10 @@ function buildOutputHints(skill: Skill | null, isZh: boolean) {
     digital: isZh ? ["数字化场景拆解", "系统、数据、流程或 ROI 建议"] : ["Digital use-case breakdown", "System, data, process, or ROI recommendations"],
     finance: isZh ? ["财务影响判断", "关键假设和测算框架"] : ["Financial impact assessment", "Key assumptions and modeling frame"],
     risk: isZh ? ["风险清单", "缓释措施和责任建议"] : ["Risk register", "Mitigation actions and ownership suggestions"],
+    consulting_scoping: isZh ? ["项目简报", "问题陈述和范围边界", "第一周行动计划"] : ["Project brief", "Problem statement and scope boundaries", "Week-one action plan"],
+    consulting_delivery: isZh ? ["执行摘要", "客户报告或提案叙事", "结构化交付草稿"] : ["Executive summary", "Client report or proposal storyline", "Structured deliverable draft"],
+    consulting_review: isZh ? ["红旗清单", "假设挑战和质量问题", "必须修改的优先级建议"] : ["Red flags", "Assumption challenge and quality issues", "Priority fixes before delivery"],
+    consulting_learning: isZh ? ["项目复盘报告", "经验教训和可复用资产", "下次同类项目起点"] : ["Retrospective report", "Lessons and reusable assets", "Starting point for the next similar project"],
     common: isZh ? ["通用任务结构", "提案/交付/复盘/深度分析草稿"] : ["General task structure", "Proposal, delivery, retrospective, or deep-analysis draft"],
   };
   return [...(byCategory[key] || []), ...common].slice(0, 5);
@@ -1294,10 +1389,11 @@ function SkillCard({
 }) {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const Icon = getCategoryIcon(skill.category);
-  const tone = getCategoryTone(skill.category);
+  const skillCategoryKey = getSkillCategoryKey(skill);
+  const Icon = getCategoryIcon(skillCategoryKey);
+  const tone = getCategoryTone(skillCategoryKey);
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
-  const categoryLabel = getCategoryLabel(skill.category, isZh);
+  const categoryLabel = getCategoryLabel(skillCategoryKey, isZh);
 
   return (
     <div className="flex h-full flex-col rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
