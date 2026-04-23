@@ -112,6 +112,13 @@ interface ChatProgressStep {
   logs: string[]
 }
 
+const BASE_CHAT_LOADING_STEPS: ChatProgressStep[] = [
+  { key: 'prepare', label: '准备请求', description: '提交消息并初始化本轮上下文', status: 'pending', logs: [] },
+  { key: 'thinking', label: '理解问题', description: '模型正在分析你的问题并组织答案', status: 'pending', logs: [] },
+  { key: 'final', label: '生成答复', description: '正在返回正文内容并整理最终回复', status: 'pending', logs: [] },
+  { key: 'saving', label: '保存结果', description: '保存本次回复，方便稍后继续查看', status: 'pending', logs: [] },
+]
+
 const BASE_PROGRESS_STEPS: ChatProgressStep[] = [
   { key: 'prepare', label: '准备上下文', description: '整理会话、项目与 Skill 信息', status: 'pending', logs: [] },
   { key: 'thinking', label: '模型规划', description: '分析需求并判断是否需要调用工具', status: 'pending', logs: [] },
@@ -132,10 +139,26 @@ const STAGE_STEP_INDEX: Record<string, number> = {
   saving: 4,
 }
 
+const CHAT_STAGE_STEP_INDEX: Record<string, number> = {
+  thinking: 1,
+  planning: 1,
+  tool_planned: 1,
+  continuing: 2,
+  tools: 2,
+  tool_running: 2,
+  follow_up: 2,
+  finalizing: 2,
+  saving: 3,
+}
+
 const SKILL_PROGRESS_STAGES = new Set(['planning', 'tool_planned', 'tools', 'tool_running', 'follow_up'])
 
 function createProgressSteps(): ChatProgressStep[] {
   return BASE_PROGRESS_STEPS.map(step => ({ ...step, logs: [] }))
+}
+
+function createChatLoadingSteps(): ChatProgressStep[] {
+  return BASE_CHAT_LOADING_STEPS.map(step => ({ ...step, logs: [] }))
 }
 
 function formatProgressLog(message: string, timeZone?: string) {
@@ -167,6 +190,17 @@ function completeProgressSteps(steps: ChatProgressStep[]): ChatProgressStep[] {
   }))
 }
 
+function completeChatLoadingSteps(steps: ChatProgressStep[]): ChatProgressStep[] {
+  const source = steps.length ? steps : createChatLoadingSteps()
+  return source.map((step, index) => ({
+    ...step,
+    status: 'done' as const,
+    logs: index === source.length - 1
+      ? [...step.logs, formatProgressLog('回复已保存，执行完成。')].slice(-20)
+      : step.logs,
+  }))
+}
+
 function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   if (Array.isArray(meta?.skill_progress) && meta.skill_progress.length > 0) return meta.skill_progress
   const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
@@ -185,7 +219,15 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   return steps
 }
 
-function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
+function ProgressCard({
+  steps,
+  title = 'Skill 执行清单',
+  completedLabel = '已完成',
+}: {
+  steps: ChatProgressStep[]
+  title?: string
+  completedLabel?: string
+}) {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   if (!steps.length) return null
 
@@ -212,9 +254,9 @@ function SkillProgressCard({ steps }: { steps: ChatProgressStep[] }) {
     <div className="mt-3 mb-3 w-full rounded-2xl border border-primary/10 bg-gradient-to-br from-white to-primary/[0.03] p-3.5 shadow-sm">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <p className="text-xs font-semibold text-gray-700">Skill 执行清单</p>
+          <p className="text-xs font-semibold text-gray-700">{title}</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            {doneCount}/{steps.length} 已完成
+            {doneCount}/{steps.length} {completedLabel}
           </p>
         </div>
         <div className="h-1.5 flex-1 max-w-[160px] rounded-full bg-gray-100 overflow-hidden">
@@ -1001,7 +1043,11 @@ export function Chat() {
     isStreamingRef.current = true
     skillRunActiveRef.current = !!skillForThisMessage
     setSkillRunActive(!!skillForThisMessage)
-    setProgressSteps(skillForThisMessage ? advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。') : [])
+    setProgressSteps(
+      skillForThisMessage
+        ? advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。')
+        : advanceProgressSteps(createChatLoadingSteps(), 0, '正在提交请求并建立本轮对话...', '消息已发出，正在连接模型服务。'),
+    )
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -1110,6 +1156,11 @@ export function Chat() {
               if (stepIndex !== undefined) {
                 setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), stepIndex, data.message, data.message))
               }
+            } else {
+              const stepIndex = CHAT_STAGE_STEP_INDEX[data.stage as string]
+              if (stepIndex !== undefined) {
+                setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createChatLoadingSteps(), stepIndex, data.message, data.message))
+              }
             }
             setIsThinking(true)
           }
@@ -1189,11 +1240,14 @@ export function Chat() {
           resetSkillProgress()
           setIsThinking(false)
           setToolStatus(null)
-          setProgressSteps(hasSkillProgress ? completedProgressSteps : [])
+          setProgressSteps(hasSkillProgress ? completedProgressSteps : completeChatLoadingSteps(progressStepsRef.current))
           if (skillForThisMessage) {
             setSelectedSkill(null)
             skillArmedRef.current = false
             processedSkillRef.current = null
+          }
+          if (!hasSkillProgress) {
+            setTimeout(() => setProgressSteps([]), 1200)
           }
 
           // Refresh conversation list to pick up the auto-generated title.
@@ -1319,7 +1373,7 @@ export function Chat() {
           : false
         if (recovered) {
           setToolStatus(null)
-          setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : [])
+          setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : completeChatLoadingSteps(prev))
           if (skillForThisMessage) {
             setSelectedSkill(null)
             skillArmedRef.current = false
@@ -1387,8 +1441,9 @@ export function Chat() {
   const shouldBootstrapConversation = isLoadingConversations
   const shouldShowLiveSkillProgress = skillRunActive || progressSteps.length > 0
   const liveProgressSteps = shouldShowLiveSkillProgress
-    ? (progressSteps.length ? progressSteps : createProgressSteps())
+    ? (progressSteps.length ? progressSteps : (skillRunActive ? createProgressSteps() : createChatLoadingSteps()))
     : []
+  const liveProgressTitle = skillRunActive ? 'Skill 执行清单' : 'Aria 正在处理'
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
@@ -1636,7 +1691,7 @@ export function Chat() {
                       <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
                         {streamingContent ? (
                           <>
-                            <SkillProgressCard steps={liveProgressSteps} />
+                            <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
                             {streamArtifacts.map((artifact) => (
                               <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
                             ))}
@@ -1651,19 +1706,14 @@ export function Chat() {
                           </>
                         ) : toolStatus ? (
                           <>
-                            <SkillProgressCard steps={liveProgressSteps} />
+                            <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
                             <div className="flex items-center gap-2 text-gray-400 py-1">
                               <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
                               <span className="text-sm text-primary/70">{toolStatus}</span>
                             </div>
                           </>
                         ) : (
-                          <div className="flex items-center gap-1.5 py-1">
-                            {[0, 120, 240].map(d => (
-                              <span key={d} className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce"
-                                style={{ animationDelay: `${d}ms` }} />
-                            ))}
-                          </div>
+                          <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} completedLabel="已就绪" />
                         )}
                       </div>
                     </div>
@@ -2248,7 +2298,7 @@ function MessageRow({ message }: { message: Message }) {
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
             <>
-              <SkillProgressCard steps={skillProgress} />
+              <ProgressCard steps={skillProgress} title="Skill 执行清单" />
               {artifacts.map((artifact) => (
                 <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
               ))}

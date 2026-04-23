@@ -461,11 +461,10 @@ def build_chat_context(
     # Build skill context
     skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
     
-    # Build project context
-    if project_id:
-        project_context = build_project_context(session, project_id, file_ids)
-    else:
-        project_context = build_global_workspace_context(session)
+    # Keep standalone chat lean: only inject workspace context when a project is
+    # explicitly selected. Global workspace briefs can still be added later via
+    # a dedicated mode, but they should not slow down ordinary chat by default.
+    project_context = build_project_context(session, project_id, file_ids) if project_id else ""
 
     if knowledge_scope == "client" and project_id is not None:
         project = session.get(Project, project_id)

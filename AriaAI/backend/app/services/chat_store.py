@@ -92,8 +92,23 @@ def get_full_message_history(session: Session, conv_id: int):
     return session.exec(
         select(Message)
         .where(Message.conversation_id == conv_id)
-        .order_by(Message.created_at)
+        .order_by(Message.created_at, Message.id)
     ).all()
+
+
+def get_recent_message_history(
+    session: Session,
+    conv_id: int,
+    limit: int = 24,
+):
+    msgs = session.exec(
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(limit)
+    ).all()
+    msgs.reverse()
+    return msgs
 
 
 def build_message_metadata(

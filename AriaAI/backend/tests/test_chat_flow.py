@@ -49,6 +49,7 @@ from app.routers import projects as projects_router_module
 from app.routers import skills as skills_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
+from app.services import chat_streaming as chat_streaming_module
 from app.services import client_contexts as client_contexts_module
 from app.services import context_builder as context_builder_module
 from app.services import document_text as document_text_module
@@ -2884,6 +2885,44 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(routed_name, "generate_ppt_from_skill")
         self.assertEqual(routed_input["skill_name"], "digital-strategy")
 
+    def test_prepare_chat_runtime_limits_history_window_for_standalone_chat(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            for index in range(30):
+                session.add(
+                    Message(
+                        conversation_id=conv_id,
+                        role="user" if index % 2 == 0 else "assistant",
+                        content=f"message-{index}",
+                    )
+                )
+            session.commit()
+
+            with patch.object(context_builder_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext()
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="latest-message",
+                    ),
+                )
+
+        self.assertEqual(len(runtime.api_messages), chat_streaming_module.CHAT_HISTORY_WINDOW)
+        self.assertEqual(runtime.api_messages[0]["content"], "message-7")
+        self.assertEqual(runtime.api_messages[-1]["content"], "latest-message")
+
     def test_project_chat_context_disables_global_rag_auto_trigger(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")
@@ -2977,6 +3016,21 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         mocked_retrieve.assert_called_once()
         self.assertIn("Relevant knowledge", ctx.rag_context)
         self.assertEqual(len(ctx.rag_sources), 1)
+
+    def test_standalone_chat_context_does_not_inject_global_workspace(self):
+        with Session(self.engine) as session:
+            session.add(Project(name="Standalone Context Project", client="Acme", status="active"))
+            session.commit()
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=None,
+                skill_id=None,
+                knowledge_scope="project",
+                content="hello",
+            )
+
+        self.assertEqual(ctx.project_context, "")
 
     def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
         with Session(self.engine) as session:

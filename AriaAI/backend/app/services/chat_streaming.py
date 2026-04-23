@@ -12,7 +12,7 @@ from app.models.db import Skill
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_store import (
     build_message_metadata,
-    get_full_message_history,
+    get_recent_message_history,
     get_or_create_conversation,
     persist_assistant_message,
     persist_user_message,
@@ -29,6 +29,7 @@ from app.tools import registry
 
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
+CHAT_HISTORY_WINDOW = 24
 
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
@@ -120,7 +121,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.project_context,
     )
 
-    history = get_full_message_history(session, conv.id)
+    history = get_recent_message_history(session, conv.id, limit=CHAT_HISTORY_WINDOW)
     api_messages = [
         {"role": msg.role, "content": msg.content}
         for msg in history
