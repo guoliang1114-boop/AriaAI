@@ -3017,7 +3017,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn("Relevant knowledge", ctx.rag_context)
         self.assertEqual(len(ctx.rag_sources), 1)
 
-    def test_standalone_chat_context_does_not_inject_global_workspace(self):
+    def test_standalone_chat_context_uses_lightweight_workspace_brief(self):
         with Session(self.engine) as session:
             session.add(Project(name="Standalone Context Project", client="Acme", status="active"))
             session.commit()
@@ -3030,7 +3030,9 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 content="hello",
             )
 
-        self.assertEqual(ctx.project_context, "")
+        self.assertIn("Workspace Brief", ctx.project_context)
+        self.assertIn("Standalone Context Project", ctx.project_context)
+        self.assertNotIn("## Project:", ctx.project_context)
 
     def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
         with Session(self.engine) as session:

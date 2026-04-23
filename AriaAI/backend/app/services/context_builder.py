@@ -263,6 +263,40 @@ def build_global_workspace_context(session: Session) -> str:
     return "\n".join(ws_lines)
 
 
+def build_lightweight_workspace_context(session: Session) -> str:
+    """Build a compact workspace brief for standalone chat."""
+    all_projects = session.exec(
+        select(Project).where(Project.status != "archived").order_by(Project.updated_at.desc())
+    ).all()
+
+    if not all_projects:
+        return ""
+
+    today_str = utc_now_naive().strftime("%Y-%m-%d")
+    active_projects = [project for project in all_projects if project.status not in {"completed", "archived"}]
+    recent_projects = all_projects[:5]
+
+    ws_lines = [
+        f"# Workspace Brief ({today_str})",
+        f"- Active projects: {len(active_projects)}",
+        f"- Total tracked projects: {len(all_projects)}",
+        "- Use this brief only as lightweight operating context for standalone chat.",
+        "- If the user asks about a specific project, ask for or switch into that project context before making detailed claims.",
+        "",
+        "## Recent project snapshot",
+    ]
+
+    for project in recent_projects:
+        line = f"- {project.name} | client={project.client} | status={project.status}"
+        if project.contract_amount:
+            line += f" | amount={project.contract_amount:,.0f}"
+        ws_lines.append(line)
+        if project.context_summary:
+            ws_lines.append(f"  summary: {project.context_summary[:120]}")
+
+    return "\n".join(ws_lines)
+
+
 def build_project_context(
     session: Session,
     project_id: int,
@@ -461,10 +495,10 @@ def build_chat_context(
     # Build skill context
     skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
     
-    # Keep standalone chat lean: only inject workspace context when a project is
-    # explicitly selected. Global workspace briefs can still be added later via
-    # a dedicated mode, but they should not slow down ordinary chat by default.
-    project_context = build_project_context(session, project_id, file_ids) if project_id else ""
+    if project_id:
+        project_context = build_project_context(session, project_id, file_ids)
+    else:
+        project_context = build_lightweight_workspace_context(session)
 
     if knowledge_scope == "client" and project_id is not None:
         project = session.get(Project, project_id)

@@ -219,6 +219,42 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   return steps
 }
 
+function ChatLoadingState({
+  currentLabel,
+  currentDescription,
+}: {
+  currentLabel?: string
+  currentDescription?: string
+}) {
+  return (
+    <div className="mb-3 w-full rounded-2xl border border-gray-200/80 bg-white/90 px-4 py-3 shadow-sm">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Loader2 className="h-4 w-4 animate-spin" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-gray-700">
+            {currentLabel || 'Aria 正在整理回答'}
+          </p>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {currentDescription || '会结合当前工作台信息和最近对话，尽快把答案整理给你。'}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {['结合工作台背景', '整理最近对话', '生成清晰答复'].map((item) => (
+          <span
+            key={item}
+            className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] text-gray-500"
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ProgressCard({
   steps,
   title = 'Skill 执行清单',
@@ -1439,11 +1475,12 @@ export function Chat() {
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
   const activeConversationTitle = conversation?.title || t('chat.newConversation')
   const shouldBootstrapConversation = isLoadingConversations
-  const shouldShowLiveSkillProgress = skillRunActive || progressSteps.length > 0
-  const liveProgressSteps = shouldShowLiveSkillProgress
+  const shouldShowLiveProgress = skillRunActive || progressSteps.length > 0
+  const liveProgressSteps = shouldShowLiveProgress
     ? (progressSteps.length ? progressSteps : (skillRunActive ? createProgressSteps() : createChatLoadingSteps()))
     : []
   const liveProgressTitle = skillRunActive ? 'Skill 执行清单' : 'Aria 正在处理'
+  const activeLoadingStep = liveProgressSteps.find(step => step.status === 'active') || liveProgressSteps.at(-1)
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
@@ -1691,11 +1728,18 @@ export function Chat() {
                       <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
                         {streamingContent ? (
                           <>
-                            <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
+                            {skillRunActive ? (
+                              <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
+                            ) : (
+                              <ChatLoadingState
+                                currentLabel={activeLoadingStep?.label}
+                                currentDescription={activeLoadingStep?.description}
+                              />
+                            )}
                             {streamArtifacts.map((artifact) => (
                               <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
                             ))}
-                            <StreamingAnswerPreview content={streamingContent} compact={shouldShowLiveSkillProgress} />
+                            <StreamingAnswerPreview content={streamingContent} compact={skillRunActive} />
                             {toolStatus && (
                               <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
                                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -1706,14 +1750,28 @@ export function Chat() {
                           </>
                         ) : toolStatus ? (
                           <>
-                            <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
+                            {skillRunActive ? (
+                              <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
+                            ) : (
+                              <ChatLoadingState
+                                currentLabel={activeLoadingStep?.label}
+                                currentDescription={toolStatus || activeLoadingStep?.description}
+                              />
+                            )}
                             <div className="flex items-center gap-2 text-gray-400 py-1">
                               <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
                               <span className="text-sm text-primary/70">{toolStatus}</span>
                             </div>
                           </>
                         ) : (
-                          <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} completedLabel="已就绪" />
+                          skillRunActive ? (
+                            <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} completedLabel="已就绪" />
+                          ) : (
+                            <ChatLoadingState
+                              currentLabel={activeLoadingStep?.label}
+                              currentDescription={activeLoadingStep?.description}
+                            />
+                          )
                         )}
                       </div>
                     </div>
