@@ -828,6 +828,8 @@ async def generate_ppt(
                 "file_name": filename,
                 "file_path": str(filepath.relative_to(UPLOADS_DIR)),
                 "full_path": str(filepath),
+                "template_path": str(template_path),
+                "template_name": Path(template_path).name,
                 "slide_count": len(prs.slides),
             }
 
@@ -906,6 +908,7 @@ async def generate_ppt(
         "file_name": filename,
         "file_path": str(filepath.relative_to(UPLOADS_DIR)),
         "full_path": str(filepath),
+        **({"template_path": str(template_path), "template_name": Path(template_path).name} if using_template else {}),
         "slide_count": len(slides) + 2,  # cover + content + back cover
     }
 
@@ -960,7 +963,7 @@ async def generate_ppt_from_skill(
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
     for folder in ("assets", "references"):
-        for filename in ("KPMG-Template.pptx", "template.pptx", "Template.pptx"):
+        for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx"):
             candidate = SKILLS_DIR / skill_name / folder / filename
             if candidate.exists():
                 template_path = candidate

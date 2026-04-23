@@ -261,6 +261,21 @@ def _should_auto_generate_digital_strategy_ppt(runtime: ChatRuntime, req: SendMe
     return "数字化战略设计" in skill_name or "digital-strategy" in system
 
 
+def _is_digital_strategy_runtime(runtime: ChatRuntime) -> bool:
+    skill_name = runtime.skill_name or ""
+    system = runtime.system or ""
+    return "数字化战略设计" in skill_name or "digital-strategy" in system
+
+
+def _route_ppt_tool_for_skill(runtime: ChatRuntime, tool_name: str, tool_input: dict) -> tuple[str, dict]:
+    """Force digital-strategy PPT generation through its Skill template."""
+    if tool_name != "generate_ppt" or not _is_digital_strategy_runtime(runtime):
+        return tool_name, tool_input
+    routed_input = dict(tool_input)
+    routed_input["skill_name"] = "digital-strategy"
+    return "generate_ppt_from_skill", routed_input
+
+
 def _clean_slide_line(line: str) -> str:
     cleaned = line.strip()
     cleaned = cleaned.lstrip("-*• ").strip()
@@ -571,6 +586,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             if not tool_name or not isinstance(tool_input, dict):
                 continue
+            tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
 
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 

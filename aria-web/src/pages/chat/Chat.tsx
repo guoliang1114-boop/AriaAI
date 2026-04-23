@@ -119,6 +119,8 @@ const STAGE_STEP_INDEX: Record<string, number> = {
   saving: 4,
 }
 
+const SKILL_PROGRESS_STAGES = new Set(['planning', 'tool_planned', 'tools', 'tool_running', 'follow_up'])
+
 function createProgressSteps(): ChatProgressStep[] {
   return BASE_PROGRESS_STEPS.map(step => ({ ...step, logs: [] }))
 }
@@ -498,6 +500,7 @@ export function Chat() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
+  const [skillRunActive, setSkillRunActive] = useState(false)
   const [streamArtifacts, setStreamArtifacts] = useState<GeneratedArtifact[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
@@ -546,6 +549,16 @@ export function Chat() {
   useEffect(() => {
     progressStepsRef.current = progressSteps
   }, [progressSteps])
+
+  const activateSkillProgress = () => {
+    skillRunActiveRef.current = true
+    setSkillRunActive(true)
+  }
+
+  const resetSkillProgress = () => {
+    skillRunActiveRef.current = false
+    setSkillRunActive(false)
+  }
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => { fetchInitialData() }, [])
@@ -736,7 +749,7 @@ export function Chat() {
     }
   }
 
-  const recoverConversationMessages = async (id: number, attempts = 6) => {
+  const recoverConversationMessages = async (id: number, attempts = 8) => {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         const data = await api.get<Message[]>(`/chat/conversations/${id}/messages?limit=${PAGE_SIZE}`)
@@ -754,7 +767,7 @@ export function Chat() {
       } catch (err) {
         console.error('Failed to recover conversation messages:', err)
       }
-      await sleep(700 + attempt * 400)
+      await sleep(900 + attempt * 500)
     }
     return false
   }
@@ -891,7 +904,7 @@ export function Chat() {
     setHasMore(false)
     setErrorMsg(null)
     setProgressSteps([])
-    skillRunActiveRef.current = false
+    resetSkillProgress()
     navigate('/chat', { replace: true })
   }
 
@@ -968,6 +981,7 @@ export function Chat() {
     setStreamArtifacts([])
     isStreamingRef.current = true
     skillRunActiveRef.current = !!skillForThisMessage
+    setSkillRunActive(!!skillForThisMessage)
     setProgressSteps(skillForThisMessage ? advanceProgressSteps(createProgressSteps(), 0, '正在提交请求并准备上下文...', '开始提交请求，准备会话上下文。') : [])
 
     const controller = new AbortController()
@@ -1067,6 +1081,9 @@ export function Chat() {
           }
         } else if (data.type === 'status') {
           if (data.message) {
+            if (SKILL_PROGRESS_STAGES.has(String(data.stage))) {
+              activateSkillProgress()
+            }
             if (skillRunActiveRef.current) {
               setToolStatus(data.message)
               const stepIndex = STAGE_STEP_INDEX[data.stage as string]
@@ -1077,11 +1094,12 @@ export function Chat() {
             setIsThinking(true)
           }
         } else if (data.type === 'tool_executing') {
-          skillRunActiveRef.current = true
+          activateSkillProgress()
           setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
           const toolMessage = data.message || `正在执行 ${data.tool_name || '工具'}...`
           setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createProgressSteps(), 2, toolMessage, toolMessage))
         } else if (data.type === 'tool_result') {
+          activateSkillProgress()
           setToolStatus(null)
           const result = data.result || {}
           const artifact = artifactFromToolResult(result)
@@ -1148,7 +1166,7 @@ export function Chat() {
           setStreamArtifacts([])
           streamingContentRef.current = ''
           isStreamingRef.current = false
-          skillRunActiveRef.current = false
+          resetSkillProgress()
           setIsThinking(false)
           setToolStatus(null)
           setProgressSteps(hasSkillProgress ? completedProgressSteps : [])
@@ -1230,6 +1248,19 @@ export function Chat() {
 
       // Stream ended but no 'done' event (e.g. aborted)
       if (!streamDone && assistantContent) {
+        if (skillRunActiveRef.current && currentConvId) {
+          setToolStatus('流式连接已结束，正在同步后台保存的 Skill 结果...')
+          const recovered = await recoverConversationMessages(currentConvId, 12)
+          if (recovered) {
+            setToolStatus(null)
+            setProgressSteps(prev => completeProgressSteps(prev))
+            resetSkillProgress()
+            sessionStorage.removeItem('pendingStreamingConvId')
+            streamingConvIdRef.current = null
+            completedNormally = true
+            return
+          }
+        }
         if (updateTimerRef.current) { clearTimeout(updateTimerRef.current); updateTimerRef.current = null }
         flushUpdate()
         await new Promise(r => setTimeout(r, 50))
@@ -1255,13 +1286,16 @@ export function Chat() {
         // Keep sessionStorage in case user wants to resume
       } else {
         console.error('Send failed:', err)
+        if (skillRunActiveRef.current) {
+          setToolStatus('流式连接已断开，正在从后台同步已保存结果...')
+        }
         const recovered = currentConvIdForCleanup
-          ? await recoverConversationMessages(currentConvIdForCleanup)
+          ? await recoverConversationMessages(currentConvIdForCleanup, skillRunActiveRef.current ? 12 : 8)
           : false
         if (recovered) {
           setToolStatus(null)
           setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : [])
-          skillRunActiveRef.current = false
+          resetSkillProgress()
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
           return
@@ -1284,6 +1318,7 @@ export function Chat() {
           || (isGenericNetworkError
             ? '连接中断了：Skill 生成内容较长或工具执行耗时较久时，流式连接可能提前断开。我们已尝试从后台同步已保存的回复。'
             : rawMessage)
+        setToolStatus(null)
         setErrorMsg(friendlyMessage)
         setProgressSteps(prev => prev.map(step => step.status === 'active' ? {
           ...step,
@@ -1296,7 +1331,7 @@ export function Chat() {
       }
       setIsThinking(false)
       isStreamingRef.current = false
-      skillRunActiveRef.current = false
+      resetSkillProgress()
       // Clear partial streaming content
       if (streamingContentRef.current) {
         setStreamingContent('')
@@ -1320,6 +1355,10 @@ export function Chat() {
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
   const activeConversationTitle = conversation?.title || t('chat.newConversation')
   const shouldBootstrapConversation = isLoadingConversations
+  const shouldShowLiveSkillProgress = skillRunActive || progressSteps.length > 0
+  const liveProgressSteps = shouldShowLiveSkillProgress
+    ? (progressSteps.length ? progressSteps : createProgressSteps())
+    : []
 
   const filteredConversations = sidebarSearch.trim()
     ? conversations.filter(c =>
@@ -1567,11 +1606,11 @@ export function Chat() {
                       <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
                         {streamingContent ? (
                           <>
-                            <SkillProgressCard steps={progressSteps} />
+                            <SkillProgressCard steps={liveProgressSteps} />
                             {streamArtifacts.map((artifact) => (
                               <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
                             ))}
-                            <StreamingAnswerPreview content={streamingContent} compact={progressSteps.length > 0} />
+                            <StreamingAnswerPreview content={streamingContent} compact={shouldShowLiveSkillProgress} />
                             {toolStatus && (
                               <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
                                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -1582,7 +1621,7 @@ export function Chat() {
                           </>
                         ) : toolStatus ? (
                           <>
-                            <SkillProgressCard steps={progressSteps} />
+                            <SkillProgressCard steps={liveProgressSteps} />
                             <div className="flex items-center gap-2 text-gray-400 py-1">
                               <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
                               <span className="text-sm text-primary/70">{toolStatus}</span>
