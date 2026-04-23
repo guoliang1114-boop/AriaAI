@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import time
 from dataclasses import dataclass
 from collections.abc import AsyncIterator
 
@@ -54,6 +55,7 @@ class ChatRuntime:
     max_tokens: int
     temperature: float
     skill_name: str = ""
+    prepare_metrics: dict | None = None
 
 
 def _should_apply_skill(content: str, skill: Skill | None) -> bool:
@@ -79,16 +81,23 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
 
 
 def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
+    prepare_started_at = time.perf_counter()
+    step_started_at = prepare_started_at
+    prepare_metrics: dict[str, int | str] = {}
+
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     effective_skill_id = req.skill_id if skill and (req.force_skill or _should_apply_skill(req.content, skill)) else None
     effective_skill = skill if effective_skill_id else None
+    prepare_metrics["resolve_skill_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
+    step_started_at = time.perf_counter()
     conv = get_or_create_conversation(
         session,
         req.conversation_id,
         project_id=req.project_id,
         skill_id=effective_skill_id,
     )
+    prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     metadata = build_message_metadata(
         project_id=req.project_id,
@@ -96,11 +105,14 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         rag_doc_ids=req.rag_doc_ids,
         file_ids=req.file_ids,
     )
+    step_started_at = time.perf_counter()
     persist_user_message(session, conv.id, req.content, metadata)
+    prepare_metrics["user_message_saved_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
     temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
 
+    step_started_at = time.perf_counter()
     chat_ctx = build_chat_context(
         session=session,
         skill_id=effective_skill_id,
@@ -111,7 +123,9 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         content=req.content,
         default_max_tokens=max_tokens,
     )
+    prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
+    step_started_at = time.perf_counter()
     selected_model = get_selected_model(session)
     provider = resolve_provider_from_model(selected_model)
     llm = _load_provider_module(provider)
@@ -120,13 +134,19 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.rag_context,
         chat_ctx.project_context,
     )
+    prepare_metrics["model_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
+    step_started_at = time.perf_counter()
     history = get_recent_message_history(session, conv.id, limit=CHAT_HISTORY_WINDOW)
     api_messages = [
         {"role": msg.role, "content": msg.content}
         for msg in history
         if msg.content.strip()
     ]
+    prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
+    prepare_metrics["history_message_count"] = len(api_messages)
+    prepare_metrics["context_mode"] = "project" if req.project_id else "workspace_brief"
+    prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
 
     return ChatRuntime(
         conv_id=conv.id,
@@ -139,6 +159,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         max_tokens=_cap_max_tokens_for_model(selected_model, chat_ctx.max_tokens),
         temperature=temperature,
         skill_name=effective_skill.name if effective_skill else "",
+        prepare_metrics=prepare_metrics,
     )
 
 
@@ -461,9 +482,22 @@ async def _await_with_heartbeat(
 
 
 async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind):
+    stream_started_at = time.perf_counter()
+    stage_timings: dict[str, int | str] = dict(runtime.prepare_metrics or {})
+    first_model_event_recorded = False
     yield _sse_event({"type": "conversation_id", "id": runtime.conv_id})
     if runtime.rag_sources:
         yield _sse_event({"type": "references", "references": runtime.rag_sources})
+    for metric_key in (
+        "conversation_ready_ms",
+        "user_message_saved_ms",
+        "context_loaded_ms",
+        "history_loaded_ms",
+        "model_ready_ms",
+        "prepare_total_ms",
+    ):
+        if metric_key in stage_timings:
+            yield _sse_event({"type": "timing", "key": metric_key, "duration_ms": stage_timings[metric_key]})
 
     full_text = ""
     need_title = False
@@ -477,6 +511,15 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         p1_truncated = False
 
         print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
+        prepare_context_label = "项目上下文" if req.project_id else "工作台摘要"
+        yield _sse_event(
+            {
+                "type": "status",
+                "stage": "prepare",
+                "message": f"{prepare_context_label}与最近对话已加载，正在请求模型...",
+            }
+        )
+        p1_started_at = time.perf_counter()
         yield _sse_event(
             {
                 "type": "status",
@@ -508,6 +551,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 yield _sse_event(item)
                 continue
             chunk = item
+            if not first_model_event_recorded:
+                first_model_event_recorded = True
+                stage_timings["model_first_event_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
+                yield _sse_event({"type": "timing", "key": "model_first_event_ms", "duration_ms": stage_timings["model_first_event_ms"]})
             chunk, was_truncated = _strip_truncation_marker(chunk)
             if was_truncated:
                 p1_truncated = True
@@ -534,6 +581,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list(block.get('input', {}).keys())}",
                             flush=True,
                         )
+                        if not first_model_event_recorded:
+                            first_model_event_recorded = True
+                            stage_timings["model_first_event_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
+                            yield _sse_event({"type": "timing", "key": "model_first_event_ms", "duration_ms": stage_timings["model_first_event_ms"]})
                         tool_use_blocks.append(block)
                         yield _sse_event(
                             {
@@ -553,6 +604,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "text", "content": chunk})
 
         print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
+        stage_timings["planning_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
+        yield _sse_event({"type": "timing", "key": "planning_ms", "duration_ms": stage_timings["planning_ms"]})
         if p1_truncated and not tool_use_blocks and text_buffer.strip():
             continuation_messages = runtime.api_messages + [
                 {"role": "assistant", "content": text_buffer.strip()},
@@ -601,6 +654,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "status", "stage": "finalizing", "message": "模型已返回，正在整理结果..."})
 
         tool_result_blocks = []
+        tools_started_at = time.perf_counter()
         for tool_data in tool_use_blocks:
             tool_name = tool_data.get("name", "")
             tool_input = tool_data.get("input", {})
@@ -613,6 +667,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 
             print(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}", flush=True)
+            tool_started_at = time.perf_counter()
             try:
                 result = None
                 async for event in _await_with_heartbeat(
@@ -631,6 +686,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             print(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}", flush=True)
             yield _sse_event({"type": "tool_result", "result": result})
+            tool_duration_ms = round((time.perf_counter() - tool_started_at) * 1000)
+            yield _sse_event({"type": "timing", "key": f"tool:{tool_name}", "duration_ms": tool_duration_ms})
 
             tool_call_events.append(
                 {
@@ -638,6 +695,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     "status": "error" if result.get("status") == "error" or result.get("success") is False else "completed",
                     "message": _tool_progress_payload(tool_name, tool_input).get("message", ""),
                     "summary": _summarize_tool_result(result),
+                    "duration_ms": tool_duration_ms,
                     **({"error": str(result.get("error"))} if result.get("error") else {}),
                 }
             )
@@ -656,6 +714,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             )
 
         print(f"[P2] done. tool_result_blocks={len(tool_result_blocks)}", flush=True)
+        if tool_use_blocks:
+            stage_timings["tools_total_ms"] = round((time.perf_counter() - tools_started_at) * 1000)
+            yield _sse_event({"type": "timing", "key": "tools_total_ms", "duration_ms": stage_timings["tools_total_ms"]})
 
         follow_up_text = ""
         if tool_use_blocks and tool_result_blocks:
@@ -682,6 +743,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             ]
 
             print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
+            follow_up_started_at = time.perf_counter()
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
             p3_truncated = False
             async for item in _iter_with_heartbeat(
@@ -756,6 +818,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     follow_up_text += chunk
                     yield _sse_event({"type": "text", "content": chunk})
             print(f"[P3] done. follow_up_text_len={len(follow_up_text)}", flush=True)
+            stage_timings["follow_up_ms"] = round((time.perf_counter() - follow_up_started_at) * 1000)
+            yield _sse_event({"type": "timing", "key": "follow_up_ms", "duration_ms": stage_timings["follow_up_ms"]})
 
         full_text = text_buffer.strip()
         if follow_up_text.strip():
@@ -795,6 +859,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
+        save_started_at = time.perf_counter()
         response_metadata = {}
         if not full_text and artifacts:
             names = "、".join(str(item.get("name")) for item in artifacts if item.get("name"))
@@ -813,7 +878,12 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if runtime.skill_name:
                 metadata["skill_id"] = req.skill_id
                 metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
+            stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
+            stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
+            metadata["stage_timings"] = stage_timings
             response_metadata = metadata
+            yield _sse_event({"type": "timing", "key": "save_ms", "duration_ms": stage_timings["save_ms"]})
+            yield _sse_event({"type": "timing", "key": "total_stream_ms", "duration_ms": stage_timings["total_stream_ms"]})
 
             need_title = persist_assistant_message(
                 bind,
@@ -830,6 +900,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
         return
 
+    print(f"[chat timing] conv={runtime.conv_id} metrics={stage_timings}", flush=True)
     yield _sse_event({"type": "done", **response_metadata})
 
     if need_title and full_text:

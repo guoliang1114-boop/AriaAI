@@ -112,6 +112,56 @@ interface ChatProgressStep {
   logs: string[]
 }
 
+type StageTimingEntry = {
+  key: string
+  label: string
+  durationMs: number
+}
+
+const STAGE_TIMING_LABELS: Record<string, string> = {
+  conversation_ready_ms: '会话准备',
+  user_message_saved_ms: '保存提问',
+  context_loaded_ms: '加载上下文',
+  history_loaded_ms: '整理历史',
+  model_ready_ms: '准备模型',
+  prepare_total_ms: '请求前准备',
+  model_first_event_ms: '首次响应',
+  planning_ms: '生成规划',
+  tools_total_ms: '工具执行',
+  follow_up_ms: '整理结果',
+  save_ms: '保存答复',
+  total_stream_ms: '本轮总耗时',
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs >= 1000) return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)}s`
+  return `${Math.round(durationMs)}ms`
+}
+
+function stageTimingLabel(key: string) {
+  if (STAGE_TIMING_LABELS[key]) return STAGE_TIMING_LABELS[key]
+  if (key.startsWith('tool:')) return `工具 ${key.slice(5)}`
+  return key
+}
+
+function mergeStageTimingEntries(entries: StageTimingEntry[], next: StageTimingEntry) {
+  const existingIndex = entries.findIndex(item => item.key === next.key)
+  if (existingIndex === -1) return [...entries, next]
+  return entries.map((item, index) => index === existingIndex ? next : item)
+}
+
+function stageTimingEntriesFromMeta(meta: any): StageTimingEntry[] {
+  const raw = meta?.stage_timings
+  if (!raw || typeof raw !== 'object') return []
+  return Object.entries(raw)
+    .filter(([, value]) => typeof value === 'number')
+    .map(([key, value]) => ({
+      key,
+      label: stageTimingLabel(key),
+      durationMs: Number(value),
+    }))
+}
+
 const BASE_CHAT_LOADING_STEPS: ChatProgressStep[] = [
   { key: 'prepare', label: '准备请求', description: '提交消息并初始化本轮上下文', status: 'pending', logs: [] },
   { key: 'thinking', label: '理解问题', description: '模型正在分析你的问题并组织答案', status: 'pending', logs: [] },
@@ -222,9 +272,11 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
 function ChatLoadingState({
   currentLabel,
   currentDescription,
+  timings = [],
 }: {
   currentLabel?: string
   currentDescription?: string
+  timings?: StageTimingEntry[]
 }) {
   return (
     <div className="mb-3 w-full rounded-2xl border border-gray-200/80 bg-white/90 px-4 py-3 shadow-sm">
@@ -251,6 +303,18 @@ function ChatLoadingState({
           </span>
         ))}
       </div>
+      {timings.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {timings.slice(0, 6).map((item) => (
+            <span
+              key={item.key}
+              className="rounded-full border border-primary/10 bg-primary/[0.04] px-2.5 py-1 text-[11px] text-primary/80"
+            >
+              {item.label} {formatDuration(item.durationMs)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -589,6 +653,7 @@ export function Chat() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
+  const [liveStageTimings, setLiveStageTimings] = useState<StageTimingEntry[]>([])
   const [skillRunActive, setSkillRunActive] = useState(false)
   const [streamArtifacts, setStreamArtifacts] = useState<GeneratedArtifact[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -621,6 +686,7 @@ export function Chat() {
   const skillDropdownRef = useRef<HTMLDivElement>(null)
   const streamingContentRef = useRef('')
   const progressStepsRef = useRef<ChatProgressStep[]>([])
+  const liveStageTimingsRef = useRef<StageTimingEntry[]>([])
   const isStreamingRef = useRef(false)
   const skillRunActiveRef = useRef(false)
   const skillArmedRef = useRef(!!skillId)
@@ -639,6 +705,10 @@ export function Chat() {
   useEffect(() => {
     progressStepsRef.current = progressSteps
   }, [progressSteps])
+
+  useEffect(() => {
+    liveStageTimingsRef.current = liveStageTimings
+  }, [liveStageTimings])
 
   const activateSkillProgress = () => {
     skillRunActiveRef.current = true
@@ -1076,6 +1146,8 @@ export function Chat() {
     streamingContentRef.current = ''
     setStreamingContent('')
     setStreamArtifacts([])
+    setLiveStageTimings([])
+    liveStageTimingsRef.current = []
     isStreamingRef.current = true
     skillRunActiveRef.current = !!skillForThisMessage
     setSkillRunActive(!!skillForThisMessage)
@@ -1200,6 +1272,12 @@ export function Chat() {
             }
             setIsThinking(true)
           }
+        } else if (data.type === 'timing' && data.key && typeof data.duration_ms === 'number') {
+          setLiveStageTimings(prev => mergeStageTimingEntries(prev, {
+            key: String(data.key),
+            label: stageTimingLabel(String(data.key)),
+            durationMs: Number(data.duration_ms),
+          }))
         } else if (data.type === 'tool_executing') {
           activateSkillProgress()
           setToolStatus(data.tool_name ? `${t('chat.runningTool')}: ${data.tool_name}…` : t('chat.runningTool'))
@@ -1260,6 +1338,7 @@ export function Chat() {
               artifacts: finalArtifacts,
               skill_id: skillForThisMessage || undefined,
               skill_progress: hasSkillProgress ? (data.skill_progress || completedProgressSteps) : undefined,
+              stage_timings: data.stage_timings || Object.fromEntries(liveStageTimingsRef.current.map(item => [item.key, item.durationMs])),
             }),
             created_at: new Date().toISOString(),
           }
@@ -1734,6 +1813,7 @@ export function Chat() {
                               <ChatLoadingState
                                 currentLabel={activeLoadingStep?.label}
                                 currentDescription={activeLoadingStep?.description}
+                                timings={liveStageTimings}
                               />
                             )}
                             {streamArtifacts.map((artifact) => (
@@ -1756,6 +1836,7 @@ export function Chat() {
                               <ChatLoadingState
                                 currentLabel={activeLoadingStep?.label}
                                 currentDescription={toolStatus || activeLoadingStep?.description}
+                                timings={liveStageTimings}
                               />
                             )}
                             <div className="flex items-center gap-2 text-gray-400 py-1">
@@ -1770,6 +1851,7 @@ export function Chat() {
                             <ChatLoadingState
                               currentLabel={activeLoadingStep?.label}
                               currentDescription={activeLoadingStep?.description}
+                              timings={liveStageTimings}
                             />
                           )
                         )}
@@ -2318,11 +2400,13 @@ function MessageRow({ message }: { message: Message }) {
   let references: Array<{ type: string; id: number; title: string }> = []
   let skillProgress: ChatProgressStep[] = []
   let artifacts: GeneratedArtifact[] = []
+  let stageTimings: StageTimingEntry[] = []
   try {
     const meta = JSON.parse(message.metadata_json || '{}')
     references = meta.references || []
     artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
+    stageTimings = stageTimingEntriesFromMeta(meta)
   } catch (_) {}
 
   return (
@@ -2380,6 +2464,22 @@ function MessageRow({ message }: { message: Message }) {
         )}
 
         {/* Timestamp + copy — visible on hover */}
+        {!isUser && stageTimings.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {stageTimings
+              .filter(item => ['prepare_total_ms', 'model_first_event_ms', 'tools_total_ms', 'follow_up_ms', 'save_ms', 'total_stream_ms'].includes(item.key))
+              .slice(0, 6)
+              .map((item) => (
+                <span
+                  key={item.key}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/10 bg-primary/[0.04] px-2 py-0.5 text-[11px] text-primary/80"
+                >
+                  <Clock className="h-3 w-3" />
+                  {item.label} {formatDuration(item.durationMs)}
+                </span>
+              ))}
+          </div>
+        )}
         <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
           <span className="text-[11px] text-gray-300 px-0.5">{formatTime(message.created_at)}</span>
           <CopyButton text={message.content} />

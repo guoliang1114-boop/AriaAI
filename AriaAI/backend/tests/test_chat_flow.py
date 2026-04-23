@@ -3390,6 +3390,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         joined = "".join(events)
         self.assertIn('"conversation_id"', joined)
         self.assertIn('"done"', joined)
+        self.assertIn('"stage_timings"', joined)
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(
@@ -3397,6 +3398,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ).all()
             self.assertEqual(len(assistant_messages), 1)
             self.assertEqual(assistant_messages[0].content, "hello world")
+            self.assertIn("stage_timings", assistant_messages[0].metadata_json)
 
     def test_stream_chat_events_emits_and_persists_references(self):
         conv_id = self._create_conversation()
