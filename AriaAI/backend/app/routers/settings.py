@@ -189,6 +189,7 @@ _SETTING_METADATA = {
     # App Settings (Layer 3)
     "theme": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
     "language": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
+    "timezone": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
 }
 
 

@@ -79,7 +79,7 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
 
 def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
-    effective_skill_id = req.skill_id if _should_apply_skill(req.content, skill) else None
+    effective_skill_id = req.skill_id if skill and (req.force_skill or _should_apply_skill(req.content, skill)) else None
     effective_skill = skill if effective_skill_id else None
 
     conv = get_or_create_conversation(
@@ -795,6 +795,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
         response_metadata = {}
+        if not full_text and artifacts:
+            names = "、".join(str(item.get("name")) for item in artifacts if item.get("name"))
+            full_text = f"已生成附件：{names or '请在下方下载生成物'}。"
+
         if full_text:
             metadata = {}
             if runtime.rag_sources:
@@ -806,6 +810,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if req.project_id:
                 metadata["project_id"] = req.project_id
             if runtime.skill_name:
+                metadata["skill_id"] = req.skill_id
                 metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
             response_metadata = metadata
 

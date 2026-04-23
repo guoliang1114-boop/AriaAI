@@ -1,6 +1,7 @@
 import { Download, FolderKanban, MoreVertical, Trash2 } from "lucide-react";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { getProjectDocumentFileIcon } from "./projectDocumentsIcons";
+import { formatDateTime, getResolvedAppTimeZone } from "../../utils/timezone";
 
 interface ProjectDocumentsListViewProps {
   enterFolder: (folderName: string) => void;
@@ -83,9 +84,7 @@ export function ProjectDocumentsListView({
               </td>
               <td className="px-4 py-3 text-sm text-gray-500 uppercase">{file.file_type}</td>
               <td className="px-4 py-3 text-sm text-gray-400">
-                {new Date(file.uploaded_at).toLocaleString(isZh ? "zh-CN" : "en-GB", {
-                  hour12: false,
-                })}
+                {formatDateTime(file.uploaded_at, isZh ? "zh-CN" : "en-GB", { hour12: false }, getResolvedAppTimeZone())}
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

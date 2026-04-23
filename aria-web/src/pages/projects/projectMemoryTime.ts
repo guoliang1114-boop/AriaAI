@@ -1,3 +1,5 @@
+import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from "../../utils/timezone";
+
 export function formatProjectMemoryUpdatedAt(
   value: string | null | undefined,
   isZh: boolean,
@@ -11,7 +13,7 @@ export function formatProjectMemoryUpdatedAt(
     return value
   }
 
-  return date.toLocaleString(isZh ? 'zh-CN' : 'en-US')
+  return formatDateTime(date, isZh ? "zh-CN" : "en-US", undefined, getResolvedAppTimeZone())
 }
 
 export function formatProjectMemoryUpdatedAtCompact(
@@ -47,8 +49,12 @@ export function formatProjectMemoryUpdatedAtCompact(
     return isZh ? `${days} 天前` : `${days}d ago`;
   }
 
-  return date.toLocaleDateString(isZh ? "zh-CN" : "en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateOnly(
+    date,
+    {
+      month: "short",
+      day: "numeric",
+    },
+    getResolvedAppTimeZone(),
+  );
 }

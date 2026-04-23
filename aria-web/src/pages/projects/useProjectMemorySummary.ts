@@ -17,6 +17,7 @@ interface UseProjectMemorySummaryOptions {
   language: string;
   memoryVersion?: number;
   projectId: string;
+  refreshScope?: "current" | "all";
   summaryType: ProjectMemorySummaryType;
 }
 
@@ -88,10 +89,11 @@ async function streamMemorySummary(options: {
   language: string;
   memoryVersion?: number;
   projectId: string;
+  refreshScope?: "current" | "all";
   summaryType: ProjectMemorySummaryType;
   onChunk: (value: string) => void;
 }) {
-  if (options.forceRefresh) {
+  if (options.forceRefresh && options.refreshScope === "all") {
     const generationKey = buildSummaryGenerationKey({
       language: options.language,
       memoryVersion: options.memoryVersion,
@@ -249,6 +251,7 @@ export function useProjectMemorySummary({
   language,
   memoryVersion,
   projectId,
+  refreshScope = "current",
   summaryType,
 }: UseProjectMemorySummaryOptions) {
   const [content, setContent] = useState("");
@@ -286,6 +289,7 @@ export function useProjectMemorySummary({
         memoryVersion,
         onChunk: setContent,
         projectId,
+        refreshScope,
         summaryType,
       });
       generatedSummaryKeys.add(cacheKey);

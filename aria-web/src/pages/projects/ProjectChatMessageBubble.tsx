@@ -16,6 +16,8 @@ import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEv
 import { getProjectChatCopy } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
+import { useAppTimeZone } from "../../hooks/useAppTimeZone";
+import { formatTimeOnly } from "../../utils/timezone";
 
 const MessageCopyButton = memo(({ text, title }: { text: string; title: string }) => {
   const [copied, setCopied] = useState(false);
@@ -62,6 +64,7 @@ interface ProjectChatMessageBubbleProps {
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
   ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onSaveToNotes, projectId }) => {
     const { t, i18n } = useTranslation();
+    const { resolvedTimeZone } = useAppTimeZone();
     const isUser = msg.role === "user";
     const isZh = i18n.language.startsWith("zh");
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
@@ -161,7 +164,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
 
           <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
             <span className="text-[11px] text-gray-300 px-0.5">
-              {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {formatTimeOnly(msg.created_at, { hour: "2-digit", minute: "2-digit" }, resolvedTimeZone)}
             </span>
             {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}
             {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} title={copy.saveToNotes} />}

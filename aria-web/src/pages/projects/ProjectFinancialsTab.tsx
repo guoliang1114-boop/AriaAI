@@ -123,11 +123,11 @@ export function ProjectFinancialsTab({
         emptyDescription={
           hasFinancialData
             ? isZh
-              ? "财务记录已存在，但当前记忆版本还没有财务摘要。点击生成全部摘要后，会一次性生成并缓存所有维度。"
-              : "Financial records exist, but this memory version does not have a financial summary yet. Generate All will create and cache every summary view in one run."
+              ? "财务记录已存在，但当前记忆版本还没有财务摘要。点击生成财务摘要后，会只刷新财务维度，避免长请求超时。"
+              : "Financial records exist, but this memory version does not have a financial summary yet. Generate will refresh only the financial view to avoid long request timeouts."
             : isZh
-              ? "当前项目还没有合同金额、回款、开票或支出记录。可先补充财务数据；也可以生成全部摘要，让 AI 明确标记财务数据暂缺。"
-              : "This project has no contract, received, invoiced, or expense records yet. Add financial data first, or Generate All so AI can mark financial data as missing."
+              ? "当前项目还没有合同金额、回款、开票或支出记录。可先补充财务数据；也可以生成财务摘要，让 AI 明确标记财务数据暂缺。"
+              : "This project has no contract, received, invoiced, or expense records yet. Add financial data first, or generate the financial summary so AI can mark financial data as missing."
         }
         emptyTitle={
           hasFinancialData
@@ -147,6 +147,11 @@ export function ProjectFinancialsTab({
         }
         isZh={isZh}
         loading={financialInsight.loading}
+        actionLabel={
+          financialInsight.content || financialInsight.generated
+            ? isZh ? "重新生成财务摘要" : "Regenerate financial summary"
+            : isZh ? "生成财务摘要" : "Generate financial summary"
+        }
         onRefresh={() => {
           void financialInsight.refresh(true);
         }}

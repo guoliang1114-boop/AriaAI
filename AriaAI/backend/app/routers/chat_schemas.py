@@ -11,6 +11,7 @@ class SendMessageRequest(BaseModel):
     content: str
     project_id: Optional[int] = None
     skill_id: Optional[int] = None
+    force_skill: bool = False
     knowledge_scope: str = "project"
     rag_doc_ids: List[int] = []
     file_ids: List[int] = []

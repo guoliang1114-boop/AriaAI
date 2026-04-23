@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell, CheckCircle2, Loader2, Megaphone, RefreshCw, Send } from 'lucide-react'
 import { api } from '../../api/client'
+import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type { SystemMessageAdminItem } from '../../types/api'
 
 interface MessageFormData {
@@ -260,7 +261,7 @@ export function MessageSettings() {
                             : 'Draft'}
                       </span>
                       <span className="text-xs text-on-surface-muted">
-                        {new Date(message.created_at).toLocaleString(isZh ? 'zh-CN' : 'en-US')}
+                        {formatDateTime(message.created_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())}
                       </span>
                     </div>
                     <h4 className="text-sm font-semibold text-on-surface">{message.title}</h4>

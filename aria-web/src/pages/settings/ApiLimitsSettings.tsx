@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
   ClientMemoryJob,
   ClientMemoryJobsResponse,
@@ -53,12 +54,12 @@ type FailureItem =
 
 function formatDate(value?: string | null, isZh = true) {
   if (!value) return isZh ? '等待调度' : 'Waiting'
-  return new Date(value).toLocaleString(isZh ? 'zh-CN' : 'en-US', {
+  return formatDateTime(value, isZh ? 'zh-CN' : 'en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  })
+  }, getResolvedAppTimeZone())
 }
 
 function getFailureText(failure: FailureItem) {

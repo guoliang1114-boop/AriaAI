@@ -24,6 +24,7 @@ import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
 import { ServiceErrorState } from '../components/ServiceErrorState'
 import type { Conversation, MyProjectTodo, Project, SkillSummary, SystemMessage, User } from '../types/api'
+import { formatDateOnly, getResolvedAppTimeZone } from '../utils/timezone'
 
 interface ErrorResponsePayload {
   detail?: string
@@ -84,10 +85,10 @@ function formatRelativeTime(value?: string | null, isZh = true) {
   if (diffMinutes < 60) return isZh ? `${diffMinutes} 分钟前` : `${diffMinutes} min ago`
   if (diffMinutes < 1440) return isZh ? `${Math.floor(diffMinutes / 60)} 小时前` : `${Math.floor(diffMinutes / 60)} h ago`
   if (diffMinutes < 2880) return isZh ? '昨天' : 'Yesterday'
-  return new Date(value).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
+  return formatDateOnly(value, {
     month: 'short',
     day: 'numeric',
-  })
+  }, getResolvedAppTimeZone())
 }
 
 function getStageLabel(status: Project['status'], isZh: boolean) {

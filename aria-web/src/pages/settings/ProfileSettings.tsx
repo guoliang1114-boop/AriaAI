@@ -1,13 +1,27 @@
 import { useState, useEffect } from 'react'
-import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock } from 'lucide-react'
+import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock, Clock3 } from 'lucide-react'
 import { api } from '../../api/client'
 import type { User as UserType } from '../../types/api'
+import { BROWSER_TIMEZONE_VALUE, getBrowserTimeZone, setAppTimeZone } from '../../utils/timezone'
+
+const timezoneOptions = [
+  { value: BROWSER_TIMEZONE_VALUE, label: '跟随浏览器', hint: '' },
+  { value: 'Asia/Shanghai', label: '中国标准时间', hint: 'UTC+08:00' },
+  { value: 'UTC', label: '协调世界时', hint: 'UTC+00:00' },
+  { value: 'Asia/Tokyo', label: '日本标准时间', hint: 'UTC+09:00' },
+  { value: 'America/Los_Angeles', label: '洛杉矶时间', hint: 'UTC-08:00 / -07:00' },
+  { value: 'America/New_York', label: '纽约时间', hint: 'UTC-05:00 / -04:00' },
+  { value: 'Europe/London', label: '伦敦时间', hint: 'UTC+00:00 / +01:00' },
+]
 
 export function ProfileSettings() {
   const [user, setUser] = useState<UserType | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [savingName, setSavingName] = useState(false)
   const [nameMsg, setNameMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [selectedTimeZone, setSelectedTimeZone] = useState(BROWSER_TIMEZONE_VALUE)
+  const [savingTimeZone, setSavingTimeZone] = useState(false)
+  const [timeZoneMsg, setTimeZoneMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Password dialog state
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -18,9 +32,13 @@ export function ProfileSettings() {
   const [pwdMsg, setPwdMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
-    api.get<UserType>('/auth/me').then(u => {
+    Promise.all([
+      api.get<UserType>('/auth/me'),
+      api.get<Record<string, string>>('/settings/').catch(() => ({} as Record<string, string>)),
+    ]).then(([u, settings]) => {
       setUser(u)
       setDisplayName(u.display_name)
+      setSelectedTimeZone(settings.timezone || BROWSER_TIMEZONE_VALUE)
     }).catch(() => {})
   }, [])
 
@@ -36,6 +54,21 @@ export function ProfileSettings() {
       setNameMsg({ type: 'error', text: err.response?.data?.detail || '保存失败' })
     } finally {
       setSavingName(false)
+    }
+  }
+
+  const handleSaveTimeZone = async () => {
+    setSavingTimeZone(true)
+    setTimeZoneMsg(null)
+    try {
+      await api.put('/settings/timezone', { value: selectedTimeZone })
+      setAppTimeZone(selectedTimeZone)
+      setTimeZoneMsg({ type: 'success', text: '时区已保存' })
+      setTimeout(() => setTimeZoneMsg(null), 3000)
+    } catch (err: any) {
+      setTimeZoneMsg({ type: 'error', text: err.response?.data?.detail || '保存时区失败' })
+    } finally {
+      setSavingTimeZone(false)
     }
   }
 
@@ -153,6 +186,44 @@ export function ProfileSettings() {
             readOnly
             className={inputCls + ' opacity-60 cursor-not-allowed'}
           />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-label-sm text-on-surface-muted flex items-center gap-1.5">
+            <Clock3 className="w-3.5 h-3.5" />
+            时区
+          </label>
+          <div className="flex gap-3">
+            <select
+              value={selectedTimeZone}
+              onChange={(e) => setSelectedTimeZone(e.target.value)}
+              className={inputCls + ' flex-1'}
+            >
+              {timezoneOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                  {option.value === BROWSER_TIMEZONE_VALUE ? `（当前：${getBrowserTimeZone()}）` : option.hint ? `（${option.hint}）` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleSaveTimeZone}
+              disabled={savingTimeZone}
+              className="btn-primary flex items-center gap-2 px-4 disabled:opacity-40"
+            >
+              {savingTimeZone ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              保存
+            </button>
+          </div>
+          <p className="text-xs text-on-surface-muted">
+            对话、项目聊天等时间显示会优先使用这里的时区。
+          </p>
+          {timeZoneMsg && (
+            <p className={`text-xs flex items-center gap-1 ${timeZoneMsg.type === 'success' ? 'text-active' : 'text-error'}`}>
+              {timeZoneMsg.type === 'error' && <AlertCircle className="w-3 h-3" />}
+              {timeZoneMsg.text}
+            </p>
+          )}
         </div>
       </div>
 

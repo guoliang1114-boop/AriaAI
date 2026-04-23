@@ -52,9 +52,13 @@ function summarizeToolResult(result: Record<string, unknown>, fallbackMessage?: 
 }
 
 function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact | null {
-  const path = typeof result.file_path === "string" ? result.file_path : typeof result.path === "string" ? result.path : "";
-  const name = typeof result.file_name === "string" ? result.file_name : typeof result.name === "string" ? result.name : "";
-  const fileType = typeof result.file_type === "string" ? result.file_type : "";
+  const output = typeof result.output === "object" && result.output !== null
+    ? (result.output as Record<string, unknown>)
+    : null;
+  const source = output && !result.file_path && !result.path ? output : result;
+  const path = typeof source.file_path === "string" ? source.file_path : typeof source.path === "string" ? source.path : "";
+  const name = typeof source.file_name === "string" ? source.file_name : typeof source.name === "string" ? source.name : "";
+  const fileType = typeof source.file_type === "string" ? source.file_type : "";
 
   if (!path || !name || !fileType) {
     return null;
@@ -64,7 +68,7 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
     name,
     file_type: fileType,
     path,
-    description: typeof result.note === "string" ? result.note : typeof result.message === "string" ? result.message : "",
+    description: typeof source.note === "string" ? source.note : typeof source.message === "string" ? source.message : "",
   };
 }
 
@@ -72,6 +76,7 @@ type UseProjectChatComposerParams = {
   projectId: number;
   activeConvId: number | null;
   selectedSkillId: number | null;
+  forceSkill: boolean;
   knowledgeScope: "project" | "client" | "global";
   setMessages: Dispatch<SetStateAction<Message[]>>;
   createConversation: (firstMessage?: string, skillId?: number | null) => Promise<number | null>;
@@ -86,6 +91,7 @@ export function useProjectChatComposer({
   projectId,
   activeConvId,
   selectedSkillId,
+  forceSkill,
   knowledgeScope,
   setMessages,
   createConversation,
@@ -113,12 +119,12 @@ export function useProjectChatComposer({
     if (!trimmed) return false;
 
     let conversationId = activeConvId;
-    const skillId = selectedSkillId || undefined;
+    const skillId = forceSkill ? selectedSkillId || undefined : undefined;
     setIsLoading(true);
     resetStreamingContent();
 
     if (!conversationId) {
-      conversationId = await createConversation(trimmed, selectedSkillId);
+      conversationId = await createConversation(trimmed, skillId || null);
       if (!conversationId) {
         setIsLoading(false);
         return false;
@@ -149,6 +155,7 @@ export function useProjectChatComposer({
           content: trimmed,
           project_id: projectId,
           skill_id: skillId,
+          force_skill: !!skillId,
           knowledge_scope: knowledgeScope,
         }),
       });
@@ -300,6 +307,7 @@ export function useProjectChatComposer({
     resetStreamingContent,
     scrollToBottom,
     selectedSkillId,
+    forceSkill,
     setMessages,
   ]);
 

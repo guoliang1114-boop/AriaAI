@@ -5,6 +5,8 @@ import { Bell, CheckCheck, ExternalLink, Loader2, MailOpen, RefreshCw } from 'lu
 import { PageTitle } from '../../components/PageTitle'
 import { api } from '../../api/client'
 import type { SystemMessage, SystemMessageListResponse } from '../../types/api'
+import { useAppTimeZone } from '../../hooks/useAppTimeZone'
+import { formatDateTime } from '../../utils/timezone'
 
 function getLevelClasses(level: SystemMessage['level']) {
   switch (level) {
@@ -21,6 +23,7 @@ function getLevelClasses(level: SystemMessage['level']) {
 
 export function MessagesPage() {
   const { i18n } = useTranslation()
+  const { resolvedTimeZone } = useAppTimeZone()
   const isZh = i18n.language.startsWith('zh')
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -176,7 +179,7 @@ export function MessagesPage() {
                           {message.is_read ? (isZh ? '已读' : 'Read') : (isZh ? '未读' : 'Unread')}
                         </span>
                         <span className="text-xs text-on-surface-muted">
-                          {new Date(message.created_at).toLocaleString(isZh ? 'zh-CN' : 'en-US')}
+                          {formatDateTime(message.created_at, isZh ? 'zh-CN' : 'en-US', undefined, resolvedTimeZone)}
                         </span>
                       </div>
 

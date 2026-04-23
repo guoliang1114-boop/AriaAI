@@ -42,39 +42,52 @@ import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
+import { useAppTimeZone } from '../../hooks/useAppTimeZone'
+import { formatDateOnly, formatDatePartsKey, formatTimeOnly } from '../../utils/timezone'
 
 const API_BASE_URL = getApiBaseUrl()
 const PAGE_SIZE = 20
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-function formatTime(dateStr: string) {
+function formatTime(dateStr: string, timeZone?: string) {
   const d = new Date(dateStr)
   const now = new Date()
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  if (diffDays === 1) return 'Yesterday'
-  return d.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const todayKey = formatDatePartsKey(now, timeZone)
+  const targetKey = formatDatePartsKey(d, timeZone)
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const yesterdayKey = formatDatePartsKey(yesterday, timeZone)
+  if (todayKey === targetKey) return formatTimeOnly(d, { hour: '2-digit', minute: '2-digit' }, timeZone)
+  if (yesterdayKey === targetKey) return 'Yesterday'
+  return formatDateOnly(d, { year: 'numeric', month: '2-digit', day: '2-digit' }, timeZone)
 }
 
-function groupConversations(conversations: Conversation[], t: any) {
+function groupConversations(conversations: Conversation[], t: any, timeZone?: string) {
   const now = new Date()
   const today: Conversation[] = []
-  const yesterday: Conversation[] = []
+  const yesterdayItems: Conversation[] = []
   const thisWeek: Conversation[] = []
   const older: Conversation[] = []
+  const todayKey = formatDatePartsKey(now, timeZone)
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const yesterdayKey = formatDatePartsKey(yesterday, timeZone)
+  const weekStart = new Date(now)
+  weekStart.setDate(now.getDate() - 7)
+  const weekStartKey = formatDatePartsKey(weekStart, timeZone)
 
   for (const c of conversations) {
-    const diff = Math.floor((now.getTime() - new Date(c.updated_at).getTime()) / 86400000)
-    if (diff === 0) today.push(c)
-    else if (diff === 1) yesterday.push(c)
-    else if (diff < 7) thisWeek.push(c)
+    const itemKey = formatDatePartsKey(c.updated_at, timeZone)
+    if (itemKey === todayKey) today.push(c)
+    else if (itemKey === yesterdayKey) yesterdayItems.push(c)
+    else if (itemKey >= weekStartKey) thisWeek.push(c)
     else older.push(c)
   }
 
   return [
     ...(today.length ? [{ label: t('chat.today'), items: today }] : []),
-    ...(yesterday.length ? [{ label: t('chat.yesterday'), items: yesterday }] : []),
+    ...(yesterdayItems.length ? [{ label: t('chat.yesterday'), items: yesterdayItems }] : []),
     ...(thisWeek.length ? [{ label: t('chat.thisWeek'), items: thisWeek }] : []),
     ...(older.length ? [{ label: t('chat.earlier'), items: older }] : []),
   ]
@@ -125,8 +138,8 @@ function createProgressSteps(): ChatProgressStep[] {
   return BASE_PROGRESS_STEPS.map(step => ({ ...step, logs: [] }))
 }
 
-function formatProgressLog(message: string) {
-  return `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} ${message}`
+function formatProgressLog(message: string, timeZone?: string) {
+  return `${formatTimeOnly(new Date(), { hour: '2-digit', minute: '2-digit', second: '2-digit' }, timeZone)} ${message}`
 }
 
 function advanceProgressSteps(
@@ -399,10 +412,7 @@ function shouldRunSkillForMessage(message: string, skill?: Skill | null) {
   const text = message.trim().toLowerCase()
   if (!text) return false
   const explicitSkill = /@skill|@ skills|使用\s*skill|调用\s*skill|运行\s*skill|执行\s*skill|用这个能力|用该能力/.test(text)
-  const deliverableIntent = /(生成|制作|创建|输出|产出|写一份|做一份|整理成|形成|设计|规划|制定|完善|重新生成|导出|下载|交付|ppt|powerpoint|deck|slide|slides|报告|方案|材料|路线图|roadmap|蓝图|blueprint|战略|strategy|规划|计划)/i.test(text)
-  const casualQuestion = /^(为什么|为啥|怎么|如何|是否|是不是|能不能|可以吗|这个|那个|我问|解释|说明|检查|看一下|你觉得|what|why|how|can|could|should)\b/i.test(text)
-  const longTemplateLike = text.length > 180 && /[:：\n]/.test(message)
-  return explicitSkill || longTemplateLike || (deliverableIntent && !casualQuestion)
+  return explicitSkill
 }
 
 const getPromptCards = (): PromptCard[] => [
@@ -475,6 +485,7 @@ function CopyButton({ text }: { text: string }) {
 export function Chat() {
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const { resolvedTimeZone } = useAppTimeZone()
   const [searchParams] = useSearchParams()
   const conversationId = searchParams.get('conversation')
   const conversationIdFromQuery = conversationId ? parseInt(conversationId, 10) : null
@@ -534,6 +545,7 @@ export function Chat() {
   const progressStepsRef = useRef<ChatProgressStep[]>([])
   const isStreamingRef = useRef(false)
   const skillRunActiveRef = useRef(false)
+  const skillArmedRef = useRef(!!skillId)
   const scrollHeightBeforeLoadRef = useRef<number>(0)
   const isNearBottomRef = useRef(true)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -874,6 +886,7 @@ export function Chat() {
   const handleApplyTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
+    skillArmedRef.current = true
     // Auto-send with the filled template content
     await sendMessage(filledTemplate)
   }
@@ -881,6 +894,8 @@ export function Chat() {
   const handleCancelTemplate = () => {
     setShowSkillTemplateModal(false)
     setSkillTemplateData(null)
+    setSelectedSkill(null)
+    skillArmedRef.current = false
     // Mark as processed so it doesn't reopen
     if (selectedSkill) {
       processedSkillRef.current = selectedSkill
@@ -905,6 +920,9 @@ export function Chat() {
     setErrorMsg(null)
     setProgressSteps([])
     resetSkillProgress()
+    setSelectedSkill(null)
+    skillArmedRef.current = false
+    processedSkillRef.current = null
     navigate('/chat', { replace: true })
   }
 
@@ -969,7 +987,8 @@ export function Chat() {
   // ── Send message (internal implementation) ─────────────────────────────────
   const sendMessage = async (msgText: string) => {
     if (!msgText.trim() || sending || isSendingRef.current) return
-    const skillForThisMessage = shouldRunSkillForMessage(msgText, selectedSkillData) ? selectedSkill : null
+    const forceSkillForThisMessage = !!selectedSkill && skillArmedRef.current
+    const skillForThisMessage = (forceSkillForThisMessage || shouldRunSkillForMessage(msgText, selectedSkillData)) ? selectedSkill : null
     
     isSendingRef.current = true
     setSending(true)
@@ -1043,6 +1062,7 @@ export function Chat() {
           content: msgText,
           project_id: selectedProject,
           skill_id: skillForThisMessage,
+          force_skill: forceSkillForThisMessage,
           rag_doc_ids: [],
           file_ids: [],
         }),
@@ -1170,6 +1190,11 @@ export function Chat() {
           setIsThinking(false)
           setToolStatus(null)
           setProgressSteps(hasSkillProgress ? completedProgressSteps : [])
+          if (skillForThisMessage) {
+            setSelectedSkill(null)
+            skillArmedRef.current = false
+            processedSkillRef.current = null
+          }
 
           // Refresh conversation list to pick up the auto-generated title.
           // Delay to allow backend background title generation to complete first.
@@ -1250,7 +1275,7 @@ export function Chat() {
       if (!streamDone && assistantContent) {
         if (skillRunActiveRef.current && currentConvId) {
           setToolStatus('流式连接已结束，正在同步后台保存的 Skill 结果...')
-          const recovered = await recoverConversationMessages(currentConvId, 12)
+          const recovered = await recoverConversationMessages(currentConvId, 30)
           if (recovered) {
             setToolStatus(null)
             setProgressSteps(prev => completeProgressSteps(prev))
@@ -1290,11 +1315,16 @@ export function Chat() {
           setToolStatus('流式连接已断开，正在从后台同步已保存结果...')
         }
         const recovered = currentConvIdForCleanup
-          ? await recoverConversationMessages(currentConvIdForCleanup, skillRunActiveRef.current ? 12 : 8)
+          ? await recoverConversationMessages(currentConvIdForCleanup, skillRunActiveRef.current ? 30 : 8)
           : false
         if (recovered) {
           setToolStatus(null)
           setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : [])
+          if (skillForThisMessage) {
+            setSelectedSkill(null)
+            skillArmedRef.current = false
+            processedSkillRef.current = null
+          }
           resetSkillProgress()
           sessionStorage.removeItem('pendingStreamingConvId')
           streamingConvIdRef.current = null
@@ -1365,7 +1395,7 @@ export function Chat() {
         (c.title || '').toLowerCase().includes(sidebarSearch.toLowerCase())
       )
     : conversations
-  const conversationGroups = groupConversations(filteredConversations, t)
+  const conversationGroups = groupConversations(filteredConversations, t, resolvedTimeZone)
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -1706,7 +1736,7 @@ export function Chat() {
               >
                 {showSkillDropdown && (
                   <DropdownMenu wide>
-                    <DropdownItem onClick={() => { setSelectedSkill(null); setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
+                    <DropdownItem onClick={() => { setSelectedSkill(null); skillArmedRef.current = false; setSkillCategoryFilter('all'); setShowSkillDropdown(false) }} muted>
                       {t('skills.clearSelection') || 'Clear selection'}
                     </DropdownItem>
                     {(() => {
@@ -1740,7 +1770,7 @@ export function Chat() {
                             <div key={category}>
                               <div className="px-4 py-1.5 text-xs font-medium text-gray-400 bg-gray-50">{category}</div>
                               {categorySkills.map(s => (
-                                <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); setShowSkillDropdown(false) }}>
+                                <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); skillArmedRef.current = true; setShowSkillDropdown(false) }}>
                                   <div className="flex flex-col">
                                     <span>{s.name}</span>
                                     {s.estimated_time && <span className="text-xs text-gray-400">{s.estimated_time}</span>}
@@ -1751,7 +1781,7 @@ export function Chat() {
                           ))
                         }
                         return filteredSkills.map(s => (
-                          <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); setShowSkillDropdown(false) }}>
+                          <DropdownItem key={s.id} onClick={() => { setSelectedSkill(s.id); skillArmedRef.current = true; setShowSkillDropdown(false) }}>
                             <div className="flex flex-col">
                               <span>{s.name}</span>
                               {s.estimated_time && <span className="text-xs text-gray-400">{s.estimated_time}</span>}

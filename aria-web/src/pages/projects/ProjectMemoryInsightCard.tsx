@@ -2,6 +2,7 @@ import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 
 interface ProjectMemoryInsightCardProps {
+  actionLabel?: string;
   content: string;
   emptyDescription?: string;
   emptyTitle?: string;
@@ -15,6 +16,7 @@ interface ProjectMemoryInsightCardProps {
 }
 
 export function ProjectMemoryInsightCard({
+  actionLabel: customActionLabel,
   content,
   emptyDescription,
   emptyTitle,
@@ -26,7 +28,7 @@ export function ProjectMemoryInsightCard({
   onRefresh,
   title,
 }: ProjectMemoryInsightCardProps) {
-  const actionLabel = content || generated ? (isZh ? "重新生成全部" : "Regenerate All") : isZh ? "生成全部摘要" : "Generate All";
+  const actionLabel = customActionLabel || (content || generated ? (isZh ? "重新生成摘要" : "Regenerate") : isZh ? "生成摘要" : "Generate");
   const fallbackEmptyTitle = generated
     ? isZh
       ? "已生成，但暂无可展示内容"
@@ -36,11 +38,11 @@ export function ProjectMemoryInsightCard({
       : "This summary has not been generated yet";
   const fallbackEmptyDescription = generated
     ? isZh
-      ? "系统已完成本轮生成，但该维度没有足够信息形成摘要。可以先补充项目资料，或点击重新生成全部。"
-      : "This summary was generated, but there was not enough information for this view. Add project data or regenerate all."
+      ? "系统已完成本轮生成，但该维度没有足够信息形成摘要。可以先补充项目资料，或点击重新生成。"
+      : "This summary was generated, but there was not enough information for this view. Add project data or regenerate."
     : isZh
-      ? "点击生成全部摘要后，系统会一次性生成概览、风险、交付、干系人、客户视角、财务和文档摘要。"
-      : "Click Generate All to create overview, risk, delivery, stakeholder, client-facing, financial, and document summaries in one run.";
+      ? "点击生成摘要后，系统会基于当前项目记忆生成本维度内容。"
+      : "Click Generate to create this view from the current project memory.";
 
   return (
     <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-sky-50 p-5">

@@ -15,6 +15,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
+import { setAppTimeZone } from '../utils/timezone'
 
 export function Layout() {
   const { t } = useTranslation()
@@ -35,6 +36,16 @@ export function Layout() {
 
   useEffect(() => {
     api.get<User>('/auth/me').then(setUser).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    api.get<Record<string, string>>('/settings/')
+      .then((settings) => {
+        if (settings.timezone) {
+          setAppTimeZone(settings.timezone)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {

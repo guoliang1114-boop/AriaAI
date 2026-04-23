@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
+import { formatDateTime as formatWithTimeZone, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
   ClientMemory,
   ClientMemoryResponse,
@@ -51,12 +52,12 @@ interface RelatedProject {
 
 function formatDateTime(value?: string | null, isZh = true) {
   if (!value) return isZh ? '暂无记录' : 'No record yet'
-  return new Date(value).toLocaleString(isZh ? 'zh-CN' : 'en-US', {
+  return formatWithTimeZone(value, isZh ? 'zh-CN' : 'en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  })
+  }, getResolvedAppTimeZone())
 }
 
 function formatDiffValue(value: unknown) {

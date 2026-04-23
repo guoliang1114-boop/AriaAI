@@ -20,6 +20,7 @@ import {
 
 import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
+import { formatDateOnly, getResolvedAppTimeZone } from '../../utils/timezone'
 
 interface Client {
   id: number
@@ -48,10 +49,10 @@ function formatRelativeDate(value: string, isZh: boolean) {
   const diffHours = Math.floor((Date.now() - new Date(value).getTime()) / (1000 * 60 * 60))
   if (diffHours < 24) return isZh ? '今天创建' : 'Created today'
   if (diffHours < 48) return isZh ? '昨天创建' : 'Created yesterday'
-  return new Date(value).toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
+  return formatDateOnly(value, {
     month: 'short',
     day: 'numeric',
-  })
+  }, getResolvedAppTimeZone())
 }
 
 function getClientAttentionScore(client: Client) {

@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type { ProjectDetail, ProjectMeetingBriefing, ProjectMeetingBriefingRefineResponse } from "../../types/api";
+import { useAppTimeZone } from "../../hooks/useAppTimeZone";
+import { formatDateOnly, formatDateTime as formatWithTimeZone } from "../../utils/timezone";
 
 interface ProjectBriefingTabProps {
   projectDetail: ProjectDetail;
@@ -98,20 +100,20 @@ function BriefingSection({
 
 function formatDate(value?: string | null, isZh = true) {
   if (!value) return isZh ? "未设置日期" : "No date";
-  return new Date(value).toLocaleDateString(isZh ? "zh-CN" : "en-US", {
+  return formatDateOnly(value, {
     month: "short",
     day: "numeric",
   });
 }
 
-function formatDateTime(value?: string | null, isZh = true) {
+function formatDateTime(value?: string | null, isZh = true, timeZone?: string) {
   if (!value) return "";
-  return new Date(value).toLocaleString(isZh ? "zh-CN" : "en-US", {
+  return formatWithTimeZone(value, isZh ? "zh-CN" : "en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }, timeZone);
 }
 
 function formatPromptSection(title: string, items: string[]) {
@@ -121,6 +123,7 @@ function formatPromptSection(title: string, items: string[]) {
 
 export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefingTabProps) {
   const { i18n } = useTranslation();
+  const { resolvedTimeZone } = useAppTimeZone();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const [briefing, setBriefing] = useState<ProjectMeetingBriefing | null>(null);
@@ -158,11 +161,11 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
 
   const project = briefing?.project ?? projectDetail.project;
   const generatedAt = briefing?.generated_at
-    ? new Date(briefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
+    ? formatWithTimeZone(briefing.generated_at, isZh ? "zh-CN" : "en-US", undefined, resolvedTimeZone)
     : "";
   const selectedTemplate = MEETING_TEMPLATES.find((template) => template.id === meetingTemplateId) ?? MEETING_TEMPLATES[0];
   const refinedGeneratedAt = refinedBriefing?.generated_at
-    ? new Date(refinedBriefing.generated_at).toLocaleString(isZh ? "zh-CN" : "en-US")
+    ? formatWithTimeZone(refinedBriefing.generated_at, isZh ? "zh-CN" : "en-US", undefined, resolvedTimeZone)
     : "";
   const refineBriefing = async (forceRefresh = false) => {
     setIsRefining(true);
@@ -486,7 +489,7 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                     <div>
                       <div className="font-medium text-gray-900">{item.label}</div>
                       {item.created_at ? (
-                        <div className="mt-1 text-xs text-gray-400">{formatDateTime(item.created_at, isZh)}</div>
+                        <div className="mt-1 text-xs text-gray-400">{formatDateTime(item.created_at, isZh, resolvedTimeZone)}</div>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">

@@ -94,6 +94,7 @@ export function ProjectChatTab({
   const processedSkillRef = useRef<string | null>(null);
   const processedLaunchRef = useRef<string | null>(null);
   const preserveLaunchSkillRef = useRef(false);
+  const skillArmedRef = useRef(false);
 
   const {
     conversations,
@@ -147,6 +148,7 @@ export function ProjectChatTab({
     projectId: project.id,
     activeConvId,
     selectedSkillId,
+    forceSkill: !!selectedSkillId && skillArmedRef.current,
     knowledgeScope: panel.knowledgeScope,
     setMessages,
     createConversation,
@@ -186,16 +188,13 @@ export function ProjectChatTab({
   }, []);
 
   useEffect(() => {
-    if (activeConvId && activeConversation) {
-      setSelectedSkillId(activeConversation.skill_id ?? null);
-      return;
-    }
     if (!activeConvId) {
       if (preserveLaunchSkillRef.current) {
         preserveLaunchSkillRef.current = false;
         return;
       }
       setSelectedSkillId(null);
+      skillArmedRef.current = false;
       processedSkillRef.current = null;
     }
   }, [activeConvId, activeConversation]);
@@ -240,6 +239,7 @@ export function ProjectChatTab({
     const skillId = launchSkillParam ? Number(launchSkillParam) : null;
     if (skillId && Number.isFinite(skillId)) {
       preserveLaunchSkillRef.current = true;
+      skillArmedRef.current = true;
     }
     startNewChat();
     panel.setKnowledgeScope("project");
@@ -492,12 +492,53 @@ export function ProjectChatTab({
   const handleApplySkillTemplate = async (filledTemplate: string) => {
     setShowSkillTemplateModal(false);
     setSkillTemplateData(null);
-    await sendMessage(filledTemplate);
+    skillArmedRef.current = true;
+    const sent = await sendMessage(filledTemplate);
+    if (sent) {
+      setSelectedSkillId(null);
+      skillArmedRef.current = false;
+      processedSkillRef.current = null;
+    }
+  };
+
+  const handleSendMessage = async (content: string) => {
+    const sent = await sendMessage(content);
+    if (sent && selectedSkillId && skillArmedRef.current) {
+      setSelectedSkillId(null);
+      skillArmedRef.current = false;
+      processedSkillRef.current = null;
+    }
+    return sent;
+  };
+
+  const handleSkillChange = (skillId: number | null) => {
+    setSelectedSkillId(skillId);
+    skillArmedRef.current = !!skillId;
+    if (!skillId) {
+      processedSkillRef.current = null;
+    }
+  };
+
+  const handleStartNewChat = () => {
+    setSelectedSkillId(null);
+    skillArmedRef.current = false;
+    processedSkillRef.current = null;
+    startNewChat();
+  };
+
+  const handleSelectConversation = (conversationId: number) => {
+    setSelectedSkillId(null);
+    skillArmedRef.current = false;
+    processedSkillRef.current = null;
+    setActiveConvId(conversationId);
   };
 
   const handleCancelSkillTemplate = () => {
     setShowSkillTemplateModal(false);
     setSkillTemplateData(null);
+    setSelectedSkillId(null);
+    skillArmedRef.current = false;
+    processedSkillRef.current = null;
   };
 
   return (
@@ -521,8 +562,8 @@ export function ProjectChatTab({
         onDeleteConversation={openDeleteConversationDialog}
         onRenameSubmit={renameConversation}
         onRenameTitleChange={setEditTitle}
-        onSelectConversation={setActiveConvId}
-        onStartNewChat={startNewChat}
+        onSelectConversation={handleSelectConversation}
+        onStartNewChat={handleStartNewChat}
       />
 
       <ProjectChatMainPanel
@@ -554,14 +595,14 @@ export function ProjectChatTab({
         onKnowledgeScopeChange={panel.setKnowledgeScope}
         onOpenConversationSaveModal={panel.openConversationSaveModal}
         onQuickPrompt={(content) => {
-          void sendMessage(content);
+          void handleSendMessage(content);
         }}
         onRebuildMemory={() => {
           void handleRebuildMemory();
         }}
         onSaveMessage={panel.openSaveModal}
-        onSend={() => panel.handleSend(sendMessage)}
-        onSkillChange={setSelectedSkillId}
+        onSend={() => panel.handleSend(handleSendMessage)}
+        onSkillChange={handleSkillChange}
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
         onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
         projectClientName={project.client}

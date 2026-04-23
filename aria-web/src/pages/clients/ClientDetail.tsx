@@ -25,6 +25,7 @@ import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
 import { ClientStakeholdersStructuredCard } from '../projects/ClientStakeholdersStructuredCard'
+import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 
 interface Client {
   id: number
@@ -285,7 +286,7 @@ export function ClientDetail() {
             <SummaryCard label={isZh ? '记忆状态' : 'Memory'} value={memoryStateLabel} tone="emerald" />
             <SummaryCard
               label={isZh ? '创建日期' : 'Created'}
-              value={new Date(client.created_at).toLocaleDateString()}
+              value={formatDateOnly(client.created_at, undefined, getResolvedAppTimeZone())}
               tone="slate"
             />
           </section>
@@ -503,7 +504,7 @@ export function ClientDetail() {
                     label={isZh ? '最近同步' : 'Last sync'}
                     value={
                       memoryStatus?.memory_updated_at
-                        ? new Date(memoryStatus.memory_updated_at).toLocaleString()
+                        ? formatDateTime(memoryStatus.memory_updated_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())
                         : isZh
                           ? '暂无记录'
                           : 'Not yet'

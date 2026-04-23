@@ -1,6 +1,7 @@
 import { FolderKanban, Trash2 } from "lucide-react";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { getProjectDocumentFileIcon } from "./projectDocumentsIcons";
+import { formatDateTime, getResolvedAppTimeZone } from "../../utils/timezone";
 
 interface ProjectDocumentsGridViewProps {
   enterFolder: (folderName: string) => void;
@@ -80,9 +81,7 @@ export function ProjectDocumentsGridView({
                     {file.name}
                   </h4>
                   <p className="text-xs text-gray-400 mt-1">
-                    {new Date(file.uploaded_at).toLocaleString(isZh ? "zh-CN" : "en-GB", {
-                      hour12: false,
-                    })}
+                    {formatDateTime(file.uploaded_at, isZh ? "zh-CN" : "en-GB", { hour12: false }, getResolvedAppTimeZone())}
                   </p>
                 </div>
               </div>
