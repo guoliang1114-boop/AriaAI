@@ -50,6 +50,10 @@ class CreateConversationRequest(BaseModel):
     title: Optional[str] = None
 
 
+class UpdateConversationRequest(BaseModel):
+    title: Optional[str] = None
+
+
 class TestConnectionRequest(BaseModel):
     provider: str
     model: Optional[str] = None

@@ -180,3 +180,18 @@ def delete_conversation_with_messages(session: Session, conv_id: int) -> None:
     session.delete(conv)
     session.commit()
     conversations_cache.delete_prefix("list:")
+
+
+def update_conversation_title(
+    session: Session,
+    conv_id: int,
+    title: str,
+) -> Conversation:
+    conv = get_conversation_or_404(session, conv_id)
+    conv.title = title
+    conv.updated_at = utc_now_naive()
+    session.add(conv)
+    session.commit()
+    session.refresh(conv)
+    conversations_cache.delete_prefix("list:")
+    return conv

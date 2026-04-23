@@ -31,6 +31,9 @@ from app.tools import registry
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
 CHAT_HISTORY_WINDOW = 24
+STANDALONE_FAST_PATH_MODEL = "moonshot-v1-8k"
+STANDALONE_FAST_PATH_MAX_TOKENS = 1536
+STANDALONE_CHAT_MAX_TOKENS = 2048
 
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
@@ -38,9 +41,35 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     normalized = (model or "").lower()
     if normalized.startswith(("kimi-k2.6", "kimi-k2.5")):
         return min(max_tokens, 32768)
+    if normalized.startswith("moonshot-v1-8k"):
+        return min(max_tokens, 4096)
     if normalized.startswith("claude-"):
         return min(max_tokens, 8192)
     return min(max_tokens, 8192)
+
+
+def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | None) -> bool:
+    return (
+        req.project_id is None
+        and effective_skill_id is None
+        and not req.rag_doc_ids
+        and not req.file_ids
+        and len((req.content or "").strip()) <= 280
+    )
+
+
+def _resolve_runtime_model_and_tokens(
+    req: SendMessageRequest,
+    selected_model: str,
+    max_tokens: int,
+    effective_skill_id: int | None,
+) -> tuple[str, int]:
+    normalized = (selected_model or "").lower()
+    if _is_standalone_fast_path(req, effective_skill_id) and normalized.startswith("kimi-k2.6"):
+        return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
+    if req.project_id is None and effective_skill_id is None:
+        return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
+    return selected_model, max_tokens
 
 
 @dataclass
@@ -127,7 +156,13 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     step_started_at = time.perf_counter()
     selected_model = get_selected_model(session)
-    provider = resolve_provider_from_model(selected_model)
+    runtime_model, runtime_max_tokens = _resolve_runtime_model_and_tokens(
+        req,
+        selected_model,
+        chat_ctx.max_tokens,
+        effective_skill_id,
+    )
+    provider = resolve_provider_from_model(runtime_model)
     llm = _load_provider_module(provider)
     system = llm.build_system_prompt(
         chat_ctx.skill_prompt,
@@ -135,6 +170,8 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.project_context,
     )
     prepare_metrics["model_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
+    prepare_metrics["selected_model"] = selected_model
+    prepare_metrics["runtime_model"] = runtime_model
 
     step_started_at = time.perf_counter()
     history = get_recent_message_history(session, conv.id, limit=CHAT_HISTORY_WINDOW)
@@ -150,13 +187,13 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     return ChatRuntime(
         conv_id=conv.id,
-        selected_model=selected_model,
+        selected_model=runtime_model,
         llm=llm,
         system=system,
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
         tools=chat_ctx.tools,
-        max_tokens=_cap_max_tokens_for_model(selected_model, chat_ctx.max_tokens),
+        max_tokens=_cap_max_tokens_for_model(runtime_model, runtime_max_tokens),
         temperature=temperature,
         skill_name=effective_skill.name if effective_skill else "",
         prepare_metrics=prepare_metrics,

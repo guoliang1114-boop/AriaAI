@@ -10,6 +10,7 @@ from app.routers.chat_schemas import (
     ConversationOut,
     CreateConversationRequest,
     MessageOut,
+    UpdateConversationRequest,
 )
 from app.services.chat_store import (
     create_conversation_record,
@@ -17,6 +18,7 @@ from app.services.chat_store import (
     get_conversation_messages,
     get_conversation_or_404,
     list_conversations_cached,
+    update_conversation_title,
 )
 
 router = APIRouter()
@@ -63,3 +65,16 @@ def get_messages(
 def delete_conversation(conv_id: int, session: Session = Depends(get_session)):
     delete_conversation_with_messages(session, conv_id)
     return {"ok": True}
+
+
+@router.patch("/conversations/{conv_id}", response_model=ConversationOut)
+def patch_conversation(
+    conv_id: int,
+    req: UpdateConversationRequest,
+    session: Session = Depends(get_session),
+):
+    conv = get_conversation_or_404(session, conv_id)
+    title = (req.title or "").strip()
+    if not title:
+        return conv
+    return update_conversation_title(session, conv_id, title)
