@@ -278,51 +278,74 @@ def _ensure_release_message(conn, inspector, report_only: bool) -> None:
         print("systemmessage not present, skip release message seed")
         return
 
-    release_title = "AriaAI 已支持 Kimi K2.6"
-    existing = conn.execute(
-        text("SELECT id FROM systemmessage WHERE title = :title LIMIT 1"),
-        {"title": release_title},
-    ).scalar()
-    if existing:
-        print("Kimi K2.6 release message already exists")
-        return
-
-    print("Create Kimi K2.6 release message")
-    if report_only:
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO systemmessage (
-                title,
-                content,
-                level,
-                link,
-                is_published,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                :title,
-                :content,
-                'success',
-                '/settings/ai',
-                true,
-                NULL,
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP
-            )
-            """
-        ),
+    release_messages = [
         {
-            "title": release_title,
+            "title": "AriaAI 已支持 Kimi K2.6",
             "content": (
                 "本次升级已将 Kimi 默认模型切换到 kimi-k2.6。原 Kimi 2.5 的 API Key "
                 "可继续使用，无需重新配置。项目总结、长程上下文和 Agent 工具调用会获得更好的稳定性。"
             ),
+            "level": "success",
+            "link": "/settings/ai",
+            "label": "Kimi K2.6 release message",
         },
-    )
+        {
+            "title": "AriaAI V0.0.2 已发布",
+            "content": (
+                "V0.0.2 已发布：本版本重点优化 Skill 执行清单、数字化战略 PPT 模板生成、能力分类、"
+                "项目/客户记忆和客户干系人管理。数字化战略 Skill 现在会强制使用 digital-strategy 模板，"
+                "并复制模板原型页以保留品牌视觉元素。"
+            ),
+            "level": "success",
+            "link": "/settings/about",
+            "label": "V0.0.2 release message",
+        },
+    ]
+
+    for message in release_messages:
+        existing = conn.execute(
+            text("SELECT id FROM systemmessage WHERE title = :title LIMIT 1"),
+            {"title": message["title"]},
+        ).scalar()
+        if existing:
+            print(f"{message['label']} already exists")
+            continue
+
+        print(f"Create {message['label']}")
+        if report_only:
+            continue
+        conn.execute(
+            text(
+                """
+                INSERT INTO systemmessage (
+                    title,
+                    content,
+                    level,
+                    link,
+                    is_published,
+                    created_by_user_id,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :title,
+                    :content,
+                    :level,
+                    :link,
+                    true,
+                    NULL,
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                )
+                """
+            ),
+            {
+                "title": message["title"],
+                "content": message["content"],
+                "level": message["level"],
+                "link": message["link"],
+            },
+        )
 
 
 def main() -> None:

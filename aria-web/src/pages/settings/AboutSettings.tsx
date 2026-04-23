@@ -38,7 +38,7 @@ export function AboutSettings() {
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.1',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.2',
     buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
@@ -48,6 +48,24 @@ export function AboutSettings() {
   const [activeTab, setActiveTab] = useState<'overview' | 'changelog' | 'license'>('overview')
 
   const changelog: ChangelogEntry[] = [
+    {
+      version: '0.0.2',
+      date: '2026-04-23',
+      summary: isZh ? 'V0.0.2 发布：Skill、项目记忆、客户干系人与 PPT 交付体验升级。' : 'V0.0.2 release: Skill, project memory, client stakeholder, and PPT delivery improvements.',
+      changes: isZh
+        ? [
+            '数字化战略 Skill 强制使用 digital-strategy 模板生成 PPT，并复制模板原型页以保留品牌视觉元素。',
+            'Skill 执行清单优化为可查看步骤日志，长任务流式中断后会尝试从后台同步已保存结果。',
+            '能力页新增“顾问基础能力”服务线，并重分问题定义、摘要交付、质量审查和复盘沉淀二级分类。',
+            '项目/客户记忆、结构化客户干系人和任务中心持续增强，为下一阶段迭代打好基线。',
+          ]
+        : [
+            'Digital Strategy Skill now enforces the digital-strategy PPT template and clones prototype slides to preserve branded visuals.',
+            'Skill progress now shows step logs and attempts backend recovery when long-running streams disconnect.',
+            'Skills now include a Consulting Foundations service line with refined second-level categories.',
+            'Project/client memory, structured client stakeholders, and operations visibility were strengthened as the next iteration baseline.',
+          ],
+    },
     {
       version: '0.0.1',
       date: '2026-04-19',
@@ -262,12 +280,12 @@ export function AboutSettings() {
           <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
               <Sparkles className="h-4 w-4" />
-              {isZh ? 'V0.0.1 基线版本' : 'V0.0.1 Baseline Release'}
+              {isZh ? 'V0.0.2 发布版本' : 'V0.0.2 Release'}
             </div>
             <p className="mt-3 text-sm leading-7 text-slate-700">
               {isZh
-                ? '这是当前产品的第一条正式版本记录，用来统一前端 About 页面、打包产物和后端健康检查中的版本标识，作为后续迭代发布的起点。'
-                : 'This is the first formally recorded product version and establishes a shared version identity across the About page, packaged build, and backend health check.'}
+                ? '本版本将 Skill 执行、数字化战略 PPT 生成、能力分类、项目/客户记忆和客户干系人体验整理为一个可发布基线，作为下一阶段迭代的稳定起点。'
+                : 'This release consolidates Skill execution, Digital Strategy PPT generation, capability taxonomy, project/client memory, and client stakeholder workflows into a stable baseline for the next iteration.'}
             </p>
           </div>
         </div>
