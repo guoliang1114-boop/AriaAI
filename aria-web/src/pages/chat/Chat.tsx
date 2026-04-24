@@ -253,6 +253,7 @@ function completeChatLoadingSteps(steps: ChatProgressStep[]): ChatProgressStep[]
 
 function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   if (Array.isArray(meta?.skill_progress) && meta.skill_progress.length > 0) return meta.skill_progress
+  return []
   if (meta?.stage_timings && !meta?.skill_id) return []
   const toolCalls = Array.isArray(meta?.tool_calls) ? meta.tool_calls : []
   const artifacts = Array.isArray(meta?.artifacts) ? meta.artifacts : []
@@ -270,11 +271,11 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
   return steps
 }
 
-function ChatLoadingState() {
+function ChatStatusPill({ message }: { message?: string | null }) {
   return (
     <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-3 py-2 text-sm text-gray-600 shadow-sm">
       <Loader2 className="h-4 w-4 animate-spin text-primary" />
-      <span>AI 正在回复...</span>
+      <span>{message || '正在与模型建立连接...'}</span>
     </div>
   )
 }
@@ -612,6 +613,7 @@ export function Chat() {
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>('all')
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
+  const [liveStatusText, setLiveStatusText] = useState<string | null>(null)
   const [progressSteps, setProgressSteps] = useState<ChatProgressStep[]>([])
   const [liveStageTimings, setLiveStageTimings] = useState<StageTimingEntry[]>([])
   const [skillRunActive, setSkillRunActive] = useState(false)
@@ -1108,6 +1110,7 @@ export function Chat() {
     setStreamArtifacts([])
     setLiveStageTimings([])
     liveStageTimingsRef.current = []
+    setLiveStatusText(null)
     isStreamingRef.current = true
     skillRunActiveRef.current = !!skillForThisMessage
     setSkillRunActive(!!skillForThisMessage)
@@ -1229,6 +1232,7 @@ export function Chat() {
               if (stepIndex !== undefined) {
                 setProgressSteps(prev => advanceProgressSteps(prev.length ? prev : createChatLoadingSteps(), stepIndex, data.message, data.message))
               }
+              setLiveStatusText(data.message)
             }
             setIsThinking(true)
           }
@@ -1281,9 +1285,7 @@ export function Chat() {
           const finalToolCalls = data.tool_calls || []
           const hasSkillProgress = (
             skillRunActiveRef.current
-            || progressStepsRef.current.length > 0
-            || finalArtifacts.length > 0
-            || finalToolCalls.length > 0
+            || !!skillForThisMessage
             || (Array.isArray(data.skill_progress) && data.skill_progress.length > 0)
           )
           const completedProgressSteps = hasSkillProgress ? completeProgressSteps(progressStepsRef.current) : []
@@ -1315,6 +1317,7 @@ export function Chat() {
           resetSkillProgress()
           setIsThinking(false)
           setToolStatus(null)
+          setLiveStatusText(null)
           setProgressSteps(hasSkillProgress ? completedProgressSteps : completeChatLoadingSteps(progressStepsRef.current))
           if (skillForThisMessage) {
             setSelectedSkill(null)
@@ -1448,6 +1451,7 @@ export function Chat() {
           : false
         if (recovered) {
           setToolStatus(null)
+          setLiveStatusText(null)
           setProgressSteps(prev => skillRunActiveRef.current ? completeProgressSteps(prev) : completeChatLoadingSteps(prev))
           if (skillForThisMessage) {
             setSelectedSkill(null)
@@ -1478,6 +1482,7 @@ export function Chat() {
             ? '连接中断了：Skill 生成内容较长或工具执行耗时较久时，流式连接可能提前断开。我们已尝试从后台同步已保存的回复。'
             : rawMessage)
         setToolStatus(null)
+        setLiveStatusText(null)
         setErrorMsg(friendlyMessage)
         setProgressSteps(prev => prev.map(step => step.status === 'active' ? {
           ...step,
@@ -1491,6 +1496,7 @@ export function Chat() {
       setIsThinking(false)
       isStreamingRef.current = false
       resetSkillProgress()
+      setLiveStatusText(null)
       // Clear partial streaming content
       if (streamingContentRef.current) {
         setStreamingContent('')
@@ -1769,7 +1775,7 @@ export function Chat() {
                             {skillRunActive ? (
                               <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
                             ) : (
-                              <ChatLoadingState />
+                              <ChatStatusPill message={liveStatusText} />
                             )}
                             {streamArtifacts.map((artifact) => (
                               <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
@@ -1788,7 +1794,7 @@ export function Chat() {
                             {skillRunActive ? (
                               <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} />
                             ) : (
-                              <ChatLoadingState />
+                              <ChatStatusPill message={liveStatusText || toolStatus} />
                             )}
                             <div className="flex items-center gap-2 text-gray-400 py-1">
                               <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
@@ -1799,7 +1805,7 @@ export function Chat() {
                           skillRunActive ? (
                             <ProgressCard steps={liveProgressSteps} title={liveProgressTitle} completedLabel="已就绪" />
                           ) : (
-                            <ChatLoadingState />
+                            <ChatStatusPill message={liveStatusText} />
                           )
                         )}
                       </div>
