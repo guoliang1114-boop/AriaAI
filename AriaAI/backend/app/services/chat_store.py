@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.config import CONVERSATION_CACHE_TTL
-from app.models.db import Conversation, Message
+from app.config import CONVERSATION_CACHE_TTL, UPLOADS_DIR
+from app.models.db import Conversation, GeneratedFile, Message
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
@@ -144,6 +145,80 @@ def persist_user_message(
     session.add(user_msg)
     session.commit()
     return user_msg
+
+
+def persist_generated_artifacts(
+    bind,
+    conv_id: int,
+    artifacts: list[dict],
+    project_id: Optional[int] = None,
+) -> list[dict]:
+    if not artifacts:
+        return []
+
+    normalized_artifacts: list[dict] = []
+    with Session(bind) as session:
+        for artifact in artifacts:
+            name = str(artifact.get("name") or "").strip()
+            path = str(artifact.get("path") or "").strip()
+            file_type = str(artifact.get("file_type") or "").strip()
+            if not (name and path and file_type):
+                normalized_artifacts.append(dict(artifact))
+                continue
+
+            existing = session.exec(
+                select(GeneratedFile).where(
+                    GeneratedFile.conversation_id == conv_id,
+                    GeneratedFile.path == path,
+                    GeneratedFile.name == name,
+                )
+            ).first()
+
+            full_path = UPLOADS_DIR / Path(path)
+            size_bytes = artifact.get("size_bytes")
+            if not isinstance(size_bytes, int):
+                size_bytes = full_path.stat().st_size if full_path.exists() else 0
+
+            description = str(artifact.get("description") or "")
+            mime_type = str(artifact.get("mime_type") or "")
+
+            if existing:
+                existing.project_id = project_id if project_id is not None else existing.project_id
+                existing.file_type = file_type or existing.file_type
+                existing.size_bytes = size_bytes or existing.size_bytes
+                if description:
+                    existing.description = description
+                if mime_type:
+                    existing.mime_type = mime_type
+                session.add(existing)
+                session.flush()
+                record = existing
+            else:
+                record = GeneratedFile(
+                    conversation_id=conv_id,
+                    project_id=project_id,
+                    name=name,
+                    file_type=file_type,
+                    path=path,
+                    size_bytes=size_bytes,
+                    description=description,
+                    mime_type=mime_type,
+                )
+                session.add(record)
+                session.flush()
+
+            artifact_payload = dict(artifact)
+            artifact_payload["id"] = record.id
+            artifact_payload["conversation_id"] = conv_id
+            artifact_payload["project_id"] = project_id
+            artifact_payload["size_bytes"] = size_bytes
+            if description:
+                artifact_payload["description"] = description
+            normalized_artifacts.append(artifact_payload)
+
+        session.commit()
+
+    return normalized_artifacts
 
 
 def persist_assistant_message(

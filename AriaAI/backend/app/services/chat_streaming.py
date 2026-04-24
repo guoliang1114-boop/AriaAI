@@ -16,6 +16,7 @@ from app.services.chat_store import (
     get_recent_message_history,
     get_or_create_conversation,
     persist_assistant_message,
+    persist_generated_artifacts,
     persist_user_message,
 )
 from app.services.context_builder import build_chat_context
@@ -905,6 +906,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
         save_started_at = time.perf_counter()
         response_metadata = {}
+        if artifacts:
+            artifacts = persist_generated_artifacts(bind, runtime.conv_id, artifacts, req.project_id)
         artifact_notice = _build_artifact_notice(artifacts) if artifacts else ""
         if not full_text and artifact_notice:
             full_text = artifact_notice

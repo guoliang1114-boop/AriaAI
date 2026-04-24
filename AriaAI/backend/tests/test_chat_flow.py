@@ -23,6 +23,7 @@ from app.models.db import (
     ClientRecord,
     ClientStakeholder,
     Conversation,
+    GeneratedFile,
     Message,
     Milestone,
     Project,
@@ -3629,6 +3630,14 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertEqual(metadata["artifacts"][0]["name"], "generated_test_deck.pptx")
             self.assertEqual(metadata["artifacts"][0]["path"], "generated/generated_test_deck.pptx")
+            self.assertIsNotNone(metadata["artifacts"][0].get("id"))
+
+            saved_artifact = session.exec(
+                select(GeneratedFile).where(GeneratedFile.conversation_id == conv_id)
+            ).first()
+            self.assertIsNotNone(saved_artifact)
+            self.assertEqual(saved_artifact.name, "generated_test_deck.pptx")
+            self.assertEqual(saved_artifact.path, "generated/generated_test_deck.pptx")
 
     def test_stream_chat_events_surfaces_friendly_errors(self):
         conv_id = self._create_conversation()
