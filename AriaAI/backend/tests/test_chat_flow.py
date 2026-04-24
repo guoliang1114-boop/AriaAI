@@ -3639,6 +3639,81 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(saved_artifact.name, "generated_test_deck.pptx")
             self.assertEqual(saved_artifact.path, "generated/generated_test_deck.pptx")
 
+    def test_stream_chat_events_auto_generates_ppt_when_digital_strategy_only_saved_json(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                [
+                    '{"type":"tool_use","id":"tool-1","name":"save_json","input":{"filename":"金科服务_数字化战略_核心数据","data":{"maturity":"L2"}}}',
+                ],
+                ["digital strategy final answer"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="digital-strategy 工作流\n请生成数字化转型战略方案",
+            api_messages=[{"role": "user", "content": "生成数字化战略方案"}],
+            rag_sources=[],
+            tools=[{"name": "generate_ppt_from_skill"}, {"name": "save_json"}],
+            max_tokens=1024,
+            temperature=0.7,
+            skill_name="digital-strategy",
+        )
+        req = chat_router_module.SendMessageRequest(content="生成数字化战略方案", skill_id=24)
+
+        async def execute_side_effect(name, input_data):
+            if name == "save_json":
+                return {
+                    "type": "tool_result",
+                    "tool_name": "save_json",
+                    "status": "success",
+                    "output": {
+                        "success": True,
+                        "file_name": "金科服务_数字化战略_核心数据.json",
+                        "file_type": "json",
+                        "file_path": "generated/金科服务_数字化战略_核心数据.json",
+                    },
+                }
+            if name == "generate_ppt_from_skill":
+                return {
+                    "type": "tool_result",
+                    "tool_name": "generate_ppt_from_skill",
+                    "status": "success",
+                    "output": {
+                        "success": True,
+                        "file_name": "金科服务_数字化战略_汇报材料.pptx",
+                        "file_type": "pptx",
+                        "file_path": "generated/金科服务_数字化战略_汇报材料.pptx",
+                    },
+                }
+            raise AssertionError(f"Unexpected tool call: {name}")
+
+        with patch(
+            "app.services.chat_streaming.registry.execute",
+            new=AsyncMock(side_effect=execute_side_effect),
+        ):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        done_event = next(
+            json.loads(event.replace("data: ", "").strip())
+            for event in events
+            if json.loads(event.replace("data: ", "").strip()).get("type") == "done"
+        )
+        artifact_names = {item["name"] for item in done_event["artifacts"]}
+        self.assertIn("金科服务_数字化战略_核心数据.json", artifact_names)
+        self.assertIn("金科服务_数字化战略_汇报材料.pptx", artifact_names)
+
+        with Session(self.engine) as session:
+            assistant_message = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).one()
+            metadata = json.loads(assistant_message.metadata_json)
+            saved_names = {item["name"] for item in metadata["artifacts"]}
+            self.assertIn("金科服务_数字化战略_核心数据.json", saved_names)
+            self.assertIn("金科服务_数字化战略_汇报材料.pptx", saved_names)
+
     def test_stream_chat_events_surfaces_friendly_errors(self):
         conv_id = self._create_conversation()
         runtime = ChatRuntime(

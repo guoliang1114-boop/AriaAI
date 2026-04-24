@@ -320,8 +320,19 @@ def _build_completed_skill_progress(tool_call_events: list[dict], full_text: str
     ]
 
 
-def _should_auto_generate_digital_strategy_ppt(runtime: ChatRuntime, req: SendMessageRequest, full_text: str, tool_call_events: list[dict]) -> bool:
-    if not req.skill_id or not full_text.strip() or tool_call_events:
+def _has_ppt_artifact(artifacts: list[dict]) -> bool:
+    return any(str(item.get("file_type") or "").lower() == "pptx" for item in artifacts)
+
+
+def _should_auto_generate_digital_strategy_ppt(
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    full_text: str,
+    artifacts: list[dict],
+) -> bool:
+    if not req.skill_id or not full_text.strip():
+        return False
+    if _has_ppt_artifact(artifacts):
         return False
     return _is_digital_strategy_runtime(runtime)
 
@@ -870,7 +881,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         if follow_up_text.strip():
             full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
 
-        if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, tool_call_events):
+        if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, artifacts):
             ppt_title, ppt_slides = _build_slides_from_strategy_text(full_text)
             tool_name = "generate_ppt_from_skill"
             tool_input = {
