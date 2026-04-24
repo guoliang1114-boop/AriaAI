@@ -251,6 +251,13 @@ def _extract_artifact(result: dict) -> dict | None:
     }
 
 
+def _build_artifact_notice(artifacts: list[dict]) -> str:
+    names = "、".join(str(item.get("name")) for item in artifacts if item.get("name"))
+    if not names:
+        return "已生成附件，可在本条回复中的下载卡片里直接下载。"
+    return f"已生成附件：{names}。可在本条回复中的下载卡片里直接下载。"
+
+
 def _summarize_tool_result(result: dict) -> str:
     if result.get("error"):
         return str(result.get("error"))
@@ -898,9 +905,11 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         yield _sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
         save_started_at = time.perf_counter()
         response_metadata = {}
-        if not full_text and artifacts:
-            names = "、".join(str(item.get("name")) for item in artifacts if item.get("name"))
-            full_text = f"已生成附件：{names or '请在下方下载生成物'}。"
+        artifact_notice = _build_artifact_notice(artifacts) if artifacts else ""
+        if not full_text and artifact_notice:
+            full_text = artifact_notice
+        elif artifact_notice and artifact_notice not in full_text:
+            full_text = f"{full_text}\n\n{artifact_notice}".strip()
 
         if full_text:
             metadata = {}

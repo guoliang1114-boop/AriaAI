@@ -3560,12 +3560,75 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             assistant_messages = session.exec(
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
-            self.assertEqual(assistant_messages[0].content, "follow-up answer")
+            self.assertIn("follow-up answer", assistant_messages[0].content)
+            self.assertIn("已生成附件：spec.docx", assistant_messages[0].content)
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertEqual(metadata["tool_calls"][0]["tool_name"], "generate_docx")
             self.assertEqual(metadata["tool_calls"][0]["status"], "completed")
             self.assertEqual(metadata["artifacts"][0]["name"], "spec.docx")
             self.assertEqual(metadata["artifacts"][0]["path"], "generated/spec.docx")
+
+    def test_stream_chat_events_emits_done_artifacts_and_notice_for_nested_tool_output(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                [
+                    '{"type":"tool_use","id":"tool-1","name":"generate_ppt_from_skill","input":{"skill_name":"digital-strategy","title":"Deck","slides":[{"type":"content","title":"One","content":"- A"}]}}',
+                ],
+                ["strategy summary"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "make deck"}],
+            rag_sources=[],
+            tools=[{"name": "generate_ppt_from_skill"}],
+            max_tokens=1024,
+            temperature=0.7,
+            skill_name="digital-strategy",
+        )
+        req = chat_router_module.SendMessageRequest(content="make deck", skill_id=24)
+
+        with patch(
+            "app.services.chat_streaming.registry.execute",
+            new=AsyncMock(
+                return_value={
+                    "type": "tool_result",
+                    "tool_name": "generate_ppt_from_skill",
+                    "status": "success",
+                    "output": {
+                        "success": True,
+                        "file_name": "generated_test_deck.pptx",
+                        "file_type": "pptx",
+                        "file_path": "generated/generated_test_deck.pptx",
+                        "template_applied": True,
+                        "template_mode": "cloned_prototype_slides",
+                    },
+                }
+            ),
+        ):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        done_event = next(
+            json.loads(event.replace("data: ", "").strip())
+            for event in events
+            if json.loads(event.replace("data: ", "").strip()).get("type") == "done"
+        )
+        self.assertEqual(done_event["artifacts"][0]["name"], "generated_test_deck.pptx")
+        self.assertEqual(done_event["artifacts"][0]["path"], "generated/generated_test_deck.pptx")
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            self.assertIn("已生成附件：generated_test_deck.pptx", assistant_messages[0].content)
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            self.assertEqual(metadata["artifacts"][0]["name"], "generated_test_deck.pptx")
+            self.assertEqual(metadata["artifacts"][0]["path"], "generated/generated_test_deck.pptx")
 
     def test_stream_chat_events_surfaces_friendly_errors(self):
         conv_id = self._create_conversation()
