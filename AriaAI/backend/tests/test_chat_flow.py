@@ -4486,11 +4486,11 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("generate_ppt_from_skill", strategy.system_prompt)
         self.assertEqual(strategy.max_tokens, 32768)
         self.assertIn("generate_ppt_from_skill", strategy.tools)
-        self.assertIn("save_json", strategy.tools)
+        self.assertNotIn("save_json", strategy.tools)
         tool_defs = json.loads(strategy.tools_definition_json)
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertIn("generate_ppt_from_skill", tool_def_names)
-        self.assertIn("save_json", tool_def_names)
+        self.assertNotIn("save_json", tool_def_names)
 
     def test_existing_digital_strategy_skill_tools_are_upgraded(self):
         old_skill = Skill(
@@ -4523,11 +4523,12 @@ class BuiltinSkillsTestCase(unittest.TestCase):
 
         self.assertGreaterEqual(changed, 1)
         self.assertEqual(second_count, 0)
-        self.assertEqual(strategy.tools, ["generate_ppt_from_skill", "save_json"])
+        self.assertEqual(strategy.tools, ["generate_ppt_from_skill"])
         self.assertEqual(strategy.max_tokens, 32768)
         tool_defs = json.loads(strategy.tools_definition_json)
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertIn("generate_ppt_from_skill", tool_def_names)
+        self.assertNotIn("save_json", tool_def_names)
         self.assertNotIn("strategy", tool_def_names)
 
     def test_digital_strategy_file_skill_assets_exist(self):
@@ -4543,7 +4544,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         industry_text = (skill_dir / "references" / "industry-notes.md").read_text(encoding="utf-8")
         self.assertIn("name: digital-strategy", skill_text)
         self.assertIn("generate_ppt_from_skill", skill_text)
-        self.assertIn("save_json", skill_text)
+        self.assertNotIn("save_json", skill_text)
         self.assertIn("Huawei 5-See 3-Define", framework_text)
         self.assertIn("Manufacturing", industry_text)
 

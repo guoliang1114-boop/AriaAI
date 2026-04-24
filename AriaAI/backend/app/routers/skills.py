@@ -16,7 +16,7 @@ from app.services.cache import TTLCache
 
 DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
 DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
-DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill", "save_json"]
+DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill"]
 
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
@@ -654,7 +654,7 @@ GSTACK_PRO_SKILLS = [
             "7. Appendices：成熟度明细、基准数据假设、举措章程模板。\n\n"
             "PPT 交付要求：如果用户要求高层汇报、PPT、演示文稿、材料或可下载交付物，必须先生成 12-18 页 slide-by-slide 内容，"
             "然后调用 generate_ppt_from_skill，skill_name 固定为 digital-strategy；slides 必须使用 title/content/two_column 结构，"
-            "每页包含行动导向标题、核心结论和支撑要点。建议同时调用 save_json 保存成熟度评分、能力蓝图、路线图和投资假设等结构化数据。\n\n"
+            "每页包含行动导向标题、核心结论和支撑要点。最终交付物只需要生成基于模板的 PPT，不需要额外生成 JSON。\n\n"
             "质量要求：结论先行、业务价值优先，不要只写技术清单；投资估算必须包含人才和变革管理；KPI 必须连接业务结果；所有假设要显式标注。"
         ),
         "user_template": (

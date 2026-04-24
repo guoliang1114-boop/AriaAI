@@ -257,12 +257,9 @@ When the user asks for a PPT, leadership deck, presentation material, downloadab
 
 Recommended PPT structure: 12-18 slides covering executive summary, strategic context, maturity assessment, target vision, capability blueprint, gap analysis, roadmap, governance, investment, risk and next steps.
 
-If the analysis produces reusable structured data, also call `save_json` with maturity scores, capability blueprint, roadmap initiatives, investment assumptions, and KPI framework.
-
 ## Dependencies
 
 - `generate_ppt_from_skill` - creates `.pptx` files through AriaAI's `python-pptx` backend tool
-- `save_json` - stores structured analysis data for follow-up editing and reuse
 - Optional template: place `KPMG-Template.pptx` or `template.pptx` under `assets/` or `references/`; without a template, AriaAI falls back to the default PPT layout
 
 ## References

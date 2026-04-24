@@ -55,7 +55,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
-          source: "aria-web/dist/,AriaAI/backend/"
+          source: "aria-web/dist/,AriaAI/backend/,AriaAI/skills/"
           target: "/www/wwwroot/AriaAI/"
           strip_components: 0
           overwrite: true
