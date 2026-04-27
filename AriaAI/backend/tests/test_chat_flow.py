@@ -89,6 +89,26 @@ class SchedulerTimeTestCase(unittest.TestCase):
         self.assertEqual(mocked_scheduler.add_job.call_args.kwargs["misfire_grace_time"], 3600)
 
 
+class OpenAICompatLoopResourceTestCase(unittest.TestCase):
+    def test_kimi_complete_semaphore_is_event_loop_local(self):
+        async def get_sem():
+            return openai_compat_module._get_kimi_complete_sem()
+
+        first = asyncio.run(get_sem())
+        second = asyncio.run(get_sem())
+
+        self.assertIsNot(first, second)
+
+    def test_http_client_is_event_loop_local(self):
+        async def get_client():
+            return openai_compat_module._get_http_client()
+
+        first = asyncio.run(get_client())
+        second = asyncio.run(get_client())
+
+        self.assertIsNot(first, second)
+
+
 class FakeRetrievalContext:
     def __init__(self, text: str = "", results: list | None = None):
         self._text = text

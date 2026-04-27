@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import random
+import weakref
 from collections.abc import AsyncIterator
 
 import httpx
@@ -31,29 +32,35 @@ KIMI_BASE_URL = CONFIG_KIMI_BASE_URL
 DEEPSEEK_BASE_URL = CONFIG_DEEPSEEK_BASE_URL
 BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
-# Persistent HTTP client for Kimi/OpenAI-compat calls
-_http_client: httpx.AsyncClient | None = None
+# Persistent HTTP clients for Kimi/OpenAI-compat calls.
+# AsyncClient and asyncio primitives are bound to the event loop that first uses
+# them, so FastAPI request loops and APScheduler's asyncio.run loops must not
+# share the same instances.
+_http_clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = weakref.WeakKeyDictionary()
 
 # Semaphore: allow at most 1 concurrent non-streaming (complete) call to Kimi.
 # Streaming calls are long-lived and gated separately; this prevents the
 # title-generation task from racing with a newly started stream.
-_kimi_complete_sem: asyncio.Semaphore | None = None
+_kimi_complete_sems: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
 
 
 def _get_kimi_complete_sem() -> asyncio.Semaphore:
-    """Return (creating if needed) the per-event-loop complete() semaphore."""
-    global _kimi_complete_sem
-    # Re-create if the loop changed (e.g. after a server restart in tests)
-    if _kimi_complete_sem is None:
-        _kimi_complete_sem = asyncio.Semaphore(1)
-    return _kimi_complete_sem
+    """Return (creating if needed) the current event loop's complete() semaphore."""
+    loop = asyncio.get_running_loop()
+    sem = _kimi_complete_sems.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(1)
+        _kimi_complete_sems[loop] = sem
+    return sem
 
 
 def _get_http_client() -> httpx.AsyncClient:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(timeout=300.0)
-    return _http_client
+    loop = asyncio.get_running_loop()
+    client = _http_clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=300.0)
+        _http_clients[loop] = client
+    return client
 DEFAULT_KIMI_MODEL = "kimi-k2.6"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
