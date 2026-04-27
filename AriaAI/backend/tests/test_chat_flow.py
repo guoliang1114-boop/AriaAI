@@ -239,6 +239,9 @@ class ProviderSelectionTestCase(unittest.TestCase):
     def test_kimi_k26_resolves_to_kimi_provider(self):
         self.assertEqual(provider_selector_module.resolve_provider_from_model("kimi-k2.6"), "kimi")
 
+    def test_deepseek_v4_resolves_to_deepseek_provider(self):
+        self.assertEqual(provider_selector_module.resolve_provider_from_model("deepseek-v4-pro"), "deepseek")
+
     def test_kimi_k26_uses_k2_sampling_defaults(self):
         self.assertEqual(openai_compat_module._apply_moonshot_fixed_params("kimi-k2.6", 0.2), (1.0, 0.95))
 

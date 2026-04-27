@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import httpx
 
-from app.config import KIMI_BASE_URL
+from app.config import DEEPSEEK_BASE_URL, KIMI_BASE_URL
 
 
 async def test_provider_connection(provider: str, model: str | None = None) -> dict:
-    from app.core.security import get_api_key, get_bigmodel_api_key, get_kimi_api_key
+    from app.core.security import get_api_key, get_bigmodel_api_key, get_deepseek_api_key, get_kimi_api_key
 
-    if provider not in ["anthropic", "moonshot", "bigmodel"]:
+    if provider not in ["anthropic", "moonshot", "deepseek", "bigmodel"]:
         return {"success": False, "message": f"Provider not supported: {provider}"}
 
     try:
@@ -25,7 +25,7 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                         "content-type": "application/json",
                     },
                     json={
-                        "model": model or "claude-3-5-haiku-20241022",
+                        "model": model if model and model.startswith("claude-") else "claude-3-5-haiku-20241022",
                         "max_tokens": 10,
                         "messages": [{"role": "user", "content": "Hi"}],
                     },
@@ -40,11 +40,26 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     f"{KIMI_BASE_URL}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model or "kimi-k2.6",
+                        "model": model if model and model.startswith(("moonshot-", "kimi-")) else "kimi-k2.6",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                         "temperature": 1.0,
                         "top_p": 0.95,
+                    },
+                    timeout=30.0,
+                )
+        elif provider == "deepseek":
+            api_key = get_deepseek_api_key()
+            if not api_key:
+                return {"success": False, "message": "No API key configured"}
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{DEEPSEEK_BASE_URL}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model if model and model.startswith("deepseek-") else "deepseek-v4-pro",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 10,
                     },
                     timeout=30.0,
                 )
@@ -57,7 +72,7 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     "https://open.bigmodel.cn/api/paas/v4/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model or "glm-4-plus",
+                        "model": model if model and model.startswith(("glm-", "GLM-")) else "glm-4-plus",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                     },
@@ -76,6 +91,8 @@ def resolve_provider_for_model(model: str) -> str | None:
         return "moonshot"
     if model.startswith("claude-"):
         return "anthropic"
+    if model.startswith("deepseek-"):
+        return "deepseek"
     if model.startswith(("glm-", "GLM-")):
         return "bigmodel"
     return None

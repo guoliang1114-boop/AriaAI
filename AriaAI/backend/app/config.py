@@ -60,7 +60,7 @@ ALLOW_INSECURE_JWT_SECRET = os.getenv("ALLOW_INSECURE_JWT_SECRET", "false").lowe
 # =============================================================================
 
 # Supported providers
-SUPPORTED_PROVIDERS = ["claude", "kimi", "bigmodel"]
+SUPPORTED_PROVIDERS = ["claude", "kimi", "deepseek", "bigmodel"]
 
 # Default provider
 DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
@@ -69,6 +69,7 @@ DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
 DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-6",
     "kimi": "kimi-k2.6",
+    "deepseek": "deepseek-v4-pro",
     "bigmodel": "glm-5.1",
 }
 
@@ -100,6 +101,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # =============================================================================
 CLAUDE_BASE_URL = os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com")
 KIMI_BASE_URL = os.getenv("KIMI_BASE_URL") or os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1"
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 BIGMODEL_BASE_URL = os.getenv("BIGMODEL_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
 
 # =============================================================================

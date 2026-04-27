@@ -18,7 +18,7 @@ def _load_provider_module(provider: str):
         if provider == "claude":
             from app.services import claude
             _provider_modules[provider] = claude
-        elif provider in ("kimi", "bigmodel"):
+        elif provider in ("kimi", "deepseek", "bigmodel"):
             from app.services import openai_compat
             _provider_modules[provider] = openai_compat
         else:
@@ -46,7 +46,7 @@ def get_provider_module(session: Session):
 
 
 def get_provider_name(session: Session) -> str:
-    """Get the current provider name (claude | kimi | bigmodel)."""
+    """Get the current provider name (claude | kimi | deepseek | bigmodel)."""
     setting = session.get(_Setting, "llm_provider")
     provider = (setting.value if setting and setting.value else "claude").lower().strip()
     
@@ -55,7 +55,7 @@ def get_provider_name(session: Session) -> str:
         return "claude"
     if provider == "moonshot":
         return "kimi"
-    if provider in ("claude", "kimi", "bigmodel"):
+    if provider in ("claude", "kimi", "deepseek", "bigmodel"):
         return provider
     
     return "claude"  # Default fallback
@@ -67,7 +67,7 @@ def get_selected_model(session: Session, provider: Optional[str] = None) -> str:
     
     Args:
         session: Database session
-        provider: Provider name (claude | kimi | bigmodel). If None, uses current.
+        provider: Provider name (claude | kimi | deepseek | bigmodel). If None, uses current.
     
     Returns:
         Model ID string
@@ -92,7 +92,7 @@ def resolve_provider_from_model(model: str) -> str:
         model: Model ID (e.g., 'claude-sonnet-4-6', 'moonshot-v1-32k', 'glm-5.1')
     
     Returns:
-        Provider name: 'claude' | 'kimi' | 'bigmodel'
+        Provider name: 'claude' | 'kimi' | 'deepseek' | 'bigmodel'
     """
     model_lower = model.lower()
     
@@ -100,6 +100,8 @@ def resolve_provider_from_model(model: str) -> str:
         return "kimi"
     elif model_lower.startswith("claude-"):
         return "claude"
+    elif model_lower.startswith("deepseek-"):
+        return "deepseek"
     elif model_lower.startswith(("glm-", "GLM-")):
         return "bigmodel"
     else:

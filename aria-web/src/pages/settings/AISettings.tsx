@@ -121,6 +121,27 @@ const models: AIModel[] = [
     fixedParams: { temperature: 0.6, topP: 0.95, presencePenalty: 0, frequencyPenalty: 0 },
     icon: '✨',
   },
+  // DeepSeek
+  {
+    id: 'deepseek-v4-pro',
+    name: 'DeepSeek V4 Pro',
+    provider: 'deepseek',
+    description: 'DeepSeek V4 flagship model with 1M context, strong reasoning, coding, and agent capabilities.',
+    maxTokens: 32768,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'DS',
+  },
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    provider: 'deepseek',
+    description: 'DeepSeek V4 faster and more economical model for daily chat, agent, and coding tasks.',
+    maxTokens: 32768,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'DS',
+  },
   // BigModel (Zhipu AI)
   {
     id: 'glm-5.1',
@@ -177,12 +198,14 @@ const models: AIModel[] = [
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
   moonshot: 'Moonshot',
+  deepseek: 'DeepSeek',
   bigmodel: 'BigModel',
 }
 
 const providerColors: Record<string, string> = {
   anthropic: 'bg-orange-500/10 text-orange-600 border-orange-200',
   moonshot: 'bg-purple-500/10 text-purple-600 border-purple-200',
+  deepseek: 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
   bigmodel: 'bg-blue-500/10 text-blue-600 border-blue-200',
 }
 
@@ -196,6 +219,7 @@ export function AISettings() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({
     anthropic: '',
     moonshot: '',
+    deepseek: '',
     bigmodel: '',
   })
   
@@ -259,6 +283,7 @@ export function AISettings() {
       const providerEndpoints: Record<string, string> = {
         anthropic: '/settings/api-key-status',
         moonshot: '/settings/kimi-api-key-status',
+        deepseek: '/settings/deepseek-api-key-status',
         bigmodel: '/settings/bigmodel-api-key-status',
       }
       const newStatus: Record<string, boolean> = {}
@@ -293,6 +318,8 @@ export function AISettings() {
       let provider = 'claude'
       if (selectedModel.startsWith('moonshot-') || selectedModel.startsWith('kimi-')) {
         provider = 'kimi'
+      } else if (selectedModel.startsWith('deepseek-')) {
+        provider = 'deepseek'
       } else if (selectedModel.startsWith('glm-')) {
         provider = 'bigmodel'
       }
@@ -317,6 +344,8 @@ export function AISettings() {
             endpoint = '/settings/api-key'
           } else if (keyProvider === 'moonshot') {
             endpoint = '/settings/kimi-api-key'
+          } else if (keyProvider === 'deepseek') {
+            endpoint = '/settings/deepseek-api-key'
           } else {
             endpoint = `/settings/${keyProvider}-api-key`
           }
@@ -335,6 +364,7 @@ export function AISettings() {
       setApiKeys({
         anthropic: '',
         moonshot: '',
+        deepseek: '',
         bigmodel: '',
       })
       
@@ -434,7 +464,7 @@ export function AISettings() {
   }
   
   // Only test connection for supported providers
-  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'bigmodel'].includes(provider)
+  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'deepseek', 'bigmodel'].includes(provider)
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)
@@ -648,6 +678,48 @@ export function AISettings() {
                 placeholder={apiKeyStatus.moonshot ? 'Configured (enter to update)' : '...'}
                 className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
               />
+            </div>
+
+            {/* DeepSeek */}
+            <div className="p-4 bg-surface-container-low rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  DeepSeek API Key
+                  {apiKeyStatus.deepseek && (
+                    <span className="ml-2 text-xs text-success">鈼?Configured</span>
+                  )}
+                </label>
+                <button
+                  onClick={() => handleTestConnection('deepseek')}
+                  disabled={testingProvider === 'deepseek'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testingProvider === 'deepseek' ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <TestTube className="w-3 h-3" />
+                  )}
+                  Test
+                </button>
+              </div>
+              <input
+                type="password"
+                value={apiKeys.deepseek}
+                onChange={(e) => setApiKeys(prev => ({ ...prev, deepseek: e.target.value }))}
+                placeholder={apiKeyStatus.deepseek ? 'Configured (enter to update)' : 'sk-...'}
+                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+              />
+              <p className="text-xs text-on-surface-muted mt-1.5">
+                Get your API key from {' '}
+                <a
+                  href="https://platform.deepseek.com/api_keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  platform.deepseek.com
+                </a>
+              </p>
             </div>
 
             {/* BigModel */}
