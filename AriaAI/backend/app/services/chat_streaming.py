@@ -19,7 +19,7 @@ from app.services.chat_store import (
     persist_generated_artifacts,
     persist_user_message,
 )
-from app.services.context_builder import build_chat_context
+from app.services.context_builder import build_chat_context, is_client_project_portfolio_query
 from app.services.provider_selector import (
     _load_provider_module,
     get_selected_model,
@@ -55,6 +55,7 @@ def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | 
         and effective_skill_id is None
         and not req.rag_doc_ids
         and not req.file_ids
+        and not is_client_project_portfolio_query(req.content)
         and len((req.content or "").strip()) <= 280
     )
 
@@ -68,6 +69,8 @@ def _resolve_runtime_model_and_tokens(
     normalized = (selected_model or "").lower()
     if _is_standalone_fast_path(req, effective_skill_id) and normalized.startswith("kimi-k2.6"):
         return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
+    if is_client_project_portfolio_query(req.content):
+        return selected_model, max_tokens
     if req.project_id is None and effective_skill_id is None:
         return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
     return selected_model, max_tokens
@@ -183,7 +186,11 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     ]
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
-    prepare_metrics["context_mode"] = "project" if req.project_id else "workspace_brief"
+    prepare_metrics["context_mode"] = (
+        "client_portfolio"
+        if is_client_project_portfolio_query(req.content)
+        else "project" if req.project_id else "workspace_brief"
+    )
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
 
     return ChatRuntime(

@@ -301,7 +301,7 @@ def _normalize_client_match_text(value: str) -> str:
     return "".join(str(value or "").lower().split())
 
 
-def _looks_like_client_portfolio_query(content: str) -> bool:
+def is_client_project_portfolio_query(content: str) -> bool:
     text = _normalize_client_match_text(content)
     if not text:
         return False
@@ -375,12 +375,16 @@ def _memory_items_for_portfolio(memory: dict, key: str, limit: int = 4) -> list[
     return items
 
 
-def build_client_project_portfolio_context(session: Session, content: str) -> str:
-    """Build a complete per-client project inventory for standalone portfolio questions."""
-    if not _looks_like_client_portfolio_query(content):
+def build_client_project_portfolio_context(
+    session: Session,
+    content: str,
+    fallback_client_name: str = "",
+) -> str:
+    """Build a complete per-client project inventory for portfolio questions."""
+    if not is_client_project_portfolio_query(content):
         return ""
 
-    client_name = _find_client_name_in_query(session, content)
+    client_name = _find_client_name_in_query(session, content) or fallback_client_name.strip()
     if not client_name:
         return ""
 
@@ -656,13 +660,20 @@ def build_chat_context(
     # Build skill context
     skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
     
-    if project_id:
+    project = session.get(Project, project_id) if project_id else None
+    portfolio_context = build_client_project_portfolio_context(
+        session,
+        content,
+        fallback_client_name=project.client if project and project.client else "",
+    )
+    if portfolio_context:
+        project_context = portfolio_context
+    elif project_id:
         project_context = build_project_context(session, project_id, file_ids)
     else:
-        project_context = build_client_project_portfolio_context(session, content) or build_lightweight_workspace_context(session)
+        project_context = build_lightweight_workspace_context(session)
 
-    if knowledge_scope == "client" and project_id is not None:
-        project = session.get(Project, project_id)
+    if knowledge_scope == "client" and project is not None and not portfolio_context:
         if project and project.client.strip():
             client = session.exec(
                 select(ClientRecord).where(ClientRecord.name.ilike(project.client.strip()))

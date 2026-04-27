@@ -2973,6 +2973,33 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.selected_model, chat_streaming_module.STANDALONE_FAST_PATH_MODEL)
         self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_FAST_PATH_MAX_TOKENS)
 
+    def test_prepare_chat_runtime_keeps_portfolio_query_on_selected_model(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            with patch.object(context_builder_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
+                    ),
+                )
+
+        self.assertEqual(runtime.selected_model, "kimi-k2.6")
+        self.assertEqual(runtime.max_tokens, 8192)
+
     def test_project_chat_context_disables_global_rag_auto_trigger(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")
@@ -3119,6 +3146,77 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertIn(f"金科项目 {index + 1}", ctx.project_context)
             self.assertIn(f"风险 {index + 1}", ctx.project_context)
         self.assertNotIn("Other Client Project", ctx.project_context)
+
+    def test_project_client_portfolio_query_overrides_single_project_scope(self):
+        client_name = "金科智慧服务集团股份有限公司"
+        with Session(self.engine) as session:
+            current_project = Project(
+                name="金科当前项目",
+                client=client_name,
+                status="delivering",
+                context_memory_json=json.dumps(
+                    {"project_brief": "当前项目摘要", "key_risks": ["当前风险"]},
+                    ensure_ascii=False,
+                ),
+                memory_version=1,
+            )
+            session.add(current_project)
+            for index in range(6):
+                session.add(
+                    Project(
+                        name=f"金科其他项目 {index + 1}",
+                        client=client_name,
+                        status="archived" if index == 5 else "delivering",
+                        context_memory_json=json.dumps(
+                            {
+                                "project_brief": f"其他项目 {index + 1} 摘要",
+                                "key_risks": [f"其他风险 {index + 1}"],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        memory_version=1,
+                    )
+                )
+            session.add(Project(name="Other Client Project", client="Other Client", status="delivering"))
+            session.commit()
+            session.refresh(current_project)
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=current_project.id,
+                skill_id=None,
+                knowledge_scope="project",
+                content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
+            )
+
+        self.assertIn("Client Project Portfolio Context", ctx.project_context)
+        self.assertIn("Matched projects: 7", ctx.project_context)
+        self.assertIn("金科当前项目", ctx.project_context)
+        for index in range(6):
+            self.assertIn(f"金科其他项目 {index + 1}", ctx.project_context)
+            self.assertIn(f"其他风险 {index + 1}", ctx.project_context)
+        self.assertNotIn("Scope Guard", ctx.project_context)
+        self.assertNotIn("Other Client Project", ctx.project_context)
+
+    def test_project_client_portfolio_query_can_use_current_project_client(self):
+        client_name = "金科智慧服务集团股份有限公司"
+        with Session(self.engine) as session:
+            current_project = Project(name="金科当前项目", client=client_name, status="delivering")
+            session.add(current_project)
+            for index in range(2):
+                session.add(Project(name=f"金科同客户项目 {index + 1}", client=client_name, status="delivering"))
+            session.commit()
+            session.refresh(current_project)
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=current_project.id,
+                content="总结这个客户的全部项目情况及风险。",
+            )
+
+        self.assertIn("Client Project Portfolio Context", ctx.project_context)
+        self.assertIn("Matched projects: 3", ctx.project_context)
+        self.assertIn("金科同客户项目 1", ctx.project_context)
 
     def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
         with Session(self.engine) as session:
