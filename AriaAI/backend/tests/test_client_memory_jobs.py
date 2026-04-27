@@ -12,6 +12,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.db import ClientRecord
 from app.routers import clients as clients_router_module
+from app.services.client_contexts import parse_client_memory
 
 
 class ClientMemoryJobsTestCase(unittest.TestCase):
@@ -100,6 +101,29 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
         with Session(self.engine) as session:
             refreshed = [session.get(ClientRecord, client_id) for client_id in client_ids]
             self.assertEqual([client.client_memory_rebuild_status for client in refreshed], ["queued", "queued"])
+
+    def test_client_memory_parser_extracts_json_from_model_text(self):
+        client = ClientRecord(name="JSON Client", industry="Tech")
+        raw = """Here is the memory:
+```json
+{"client_profile":"Tech account","decision_patterns":["fast"],"project_history":[]}
+```
+"""
+
+        memory = parse_client_memory(raw, client)
+
+        self.assertEqual(memory["client_profile"], "Tech account")
+        self.assertEqual(memory["decision_patterns"], ["fast"])
+        self.assertEqual(memory["project_history"], [])
+
+    def test_client_memory_parser_falls_back_to_default_for_non_json_text(self):
+        client = ClientRecord(name="Fallback Client", industry="Tech")
+
+        memory = parse_client_memory("The service is temporarily unavailable.", client)
+
+        self.assertEqual(memory["client_profile"], "Fallback Client")
+        self.assertEqual(memory["decision_patterns"], [])
+        self.assertEqual(memory["project_history"], [])
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@ EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES = [
 
 def _default_client_memory(client: ClientRecord) -> dict[str, Any]:
     return {
-        "client_profile": client.notes[:400] if client.notes else "",
+        "client_profile": client.notes[:400] if client.notes else client.name,
         "decision_patterns": [],
         "key_contacts": [],
         "structured_stakeholders": [],
@@ -184,20 +184,35 @@ def build_client_memory_promote_prompt(
     )
 
 
+def _extract_first_json_object(raw: str) -> str:
+    raw = (raw or "").strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        return raw
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        return raw[start : end + 1]
+    return "{}"
+
+
 def parse_client_memory(raw: str, client: ClientRecord) -> dict[str, Any]:
+    existing = get_client_memory_payload(client)
     try:
-        parsed = json.loads(raw or "{}")
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail=f"Client memory model returned invalid JSON: {exc}") from exc
+        parsed = json.loads(_extract_first_json_object(raw))
+    except json.JSONDecodeError:
+        parsed = {}
 
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=502, detail="Client memory model returned non-object JSON")
+        parsed = {}
 
-    existing = get_client_memory_payload(client)
     memory = {
         **_default_client_memory(client),
         **parsed,
     }
+    for key in ("decision_patterns", "lessons_learned", "project_history", "sensitive_topics", "key_contacts"):
+        value = memory.get(key)
+        memory[key] = value if isinstance(value, list) else []
     memory["rebuild_log"] = existing.get("rebuild_log", []) if isinstance(existing.get("rebuild_log"), list) else []
     memory["source_project_ids"] = (
         existing.get("source_project_ids", []) if isinstance(existing.get("source_project_ids"), list) else []
