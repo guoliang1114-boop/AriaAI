@@ -45,6 +45,16 @@ const models: AIModel[] = [
     icon: 'CL',
   },
   {
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude Haiku',
+    provider: 'anthropic',
+    description: 'Lightweight Claude model for faster everyday tasks and short interactions.',
+    maxTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'CH',
+  },
+  {
     id: 'kimi-k2.6',
     name: 'Kimi K2.6',
     provider: 'moonshot',
@@ -64,6 +74,16 @@ const models: AIModel[] = [
     supportsTools: true,
     supportsVision: false,
     icon: 'DS',
+  },
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    provider: 'deepseek',
+    description: 'Faster DeepSeek V4 model for daily chat, agent, and coding tasks.',
+    maxTokens: 32768,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'DF',
   },
   {
     id: 'glm-5.1',
