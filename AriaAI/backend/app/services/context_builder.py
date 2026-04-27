@@ -306,6 +306,14 @@ def is_client_project_portfolio_query(content: str) -> bool:
     if not text:
         return False
     all_project_markers = (
+        "\u5168\u90e8\u9879\u76ee",
+        "\u6240\u6709\u9879\u76ee",
+        "\u5168\u90e8\u7684\u9879\u76ee",
+        "\u6240\u6709\u7684\u9879\u76ee",
+        "全部项目",
+        "所有项目",
+        "全部的项目",
+        "所有的项目",
         "全部项目",
         "所有项目",
         "全部的项目",
@@ -316,6 +324,22 @@ def is_client_project_portfolio_query(content: str) -> bool:
         "portfolio",
     )
     summary_markers = (
+        "\u9879\u76ee\u60c5\u51b5",
+        "\u9879\u76ee\u72b6\u6001",
+        "\u9879\u76ee\u98ce\u9669",
+        "\u60c5\u51b5\u53ca\u98ce\u9669",
+        "\u60c5\u51b5\u548c\u98ce\u9669",
+        "\u603b\u7ed3",
+        "\u6c47\u603b",
+        "\u98ce\u9669",
+        "项目情况",
+        "项目状态",
+        "项目风险",
+        "情况及风险",
+        "情况和风险",
+        "总结",
+        "汇总",
+        "风险",
         "项目情况",
         "项目状态",
         "项目风险",
@@ -325,6 +349,61 @@ def is_client_project_portfolio_query(content: str) -> bool:
         "风险",
         "summary",
         "summarize",
+        "risk",
+        "risks",
+    )
+    return any(marker in text for marker in all_project_markers) and any(marker in text for marker in summary_markers)
+
+
+def is_workspace_project_inventory_query(content: str) -> bool:
+    text = _normalize_client_match_text(content)
+    if not text:
+        return False
+    all_project_markers = (
+        "\u5168\u90e8\u9879\u76ee",
+        "\u6240\u6709\u9879\u76ee",
+        "\u5168\u90e8\u7684\u9879\u76ee",
+        "\u6240\u6709\u7684\u9879\u76ee",
+        "\u5168\u91cf\u9879\u76ee",
+        "\u6240\u670921\u4e2a\u9879\u76ee",
+        "\u6240\u670922\u4e2a\u9879\u76ee",
+        "全部项目",
+        "所有项目",
+        "全部的项目",
+        "所有的项目",
+        "全量项目",
+        "所有21个项目",
+        "所有22个项目",
+        "allprojects",
+        "allproject",
+        "entireprojectportfolio",
+        "workspaceprojects",
+    )
+    summary_markers = (
+        "\u9879\u76ee\u60c5\u51b5",
+        "\u9879\u76ee\u72b6\u6001",
+        "\u9879\u76ee\u98ce\u9669",
+        "\u60c5\u51b5\u53ca\u98ce\u9669",
+        "\u60c5\u51b5\u548c\u98ce\u9669",
+        "\u9879\u76ee\u6e05\u5355",
+        "\u9879\u76ee\u5217\u8868",
+        "\u603b\u7ed3",
+        "\u6c47\u603b",
+        "\u98ce\u9669",
+        "项目情况",
+        "项目状态",
+        "项目风险",
+        "情况及风险",
+        "情况和风险",
+        "项目清单",
+        "项目列表",
+        "总结",
+        "汇总",
+        "风险",
+        "summary",
+        "summarize",
+        "inventory",
+        "status",
         "risk",
         "risks",
     )
@@ -454,6 +533,78 @@ def build_client_project_portfolio_context(
                 due = f" due={milestone.due_date}" if milestone.due_date else ""
                 priority = f" priority={milestone.priority}" if milestone.priority == "high" else ""
                 lines.append(f"  - {status}: {milestone.title}{priority}{due}")
+
+        payments = session.exec(select(ProjectPayment).where(ProjectPayment.project_id == project.id)).all()
+        if payments:
+            received = sum(payment.amount for payment in payments if payment.payment_type == "received")
+            expense = sum(payment.amount for payment in payments if payment.payment_type == "expense")
+            lines.append(f"- Financials: received={received:,.0f}; expenses={abs(expense):,.0f}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_workspace_project_inventory_context(session: Session, content: str) -> str:
+    """Build a complete workspace project inventory for all-project questions."""
+    if not is_workspace_project_inventory_query(content):
+        return ""
+
+    projects = session.exec(select(Project).order_by(Project.updated_at.desc())).all()
+    if not projects:
+        return ""
+
+    today_str = utc_now_naive().strftime("%Y-%m-%d")
+    active_projects = [project for project in projects if project.status != "archived"]
+    lines = [
+        f"# Workspace Project Inventory Context ({today_str})",
+        f"- Total projects listed below: {len(projects)}",
+        f"- Non-archived projects: {len(active_projects)}",
+        "- Coverage rule: every project below must be considered in the answer.",
+        "- Mandatory answer rule: start with the exact project count and a compact inventory table, one row per listed project.",
+        "- Do not say that only a partial snapshot is available. This context is the complete workspace project inventory available to chat for this question.",
+        "- If a project has limited details, still include its ID, name, client, status, and a brief best-effort risk note.",
+        "- After the complete inventory, summarize only the top cross-project risks and immediate actions.",
+        "",
+    ]
+
+    for index, project in enumerate(projects, start=1):
+        memory = get_project_memory_payload(project)
+        lines.append(f"## {index}. {project.name}")
+        lines.append(f"- Project ID: {project.id}")
+        lines.append(f"- Client: {project.client}")
+        lines.append(f"- Status: {project.status}")
+        if project.contract_amount:
+            lines.append(f"- Contract amount: {project.contract_amount:,.0f}")
+        if project.description:
+            lines.append(f"- Description: {project.description[:220]}")
+        if project.context_summary:
+            lines.append(f"- Existing summary: {project.context_summary[:320]}")
+        if memory.get("project_brief"):
+            lines.append(f"- Memory brief: {str(memory['project_brief'])[:320]}")
+        if memory.get("current_stage"):
+            lines.append(f"- Memory stage: {memory['current_stage']}")
+        if memory.get("financial_status"):
+            lines.append(f"- Financial status: {str(memory['financial_status'])[:220]}")
+
+        for key, label in (
+            ("key_risks", "Known risks"),
+            ("open_questions", "Open questions"),
+            ("next_actions", "Next actions"),
+            ("delivery_signals", "Delivery signals"),
+        ):
+            items = _memory_items_for_portfolio(memory, key)
+            if items:
+                lines.append(f"- {label}: " + "; ".join(items))
+
+        milestones = session.exec(select(Milestone).where(Milestone.project_id == project.id)).all()
+        if milestones:
+            done = sum(1 for milestone in milestones if milestone.is_done)
+            overdue = [
+                milestone
+                for milestone in milestones
+                if not milestone.is_done and milestone.due_date and milestone.due_date < today_str
+            ]
+            lines.append(f"- Milestones: {done}/{len(milestones)} completed" + (f"; {len(overdue)} overdue" if overdue else ""))
 
         payments = session.exec(select(ProjectPayment).where(ProjectPayment.project_id == project.id)).all()
         if payments:
@@ -669,8 +820,11 @@ def build_chat_context(
         content,
         fallback_client_name=project.client if project and project.client else "",
     )
+    workspace_inventory_context = "" if portfolio_context else build_workspace_project_inventory_context(session, content)
     if portfolio_context:
         project_context = portfolio_context
+    elif workspace_inventory_context:
+        project_context = workspace_inventory_context
     elif project_id:
         project_context = build_project_context(session, project_id, file_ids)
     else:

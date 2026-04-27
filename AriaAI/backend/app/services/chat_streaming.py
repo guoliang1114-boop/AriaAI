@@ -20,7 +20,11 @@ from app.services.chat_store import (
     persist_generated_artifacts,
     persist_user_message,
 )
-from app.services.context_builder import build_chat_context, is_client_project_portfolio_query
+from app.services.context_builder import (
+    build_chat_context,
+    is_client_project_portfolio_query,
+    is_workspace_project_inventory_query,
+)
 from app.services.provider_selector import (
     _load_provider_module,
     get_selected_model,
@@ -38,6 +42,7 @@ STANDALONE_FAST_PATH_MAX_TOKENS = 1536
 STANDALONE_CHAT_MAX_TOKENS = 2048
 CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
 CLIENT_PORTFOLIO_MAX_TOKENS = 4096
+WORKSPACE_INVENTORY_MAX_TOKENS = 6144
 
 
 def _has_deepseek_api_key(session: Session) -> bool:
@@ -68,6 +73,7 @@ def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | 
         and not req.rag_doc_ids
         and not req.file_ids
         and not is_client_project_portfolio_query(req.content)
+        and not is_workspace_project_inventory_query(req.content)
         and len((req.content or "").strip()) <= 280
     )
 
@@ -87,6 +93,10 @@ def _resolve_runtime_model_and_tokens(
         if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
             return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
         return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
+    if is_workspace_project_inventory_query(req.content):
+        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
+        return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
     if req.project_id is None and effective_skill_id is None:
         return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
     return selected_model, max_tokens
@@ -134,6 +144,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     step_started_at = prepare_started_at
     prepare_metrics: dict[str, int | str] = {}
     is_portfolio_query = is_client_project_portfolio_query(req.content)
+    is_workspace_inventory_query = is_workspace_project_inventory_query(req.content)
 
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     effective_skill_id = req.skill_id if skill and (req.force_skill or _should_apply_skill(req.content, skill)) else None
@@ -202,13 +213,15 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         for msg in history
         if msg.content.strip()
     ]
-    if is_portfolio_query:
+    if is_portfolio_query or is_workspace_inventory_query:
         api_messages = [{"role": "user", "content": req.content}]
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["context_mode"] = (
         "client_portfolio"
         if is_portfolio_query
+        else "workspace_inventory"
+        if is_workspace_inventory_query
         else "project" if req.project_id else "workspace_brief"
     )
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)

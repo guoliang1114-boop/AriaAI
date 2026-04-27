@@ -596,6 +596,7 @@ For all other questions, follow your standard role below.
 """
 
     is_client_portfolio_context = project_context.startswith("# Client Project Portfolio Context")
+    is_workspace_inventory_context = project_context.startswith("# Workspace Project Inventory Context")
     if project_context and is_client_portfolio_context:
         base = (
             "You are an AI consultant assistant embedded in a project management tool. "
@@ -607,6 +608,17 @@ For all other questions, follow your standard role below.
             "Do not omit archived, lead, opportunity, or low-detail projects. "
             "After the complete inventory, synthesize only the top portfolio-level risks and immediate actions. "
             "If prior conversation history conflicts with the portfolio context, ignore the prior history."
+        )
+    elif project_context and is_workspace_inventory_context:
+        base = (
+            "You are an AI consultant assistant embedded in a project management tool. "
+            "The user is asking for a workspace-level review across all listed projects. "
+            "You MUST use the Workspace Project Inventory Context as the source of truth. "
+            "Do not say only a partial snapshot is available, do not explain access limitations, and do not direct the user to another interface. "
+            "Start with the exact project count, then provide a complete inventory table with one row for every listed project, "
+            "including project name, ID, client, status, and key risk. "
+            "After the complete inventory, synthesize only the top cross-project risks and immediate actions. "
+            "If prior conversation history conflicts with the inventory context, ignore the prior history."
         )
     elif project_context:
         base = (
@@ -625,7 +637,7 @@ For all other questions, follow your standard role below.
             "Provide precise, structured, and actionable analysis."
         )
 
-    parts = [base] if is_client_portfolio_context else [identity_rules, base]
+    parts = [base] if (is_client_portfolio_context or is_workspace_inventory_context) else [identity_rules, base]
     if skill_prompt:
         parts.append(f"\n\n## Skill Context\n{skill_prompt}")
     if project_context:
