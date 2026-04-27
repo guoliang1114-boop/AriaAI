@@ -588,7 +588,19 @@ Introduce the product's design purpose and value proposition. For example:
 For all other questions, follow your standard role below.
 """
 
-    if project_context:
+    is_client_portfolio_context = project_context.startswith("# Client Project Portfolio Context")
+    if project_context and is_client_portfolio_context:
+        base = (
+            "You are an AI consultant assistant embedded in a project management tool. "
+            "The user is asking for a client-level portfolio review across all matched projects. "
+            "You MUST use the Client Project Portfolio Context as the source of truth. "
+            "Start your answer with the exact matched project count, then provide a complete inventory table "
+            "with one row for every listed project, including project name, ID, status, and key risk. "
+            "Do not omit archived, lead, opportunity, or low-detail projects. "
+            "After the complete inventory, synthesize portfolio-level risks and recommended actions. "
+            "If prior conversation history conflicts with the portfolio context, ignore the prior history."
+        )
+    elif project_context:
         base = (
             "You are an AI consultant assistant embedded in a project management tool. "
             "The current project's full context is provided below — including status, milestones, "

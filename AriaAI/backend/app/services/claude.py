@@ -522,7 +522,19 @@ For all other questions, follow your standard role below.
 """
 
     is_workspace_context = project_context.startswith("# 工作台全局数据")
-    if project_context and is_workspace_context:
+    is_client_portfolio_context = project_context.startswith("# Client Project Portfolio Context")
+    if project_context and is_client_portfolio_context:
+        base = (
+            "You are an AI consultant assistant embedded in a project management tool. "
+            "The user is asking for a client-level portfolio review across all matched projects. "
+            "You MUST use the Client Project Portfolio Context as the source of truth. "
+            "Start your answer with the exact matched project count, then provide a complete inventory table "
+            "with one row for every listed project, including project name, ID, status, and key risk. "
+            "Do not omit archived, lead, opportunity, or low-detail projects. "
+            "After the complete inventory, synthesize portfolio-level risks and recommended actions. "
+            "If prior conversation history conflicts with the portfolio context, ignore the prior history."
+        )
+    elif project_context and is_workspace_context:
         base = (
             "你是 AriaAI，一个嵌入在咨询项目管理平台中的 AI 助手。"
             "下方已注入用户工作台的全部活跃项目数据，包括每个项目的客户、阶段、里程碑、财务信息等。"

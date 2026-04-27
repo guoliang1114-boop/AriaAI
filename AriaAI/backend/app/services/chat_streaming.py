@@ -117,6 +117,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     prepare_started_at = time.perf_counter()
     step_started_at = prepare_started_at
     prepare_metrics: dict[str, int | str] = {}
+    is_portfolio_query = is_client_project_portfolio_query(req.content)
 
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     effective_skill_id = req.skill_id if skill and (req.force_skill or _should_apply_skill(req.content, skill)) else None
@@ -184,11 +185,13 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         for msg in history
         if msg.content.strip()
     ]
+    if is_portfolio_query:
+        api_messages = [{"role": "user", "content": req.content}]
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["context_mode"] = (
         "client_portfolio"
-        if is_client_project_portfolio_query(req.content)
+        if is_portfolio_query
         else "project" if req.project_id else "workspace_brief"
     )
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)

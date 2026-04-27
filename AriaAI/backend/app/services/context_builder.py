@@ -403,6 +403,8 @@ def build_client_project_portfolio_context(
         f"- Client requested by user: {client_name}",
         f"- Matched projects: {len(projects)}",
         "- Coverage rule: every project listed below belongs to this client and must be considered in the answer.",
+        "- Mandatory answer rule: start the answer with the exact matched project count and a complete inventory table, one row per listed project, before any grouped risk synthesis.",
+        "- Do not summarize only representative projects. If a project has limited details, still include its name, ID, status, and a best-effort risk note.",
         "- When the user asks for all project status and risks, include an inventory/checklist so no listed project is omitted.",
         "- Archived projects are included because the user asked for all projects.",
         "",
