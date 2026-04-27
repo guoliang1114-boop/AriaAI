@@ -85,8 +85,19 @@ def _resolve_runtime_model_and_tokens(
     effective_skill_id: int | None,
     *,
     has_deepseek_api_key: bool = False,
+    project_context: str = "",
 ) -> tuple[str, int]:
     normalized = (selected_model or "").lower()
+    has_client_portfolio_context = project_context.startswith("# Client Project Portfolio Context")
+    has_workspace_inventory_context = project_context.startswith("# Workspace Project Inventory Context")
+    if has_client_portfolio_context:
+        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
+        return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
+    if has_workspace_inventory_context:
+        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
+        return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
     if _is_standalone_fast_path(req, effective_skill_id) and normalized.startswith("kimi-k2.6"):
         return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
     if is_client_project_portfolio_query(req.content):
@@ -184,6 +195,8 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         content=req.content,
         default_max_tokens=max_tokens,
     )
+    has_client_portfolio_context = chat_ctx.project_context.startswith("# Client Project Portfolio Context")
+    has_workspace_inventory_context = chat_ctx.project_context.startswith("# Workspace Project Inventory Context")
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     step_started_at = time.perf_counter()
@@ -194,6 +207,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.max_tokens,
         effective_skill_id,
         has_deepseek_api_key=_has_deepseek_api_key(session),
+        project_context=chat_ctx.project_context,
     )
     provider = resolve_provider_from_model(runtime_model)
     llm = _load_provider_module(provider)
@@ -213,15 +227,15 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         for msg in history
         if msg.content.strip()
     ]
-    if is_portfolio_query or is_workspace_inventory_query:
+    if has_client_portfolio_context or has_workspace_inventory_context:
         api_messages = [{"role": "user", "content": req.content}]
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["context_mode"] = (
         "client_portfolio"
-        if is_portfolio_query
+        if has_client_portfolio_context
         else "workspace_inventory"
-        if is_workspace_inventory_query
+        if has_workspace_inventory_context
         else "project" if req.project_id else "workspace_brief"
     )
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)

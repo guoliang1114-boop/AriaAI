@@ -30,6 +30,26 @@ from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
+PROJECT_FILE_QUERY_MARKERS = (
+    "file",
+    "files",
+    "document",
+    "documents",
+    "attachment",
+    "attachments",
+    "source",
+    "\u6587\u4ef6",
+    "\u6587\u6863",
+    "\u9644\u4ef6",
+    "\u6750\u6599",
+    "\u539f\u6587",
+    "\u4e0a\u4f20",
+)
+
+
+def _content_requests_file_details(content: str) -> bool:
+    text = _normalize_client_match_text(content)
+    return any(marker in text for marker in PROJECT_FILE_QUERY_MARKERS)
 
 
 def _format_project_memory_for_prompt(project: Project) -> str:
@@ -264,7 +284,7 @@ def build_global_workspace_context(session: Session) -> str:
 
 
 def build_lightweight_workspace_context(session: Session) -> str:
-    """Build a compact workspace brief for standalone chat."""
+    """Build a memory-first workspace brief for standalone chat."""
     all_projects = session.exec(
         select(Project).where(Project.status != "archived").order_by(Project.updated_at.desc())
     ).all()
@@ -274,25 +294,36 @@ def build_lightweight_workspace_context(session: Session) -> str:
 
     today_str = utc_now_naive().strftime("%Y-%m-%d")
     active_projects = [project for project in all_projects if project.status not in {"completed", "archived"}]
-    recent_projects = all_projects[:5]
 
     ws_lines = [
         f"# Workspace Brief ({today_str})",
         f"- Active projects: {len(active_projects)}",
         f"- Total tracked projects: {len(all_projects)}",
-        "- Use this brief only as lightweight operating context for standalone chat.",
-        "- If the user asks about a specific project, ask for or switch into that project context before making detailed claims.",
+        "- This brief is memory-first and lists every non-archived project so standalone chat can answer portfolio questions quickly.",
+        "- Use project memory fields as the first source of truth. If details are missing, say which project is missing memory rather than inventing facts.",
+        "- Do not claim that only a partial project snapshot is available.",
         "",
-        "## Recent project snapshot",
+        "## Project Memory Index",
     ]
 
-    for project in recent_projects:
+    for index, project in enumerate(all_projects, start=1):
+        memory = get_project_memory_payload(project)
         line = f"- {project.name} | client={project.client} | status={project.status}"
         if project.contract_amount:
             line += f" | amount={project.contract_amount:,.0f}"
-        ws_lines.append(line)
-        if project.context_summary:
-            ws_lines.append(f"  summary: {project.context_summary[:120]}")
+        if project.memory_version:
+            line += f" | memory=v{project.memory_version}"
+        ws_lines.append(f"{index}. {line}")
+
+        brief = str(memory.get("project_brief") or project.context_summary or project.description or "").strip()
+        if brief:
+            ws_lines.append(f"   brief: {brief[:180]}")
+        risks = _memory_items_for_portfolio(memory, "key_risks", limit=2)
+        if risks:
+            ws_lines.append("   risks: " + "; ".join(risks))
+        next_actions = _memory_items_for_portfolio(memory, "next_actions", limit=2)
+        if next_actions:
+            ws_lines.append("   next: " + "; ".join(next_actions))
 
     return "\n".join(ws_lines)
 
@@ -410,6 +441,33 @@ def is_workspace_project_inventory_query(content: str) -> bool:
     return any(marker in text for marker in all_project_markers) and any(marker in text for marker in summary_markers)
 
 
+def _is_project_review_query(content: str) -> bool:
+    text = _normalize_client_match_text(content)
+    if not text:
+        return False
+    project_markers = (
+        "\u9879\u76ee",
+        "project",
+        "projects",
+    )
+    review_markers = (
+        "\u60c5\u51b5",
+        "\u72b6\u6001",
+        "\u98ce\u9669",
+        "\u603b\u7ed3",
+        "\u6c47\u603b",
+        "\u6e05\u5355",
+        "\u5217\u8868",
+        "summary",
+        "summarize",
+        "status",
+        "risk",
+        "risks",
+        "inventory",
+    )
+    return any(marker in text for marker in project_markers) and any(marker in text for marker in review_markers)
+
+
 def _find_client_name_in_query(session: Session, content: str) -> str:
     query_text = _normalize_client_match_text(content)
     if not query_text:
@@ -460,10 +518,9 @@ def build_client_project_portfolio_context(
     fallback_client_name: str = "",
 ) -> str:
     """Build a complete per-client project inventory for portfolio questions."""
-    if not is_client_project_portfolio_query(content):
-        return ""
-
     client_name = _find_client_name_in_query(session, content) or fallback_client_name.strip()
+    if not is_client_project_portfolio_query(content) and not (client_name and _is_project_review_query(content)):
+        return ""
     if not client_name:
         return ""
 
@@ -620,6 +677,7 @@ def build_project_context(
     session: Session,
     project_id: int,
     file_ids: Optional[list[int]] = None,
+    content: str = "",
 ) -> str:
     """Build context for a specific project including files, milestones, financials."""
     project = session.get(Project, project_id)
@@ -672,20 +730,24 @@ def build_project_context(
             priority = f" [{m.priority} priority]" if m.priority == "high" else ""
             lines.append(f"  {status_icon} {m.title}{priority}{due}")
     
+    should_inject_file_text = bool(file_ids) or _content_requests_file_details(content)
+
     # Files
     files = session.exec(
         select(ProjectFile).where(ProjectFile.project_id == project.id)
     ).all()
     file_content_sections = []
     if files:
-        lines.append("\n**Uploaded Documents (full content auto-injected below):**")
+        lines.append("\n**Uploaded Documents:**")
         total_chars = 0
         for f in files:
             summary_hint = f" — {f.summary[:80]}" if f.summary else ""
             lines.append(f"  - {f.name} ({f.file_type.upper()}){summary_hint}")
-            # Auto-inject readable file content
+            # Keep chat fast by default: project memory is the primary context.
+            # Full file text is injected only when the user explicitly asks about files/documents.
             if (
-                f.file_type.lower() in ("pdf", "docx", "pptx", "xlsx", "xls", "txt", "md", "csv", "json")
+                should_inject_file_text
+                and f.file_type.lower() in ("pdf", "docx", "pptx", "xlsx", "xls", "txt", "md", "csv", "json")
                 and total_chars < MAX_FILE_CONTENT_CHARS
             ):
                 full_path = UPLOADS_DIR / f.path
@@ -826,7 +888,7 @@ def build_chat_context(
     elif workspace_inventory_context:
         project_context = workspace_inventory_context
     elif project_id:
-        project_context = build_project_context(session, project_id, file_ids)
+        project_context = build_project_context(session, project_id, file_ids, content=content)
     else:
         project_context = build_lightweight_workspace_context(session)
 
