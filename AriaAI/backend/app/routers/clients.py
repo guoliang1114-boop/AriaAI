@@ -136,7 +136,9 @@ class ClientMemoryBatchRebuildResponse(BaseModel):
     ok: bool
     requested_count: int
     rebuilt_count: int
+    queued_count: int = 0
     rebuilt: list[ClientMemoryBatchRebuildItem]
+    queued: list[dict] = []
     skipped: list[dict]
 
 
@@ -1278,7 +1280,9 @@ async def rebuild_client_memory_batch(
     session: Session = Depends(get_session),
 ):
     rebuilt: list[ClientMemoryBatchRebuildItem] = []
+    queued: list[dict] = []
     skipped: list[dict] = []
+    scheduler_running = scheduler_service.is_running()
 
     for client_id in body.client_ids:
         client = session.get(ClientRecord, client_id)
@@ -1287,6 +1291,29 @@ async def rebuild_client_memory_batch(
             continue
         if body.stale_only and not client.client_memory_stale:
             skipped.append({"client_id": client_id, "reason": "not_stale"})
+            continue
+
+        if scheduler_running:
+            job_id = _client_memory_rebuild_job_id(client_id)
+            if scheduler_service.get_job(job_id):
+                skipped.append({"client_id": client_id, "reason": "already_queued"})
+                continue
+            _schedule_client_memory_rebuild(
+                client_id,
+                trigger="batch_rebuild",
+                delay_seconds=len(queued) * CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
+            )
+            client.client_memory_rebuild_status = "queued"
+            client.client_memory_rebuild_failed_at = None
+            session.add(client)
+            queued.append(
+                {
+                    "client_id": client_id,
+                    "memory_version": client.client_memory_version,
+                    "memory_stale": client.client_memory_stale,
+                    "memory_rebuild_status": client.client_memory_rebuild_status,
+                }
+            )
             continue
 
         payload = await _rebuild_client_memory(session, client_id, trigger="batch_rebuild")
@@ -1312,12 +1339,16 @@ async def rebuild_client_memory_batch(
             trigger="batch_rebuild_completed",
         )
 
+    if queued:
+        session.commit()
     clients_cache.delete(_CLIENTS_KEY)
     return ClientMemoryBatchRebuildResponse(
         ok=True,
         requested_count=len(body.client_ids),
         rebuilt_count=len(rebuilt),
+        queued_count=len(queued),
         rebuilt=rebuilt,
+        queued=queued,
         skipped=skipped,
     )
 
