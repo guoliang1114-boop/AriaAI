@@ -3084,6 +3084,42 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn("Standalone Context Project", ctx.project_context)
         self.assertNotIn("## Project:", ctx.project_context)
 
+    def test_standalone_client_portfolio_query_includes_all_matching_projects(self):
+        client_name = "金科智慧服务集团股份有限公司"
+        with Session(self.engine) as session:
+            for index in range(7):
+                project = Project(
+                    name=f"金科项目 {index + 1}",
+                    client=client_name,
+                    status="archived" if index == 6 else "delivering",
+                    context_memory_json=json.dumps(
+                        {
+                            "project_brief": f"项目 {index + 1} 摘要",
+                            "key_risks": [f"风险 {index + 1}"],
+                            "next_actions": [f"行动 {index + 1}"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    memory_version=1,
+                )
+                session.add(project)
+            session.add(Project(name="Other Client Project", client="Other Client", status="delivering"))
+            session.commit()
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=None,
+                skill_id=None,
+                content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
+            )
+
+        self.assertIn("Client Project Portfolio Context", ctx.project_context)
+        self.assertIn("Matched projects: 7", ctx.project_context)
+        for index in range(7):
+            self.assertIn(f"金科项目 {index + 1}", ctx.project_context)
+            self.assertIn(f"风险 {index + 1}", ctx.project_context)
+        self.assertNotIn("Other Client Project", ctx.project_context)
+
     def test_project_chat_context_global_scope_does_not_force_scope_filters(self):
         with Session(self.engine) as session:
             project = Project(name="Scoped Project", client="Acme")

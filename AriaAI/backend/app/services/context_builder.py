@@ -297,6 +297,167 @@ def build_lightweight_workspace_context(session: Session) -> str:
     return "\n".join(ws_lines)
 
 
+def _normalize_client_match_text(value: str) -> str:
+    return "".join(str(value or "").lower().split())
+
+
+def _looks_like_client_portfolio_query(content: str) -> bool:
+    text = _normalize_client_match_text(content)
+    if not text:
+        return False
+    all_project_markers = (
+        "全部项目",
+        "所有项目",
+        "全部的项目",
+        "所有的项目",
+        "allprojects",
+        "allproject",
+        "projectportfolio",
+        "portfolio",
+    )
+    summary_markers = (
+        "项目情况",
+        "项目状态",
+        "项目风险",
+        "情况及风险",
+        "总结",
+        "汇总",
+        "风险",
+        "summary",
+        "summarize",
+        "risk",
+        "risks",
+    )
+    return any(marker in text for marker in all_project_markers) and any(marker in text for marker in summary_markers)
+
+
+def _find_client_name_in_query(session: Session, content: str) -> str:
+    query_text = _normalize_client_match_text(content)
+    if not query_text:
+        return ""
+
+    client_names: set[str] = set()
+    for client in session.exec(select(Project.client).where(Project.client != "")).all():
+        if client:
+            client_names.add(client.strip())
+    for name in session.exec(select(ClientRecord.name).where(ClientRecord.name != "")).all():
+        if name:
+            client_names.add(name.strip())
+
+    matches = [
+        name
+        for name in client_names
+        if _normalize_client_match_text(name) and _normalize_client_match_text(name) in query_text
+    ]
+    if not matches:
+        return ""
+    return max(matches, key=len)
+
+
+def _memory_items_for_portfolio(memory: dict, key: str, limit: int = 4) -> list[str]:
+    raw = memory.get(key)
+    if isinstance(raw, dict):
+        values = []
+        for slot in ("pinned", "ai"):
+            slot_value = raw.get(slot)
+            if isinstance(slot_value, list):
+                values.extend(slot_value)
+        raw = values
+    if not isinstance(raw, list):
+        return []
+    items = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            items.append(text[:180])
+        if len(items) >= limit:
+            break
+    return items
+
+
+def build_client_project_portfolio_context(session: Session, content: str) -> str:
+    """Build a complete per-client project inventory for standalone portfolio questions."""
+    if not _looks_like_client_portfolio_query(content):
+        return ""
+
+    client_name = _find_client_name_in_query(session, content)
+    if not client_name:
+        return ""
+
+    normalized_client = _normalize_client_match_text(client_name)
+    projects = [
+        project
+        for project in session.exec(select(Project).order_by(Project.updated_at.desc())).all()
+        if _normalize_client_match_text(project.client) == normalized_client
+    ]
+    if not projects:
+        return ""
+
+    today_str = utc_now_naive().strftime("%Y-%m-%d")
+    lines = [
+        f"# Client Project Portfolio Context ({today_str})",
+        f"- Client requested by user: {client_name}",
+        f"- Matched projects: {len(projects)}",
+        "- Coverage rule: every project listed below belongs to this client and must be considered in the answer.",
+        "- When the user asks for all project status and risks, include an inventory/checklist so no listed project is omitted.",
+        "- Archived projects are included because the user asked for all projects.",
+        "",
+    ]
+
+    for index, project in enumerate(projects, start=1):
+        memory = get_project_memory_payload(project)
+        lines.append(f"## {index}. {project.name}")
+        lines.append(f"- Project ID: {project.id}")
+        lines.append(f"- Client: {project.client}")
+        lines.append(f"- Status: {project.status}")
+        if project.contract_amount:
+            lines.append(f"- Contract amount: {project.contract_amount:,.0f}")
+        if project.description:
+            lines.append(f"- Description: {project.description[:240]}")
+        if project.context_summary:
+            lines.append(f"- Existing summary: {project.context_summary[:360]}")
+        if memory.get("project_brief"):
+            lines.append(f"- Memory brief: {str(memory['project_brief'])[:360]}")
+        if memory.get("current_stage"):
+            lines.append(f"- Memory stage: {memory['current_stage']}")
+        if memory.get("financial_status"):
+            lines.append(f"- Financial status: {str(memory['financial_status'])[:240]}")
+
+        for key, label in (
+            ("key_risks", "Known risks"),
+            ("open_questions", "Open questions"),
+            ("next_actions", "Next actions"),
+            ("delivery_signals", "Delivery signals"),
+        ):
+            items = _memory_items_for_portfolio(memory, key)
+            if items:
+                lines.append(f"- {label}: " + "; ".join(items))
+
+        milestones = session.exec(select(Milestone).where(Milestone.project_id == project.id)).all()
+        if milestones:
+            done = sum(1 for milestone in milestones if milestone.is_done)
+            overdue = [
+                milestone
+                for milestone in milestones
+                if not milestone.is_done and milestone.due_date and milestone.due_date < today_str
+            ]
+            lines.append(f"- Milestones: {done}/{len(milestones)} completed" + (f"; {len(overdue)} overdue" if overdue else ""))
+            for milestone in milestones[:8]:
+                status = "done" if milestone.is_done else "pending"
+                due = f" due={milestone.due_date}" if milestone.due_date else ""
+                priority = f" priority={milestone.priority}" if milestone.priority == "high" else ""
+                lines.append(f"  - {status}: {milestone.title}{priority}{due}")
+
+        payments = session.exec(select(ProjectPayment).where(ProjectPayment.project_id == project.id)).all()
+        if payments:
+            received = sum(payment.amount for payment in payments if payment.payment_type == "received")
+            expense = sum(payment.amount for payment in payments if payment.payment_type == "expense")
+            lines.append(f"- Financials: received={received:,.0f}; expenses={abs(expense):,.0f}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def build_project_context(
     session: Session,
     project_id: int,
@@ -498,7 +659,7 @@ def build_chat_context(
     if project_id:
         project_context = build_project_context(session, project_id, file_ids)
     else:
-        project_context = build_lightweight_workspace_context(session)
+        project_context = build_client_project_portfolio_context(session, content) or build_lightweight_workspace_context(session)
 
     if knowledge_scope == "client" and project_id is not None:
         project = session.get(Project, project_id)
