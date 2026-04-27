@@ -34,6 +34,7 @@ from app.models.db import (
     ProjectMember,
     ProjectPayment,
     ProjectTodo,
+    Setting,
     Skill,
     SystemMessage,
     SystemMessageRead,
@@ -2998,7 +2999,37 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 )
 
         self.assertEqual(runtime.selected_model, "kimi-k2.6")
-        self.assertEqual(runtime.max_tokens, 8192)
+        self.assertEqual(runtime.max_tokens, chat_streaming_module.CLIENT_PORTFOLIO_MAX_TOKENS)
+
+    def test_prepare_chat_runtime_routes_portfolio_query_to_deepseek_flash_when_key_exists(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            session.add(Setting(key="deepseek_api_key", value="test-key"))
+            session.commit()
+
+            with patch.object(context_builder_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
+                    ),
+                )
+
+        self.assertEqual(runtime.selected_model, chat_streaming_module.CLIENT_PORTFOLIO_FAST_MODEL)
+        self.assertEqual(runtime.max_tokens, chat_streaming_module.CLIENT_PORTFOLIO_MAX_TOKENS)
 
     def test_prepare_chat_runtime_ignores_prior_history_for_portfolio_query(self):
         conv_id = self._create_conversation()

@@ -594,10 +594,11 @@ For all other questions, follow your standard role below.
             "You are an AI consultant assistant embedded in a project management tool. "
             "The user is asking for a client-level portfolio review across all matched projects. "
             "You MUST use the Client Project Portfolio Context as the source of truth. "
+            "Keep the answer compact and fast to read. "
             "Start your answer with the exact matched project count, then provide a complete inventory table "
             "with one row for every listed project, including project name, ID, status, and key risk. "
             "Do not omit archived, lead, opportunity, or low-detail projects. "
-            "After the complete inventory, synthesize portfolio-level risks and recommended actions. "
+            "After the complete inventory, synthesize only the top portfolio-level risks and immediate actions. "
             "If prior conversation history conflicts with the portfolio context, ignore the prior history."
         )
     elif project_context:
@@ -617,7 +618,7 @@ For all other questions, follow your standard role below.
             "Provide precise, structured, and actionable analysis."
         )
 
-    parts = [identity_rules, base]
+    parts = [base] if is_client_portfolio_context else [identity_rules, base]
     if skill_prompt:
         parts.append(f"\n\n## Skill Context\n{skill_prompt}")
     if project_context:

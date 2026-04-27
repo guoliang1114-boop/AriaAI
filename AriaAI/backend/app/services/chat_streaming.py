@@ -10,6 +10,7 @@ from sqlmodel import Session
 
 from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from app.models.db import Skill
+from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_store import (
     build_message_metadata,
@@ -35,6 +36,17 @@ CHAT_HISTORY_WINDOW = 24
 STANDALONE_FAST_PATH_MODEL = "moonshot-v1-8k"
 STANDALONE_FAST_PATH_MAX_TOKENS = 1536
 STANDALONE_CHAT_MAX_TOKENS = 2048
+CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
+CLIENT_PORTFOLIO_MAX_TOKENS = 4096
+
+
+def _has_deepseek_api_key(session: Session) -> bool:
+    setting = session.get(_Setting, "deepseek_api_key")
+    if setting and setting.value.strip():
+        return True
+    import os
+
+    return bool(os.environ.get("DEEPSEEK_API_KEY"))
 
 
 def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
@@ -65,12 +77,16 @@ def _resolve_runtime_model_and_tokens(
     selected_model: str,
     max_tokens: int,
     effective_skill_id: int | None,
+    *,
+    has_deepseek_api_key: bool = False,
 ) -> tuple[str, int]:
     normalized = (selected_model or "").lower()
     if _is_standalone_fast_path(req, effective_skill_id) and normalized.startswith("kimi-k2.6"):
         return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
     if is_client_project_portfolio_query(req.content):
-        return selected_model, max_tokens
+        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
+            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
+        return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
     if req.project_id is None and effective_skill_id is None:
         return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
     return selected_model, max_tokens
@@ -166,6 +182,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         selected_model,
         chat_ctx.max_tokens,
         effective_skill_id,
+        has_deepseek_api_key=_has_deepseek_api_key(session),
     )
     provider = resolve_provider_from_model(runtime_model)
     llm = _load_provider_module(provider)
