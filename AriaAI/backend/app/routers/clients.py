@@ -154,6 +154,8 @@ class ClientMemoryJob(BaseModel):
     max_retries: int = 0
     trigger: Optional[str] = None
     summary_types: list[str] = []
+    status_source: Optional[str] = None
+    status_note: Optional[str] = None
 
 
 class ClientMemoryJobsResponse(BaseModel):
@@ -704,10 +706,17 @@ async def _run_client_memory_rebuild_job(client_id: int, trigger: str = "debounc
             raise
 
 
-def _schedule_client_memory_rebuild(client_id: int, trigger: str = "data_changed") -> None:
+def _schedule_client_memory_rebuild(
+    client_id: int,
+    trigger: str = "data_changed",
+    *,
+    delay_seconds: int | None = None,
+) -> None:
     if not scheduler_service.is_running():
         return
-    run_at = utc_now_naive() + timedelta(seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS)
+    run_at = utc_now_naive() + timedelta(
+        seconds=MEMORY_REBUILD_DEBOUNCE_SECONDS if delay_seconds is None else max(0, delay_seconds)
+    )
     scheduler_service.add_or_replace_date_job(
         _client_memory_rebuild_job_id(client_id),
         run_at,
@@ -719,6 +728,49 @@ def _schedule_client_memory_rebuild(client_id: int, trigger: str = "data_changed
             "max_retries": CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS,
         },
     )
+
+
+def _restore_missing_client_memory_rebuild_jobs(session: Session, clients: list[ClientRecord]) -> set[int]:
+    rebuild_job_client_ids: set[int] = set()
+    for job in scheduler_service.get_jobs():
+        parsed = _parse_client_memory_job(job)
+        if parsed and parsed.get("job_type") == "rebuild":
+            rebuild_job_client_ids.add(int(parsed["client_id"]))
+
+    if not scheduler_service.is_running():
+        return rebuild_job_client_ids
+
+    restore_index = 0
+    updated_status = False
+    for client in clients:
+        if client.id in rebuild_job_client_ids:
+            continue
+        needs_rebuild = (
+            client.client_memory_rebuild_status in {"queued", "rebuilding"}
+            or bool(client.client_memory_stale)
+            or int(client.client_memory_version or 0) <= 0
+        )
+        if not needs_rebuild:
+            continue
+
+        _schedule_client_memory_rebuild(
+            client.id,
+            trigger="restore_missing_job",
+            delay_seconds=restore_index * CLIENT_MEMORY_REBUILD_RETRY_BASE_DELAY_SECONDS,
+        )
+        if client.client_memory_rebuild_status != "rebuilding":
+            client.client_memory_rebuild_status = "queued"
+            client.client_memory_rebuild_failed_at = None
+            session.add(client)
+            updated_status = True
+        rebuild_job_client_ids.add(client.id)
+        restore_index += 1
+
+    if updated_status:
+        session.commit()
+        clients_cache.delete(_CLIENTS_KEY)
+
+    return rebuild_job_client_ids
 
 
 def _mark_client_memory_stale(session: Session, client_id: int, trigger: str = "data_changed") -> None:
@@ -772,6 +824,7 @@ def create_client(body: ClientCreate, session: Session = Depends(get_session)):
 def list_client_memory_jobs(session: Session = Depends(get_session)):
     all_clients = session.exec(select(ClientRecord)).all()
     client_lookup = {client.id: client for client in all_clients}
+    rebuild_job_client_ids = _restore_missing_client_memory_rebuild_jobs(session, all_clients)
 
     jobs: list[ClientMemoryJob] = []
     for job in scheduler_service.get_jobs():
@@ -786,6 +839,33 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
                 industry=client.industry if client else "",
                 memory_stale=client.client_memory_stale if client else True,
                 memory_version=client.client_memory_version if client else 0,
+            )
+        )
+
+    listed_rebuild_client_ids = {
+        job.client_id for job in jobs if job.job_type == "rebuild" and job.client_id in rebuild_job_client_ids
+    }
+    for client in all_clients:
+        if client.id in listed_rebuild_client_ids:
+            continue
+        if client.client_memory_rebuild_status not in {"queued", "rebuilding"}:
+            continue
+        jobs.append(
+            ClientMemoryJob(
+                client_id=client.id,
+                client_name=client.name,
+                industry=client.industry,
+                job_type="rebuild",
+                job_id=f"client_memory_rebuild_status_{client.id}",
+                next_run_at=None,
+                memory_stale=client.client_memory_stale,
+                memory_version=client.client_memory_version,
+                retry_count=0,
+                max_retries=CLIENT_MEMORY_REBUILD_RETRY_ATTEMPTS,
+                trigger="status_only",
+                summary_types=[],
+                status_source="client_status",
+                status_note=client.client_memory_rebuild_status,
             )
         )
 
@@ -821,10 +901,17 @@ def list_client_memory_jobs(session: Session = Depends(get_session)):
 
 
 @router.post("/memory/jobs/{client_id}/cancel")
-def cancel_client_memory_jobs(client_id: int):
+def cancel_client_memory_jobs(client_id: int, session: Session = Depends(get_session)):
     scheduler_service.remove_job(_client_memory_rebuild_job_id(client_id))
     for language in ("zh", "en", "default"):
         scheduler_service.remove_job(_client_memory_summary_warm_job_id(client_id, language))
+    client = session.get(ClientRecord, client_id)
+    if client and client.client_memory_rebuild_status in {"queued", "rebuilding"}:
+        client.client_memory_rebuild_status = "idle"
+        client.client_memory_rebuild_failed_at = None
+        session.add(client)
+        session.commit()
+        clients_cache.delete(_CLIENTS_KEY)
     return {"ok": True, "client_id": client_id}
 
 
