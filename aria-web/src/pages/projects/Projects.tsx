@@ -38,6 +38,7 @@ export function Projects() {
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedClient, setSelectedClient] = useState("");
   const [expandedPhase, setExpandedPhase] = useState<ProjectPhase | null>("business");
   const [users, setUsers] = useState<Array<{ id: number; display_name: string }>>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -92,6 +93,7 @@ export function Projects() {
     const query = searchQuery.trim().toLowerCase();
     return projects
       .filter((project) => {
+        if (selectedClient && project.client !== selectedClient) return false;
         return (
           !query ||
           project.name.toLowerCase().includes(query) ||
@@ -101,7 +103,16 @@ export function Projects() {
         );
       })
       .sort(compareProjectsByBusinessPriority);
-  }, [projects, searchQuery]);
+  }, [projects, searchQuery, selectedClient]);
+
+  const clientOptions = useMemo(() => {
+    const names = projects
+      .map((project) => project.client.trim())
+      .filter((client): client is string => Boolean(client));
+    return Array.from(new Set(names)).sort((left, right) =>
+      left.localeCompare(right, isZh ? "zh-Hans-CN" : undefined),
+    );
+  }, [isZh, projects]);
 
   const businessProjects = filteredProjects.filter((project) => getProjectPhase(project) === "business");
   const deliveryProjects = filteredProjects.filter((project) => getProjectPhase(project) === "delivery");
@@ -123,12 +134,15 @@ export function Projects() {
       <PageTitle title={t("projects.title")} />
       <div className="min-h-full bg-gradient-to-b from-gray-50 to-white">
         <ProjectsHeader
+          clientOptions={clientOptions}
           isLoadingUsers={isLoadingUsers}
           isZh={isZh}
           onCreateProject={() => navigate("/projects/new")}
           onSearchChange={setSearchQuery}
+          onSelectedClientChange={setSelectedClient}
           onSelectedMemberChange={setSelectedMemberId}
           searchQuery={searchQuery}
+          selectedClient={selectedClient}
           selectedMemberId={selectedMemberId}
           users={users}
         />

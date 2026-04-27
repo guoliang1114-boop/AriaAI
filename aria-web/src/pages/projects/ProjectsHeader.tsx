@@ -1,23 +1,29 @@
-import { FolderKanban, Plus, Search, User } from "lucide-react";
+import { Building2, FolderKanban, Plus, Search, User } from "lucide-react";
 
 interface ProjectsHeaderProps {
+  clientOptions: string[];
   isLoadingUsers: boolean;
   isZh: boolean;
   onCreateProject: () => void;
   onSearchChange: (value: string) => void;
+  onSelectedClientChange: (value: string) => void;
   onSelectedMemberChange: (value: number | null) => void;
   searchQuery: string;
+  selectedClient: string;
   selectedMemberId: number | null;
   users: Array<{ id: number; display_name: string }>;
 }
 
 export function ProjectsHeader({
+  clientOptions,
   isLoadingUsers,
   isZh,
   onCreateProject,
   onSearchChange,
+  onSelectedClientChange,
   onSelectedMemberChange,
   searchQuery,
+  selectedClient,
   selectedMemberId,
   users,
 }: ProjectsHeaderProps) {
@@ -53,6 +59,27 @@ export function ProjectsHeader({
                 placeholder={isZh ? "搜索项目..." : "Search projects..."}
                 className="w-56 rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm transition-all focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
+            </div>
+
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                value={selectedClient}
+                onChange={(event) => onSelectedClientChange(event.target.value)}
+                className="w-44 appearance-none cursor-pointer rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-8 text-sm transition-all focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="">{isZh ? "\u5168\u90e8\u5ba2\u6237" : "All clients"}</option>
+                {clientOptions.map((client) => (
+                  <option key={client} value={client}>
+                    {client}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+                <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
 
             <div className="relative">
