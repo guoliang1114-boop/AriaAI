@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,9 +15,17 @@ from app.services.time_utils import utc_now_naive
 
 # Use ThreadPoolExecutor to support async functions
 _scheduler = BackgroundScheduler(
-    executors={'default': ThreadPoolExecutor(max_workers=MEMORY_REBUILD_MAX_WORKERS)}
+    executors={'default': ThreadPoolExecutor(max_workers=MEMORY_REBUILD_MAX_WORKERS)},
+    timezone=UTC,
 )
 _job_metadata: dict[str, dict] = {}
+
+
+def _as_utc_aware(value: datetime) -> datetime:
+    """Treat legacy naive datetimes as UTC before handing them to APScheduler."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def start() -> None:
@@ -41,7 +49,7 @@ def is_running() -> bool:
 
 
 def next_run_from_frequency(frequency: str, cron_expr: str = "") -> Optional[datetime]:
-    now = utc_now_naive()
+    now = _as_utc_aware(utc_now_naive())
     freq = frequency.lower()
     if freq == "daily":
         return now + timedelta(days=1)
@@ -114,9 +122,10 @@ def add_or_replace_date_job(
 
     _scheduler.add_job(
         _run_job,
-        trigger=DateTrigger(run_date=run_at),
+        trigger=DateTrigger(run_date=_as_utc_aware(run_at), timezone=UTC),
         id=job_id,
         replace_existing=True,
+        misfire_grace_time=3600,
     )
 
 

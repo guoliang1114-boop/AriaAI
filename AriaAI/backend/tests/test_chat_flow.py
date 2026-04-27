@@ -61,8 +61,32 @@ from app.services import project_contexts as project_contexts_module
 from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
+from app.services import scheduler as scheduler_module
 from app.services.chat_streaming import ChatRuntime, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
+
+
+class SchedulerTimeTestCase(unittest.TestCase):
+    def test_as_utc_aware_treats_naive_datetime_as_utc(self):
+        naive = datetime(2026, 4, 27, 13, 19, 29)
+
+        aware = scheduler_module._as_utc_aware(naive)
+
+        self.assertIsNotNone(aware.tzinfo)
+        self.assertEqual(aware.utcoffset(), timedelta(0))
+        self.assertEqual(aware.hour, 13)
+
+    def test_add_or_replace_date_job_uses_utc_aware_date_trigger(self):
+        run_at = datetime(2026, 4, 27, 13, 19, 29)
+
+        with patch.object(scheduler_module, "_scheduler") as mocked_scheduler:
+            mocked_scheduler.running = True
+            scheduler_module.add_or_replace_date_job("job", run_at, lambda: None)
+
+        trigger = mocked_scheduler.add_job.call_args.kwargs["trigger"]
+        self.assertEqual(trigger.run_date.utcoffset(), timedelta(0))
+        self.assertEqual(trigger.run_date.hour, 13)
+        self.assertEqual(mocked_scheduler.add_job.call_args.kwargs["misfire_grace_time"], 3600)
 
 
 class FakeRetrievalContext:
