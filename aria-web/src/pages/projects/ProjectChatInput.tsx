@@ -39,7 +39,8 @@ export function ProjectChatInput({
                 }
               }}
               placeholder={placeholder}
-              className="min-h-[36px] max-h-[180px] w-full resize-none bg-transparent py-1.5 text-[15px] leading-relaxed text-gray-700 placeholder:text-gray-300 outline-none"
+              disabled={isLoading}
+              className="min-h-[36px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[15px] leading-relaxed text-gray-700 placeholder:text-gray-300 outline-none disabled:opacity-50"
               rows={1}
               style={{ height: "auto" }}
               onInput={(event) => {
@@ -52,9 +53,9 @@ export function ProjectChatInput({
           <button
             onClick={onSend}
             disabled={!value.trim() || isLoading}
-            className="mb-0.5 rounded-xl bg-primary p-3 text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow disabled:cursor-not-allowed disabled:opacity-40"
+            className="mb-0.5 flex-shrink-0 rounded-xl bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
           >
-            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </button>
         </div>
       </div>

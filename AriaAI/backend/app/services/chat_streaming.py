@@ -33,6 +33,8 @@ from app.services.provider_selector import (
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
+from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
@@ -124,6 +126,7 @@ class ChatRuntime:
     tools: list | None
     max_tokens: int
     temperature: float
+    project_id: int | None = None
     skill_name: str = ""
     prepare_metrics: dict | None = None
 
@@ -195,8 +198,12 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         content=req.content,
         default_max_tokens=max_tokens,
     )
-    has_client_portfolio_context = chat_ctx.project_context.startswith("# Client Project Portfolio Context")
-    has_workspace_inventory_context = chat_ctx.project_context.startswith("# Workspace Project Inventory Context")
+    has_client_portfolio_context = (
+        chat_ctx.project_context.startswith("# Client Project Portfolio Context") or is_portfolio_query
+    )
+    has_workspace_inventory_context = (
+        chat_ctx.project_context.startswith("# Workspace Project Inventory Context") or is_workspace_inventory_query
+    )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     step_started_at = time.perf_counter()
@@ -242,6 +249,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     return ChatRuntime(
         conv_id=conv.id,
+        project_id=req.project_id,
         selected_model=runtime_model,
         llm=llm,
         system=system,
@@ -773,6 +781,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if not tool_name or not isinstance(tool_input, dict):
                 continue
             tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
+            if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
+                tool_input = {**tool_input, "project_id": runtime.project_id}
 
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 

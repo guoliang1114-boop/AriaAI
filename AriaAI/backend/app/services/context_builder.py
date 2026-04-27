@@ -30,6 +30,15 @@ from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
+PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document"]
+PROJECT_MARKDOWN_TOOL_PROMPT = """
+
+Project Markdown editing:
+- You may update project Markdown files only when the user explicitly asks you to create, append to, or update an MD document.
+- Use the `update_project_markdown_document` tool for those edits. The server will restrict the write to the current project.
+- Prefer a listed file id when targeting an existing Markdown file. If the target document is ambiguous, ask a short clarification before editing.
+- For replace mode, send the complete final Markdown document content, not a diff.
+""".strip()
 PROJECT_FILE_QUERY_MARKERS = (
     "file",
     "files",
@@ -214,6 +223,22 @@ def build_skill_context(
         tools=tools,
         max_tokens=max_tokens,
     )
+
+
+def _merge_project_chat_tools(tools: Optional[list], project_id: Optional[int]) -> Optional[list]:
+    if project_id is None:
+        return tools
+    project_tools = format_tools_for_claude(PROJECT_MARKDOWN_TOOL_NAMES)
+    if not project_tools:
+        return tools
+    if not tools:
+        return project_tools
+    existing = {tool.get("name") for tool in tools if isinstance(tool, dict)}
+    merged = list(tools)
+    for tool in project_tools:
+        if tool.get("name") not in existing:
+            merged.append(tool)
+    return merged
 
 
 def build_global_workspace_context(session: Session) -> str:
@@ -742,7 +767,8 @@ def build_project_context(
         total_chars = 0
         for f in files:
             summary_hint = f" — {f.summary[:80]}" if f.summary else ""
-            lines.append(f"  - {f.name} ({f.file_type.upper()}){summary_hint}")
+            file_id_hint = f"id={f.id}, " if f.id is not None else ""
+            lines.append(f"  - [{file_id_hint}{f.file_type.upper()}] {f.name}{summary_hint}")
             # Keep chat fast by default: project memory is the primary context.
             # Full file text is injected only when the user explicitly asks about files/documents.
             if (
@@ -909,6 +935,11 @@ def build_chat_context(
             "Prefer these facts over generic assumptions, and keep outputs grounded in the current workspace."
         )
         skill_ctx.skill_prompt = (skill_ctx.skill_prompt or "").strip() + skill_briefing
+
+    if project_id:
+        skill_ctx.skill_prompt = "\n\n".join(
+            part for part in ((skill_ctx.skill_prompt or "").strip(), PROJECT_MARKDOWN_TOOL_PROMPT) if part
+        )
     
     # Build RAG context
     rag_data = build_rag_context(
@@ -925,6 +956,6 @@ def build_chat_context(
         project_context=project_context,
         rag_context=rag_data["text"],
         rag_sources=rag_data["sources"],
-        tools=skill_ctx.tools,
+        tools=_merge_project_chat_tools(skill_ctx.tools, project_id),
         max_tokens=skill_ctx.max_tokens or default_max_tokens,
     )
