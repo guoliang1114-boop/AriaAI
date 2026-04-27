@@ -903,13 +903,21 @@ def build_chat_context(
     skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
     
     project = session.get(Project, project_id) if project_id else None
-    portfolio_context = build_client_project_portfolio_context(
-        session,
-        content,
-        fallback_client_name=project.client if project and project.client else "",
-    )
-    workspace_inventory_context = "" if portfolio_context else build_workspace_project_inventory_context(session, content)
-    if portfolio_context:
+    normalized_scope = (knowledge_scope or "project").strip().lower()
+    current_project_only = project_id is not None and normalized_scope == "project"
+    portfolio_context = ""
+    workspace_inventory_context = ""
+    if not current_project_only:
+        portfolio_context = build_client_project_portfolio_context(
+            session,
+            content,
+            fallback_client_name=project.client if project and project.client and normalized_scope == "client" else "",
+        )
+        if not portfolio_context and (project_id is None or normalized_scope == "global"):
+            workspace_inventory_context = build_workspace_project_inventory_context(session, content)
+    if current_project_only and project_id:
+        project_context = build_project_context(session, project_id, file_ids, content=content)
+    elif portfolio_context:
         project_context = portfolio_context
     elif workspace_inventory_context:
         project_context = workspace_inventory_context

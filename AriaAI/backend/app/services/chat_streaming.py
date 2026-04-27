@@ -198,11 +198,12 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         content=req.content,
         default_max_tokens=max_tokens,
     )
-    has_client_portfolio_context = (
-        chat_ctx.project_context.startswith("# Client Project Portfolio Context") or is_portfolio_query
+    expanded_query_allowed = req.project_id is None or (req.knowledge_scope or "project") != "project"
+    has_client_portfolio_context = chat_ctx.project_context.startswith("# Client Project Portfolio Context") or (
+        expanded_query_allowed and is_portfolio_query
     )
-    has_workspace_inventory_context = (
-        chat_ctx.project_context.startswith("# Workspace Project Inventory Context") or is_workspace_inventory_query
+    has_workspace_inventory_context = chat_ctx.project_context.startswith("# Workspace Project Inventory Context") or (
+        expanded_query_allowed and is_workspace_inventory_query
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 

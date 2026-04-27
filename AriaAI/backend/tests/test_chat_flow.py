@@ -3253,7 +3253,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertIn(f"风险 {index + 1}", ctx.project_context)
         self.assertNotIn("Other Client Project", ctx.project_context)
 
-    def test_project_client_portfolio_query_overrides_single_project_scope(self):
+    def test_project_client_portfolio_query_respects_current_project_scope(self):
         client_name = "金科智慧服务集团股份有限公司"
         with Session(self.engine) as session:
             current_project = Project(
@@ -3295,13 +3295,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
             )
 
-        self.assertIn("Client Project Portfolio Context", ctx.project_context)
-        self.assertIn("Matched projects: 7", ctx.project_context)
+        self.assertIn("Scope Guard", ctx.project_context)
         self.assertIn("金科当前项目", ctx.project_context)
+        self.assertNotIn("Client Project Portfolio Context", ctx.project_context)
         for index in range(6):
-            self.assertIn(f"金科其他项目 {index + 1}", ctx.project_context)
-            self.assertIn(f"其他风险 {index + 1}", ctx.project_context)
-        self.assertNotIn("Scope Guard", ctx.project_context)
+            self.assertNotIn(f"金科其他项目 {index + 1}", ctx.project_context)
+            self.assertNotIn(f"其他风险 {index + 1}", ctx.project_context)
         self.assertNotIn("Other Client Project", ctx.project_context)
 
     def test_project_client_portfolio_query_can_use_current_project_client(self):
@@ -3317,6 +3316,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ctx = context_builder_module.build_chat_context(
                 session=session,
                 project_id=current_project.id,
+                knowledge_scope="client",
                 content="总结这个客户的全部项目情况及风险。",
             )
 
