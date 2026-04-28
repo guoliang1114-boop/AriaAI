@@ -38,6 +38,10 @@ class ClientStakeholder(SQLModel, table=True):
     communication_preference: str = ""
     contact: str = ""
     last_action: str = ""
+    personality_profile: str = ""
+    decision_style: str = ""
+    communication_strategy: str = ""
+    trust_signals: str = ""
     note: str = ""
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive)

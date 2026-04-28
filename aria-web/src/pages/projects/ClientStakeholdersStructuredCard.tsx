@@ -1,4 +1,4 @@
-import { Check, Edit3, Loader2, Plus, Trash2, Users, X } from "lucide-react";
+import { Brain, Check, Edit3, Loader2, Plus, Trash2, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { ClientStakeholder } from "../../types/api";
@@ -13,6 +13,10 @@ type StakeholderDraft = Pick<
   | "name"
   | "note"
   | "organization_level"
+  | "personality_profile"
+  | "decision_style"
+  | "communication_strategy"
+  | "trust_signals"
   | "relationship_status"
   | "role"
   | "sensitivities"
@@ -27,6 +31,10 @@ const emptyDraft: StakeholderDraft = {
   name: "",
   note: "",
   organization_level: "",
+  personality_profile: "",
+  decision_style: "",
+  communication_strategy: "",
+  trust_signals: "",
   relationship_status: "unknown",
   role: "",
   sensitivities: "",
@@ -43,11 +51,13 @@ export function ClientStakeholdersStructuredCard({
   clientId,
   isZh,
   onChanged,
+  projectId,
   stakeholders,
 }: {
   clientId?: number;
   isZh: boolean;
   onChanged: (stakeholders: ClientStakeholder[]) => void;
+  projectId?: number | string;
   stakeholders: ClientStakeholder[];
 }) {
   const [draft, setDraft] = useState<StakeholderDraft>(emptyDraft);
@@ -56,6 +66,7 @@ export function ClientStakeholdersStructuredCard({
   const [saving, setSaving] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [analyzingId, setAnalyzingId] = useState<number | null>(null);
 
   const grouped = useMemo(() => {
     const byInfluence = new Map<string, number>();
@@ -104,6 +115,10 @@ export function ClientStakeholdersStructuredCard({
       name: stakeholder.name || "",
       note: stakeholder.note || "",
       organization_level: stakeholder.organization_level || "",
+      personality_profile: stakeholder.personality_profile || "",
+      decision_style: stakeholder.decision_style || "",
+      communication_strategy: stakeholder.communication_strategy || "",
+      trust_signals: stakeholder.trust_signals || "",
       relationship_status: stakeholder.relationship_status || "unknown",
       role: stakeholder.role || "",
       sensitivities: stakeholder.sensitivities || "",
@@ -139,6 +154,17 @@ export function ClientStakeholdersStructuredCard({
       if (editingId === stakeholderId) cancelEdit();
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const analyze = async (stakeholderId: number) => {
+    if (!projectId) return;
+    setAnalyzingId(stakeholderId);
+    try {
+      await api.post<ClientStakeholder>(`/projects/${projectId}/stakeholders/${stakeholderId}/analyze`, {});
+      await refresh();
+    } finally {
+      setAnalyzingId(null);
     }
   };
 
@@ -220,6 +246,18 @@ export function ClientStakeholdersStructuredCard({
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        {projectId ? (
+                          <button
+                            type="button"
+                            onClick={() => void analyze(stakeholder.id)}
+                            disabled={analyzingId === stakeholder.id}
+                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-primary disabled:opacity-50"
+                            aria-label={isZh ? "AI 分析联系人" : "Analyze contact"}
+                            title={isZh ? "AI 分析联系人性格与沟通方式" : "Analyze personality and communication"}
+                          >
+                            {analyzingId === stakeholder.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => beginEdit(stakeholder)}
@@ -246,6 +284,14 @@ export function ClientStakeholdersStructuredCard({
                     <div className="mt-3 text-sm leading-6 text-gray-600">
                       {stakeholder.concerns || stakeholder.note || stakeholder.last_action || (isZh ? "暂无补充信息" : "No extra detail yet")}
                     </div>
+                    {stakeholder.personality_profile || stakeholder.decision_style || stakeholder.communication_strategy || stakeholder.trust_signals ? (
+                      <div className="mt-4 grid gap-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm leading-6 text-gray-700 md:grid-cols-2">
+                        <Insight label={isZh ? "性格画像" : "Personality"} value={stakeholder.personality_profile} />
+                        <Insight label={isZh ? "决策风格" : "Decision style"} value={stakeholder.decision_style} />
+                        <Insight label={isZh ? "沟通策略" : "Communication strategy"} value={stakeholder.communication_strategy} />
+                        <Insight label={isZh ? "信任信号" : "Trust signals"} value={stakeholder.trust_signals} />
+                      </div>
+                    ) : null}
                   </>
                 )}
               </article>
@@ -368,6 +414,30 @@ function StakeholderForm({
         value={draft.last_action}
       />
       <Textarea
+        label={isZh ? "性格画像" : "Personality profile"}
+        onChange={(value) => onChange({ ...draft, personality_profile: value })}
+        placeholder={isZh ? "例如：谨慎、重视证据、偏好先小范围验证" : "e.g. cautious, evidence-driven, prefers pilots"}
+        value={draft.personality_profile}
+      />
+      <Textarea
+        label={isZh ? "决策风格" : "Decision style"}
+        onChange={(value) => onChange({ ...draft, decision_style: value })}
+        placeholder={isZh ? "谁影响 TA、TA 如何判断风险和价值" : "How this person weighs risk, value, and influence"}
+        value={draft.decision_style}
+      />
+      <Textarea
+        label={isZh ? "沟通策略" : "Communication strategy"}
+        onChange={(value) => onChange({ ...draft, communication_strategy: value })}
+        placeholder={isZh ? "建议话术、节奏、材料形态和下一步推进方式" : "Recommended tone, cadence, materials, and next move"}
+        value={draft.communication_strategy}
+      />
+      <Textarea
+        label={isZh ? "信任信号 / 风险信号" : "Trust / risk signals"}
+        onChange={(value) => onChange({ ...draft, trust_signals: value })}
+        placeholder={isZh ? "哪些行为代表认可，哪些信号代表阻力" : "Signals of trust, resistance, or escalation"}
+        value={draft.trust_signals}
+      />
+      <Textarea
         label={isZh ? "关注点" : "Concerns"}
         onChange={(value) => onChange({ ...draft, concerns: value })}
         placeholder={isZh ? "预算、上线周期、内部协同..." : "Budget, launch timeline, internal alignment..."}
@@ -386,6 +456,16 @@ function StakeholderForm({
 function Badge({ muted, value }: { muted?: boolean; value: string }) {
   const style = muted ? "border-gray-200 bg-white text-gray-600" : relationshipStyles[value.toLowerCase()] || relationshipStyles.unknown;
   return <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${style}`}>{value}</span>;
+}
+
+function Insight({ label, value }: { label: string; value?: string }) {
+  if (!value?.trim()) return null;
+  return (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap text-gray-700">{value}</div>
+    </div>
+  );
 }
 
 function Input({

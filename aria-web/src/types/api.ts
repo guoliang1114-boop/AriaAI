@@ -306,6 +306,10 @@ export interface ClientStakeholder {
   communication_preference: string
   contact: string
   last_action: string
+  personality_profile: string
+  decision_style: string
+  communication_strategy: string
+  trust_signals: string
   note: string
   created_at: string
   updated_at: string

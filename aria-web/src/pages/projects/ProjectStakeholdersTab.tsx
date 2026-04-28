@@ -193,6 +193,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
               clientId={client?.id}
               isZh={isZh}
               onChanged={setStructuredStakeholders}
+              projectId={projectId}
               stakeholders={structuredStakeholders}
             />
             <StakeholderRelationshipMap

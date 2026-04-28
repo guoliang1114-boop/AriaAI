@@ -64,6 +64,10 @@ def serialize_client_stakeholder(stakeholder: ClientStakeholder) -> dict[str, An
         "communication_preference": stakeholder.communication_preference,
         "contact": stakeholder.contact,
         "last_action": stakeholder.last_action,
+        "personality_profile": stakeholder.personality_profile,
+        "decision_style": stakeholder.decision_style,
+        "communication_strategy": stakeholder.communication_strategy,
+        "trust_signals": stakeholder.trust_signals,
         "note": stakeholder.note,
     }
     return {key: str(value).strip() for key, value in fields.items() if str(value or "").strip()}
@@ -80,9 +84,12 @@ def format_client_stakeholders_for_prompt(stakeholders: list[dict[str, Any]], ti
         relationship = stakeholder.get("relationship_status", "")
         concerns = stakeholder.get("concerns", "")
         preference = stakeholder.get("communication_preference", "")
+        personality = stakeholder.get("personality_profile", "")
+        decision_style = stakeholder.get("decision_style", "")
+        communication_strategy = stakeholder.get("communication_strategy", "")
         note = stakeholder.get("note", "")
         profile = " | ".join(part for part in (role, influence, relationship) if part)
-        detail = " ; ".join(part for part in (concerns, preference, note) if part)
+        detail = " ; ".join(part for part in (concerns, preference, personality, decision_style, communication_strategy, note) if part)
         line = f"- {name}"
         if profile:
             line += f" | {profile}"

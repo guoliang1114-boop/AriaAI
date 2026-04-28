@@ -183,6 +183,10 @@ class ClientStakeholderBase(BaseModel):
     communication_preference: str = ""
     contact: str = ""
     last_action: str = ""
+    personality_profile: str = ""
+    decision_style: str = ""
+    communication_strategy: str = ""
+    trust_signals: str = ""
     note: str = ""
 
 
@@ -201,6 +205,10 @@ class ClientStakeholderUpdate(BaseModel):
     communication_preference: Optional[str] = None
     contact: Optional[str] = None
     last_action: Optional[str] = None
+    personality_profile: Optional[str] = None
+    decision_style: Optional[str] = None
+    communication_strategy: Optional[str] = None
+    trust_signals: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -380,6 +388,10 @@ def _serialize_client_stakeholder(stakeholder: ClientStakeholder) -> ClientStake
         communication_preference=stakeholder.communication_preference,
         contact=stakeholder.contact,
         last_action=stakeholder.last_action,
+        personality_profile=stakeholder.personality_profile,
+        decision_style=stakeholder.decision_style,
+        communication_strategy=stakeholder.communication_strategy,
+        trust_signals=stakeholder.trust_signals,
         note=stakeholder.note,
         created_at=stakeholder.created_at.isoformat(),
         updated_at=stakeholder.updated_at.isoformat(),

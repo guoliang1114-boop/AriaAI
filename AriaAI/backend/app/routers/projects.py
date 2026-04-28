@@ -202,6 +202,41 @@ def _find_client_record_by_name(session: Session, client_name: str | None) -> Cl
     )
 
 
+def _serialize_client_stakeholder_dict(stakeholder: ClientStakeholder) -> dict:
+    return {
+        "id": stakeholder.id,
+        "client_id": stakeholder.client_id,
+        "name": stakeholder.name,
+        "role": stakeholder.role,
+        "organization_level": stakeholder.organization_level,
+        "influence_type": stakeholder.influence_type,
+        "relationship_status": stakeholder.relationship_status,
+        "concerns": stakeholder.concerns,
+        "sensitivities": stakeholder.sensitivities,
+        "communication_preference": stakeholder.communication_preference,
+        "contact": stakeholder.contact,
+        "last_action": stakeholder.last_action,
+        "personality_profile": stakeholder.personality_profile,
+        "decision_style": stakeholder.decision_style,
+        "communication_strategy": stakeholder.communication_strategy,
+        "trust_signals": stakeholder.trust_signals,
+        "note": stakeholder.note,
+        "created_at": stakeholder.created_at.isoformat(),
+        "updated_at": stakeholder.updated_at.isoformat(),
+    }
+
+
+def _extract_first_json_object_from_text(raw: str) -> str:
+    raw = (raw or "").strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        return raw
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        return raw[start : end + 1]
+    return "{}"
+
+
 async def _auto_promote_archived_project_to_client_memory(
     session: Session,
     project_id: int,
@@ -1268,6 +1303,10 @@ class ProjectStakeholderCaptureRequest(BaseModel):
     text: str
 
 
+class ProjectStakeholderAnalyzeRequest(BaseModel):
+    focus: Optional[str] = None
+
+
 # ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -1493,6 +1532,67 @@ def apply_project_stakeholder_candidates(
         "created": created,
         "skipped": skipped,
     }
+
+
+@router.post("/{project_id}/stakeholders/{stakeholder_id}/analyze")
+async def analyze_project_stakeholder(
+    project_id: int,
+    stakeholder_id: int,
+    body: ProjectStakeholderAnalyzeRequest | None = None,
+    session: Session = Depends(get_session),
+):
+    project = get_project_or_404(session, project_id)
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Linked client not found")
+    stakeholder = session.get(ClientStakeholder, stakeholder_id)
+    if not stakeholder or stakeholder.client_id != client.id:
+        raise HTTPException(status_code=404, detail="Stakeholder not found")
+
+    project_memory = get_project_memory_payload(project)
+    client_memory = get_client_memory_payload(client)
+    focus = (body.focus if body else "") or ""
+    prompt = (
+        "You are a senior account strategy advisor. Analyze this contact for the current project and client.\n"
+        "Return ONLY a valid JSON object with keys: personality_profile, decision_style, communication_strategy, trust_signals.\n"
+        "Keep each value concise, practical, and based only on the provided facts. If evidence is limited, say what is inferred and what still needs validation.\n\n"
+        f"Project:\n- name: {project.name}\n- client: {project.client}\n- status: {project.status}\n- description: {project.description}\n\n"
+        f"Project memory JSON:\n{json.dumps(project_memory, ensure_ascii=False)[:6000]}\n\n"
+        f"Client memory JSON:\n{json.dumps(client_memory, ensure_ascii=False)[:6000]}\n\n"
+        "Contact profile:\n"
+        f"- name: {stakeholder.name}\n"
+        f"- role: {stakeholder.role}\n"
+        f"- organization_level: {stakeholder.organization_level}\n"
+        f"- influence_type: {stakeholder.influence_type}\n"
+        f"- relationship_status: {stakeholder.relationship_status}\n"
+        f"- concerns: {stakeholder.concerns}\n"
+        f"- sensitivities: {stakeholder.sensitivities}\n"
+        f"- communication_preference: {stakeholder.communication_preference}\n"
+        f"- last_action: {stakeholder.last_action}\n"
+        f"- existing_note: {stakeholder.note}\n"
+        f"- focus: {focus}\n\n"
+        "Write in Chinese unless the facts are clearly English-only."
+    )
+    raw = await complete_with_selected_model(messages=[{"role": "user", "content": prompt}], max_tokens=1600)
+    try:
+        parsed = json.loads(_extract_first_json_object_from_text(str(raw or "")))
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except json.JSONDecodeError:
+        parsed = {}
+
+    stakeholder.personality_profile = str(parsed.get("personality_profile") or "").strip()[:2000]
+    stakeholder.decision_style = str(parsed.get("decision_style") or "").strip()[:2000]
+    stakeholder.communication_strategy = str(parsed.get("communication_strategy") or "").strip()[:2400]
+    stakeholder.trust_signals = str(parsed.get("trust_signals") or "").strip()[:2000]
+    stakeholder.updated_at = utc_now_naive()
+    session.add(stakeholder)
+    session.commit()
+    session.refresh(stakeholder)
+    mark_client_memory_stale_by_name(session, project.client, trigger="stakeholder_analyzed")
+    _bust_project(project_id)
+    clients_cache.delete(_CLIENTS_KEY)
+    return _serialize_client_stakeholder_dict(stakeholder)
 
 
 @router.get("/meta/dashboard-summary")
