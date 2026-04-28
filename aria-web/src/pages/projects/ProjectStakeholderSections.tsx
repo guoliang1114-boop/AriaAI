@@ -1,4 +1,5 @@
 import { Brain, Building2, ExternalLink, Loader2, MessageSquareText, RefreshCw, Save, Users } from "lucide-react";
+import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { ClientMemory, Project, ProjectMemory } from "../../types/api";
 import { ProjectMemorySlotCard } from "./ProjectMemorySlotCard";
 
@@ -337,7 +338,9 @@ export function StakeholderAiAnalysisCard({
         ) : error ? (
           <div className="text-red-600">{error}</div>
         ) : content ? (
-          <div className="whitespace-pre-wrap">{content}</div>
+          <div className="md-root">
+            <MarkdownRenderer content={content} />
+          </div>
         ) : (
           <div className="text-gray-500">{isZh ? "暂无分析内容，点击重新生成获取最新判断。" : "No analysis yet. Regenerate to get the latest view."}</div>
         )}
