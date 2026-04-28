@@ -360,7 +360,7 @@ export function Contacts() {
                         active={record.stakeholder.id === selectedContact?.stakeholder.id}
                         isZh={isZh}
                         record={record}
-                        onSelect={() => setSelectedContactId(record.stakeholder.id)}
+                        onSelect={() => navigate(`/contacts/${record.stakeholder.id}`)}
                       />
                     ))}
                   </div>

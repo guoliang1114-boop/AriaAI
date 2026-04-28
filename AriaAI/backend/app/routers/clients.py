@@ -212,6 +212,11 @@ class ClientStakeholderUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class ClientStakeholderAnalyzeRequest(BaseModel):
+    linkedin_info: Optional[str] = None
+    focus: Optional[str] = None
+
+
 class ClientStakeholderOut(ClientStakeholderBase):
     id: int
     client_id: int
@@ -396,6 +401,17 @@ def _serialize_client_stakeholder(stakeholder: ClientStakeholder) -> ClientStake
         created_at=stakeholder.created_at.isoformat(),
         updated_at=stakeholder.updated_at.isoformat(),
     )
+
+
+def _extract_first_json_object_from_text(raw: str) -> str:
+    raw = (raw or "").strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        return raw
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        return raw[start : end + 1]
+    return "{}"
 
 
 def _parse_client_memory_job(job) -> dict | None:
@@ -1088,6 +1104,99 @@ def update_client_stakeholder(
     session.commit()
     session.refresh(stakeholder)
     _mark_client_memory_stale(session, client_id, trigger="stakeholder_updated")
+    clients_cache.delete(_CLIENTS_KEY)
+    return _serialize_client_stakeholder(stakeholder)
+
+
+@router.post("/{client_id}/stakeholders/{stakeholder_id}/analyze", response_model=ClientStakeholderOut)
+async def analyze_client_stakeholder(
+    client_id: int,
+    stakeholder_id: int,
+    body: ClientStakeholderAnalyzeRequest | None = None,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    stakeholder = session.get(ClientStakeholder, stakeholder_id)
+    if not stakeholder or stakeholder.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Stakeholder not found")
+
+    client_memory = get_client_memory_payload(client)
+    linked_projects = session.exec(
+        select(Project)
+        .where(Project.client == client.name)
+        .order_by(Project.updated_at.desc())
+    ).all()
+    project_context = [
+        {
+            "name": project.name,
+            "status": project.status,
+            "description": project.description,
+            "memory_version": project.memory_version,
+            "memory_stale": project.memory_stale,
+        }
+        for project in linked_projects[:12]
+    ]
+    linkedin_info = ((body.linkedin_info if body else "") or "").strip()[:6000]
+    focus = ((body.focus if body else "") or "").strip()[:1000]
+    prompt = (
+        "You are a senior relationship strategist and executive communication advisor.\n"
+        "Analyze this contact as a person, not merely as a client record. The person may leave, move companies, or change responsibility.\n"
+        "Use only the supplied facts. Treat LinkedIn/profile text as user-provided notes, not verified truth. If evidence is weak, clearly mark it as an inference.\n"
+        "Return ONLY a valid JSON object with keys: personality_profile, decision_style, communication_strategy, trust_signals, relationship_status, concerns, sensitivities, communication_preference, last_action, note.\n"
+        "Keep every value practical and concise. Write in Chinese unless the supplied facts are clearly English-only.\n\n"
+        f"Client:\n- name: {client.name}\n- industry: {client.industry}\n- contact: {client.contact}\n- notes: {client.notes}\n\n"
+        f"Linked projects JSON:\n{json.dumps(project_context, ensure_ascii=False)[:5000]}\n\n"
+        f"Client memory JSON:\n{json.dumps(client_memory, ensure_ascii=False)[:6000]}\n\n"
+        "Existing contact profile:\n"
+        f"- name: {stakeholder.name}\n"
+        f"- role: {stakeholder.role}\n"
+        f"- organization_level: {stakeholder.organization_level}\n"
+        f"- influence_type: {stakeholder.influence_type}\n"
+        f"- relationship_status: {stakeholder.relationship_status}\n"
+        f"- concerns: {stakeholder.concerns}\n"
+        f"- sensitivities: {stakeholder.sensitivities}\n"
+        f"- communication_preference: {stakeholder.communication_preference}\n"
+        f"- contact: {stakeholder.contact}\n"
+        f"- last_action: {stakeholder.last_action}\n"
+        f"- personality_profile: {stakeholder.personality_profile}\n"
+        f"- decision_style: {stakeholder.decision_style}\n"
+        f"- communication_strategy: {stakeholder.communication_strategy}\n"
+        f"- trust_signals: {stakeholder.trust_signals}\n"
+        f"- note: {stakeholder.note}\n\n"
+        f"User-provided LinkedIn/profile information:\n{linkedin_info or '(none)'}\n\n"
+        f"Analysis focus:\n{focus or '(general full analysis)'}\n"
+    )
+    raw = await complete_with_selected_model(messages=[{"role": "user", "content": prompt}], max_tokens=2200)
+    try:
+        parsed = json.loads(_extract_first_json_object_from_text(str(raw or "")))
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except json.JSONDecodeError:
+        parsed = {}
+
+    for field, limit in {
+        "personality_profile": 2400,
+        "decision_style": 2000,
+        "communication_strategy": 2800,
+        "trust_signals": 2400,
+        "relationship_status": 120,
+        "concerns": 1800,
+        "sensitivities": 1800,
+        "communication_preference": 1200,
+        "last_action": 1200,
+        "note": 2400,
+    }.items():
+        value = str(parsed.get(field) or "").strip()
+        if value:
+            setattr(stakeholder, field, value[:limit])
+
+    stakeholder.updated_at = utc_now_naive()
+    session.add(stakeholder)
+    session.commit()
+    session.refresh(stakeholder)
+    _mark_client_memory_stale(session, client_id, trigger="stakeholder_analyzed")
     clients_cache.delete(_CLIENTS_KEY)
     return _serialize_client_stakeholder(stakeholder)
 
