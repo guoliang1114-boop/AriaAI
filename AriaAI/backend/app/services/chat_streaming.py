@@ -784,6 +784,14 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
+                markdown_content = str(tool_input.get("content") or "").strip()
+                if markdown_content:
+                    if text_buffer.strip():
+                        text_buffer = f"{text_buffer.rstrip()}\n\n{markdown_content}"
+                        yield _sse_event({"type": "text", "content": f"\n\n{markdown_content}"})
+                    else:
+                        text_buffer = markdown_content
+                        yield _sse_event({"type": "text", "content": markdown_content})
 
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 
