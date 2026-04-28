@@ -252,6 +252,8 @@ export function ContactDetail() {
                 <InsightCard icon={<ShieldAlert className="h-4 w-4" />} title={isZh ? '信任/风险信号' : 'Trust / risk signals'} value={stakeholder.trust_signals} />
               </section>
 
+              <PartnerOnePager client={client} isZh={isZh} stakeholder={stakeholder} />
+
               <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900">{isZh ? '基础资料' : 'Profile fields'}</h2>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -333,6 +335,106 @@ function InsightCard({ icon, title, value }: { icon: ReactNode; title: string; v
         {title}
       </div>
       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">{value?.trim() || '—'}</p>
+    </div>
+  )
+}
+
+function PartnerOnePager({
+  client,
+  isZh,
+  stakeholder,
+}: {
+  client: ClientListItem
+  isZh: boolean
+  stakeholder: ClientStakeholder
+}) {
+  return (
+    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {isZh ? '合伙人一页纸' : 'Partner one-pager'}
+          </div>
+          <h2 className="mt-3 text-lg font-semibold text-slate-900">
+            {isZh ? '五维动态画像' : 'Five-dimensional dynamic profile'}
+          </h2>
+        </div>
+        <p className="max-w-xl text-sm leading-6 text-slate-500">
+          {isZh
+            ? '用于判断权力、动机、关系网络、项目 stakes 和下一步情报动作。'
+            : 'Use this to judge power, motivation, relationship web, project stakes, and next intelligence moves.'}
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <OnePagerBlock
+          title={isZh ? '基本信息' : 'Basic info'}
+          items={[
+            [isZh ? '姓名/职位' : 'Name / title', [stakeholder.name, stakeholder.role].filter(Boolean).join(' / ')],
+            [isZh ? '汇报线/层级' : 'Reporting line / level', stakeholder.organization_level],
+            [isZh ? '当前公司' : 'Current company', client.name],
+          ]}
+        />
+        <OnePagerBlock
+          title={isZh ? '权力评估' : 'Power mapping'}
+          items={[
+            [isZh ? '正式权力' : 'Formal authority', stakeholder.influence_type],
+            [isZh ? '实际影响力' : 'Informal influence', stakeholder.decision_style],
+            [isZh ? '可控预算/流程' : 'Budget / process control', stakeholder.relationship_status],
+          ]}
+        />
+        <OnePagerBlock
+          title={isZh ? '动机与风格' : 'Motivation and style'}
+          items={[
+            [isZh ? '动机标签' : 'Motivation tag', stakeholder.personality_profile],
+            [isZh ? '沟通偏好' : 'Communication preference', stakeholder.communication_preference],
+            [isZh ? '风险容忍度' : 'Risk tolerance', stakeholder.sensitivities],
+          ]}
+        />
+        <OnePagerBlock
+          title={isZh ? '关系状态' : 'Relationship state'}
+          items={[
+            [isZh ? '与我们的信任度' : 'Trust with us', stakeholder.trust_signals],
+            [isZh ? '信息开放度' : 'Information openness', stakeholder.concerns],
+            [isZh ? '内部盟友/对手' : 'Internal allies / blockers', stakeholder.note],
+          ]}
+        />
+        <OnePagerBlock
+          title={isZh ? '当前项目 stakes' : 'Current project stakes'}
+          items={[
+            [isZh ? '个人影响' : 'Personal impact', stakeholder.concerns],
+            [isZh ? '时间压力' : 'Time pressure', stakeholder.last_action],
+            [isZh ? '政治敏感度' : 'Political sensitivity', stakeholder.sensitivities],
+          ]}
+        />
+        <OnePagerBlock
+          title={isZh ? '下一步行动' : 'Next actions'}
+          items={[
+            [isZh ? '需强化关系' : 'Relationship to strengthen', stakeholder.communication_strategy],
+            [isZh ? '需获取信息' : 'Intelligence to collect', stakeholder.trust_signals],
+            [isZh ? '需防范风险' : 'Risks to watch', stakeholder.sensitivities || stakeholder.concerns],
+          ]}
+        />
+      </div>
+    </section>
+  )
+}
+
+function OnePagerBlock({ items, title }: { items: Array<[string, string | undefined]>; title: string }) {
+  return (
+    <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50/70 p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+      <div className="mt-3 space-y-3">
+        {items.map(([label, value]) => (
+          <div key={label}>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</div>
+            <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+              {value?.trim() || '—'}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
