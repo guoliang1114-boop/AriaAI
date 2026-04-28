@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -42,6 +42,8 @@ interface ContactRecord {
   stakeholder: ClientStakeholder
 }
 
+type ContactDetailTab = 'basic' | 'analysis' | 'onepager'
+
 export function ContactDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -55,6 +57,7 @@ export function ContactDetail() {
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<ContactDetailTab>('basic')
 
   const loadContact = async () => {
     setLoading(true)
@@ -209,6 +212,30 @@ export function ContactDetail() {
             </div>
           ) : null}
 
+          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-2 shadow-sm">
+            <div className="grid gap-2 md:grid-cols-3">
+              <TabButton
+                active={activeTab === 'basic'}
+                icon={<UserRound className="h-4 w-4" />}
+                label={isZh ? '基本信息' : 'Basic info'}
+                onClick={() => setActiveTab('basic')}
+              />
+              <TabButton
+                active={activeTab === 'analysis'}
+                icon={<Brain className="h-4 w-4" />}
+                label={isZh ? '深度分析' : 'Deep analysis'}
+                onClick={() => setActiveTab('analysis')}
+              />
+              <TabButton
+                active={activeTab === 'onepager'}
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                label={isZh ? '合伙人一页纸' : 'Partner one-pager'}
+                onClick={() => setActiveTab('onepager')}
+              />
+            </div>
+          </div>
+
+          {activeTab === 'analysis' ? (
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="space-y-6">
               <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
@@ -252,7 +279,10 @@ export function ContactDetail() {
                 <InsightCard icon={<ShieldAlert className="h-4 w-4" />} title={isZh ? '信任/风险信号' : 'Trust / risk signals'} value={stakeholder.trust_signals} />
               </section>
 
-              <PartnerOnePager client={client} isZh={isZh} stakeholder={stakeholder} />
+              <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
+                <ContactAnalysisCanvas isZh={isZh} stakeholder={stakeholder} />
+                <FiveDimensionAnalysis isZh={isZh} stakeholder={stakeholder} />
+              </div>
 
               <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900">{isZh ? '基础资料' : 'Profile fields'}</h2>
@@ -299,9 +329,266 @@ export function ContactDetail() {
               </section>
             </aside>
           </div>
+          ) : null}
+
+          {activeTab === 'basic' ? (
+            <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900">{isZh ? '基础信息' : 'Basic information'}</h2>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <DetailRow icon={<BriefcaseBusiness className="h-4 w-4" />} label={isZh ? '角色' : 'Role'} value={stakeholder.role} />
+                  <DetailRow icon={<Users className="h-4 w-4" />} label={isZh ? '影响类型' : 'Influence type'} value={stakeholder.influence_type} />
+                  <DetailRow icon={<LinkIcon className="h-4 w-4" />} label={isZh ? '联系方式' : 'Contact'} value={stakeholder.contact} />
+                  <DetailRow icon={<MessageSquareText className="h-4 w-4" />} label={isZh ? '沟通偏好' : 'Communication preference'} value={stakeholder.communication_preference} />
+                  <DetailRow icon={<ShieldAlert className="h-4 w-4" />} label={isZh ? '关注点' : 'Concerns'} value={stakeholder.concerns} />
+                  <DetailRow icon={<FileText className="h-4 w-4" />} label={isZh ? '备注' : 'Notes'} value={stakeholder.note} />
+                </div>
+              </section>
+
+              <aside className="space-y-6">
+                <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+                  <h2 className="text-lg font-semibold text-slate-900">{isZh ? '当前关联' : 'Current affiliation'}</h2>
+                  <div className="mt-4 space-y-3">
+                    <DetailRow icon={<Building2 className="h-4 w-4" />} label={isZh ? '客户' : 'Client'} value={client.name} />
+                    <DetailRow icon={<FolderKanban className="h-4 w-4" />} label={isZh ? '项目' : 'Projects'} value={client.project_names.join('\n')} />
+                  </div>
+                </section>
+
+                <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+                  <h2 className="text-lg font-semibold text-slate-900">{isZh ? '同客户其他联系人' : 'Other contacts at this client'}</h2>
+                  <div className="mt-4 space-y-3">
+                    {relatedContacts.length ? (
+                      relatedContacts.map((contact) => (
+                        <RouterLink
+                          key={contact.id}
+                          to={`/contacts/${contact.id}`}
+                          className="block rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:border-sky-200 hover:bg-white"
+                        >
+                          <div className="font-medium text-slate-900">{contact.name}</div>
+                          <div className="mt-1 text-sm text-slate-500">{contact.role || (isZh ? '未填写角色' : 'No role')}</div>
+                        </RouterLink>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                        {isZh ? '暂无其他联系人' : 'No other contacts yet'}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </aside>
+            </div>
+          ) : null}
+
+          {activeTab === 'onepager' ? (
+            <div className="mt-6">
+              <PartnerOnePager client={client} isZh={isZh} stakeholder={stakeholder} />
+            </div>
+          ) : null}
         </div>
       </div>
     </>
+  )
+}
+
+function TabButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean
+  icon: ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-2 rounded-[1.1rem] px-4 py-3 text-sm font-semibold transition ${
+        active
+          ? 'bg-slate-900 text-white shadow-sm'
+          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function getDimensionData(stakeholder: ClientStakeholder, isZh: boolean) {
+  const dimensions = [
+    {
+      key: 'power',
+      label: isZh ? '权力与影响力' : 'Power mapping',
+      score: scoreDimension([stakeholder.influence_type, stakeholder.decision_style, stakeholder.relationship_status]),
+      summary: stakeholder.decision_style || stakeholder.influence_type,
+      evidence: [stakeholder.influence_type, stakeholder.relationship_status].filter(Boolean).join(' / '),
+    },
+    {
+      key: 'profile',
+      label: isZh ? '个人动机与风格' : 'Personal profile',
+      score: scoreDimension([stakeholder.personality_profile, stakeholder.communication_preference, stakeholder.sensitivities]),
+      summary: stakeholder.personality_profile,
+      evidence: stakeholder.communication_preference,
+    },
+    {
+      key: 'relationship',
+      label: isZh ? '关系网络' : 'Relationship web',
+      score: scoreDimension([stakeholder.trust_signals, stakeholder.note, stakeholder.concerns]),
+      summary: stakeholder.trust_signals,
+      evidence: stakeholder.note,
+    },
+    {
+      key: 'context',
+      label: isZh ? '项目情境与 stakes' : 'Context and stakes',
+      score: scoreDimension([stakeholder.concerns, stakeholder.sensitivities, stakeholder.last_action]),
+      summary: stakeholder.concerns,
+      evidence: stakeholder.sensitivities,
+    },
+    {
+      key: 'tracking',
+      label: isZh ? '动态追踪' : 'Ongoing intelligence',
+      score: scoreDimension([stakeholder.last_action, stakeholder.note, stakeholder.relationship_status]),
+      summary: stakeholder.last_action,
+      evidence: stakeholder.relationship_status,
+    },
+  ]
+  return dimensions
+}
+
+function scoreDimension(values: Array<string | undefined>) {
+  const text = values.filter(Boolean).join(' ')
+  if (!text.trim()) return 1
+  if (text.length > 700) return 5
+  if (text.length > 360) return 4
+  if (text.length > 160) return 3
+  return 2
+}
+
+function ContactAnalysisCanvas({ isZh, stakeholder }: { isZh: boolean; stakeholder: ClientStakeholder }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const dimensions = useMemo(() => getDimensionData(stakeholder, isZh), [isZh, stakeholder])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = Math.max(1, Math.floor(rect.width * dpr))
+    canvas.height = Math.max(1, Math.floor(rect.height * dpr))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, rect.width, rect.height)
+
+    const cx = rect.width / 2
+    const cy = rect.height / 2 + 8
+    const radius = Math.min(rect.width, rect.height) * 0.31
+    const count = dimensions.length
+
+    ctx.lineWidth = 1
+    for (let level = 1; level <= 5; level += 1) {
+      ctx.beginPath()
+      for (let index = 0; index < count; index += 1) {
+        const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
+        const r = (radius * level) / 5
+        const x = cx + Math.cos(angle) * r
+        const y = cy + Math.sin(angle) * r
+        if (index === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.closePath()
+      ctx.strokeStyle = level === 5 ? '#bae6fd' : '#e2e8f0'
+      ctx.stroke()
+    }
+
+    dimensions.forEach((dimension, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius)
+      ctx.strokeStyle = '#e2e8f0'
+      ctx.stroke()
+      const labelRadius = radius + 34
+      const lx = cx + Math.cos(angle) * labelRadius
+      const ly = cy + Math.sin(angle) * labelRadius
+      ctx.fillStyle = '#334155'
+      ctx.font = '12px sans-serif'
+      ctx.textAlign = lx < cx - 4 ? 'right' : lx > cx + 4 ? 'left' : 'center'
+      ctx.fillText(dimension.label, lx, ly)
+    })
+
+    ctx.beginPath()
+    dimensions.forEach((dimension, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
+      const r = (radius * dimension.score) / 5
+      const x = cx + Math.cos(angle) * r
+      const y = cy + Math.sin(angle) * r
+      if (index === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.18)'
+    ctx.strokeStyle = '#0284c7'
+    ctx.lineWidth = 2
+    ctx.fill()
+    ctx.stroke()
+
+    dimensions.forEach((dimension, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
+      const r = (radius * dimension.score) / 5
+      const x = cx + Math.cos(angle) * r
+      const y = cy + Math.sin(angle) * r
+      ctx.beginPath()
+      ctx.arc(x, y, 4, 0, Math.PI * 2)
+      ctx.fillStyle = '#0369a1'
+      ctx.fill()
+    })
+  }, [dimensions])
+
+  return (
+    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-sky-600" />
+        <h2 className="text-lg font-semibold text-slate-900">{isZh ? '五维分析雷达图' : 'Five-dimension radar'}</h2>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-slate-500">
+        {isZh ? '分数代表当前档案在该维度的信息充分度，不等于好坏判断。' : 'Scores reflect evidence completeness in each dimension, not a positive or negative judgment.'}
+      </p>
+      <canvas ref={canvasRef} className="mt-4 h-[320px] w-full rounded-2xl bg-slate-50" />
+    </section>
+  )
+}
+
+function FiveDimensionAnalysis({ isZh, stakeholder }: { isZh: boolean; stakeholder: ClientStakeholder }) {
+  const dimensions = useMemo(() => getDimensionData(stakeholder, isZh), [isZh, stakeholder])
+  return (
+    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-sky-600" />
+        <h2 className="text-lg font-semibold text-slate-900">{isZh ? '深度分析五维度' : 'Deep analysis dimensions'}</h2>
+      </div>
+      <div className="mt-4 grid gap-3">
+        {dimensions.map((dimension) => (
+          <div key={dimension.key} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-900">{dimension.label}</h3>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-sky-700">
+                {dimension.score}/5
+              </span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+              {dimension.summary?.trim() || (isZh ? '暂无足够证据，需要继续补充情报。' : 'Not enough evidence yet. Add more intelligence.')}
+            </p>
+            {dimension.evidence ? (
+              <p className="mt-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-500">{dimension.evidence}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
