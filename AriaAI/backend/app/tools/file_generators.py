@@ -553,6 +553,9 @@ def _wants_visual_slide(title: str, content: str = "") -> bool:
     text = f"{title}\n{content}".lower()
     keywords = (
         "roadmap", "horizon", "phase", "blueprint", "capability", "maturity",
+        "heatmap", "root cause", "operating model", "use-case", "use case",
+        "portfolio", "prioritization", "investment", "funding", "kpi",
+        "risk", "mitigation", "90-day", "90 day", "action plan",
         "路线", "阶段", "蓝图", "能力", "成熟度", "路径", "规划",
     )
     return any(keyword in text for keyword in keywords)
@@ -576,6 +579,62 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
         _add_textbox(slide, Inches(0.85), Inches(1.45), Inches(5.95), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets), size=13, color="334155")
 
     x, y, w, h = visual_bounds
+    lower_title = title.lower()
+
+    if any(token in lower_title for token in ("heatmap", "maturity", "prioritization", "portfolio")):
+        labels = ["High value", "Build foundation", "Scale later", "Defer"]
+        positions = [
+            (0.06, 0.08, "DBEAFE", "1D4ED8"),
+            (0.52, 0.08, "ECFDF5", "047857"),
+            (0.06, 0.52, "FFF7ED", "C2410C"),
+            (0.52, 0.52, "F8FAFC", "475569"),
+        ]
+        cell_w = w * 0.42
+        cell_h = h * 0.35
+        for idx, (left_ratio, top_ratio, fill, accent) in enumerate(positions):
+            left = x + w * left_ratio
+            top = y + h * top_ratio
+            _add_card(slide, left, top, cell_w, cell_h, fill=fill, line=accent)
+            _add_textbox(slide, left + Inches(0.14), top + Inches(0.12), cell_w - Inches(0.28), Inches(0.24), labels[idx], size=9, bold=True, color=accent)
+            if idx < len(bullets):
+                _add_textbox(slide, left + Inches(0.14), top + Inches(0.42), cell_w - Inches(0.28), cell_h - Inches(0.52), bullets[idx][:120], size=7, color="334155")
+        if not used_template:
+            _add_slide_footer(slide)
+        return
+
+    if any(token in lower_title for token in ("kpi", "investment", "funding", "business case")):
+        metrics = [
+            ("Value", "Revenue / margin impact", "1D4ED8"),
+            ("Adoption", "Users / workflow coverage", "047857"),
+            ("Delivery", "Milestones / dependencies", "C2410C"),
+            ("Risk", "Controls / mitigations", "7C3AED"),
+        ]
+        card_w = w / 2 - Inches(0.12)
+        card_h = h / 2 - Inches(0.14)
+        for idx, (label, default, accent) in enumerate(metrics):
+            left = x + (idx % 2) * (card_w + Inches(0.24))
+            top = y + (idx // 2) * (card_h + Inches(0.28))
+            _add_card(slide, left, top, card_w, card_h, fill="FFFFFF", line="D7DEE8")
+            _add_shape(slide, MSO_SHAPE.RECTANGLE, left, top, card_w, Inches(0.08), fill=accent, line=accent)
+            _add_textbox(slide, left + Inches(0.16), top + Inches(0.22), card_w - Inches(0.32), Inches(0.26), label, size=10, bold=True, color=accent)
+            metric_text = bullets[idx] if idx < len(bullets) else default
+            _add_textbox(slide, left + Inches(0.16), top + Inches(0.58), card_w - Inches(0.32), card_h - Inches(0.68), metric_text[:135], size=8, color="334155")
+        if not used_template:
+            _add_slide_footer(slide)
+        return
+
+    if any(token in lower_title for token in ("risk", "mitigation")):
+        colors = [("FEF2F2", "DC2626"), ("FFF7ED", "EA580C"), ("F8FAFC", "475569")]
+        for idx, (fill, accent) in enumerate(colors):
+            top = y + idx * (h / 3)
+            _add_card(slide, x, top, w, h / 3 - Inches(0.16), fill=fill, line=accent)
+            _add_textbox(slide, x + Inches(0.16), top + Inches(0.12), Inches(0.6), Inches(0.28), f"R{idx + 1}", size=9, bold=True, color=accent)
+            risk_text = bullets[idx] if idx < len(bullets) else "Define owner, mitigation and monitoring cadence."
+            _add_textbox(slide, x + Inches(0.86), top + Inches(0.1), w - Inches(1.05), h / 3 - Inches(0.34), risk_text[:170], size=8, color="334155")
+        if not used_template:
+            _add_slide_footer(slide)
+        return
+
     phases = bullets[:3] or ["Foundation", "Scale", "Lead"]
     colors = [("EFF6FF", "1D4ED8"), ("ECFDF5", "047857"), ("FFF7ED", "C2410C")]
     card_h = h / 3 - Inches(0.16)
@@ -679,15 +738,19 @@ def _render_back_cover(slide, title: str):
 
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
     normalized = [dict(slide) for slide in slides if slide.get("title")]
-    if len(normalized) >= 16:
+    if len(normalized) >= 20:
         return normalized
 
     existing = {str(slide.get("title", "")).strip().lower() for slide in normalized}
     plan = [
         {
+            "type": "title",
+            "title": "Executive Alignment",
+        },
+        {
             "type": "content",
             "title": "Executive Summary",
-            "content": "- Transformation thesis: digital must be managed as a business value portfolio, not a technology refresh\n- Value ambition: set explicit targets for growth, efficiency, risk control and decision speed\n- Priority moves: fix data foundations, launch high-value use cases and establish portfolio governance\n- Leadership decisions: confirm scope, funding envelope, owner model and first-wave pilot list\n- Success condition: every initiative has a business KPI, adoption target and accountable owner",
+            "content": "- Transformation thesis: digital must be managed as a business value portfolio, not a technology refresh\n- Value ambition: set explicit targets for growth, efficiency, risk control and decision speed\n- Priority moves: fix data foundations, launch high-value use cases and establish portfolio governance\n- Leadership decisions: confirm scope, funding envelope, owner model and first-wave pilot list\n- Success condition: every initiative has a business KPI, adoption target and accountable owner\n- Immediate ask: approve diagnostic scope, first-wave pilots and steering cadence",
         },
         {
             "type": "content",
@@ -698,6 +761,21 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "type": "content",
             "title": "Current Digital Maturity Diagnosis",
             "content": "- Strategy: test whether digital priorities are linked to growth, cost and risk objectives\n- Customer: assess channel integration, journey orchestration and customer data completeness\n- Operations: identify manual handoffs, process bottlenecks and automation opportunities\n- Organization: evaluate decision rights, product ownership, digital talent and change capacity\n- Data/technology: score master data, data governance, API maturity, cloud readiness and legacy risk",
+        },
+        {
+            "type": "two_column",
+            "title": "Maturity Heatmap: Strengths vs Constraints",
+            "left_content": "- Strongest domains and where momentum already exists\n- Existing systems, data assets or teams that can be reused\n- Business units with sponsorship and adoption readiness\n- Quick proof points that can create confidence",
+            "right_content": "- Weakest domains that block scaling\n- Legacy, data ownership, talent or process constraints\n- Decisions that require executive intervention\n- Capability gaps that should not be solved by tools alone",
+        },
+        {
+            "type": "content",
+            "title": "Pain Point Root Causes",
+            "content": "- Process pain points often come from unclear ownership, not only missing systems\n- Data pain points usually reflect weak master data, inconsistent definitions and low accountability\n- Technology pain points come from point-to-point integration and customized legacy platforms\n- Adoption pain points come from incentives and training gaps rather than tool availability\n- Root-cause view should separate symptoms, structural causes and required management actions",
+        },
+        {
+            "type": "title",
+            "title": "Target Blueprint",
         },
         {
             "type": "content",
@@ -715,9 +793,25 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "content": "- Customer intelligence: unified profile, segmentation, journey triggers and service personalization\n- Digital operations: workflow automation, process mining, exception management and SLA visibility\n- Data foundation: master data, quality rules, data products, access controls and ownership model\n- AI decision support: forecasting, recommendation, knowledge retrieval and assisted execution\n- Platform architecture: API layer, cloud services, security controls and reusable integration components",
         },
         {
+            "type": "two_column",
+            "title": "Target Operating Model Blueprint",
+            "left_content": "- Business product owners own value, adoption and backlog priorities\n- Data owners govern definitions, access, quality and lifecycle\n- Technology teams provide reusable platforms and security guardrails\n- Transformation PMO manages portfolio rhythm and benefit tracking",
+            "right_content": "- Steering committee resolves scope, funding and cross-functional trade-offs\n- Domain squads deliver use cases through agile releases\n- Change champions drive frontline adoption and training\n- Finance validates value realization and stage-gate funding",
+        },
+        {
             "type": "content",
             "title": "Use-Case Portfolio",
             "content": "- Growth use cases: lead scoring, precision marketing, churn prediction and pricing optimization\n- Efficiency use cases: automated reporting, workflow routing, demand planning and service operations\n- Risk use cases: compliance monitoring, anomaly detection, access governance and early-warning dashboards\n- Employee use cases: knowledge assistant, document drafting, training recommendation and expert matching\n- Portfolio rule: balance quick wins, foundation enablers and strategic differentiators",
+        },
+        {
+            "type": "two_column",
+            "title": "Use-Case Prioritization Logic",
+            "left_content": "- Value pool size and confidence\n- Sponsorship strength and owner readiness\n- Data availability and quality\n- Delivery complexity and dependencies",
+            "right_content": "- Start with visible quick wins to build momentum\n- Fund foundations that unlock multiple use cases\n- Sequence differentiators after data and ownership mature\n- Defer low-value automation without business sponsorship",
+        },
+        {
+            "type": "title",
+            "title": "Roadmap and Investment",
         },
         {
             "type": "two_column",
@@ -733,7 +827,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         {
             "type": "content",
             "title": "Three-Horizon Roadmap",
-            "content": "- Horizon 1 Foundation: stabilize data, launch pilots, establish governance and prove value\n- Horizon 2 Scale: extend validated use cases across business units and integrate platforms\n- Horizon 3 Lead: build AI-native operations, ecosystem integration and continuous innovation loops\n- Roadmap dependency: do not scale advanced analytics before data ownership is working\n- Review cadence: quarterly value review and semi-annual roadmap refresh",
+            "content": "- Horizon 1 Foundation: stabilize data, launch pilots, establish governance and prove value\n- Horizon 2 Scale: extend validated use cases across business units and integrate platforms\n- Horizon 3 Lead: build AI-native operations, ecosystem integration and continuous innovation loops\n- Roadmap dependency: do not scale advanced analytics before data ownership is working\n- Review cadence: quarterly value review and semi-annual roadmap refresh\n- Management gate: scale only after adoption and business KPI movement are visible",
         },
         {
             "type": "content",
@@ -741,14 +835,30 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "content": "- Each initiative defines owner, value KPI, user group, data dependency and milestone\n- Year 1: maturity baseline, data governance launch, 3-5 pilots and first value dashboard\n- Year 2: platform integration, scaled workflows, business-unit rollout and talent academy\n- Year 3: AI operating model, ecosystem collaboration and continuous optimization\n- Governance checkpoint: stop, scale or redesign initiatives based on adoption and value",
         },
         {
-            "type": "content",
-            "title": "Governance and Operating Model",
-            "content": "- Steering committee owns priorities, funding trade-offs and cross-functional escalation\n- Transformation PMO manages portfolio rhythm, benefits tracking and dependency resolution\n- Product owners translate business pain points into roadmaps and adoption plans\n- Data owners govern definitions, quality, access and lifecycle management\n- Technology teams provide reusable platforms, standards and security guardrails",
+            "type": "two_column",
+            "title": "Investment Case and Funding Model",
+            "left_content": "- Technology: platforms, integration, security and automation tooling\n- Data: master data, governance, quality and analytics-ready data products\n- Talent/change: product owners, training, adoption and capability academy\n- Ecosystem: selected partners, pilots and capability transfer",
+            "right_content": "- Stage-gate funding tied to proof of value\n- Base/upside/downside benefit assumptions\n- KPI ownership shared by business and finance\n- Quarterly review to stop, scale or redesign initiatives",
         },
         {
             "type": "content",
             "title": "Investment, KPI and Risk Controls",
             "content": "- Investment envelope covers technology, data, talent, change and partner support\n- Suggested split: 40% technology, 30% talent/change, 20% data, 10% ecosystem experimentation\n- KPI dashboard links business outcomes, adoption, data quality and delivery milestones\n- Key risks: legacy complexity, data ownership gaps, low adoption, vendor lock-in and security exposure\n- Control rhythm: monthly PMO dashboard and quarterly executive value review",
+        },
+        {
+            "type": "title",
+            "title": "Governance and Mobilization",
+        },
+        {
+            "type": "content",
+            "title": "Governance and Operating Model",
+            "content": "- Steering committee owns priorities, funding trade-offs and cross-functional escalation\n- Transformation PMO manages portfolio rhythm, benefits tracking and dependency resolution\n- Product owners translate business pain points into roadmaps and adoption plans\n- Data owners govern definitions, quality, access and lifecycle management\n- Technology teams provide reusable platforms, standards and security guardrails",
+        },
+        {
+            "type": "two_column",
+            "title": "Risk Register and Mitigation Plan",
+            "left_content": "- Legacy risk: hidden customization, downtime and integration debt\n- Data risk: inconsistent definitions, weak ownership and privacy exposure\n- Adoption risk: low frontline usage, training fatigue and incentive gaps\n- Vendor risk: lock-in, unclear accountability and capability transfer gaps",
+            "right_content": "- Use phased migration and architecture guardrails\n- Assign named data owners and quality SLAs\n- Build change champions and role-based enablement\n- Define partner exit criteria and internal capability transfer",
         },
         {
             "type": "content",
@@ -773,9 +883,452 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             continue
         normalized.append(slide)
         existing.add(key)
-        if len(normalized) >= 16:
+        if len(normalized) >= 22:
             break
     return normalized
+
+
+PRESENTATION_BUILDER_PRESETS: dict[str, list[dict]] = {
+    "strategy": [
+        {
+            "type": "title",
+            "title": "Strategic Direction",
+        },
+        {
+            "type": "content",
+            "title": "Executive Answer",
+            "content": "- Core recommendation and decision required\n- Value ambition and expected management impact\n- Priority moves for the next planning horizon\n- Key assumptions and evidence to validate\n- Immediate leadership asks",
+        },
+        {
+            "type": "content",
+            "title": "Strategic Context",
+            "content": "- Market, customer, competitor and internal pressure points\n- Why the topic matters now\n- Current constraints and opportunity window\n- Business implications if no action is taken\n- Scope boundaries for the recommendation",
+        },
+        {
+            "type": "two_column",
+            "title": "Current State vs Target State",
+            "left_content": "Current state\n- Fragmented priorities\n- Manual decision loops\n- Inconsistent ownership\n- Limited value tracking",
+            "right_content": "Target state\n- Clear strategic choices\n- Measurable initiatives\n- Accountable owners\n- Quarterly value review",
+        },
+        {
+            "type": "matrix",
+            "title": "Strategic Options",
+            "content": "- Option A: conservative path with lower execution risk\n- Option B: focused acceleration around priority value pools\n- Option C: bold transformation with broader operating model change\n- Trade-offs across value, feasibility, risk and speed\n- Recommended option and rationale",
+            "labels": ["Quick wins", "Foundations", "Differentiators", "Defer"],
+        },
+        {
+            "type": "title",
+            "title": "Roadmap and Governance",
+        },
+        {
+            "type": "roadmap",
+            "title": "Roadmap and Investment Logic",
+            "left_content": "Phase 1\n- Prove value and establish foundations\n- Confirm owners and operating cadence",
+            "content": "Phase 2\n- Scale validated initiatives\n- Expand across teams or business units",
+            "right_content": "Phase 3\n- Institutionalize governance\n- Optimize continuous value realization",
+        },
+        {
+            "type": "kpi",
+            "title": "Governance, KPI and Next Steps",
+            "content": "- Decision forum and escalation route\n- KPI dashboard linked to business outcomes\n- Owner model for delivery and adoption\n- Top risks and mitigations\n- 30/60/90-day actions",
+        },
+    ],
+    "proposal": [
+        {
+            "type": "title",
+            "title": "Client Need",
+        },
+        {
+            "type": "content",
+            "title": "Client Situation and Need",
+            "content": "- Client context and triggering business issue\n- What is at stake for leadership\n- Current pain points and constraints\n- Why external support is valuable now\n- Desired outcomes for the engagement",
+        },
+        {
+            "type": "content",
+            "title": "Our Understanding of the Challenge",
+            "content": "- Business questions to answer\n- Stakeholder priorities and concerns\n- Data, process or organizational unknowns\n- Success criteria for the work\n- Key assumptions to validate in kickoff",
+        },
+        {
+            "type": "title",
+            "title": "Proposed Solution",
+        },
+        {
+            "type": "roadmap",
+            "title": "Proposed Approach",
+            "left_content": "Phase 1\n- Diagnose current state and value pools\n- Align on business questions",
+            "content": "Phase 2\n- Design recommendations and target model\n- Build roadmap and business case",
+            "right_content": "Phase 3\n- Align stakeholders\n- Prepare mobilization and governance",
+        },
+        {
+            "type": "two_column",
+            "title": "Scope and Deliverables",
+            "left_content": "In scope\n- Executive interviews\n- Current-state analysis\n- Option design\n- Roadmap and business case\n- Steering materials",
+            "right_content": "Deliverables\n- Findings summary\n- Recommendation deck\n- Initiative backlog\n- Implementation roadmap\n- Governance playbook",
+        },
+        {
+            "type": "title",
+            "title": "Mobilization",
+        },
+        {
+            "type": "roadmap",
+            "title": "Team, Timeline and Ways of Working",
+            "left_content": "Team\n- Consulting team roles\n- Client participation model",
+            "content": "Timeline\n- Weekly cadence\n- Steering committee rhythm",
+            "right_content": "Ways of working\n- Required inputs\n- Escalation route",
+        },
+        {
+            "type": "risk",
+            "title": "Commercials, Risks and Next Steps",
+            "content": "- Fee and effort assumptions\n- Optional modules and expansion paths\n- Key risks and mitigation actions\n- Immediate next meeting agenda\n- Decision required to launch",
+        },
+    ],
+    "project-update": [
+        {
+            "type": "title",
+            "title": "Status Snapshot",
+        },
+        {
+            "type": "content",
+            "title": "Executive Status",
+            "content": "- Overall status and confidence level\n- Progress since last update\n- Key decisions or escalations required\n- Risks that may affect timeline, budget or value\n- Next milestone and owner",
+        },
+        {
+            "type": "two_column",
+            "title": "Progress vs Plan",
+            "left_content": "Planned\n- Milestones\n- Workstream outputs\n- Decisions expected\n- Dependencies",
+            "right_content": "Actual\n- Completed work\n- Variances\n- Open decisions\n- Dependency status",
+        },
+        {
+            "type": "content",
+            "title": "Workstream Highlights",
+            "content": "- Workstream 1: progress, blocker and next action\n- Workstream 2: progress, blocker and next action\n- Workstream 3: progress, blocker and next action\n- Cross-workstream dependencies\n- Support needed from sponsors",
+        },
+        {
+            "type": "title",
+            "title": "Risks and Decisions",
+        },
+        {
+            "type": "risk",
+            "title": "Risks, Issues and Decisions",
+            "content": "- Top risks ranked by impact and likelihood\n- Active issues and resolution owner\n- Decisions needed this cycle\n- Mitigation actions and deadlines\n- Items to monitor before next update",
+        },
+        {
+            "type": "kpi",
+            "title": "Value and Adoption Signals",
+            "content": "- Benefits delivered or leading indicators\n- User adoption and stakeholder feedback\n- KPI movement against baseline\n- Evidence collected this period\n- Gaps to address before scaling",
+        },
+        {
+            "type": "next_steps",
+            "title": "Next Steps",
+            "content": "- Actions for the next two weeks\n- Owners and deadlines\n- Upcoming workshops or steering meetings\n- Inputs needed from client or leadership\n- Decision log updates",
+        },
+    ],
+}
+
+PRESENTATION_BUILDER_COMMON_SLIDES: list[dict] = [
+    {
+        "type": "content",
+        "title": "Key Assumptions",
+        "content": "- Business context and audience assumptions\n- Data and evidence currently available\n- Constraints that shape the recommendation\n- Areas requiring validation\n- Implications for the next working session",
+    },
+    {
+        "type": "content",
+        "title": "Stakeholder Implications",
+        "content": "- Primary stakeholders affected by the recommendation\n- Expected benefits and concerns by stakeholder group\n- Communication messages to reinforce\n- Likely objections and response logic\n- Sponsor actions required",
+    },
+    {
+        "type": "content",
+        "title": "Decision and Action Log",
+        "content": "- Decisions required from leadership\n- Actions already agreed\n- Open actions and owners\n- Due dates and dependencies\n- Escalations for the next governance meeting",
+    },
+    {
+        "type": "risk",
+        "title": "Risks and Mitigations",
+        "content": "- Execution risks and likely triggers\n- Stakeholder or adoption risks\n- Data, technology or operational dependencies\n- Mitigation actions and owners\n- Monitoring cadence",
+    },
+    {
+        "type": "kpi",
+        "title": "Success Metrics",
+        "content": "- Business outcome KPIs\n- Adoption and usage indicators\n- Delivery milestone metrics\n- Quality and risk indicators\n- Review cadence and accountability",
+    },
+    {
+        "type": "content",
+        "title": "Appendix: Supporting Detail",
+        "content": "- Source materials and evidence pack\n- Interview or workshop notes to collect\n- Additional analysis required\n- Optional modules or future work\n- Reference data for the next version",
+    },
+]
+
+
+PRESENTATION_BUILDER_PRESETS: dict[str, list[dict]] = {
+    "strategy": [
+        {
+            "type": "title",
+            "title": "Strategic Direction",
+        },
+        {
+            "type": "content",
+            "title": "Executive Answer",
+            "content": "- Core recommendation and decision required\n- Value ambition and expected management impact\n- Priority moves for the next planning horizon\n- Key assumptions and evidence to validate\n- Immediate leadership asks",
+        },
+        {
+            "type": "content",
+            "title": "Strategic Context",
+            "content": "- Market, customer, competitor and internal pressure points\n- Why the topic matters now\n- Current constraints and opportunity window\n- Business implications if no action is taken\n- Scope boundaries for the recommendation",
+        },
+        {
+            "type": "two_column",
+            "title": "Current State vs Target State",
+            "left_content": "Current state\n- Fragmented priorities\n- Manual decision loops\n- Inconsistent ownership\n- Limited value tracking",
+            "right_content": "Target state\n- Clear strategic choices\n- Measurable initiatives\n- Accountable owners\n- Quarterly value review",
+        },
+        {
+            "type": "matrix",
+            "title": "Strategic Options",
+            "content": "- Option A: conservative path with lower execution risk\n- Option B: focused acceleration around priority value pools\n- Option C: bold transformation with broader operating model change\n- Trade-offs across value, feasibility, risk and speed\n- Recommended option and rationale",
+            "labels": ["Quick wins", "Foundations", "Differentiators", "Defer"],
+        },
+        {
+            "type": "title",
+            "title": "Roadmap and Governance",
+        },
+        {
+            "type": "roadmap",
+            "title": "Roadmap and Investment Logic",
+            "left_content": "Phase 1\n- Prove value and establish foundations\n- Confirm owners and operating cadence",
+            "content": "Phase 2\n- Scale validated initiatives\n- Expand across teams or business units",
+            "right_content": "Phase 3\n- Institutionalize governance\n- Optimize continuous value realization",
+        },
+        {
+            "type": "kpi",
+            "title": "Governance, KPI and Next Steps",
+            "content": "- Decision forum and escalation route\n- KPI dashboard linked to business outcomes\n- Owner model for delivery and adoption\n- Top risks and mitigations\n- 30/60/90-day actions",
+        },
+    ],
+    "proposal": [
+        {
+            "type": "title",
+            "title": "Client Need",
+        },
+        {
+            "type": "content",
+            "title": "Client Situation and Need",
+            "content": "- Client context and triggering business issue\n- What is at stake for leadership\n- Current pain points and constraints\n- Why external support is valuable now\n- Desired outcomes for the engagement",
+        },
+        {
+            "type": "content",
+            "title": "Our Understanding of the Challenge",
+            "content": "- Business questions to answer\n- Stakeholder priorities and concerns\n- Data, process or organizational unknowns\n- Success criteria for the work\n- Key assumptions to validate in kickoff",
+        },
+        {
+            "type": "title",
+            "title": "Proposed Solution",
+        },
+        {
+            "type": "roadmap",
+            "title": "Proposed Approach",
+            "left_content": "Phase 1\n- Diagnose current state and value pools\n- Align on business questions",
+            "content": "Phase 2\n- Design recommendations and target model\n- Build roadmap and business case",
+            "right_content": "Phase 3\n- Align stakeholders\n- Prepare mobilization and governance",
+        },
+        {
+            "type": "two_column",
+            "title": "Scope and Deliverables",
+            "left_content": "In scope\n- Executive interviews\n- Current-state analysis\n- Option design\n- Roadmap and business case\n- Steering materials",
+            "right_content": "Deliverables\n- Findings summary\n- Recommendation deck\n- Initiative backlog\n- Implementation roadmap\n- Governance playbook",
+        },
+        {
+            "type": "title",
+            "title": "Mobilization",
+        },
+        {
+            "type": "roadmap",
+            "title": "Team, Timeline and Ways of Working",
+            "left_content": "Team\n- Consulting team roles\n- Client participation model",
+            "content": "Timeline\n- Weekly cadence\n- Steering committee rhythm",
+            "right_content": "Ways of working\n- Required inputs\n- Escalation route",
+        },
+        {
+            "type": "risk",
+            "title": "Commercials, Risks and Next Steps",
+            "content": "- Fee and effort assumptions\n- Optional modules and expansion paths\n- Key risks and mitigation actions\n- Immediate next meeting agenda\n- Decision required to launch",
+        },
+    ],
+    "project-update": [
+        {
+            "type": "title",
+            "title": "Status Snapshot",
+        },
+        {
+            "type": "content",
+            "title": "Executive Status",
+            "content": "- Overall status and confidence level\n- Progress since last update\n- Key decisions or escalations required\n- Risks that may affect timeline, budget or value\n- Next milestone and owner",
+        },
+        {
+            "type": "two_column",
+            "title": "Progress vs Plan",
+            "left_content": "Planned\n- Milestones\n- Workstream outputs\n- Decisions expected\n- Dependencies",
+            "right_content": "Actual\n- Completed work\n- Variances\n- Open decisions\n- Dependency status",
+        },
+        {
+            "type": "content",
+            "title": "Workstream Highlights",
+            "content": "- Workstream 1: progress, blocker and next action\n- Workstream 2: progress, blocker and next action\n- Workstream 3: progress, blocker and next action\n- Cross-workstream dependencies\n- Support needed from sponsors",
+        },
+        {
+            "type": "title",
+            "title": "Risks and Decisions",
+        },
+        {
+            "type": "risk",
+            "title": "Risks, Issues and Decisions",
+            "content": "- Top risks ranked by impact and likelihood\n- Active issues and resolution owner\n- Decisions needed this cycle\n- Mitigation actions and deadlines\n- Items to monitor before next update",
+        },
+        {
+            "type": "kpi",
+            "title": "Value and Adoption Signals",
+            "content": "- Benefits delivered or leading indicators\n- User adoption and stakeholder feedback\n- KPI movement against baseline\n- Evidence collected this period\n- Gaps to address before scaling",
+        },
+        {
+            "type": "next_steps",
+            "title": "Next Steps",
+            "content": "- Actions for the next two weeks\n- Owners and deadlines\n- Upcoming workshops or steering meetings\n- Inputs needed from client or leadership\n- Decision log updates",
+        },
+    ],
+}
+
+PRESENTATION_BUILDER_COMMON_SLIDES: list[dict] = [
+    {
+        "type": "content",
+        "title": "Key Assumptions",
+        "content": "- Business context and audience assumptions\n- Data and evidence currently available\n- Constraints that shape the recommendation\n- Areas requiring validation\n- Implications for the next working session",
+    },
+    {
+        "type": "content",
+        "title": "Stakeholder Implications",
+        "content": "- Primary stakeholders affected by the recommendation\n- Expected benefits and concerns by stakeholder group\n- Communication messages to reinforce\n- Likely objections and response logic\n- Sponsor actions required",
+    },
+    {
+        "type": "content",
+        "title": "Decision and Action Log",
+        "content": "- Decisions required from leadership\n- Actions already agreed\n- Open actions and owners\n- Due dates and dependencies\n- Escalations for the next governance meeting",
+    },
+    {
+        "type": "risk",
+        "title": "Risks and Mitigations",
+        "content": "- Execution risks and likely triggers\n- Stakeholder or adoption risks\n- Data, technology or operational dependencies\n- Mitigation actions and owners\n- Monitoring cadence",
+    },
+    {
+        "type": "kpi",
+        "title": "Success Metrics",
+        "content": "- Business outcome KPIs\n- Adoption and usage indicators\n- Delivery milestone metrics\n- Quality and risk indicators\n- Review cadence and accountability",
+    },
+    {
+        "type": "content",
+        "title": "Appendix: Supporting Detail",
+        "content": "- Source materials and evidence pack\n- Interview or workshop notes to collect\n- Additional analysis required\n- Optional modules or future work\n- Reference data for the next version",
+    },
+]
+
+
+def _normalize_presentation_deck_type(deck_type: str | None) -> str:
+    normalized = (deck_type or "strategy").strip().lower().replace("_", "-")
+    aliases = {
+        "strategic": "strategy",
+        "strategy-report": "strategy",
+        "executive": "strategy",
+        "executive-briefing": "strategy",
+        "proposal-deck": "proposal",
+        "client-proposal": "proposal",
+        "update": "project-update",
+        "project": "project-update",
+        "status": "project-update",
+        "project-status": "project-update",
+    }
+    return aliases.get(normalized, normalized if normalized in PRESENTATION_BUILDER_PRESETS else "strategy")
+
+
+def _normalize_presentation_builder_slides(slides: list[dict], deck_type: str | None = None) -> list[dict]:
+    normalized = [dict(slide) for slide in slides if slide.get("title")]
+    preset_key = _normalize_presentation_deck_type(deck_type)
+    minimum_slide_count = 12 if preset_key in {"proposal", "project-update"} else 14
+    if len(normalized) >= minimum_slide_count:
+        return normalized
+
+    existing = {str(slide.get("title", "")).strip().lower() for slide in normalized}
+    for slide in PRESENTATION_BUILDER_PRESETS[preset_key]:
+        key = slide["title"].lower()
+        if key in existing:
+            continue
+        normalized.append(dict(slide))
+        existing.add(key)
+        if len(normalized) >= minimum_slide_count:
+            break
+    for slide in PRESENTATION_BUILDER_COMMON_SLIDES:
+        if len(normalized) >= minimum_slide_count:
+            break
+        key = slide["title"].lower()
+        if key in existing:
+            continue
+        normalized.append(dict(slide))
+        existing.add(key)
+    return normalized
+
+
+def _normalize_presentation_slide_type(slide_type: Any) -> str:
+    normalized = str(slide_type or "content").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "section": "title",
+        "divider": "title",
+        "section_divider": "title",
+        "compare": "two_column",
+        "current_target": "two_column",
+        "plan_actual": "two_column",
+        "timeline": "roadmap",
+        "milestones": "roadmap",
+        "scorecard": "kpi",
+        "metrics": "kpi",
+        "risks": "risk",
+        "risk_mitigation": "risk",
+        "nextsteps": "next_steps",
+        "actions": "next_steps",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _normalize_presentation_builder_slide_format(slides: list[dict]) -> list[dict]:
+    formatted: list[dict] = []
+    for slide in slides:
+        item = dict(slide)
+        slide_type = _normalize_presentation_slide_type(item.get("type"))
+        item["type"] = slide_type
+        if slide_type == "roadmap":
+            roadmap_parts = [
+                str(item.get("left_content") or item.get("phase_1") or "").strip(),
+                str(item.get("content") or item.get("phase_2") or "").strip(),
+                str(item.get("right_content") or item.get("phase_3") or "").strip(),
+            ]
+            item["content"] = "\n".join(part for part in roadmap_parts if part)
+        if slide_type == "matrix":
+            labels = item.get("labels") or item.get("card_titles") or []
+            label_lines = [f"- {label}" for label in labels if str(label).strip()]
+            body = str(item.get("content") or "").strip()
+            item["content"] = "\n".join([*label_lines, body]).strip()
+        if slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"}:
+            item.setdefault("content", item.get("content") or "")
+        if slide_type == "next_steps":
+            item["type"] = "content"
+        if slide_type in {"roadmap", "matrix", "kpi", "risk"}:
+            item["type"] = "content"
+        if item["type"] == "content" and item.get("content"):
+            bullets = _split_bullets(str(item.get("content") or ""), limit=6)
+            item["content"] = "\n".join(f"- {bullet}" for bullet in bullets)
+        if item["type"] == "two_column":
+            left = _split_bullets(str(item.get("left_content") or ""), limit=5)
+            right = _split_bullets(str(item.get("right_content") or ""), limit=5)
+            item["left_content"] = "\n".join(f"- {bullet}" for bullet in left)
+            item["right_content"] = "\n".join(f"- {bullet}" for bullet in right)
+        formatted.append(item)
+    return formatted
 
 
 async def generate_ppt(
@@ -814,14 +1367,18 @@ async def generate_ppt(
                 content = slide_data.get("content", "")
                 use_visual = slide_type == "content" and _wants_visual_slide(slide_title, content)
 
-                if slide_type == "two_column":
+                if slide_type in {"title", "section"}:
+                    slide = _clone_slide_from_prototype(prs, visual_prototype)
+                elif slide_type == "two_column":
                     slide = _clone_slide_from_prototype(prs, two_col_prototype)
                 elif use_visual:
                     slide = _clone_slide_from_prototype(prs, visual_prototype)
                 else:
                     slide = _clone_slide_from_prototype(prs, content_prototype)
 
-                if use_visual:
+                if slide_type in {"title", "section"}:
+                    _render_section_slide(slide, slide_title, slide_index + 1)
+                elif use_visual:
                     _render_visual_slide(slide, slide_title, content, slide_index + 1)
                 elif slide_type == "two_column":
                     _render_two_column_slide(
@@ -964,7 +1521,20 @@ async def generate_ppt(
                 "items": {
                     "type": "object",
                     "properties": {
-                        "type": {"type": "string", "enum": ["title", "content", "two_column"]},
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "title",
+                                "section",
+                                "content",
+                                "two_column",
+                                "roadmap",
+                                "matrix",
+                                "kpi",
+                                "risk",
+                                "next_steps",
+                            ],
+                        },
                         "title": {"type": "string"},
                         "content": {"type": "string"},
                         "left_content": {"type": "string"},
@@ -972,6 +1542,14 @@ async def generate_ppt(
                     },
                     "required": ["type", "title"]
                 }
+            },
+            "deck_type": {
+                "type": "string",
+                "description": "Optional deck preset for presentation-builder: strategy, proposal, or project-update"
+            },
+            "template_key": {
+                "type": "string",
+                "description": "Optional template hint. presentation-builder can use digital-strategy as its base template."
             }
         },
         "required": ["skill_name", "title", "slides"]
@@ -981,30 +1559,43 @@ async def generate_ppt_from_skill(
     skill_name: str,
     title: str,
     slides: list[dict],
-    subtitle: str = ""
+    subtitle: str = "",
+    deck_type: str = "",
+    template_key: str = "",
 ) -> dict[str, Any]:
     """Generate PPT using a skill's template."""
     if skill_name == "digital-strategy":
         slides = _normalize_digital_strategy_slides(slides)
+    elif skill_name == "presentation-builder":
+        slides = _normalize_presentation_builder_slides(slides, deck_type or template_key)
+        slides = _normalize_presentation_builder_slide_format(slides)
+
+    strict_template_skills = {"digital-strategy", "presentation-builder"}
 
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
     searched_paths: list[str] = []
-    for folder in ("assets", "references"):
-        for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx"):
-            candidate = SKILLS_DIR / skill_name / folder / filename
-            searched_paths.append(str(candidate))
-            if candidate.exists():
-                template_path = candidate
+    template_skill_names = [skill_name]
+    if skill_name == "presentation-builder":
+        template_skill_names.extend(["digital-strategy"])
+    for template_skill_name in template_skill_names:
+        for folder in ("assets", "references"):
+            for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx"):
+                candidate = SKILLS_DIR / template_skill_name / folder / filename
+                searched_paths.append(str(candidate))
+                if candidate.exists():
+                    template_path = candidate
+                    break
+            if template_path:
                 break
         if template_path:
             break
 
     if not template_path:
-        if skill_name == "digital-strategy":
+        if skill_name in strict_template_skills:
             return {
                 "success": False,
-                "error": "digital-strategy template not found; refusing to generate a blank deck.",
+                "error": f"{skill_name} template not found; refusing to generate a blank deck.",
                 "searched_paths": searched_paths,
                 "template_applied": False,
             }

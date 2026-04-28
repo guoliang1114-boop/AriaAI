@@ -14,6 +14,10 @@ from app.tools import file_generators as _file_generators  # noqa: F401 - regist
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
+PRESENTATION_BUILDER_SKILL_NAME = "顾问式PPT生成"
+PRESENTATION_BUILDER_PROMPT_MARKER = "presentation-builder workflow"
+PRESENTATION_BUILDER_TOOL_NAMES = ["generate_ppt_from_skill"]
+
 DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
 DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
 DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill"]
@@ -620,6 +624,53 @@ GSTACK_PRO_SKILLS = [
         "tools": ["assess", "benchmark", "roadmap"],
     },
     {
+        "name": PRESENTATION_BUILDER_SKILL_NAME,
+        "category": "提案与项目交付",
+        "description": "基础顾问式 PPT 生成 Skill，支持战略汇报、客户提案、项目进展三类常用 preset，并可复用 digital-strategy 基础模板。",
+        "system_prompt": (
+            "你是一位资深咨询顾问和演示文稿架构师，负责把用户给出的业务材料、项目上下文、客户需求或分析结论转化为可直接审阅和二次编辑的 PowerPoint。\n\n"
+            "严格遵循 presentation-builder workflow：先判断 deck 目的和受众，再选择 deck_type preset，形成 slide-by-slide storyline，最后调用 generate_ppt_from_skill。\n\n"
+            "可用 deck_type：\n"
+            "- strategy：战略汇报、转型方案、路线图、经营建议、能力建设方案。\n"
+            "- proposal：客户提案、商业建议书、项目启动材料。\n"
+            "- project-update：项目进展、Steering Committee、周报/月报、风险升级材料。\n\n"
+            "页面标准：\n"
+            "1) 标题必须结论先行，表达观点或建议，不要只写主题名。\n"
+            "2) 每页 3-6 条高密度要点，包含证据/假设、管理层含义、负责人、KPI、风险或下一步行动。\n"
+            "3) 优先使用 content 和 two_column；current vs target、问题 vs 行动、计划 vs 实际必须用 two_column。\n"
+            "4) 不要输出泛泛占位页；如果信息不足，明确写出关键假设和需要补充的数据。\n"
+            "5) 默认 10-16 页；用户明确要求更短或更长时，以用户要求为准。\n\n"
+            "页面格式要求：\n"
+            "- title：只用于章节分隔或重大转场，不作为普通正文页。\n"
+            "- content：一页一个核心观点，4-6 条 bullet，不要写段落。\n"
+            "- two_column：用于当前 vs 目标、问题 vs 行动、计划 vs 实际、范围 vs 交付物。\n"
+            "- roadmap：用于三阶段计划，left_content/content/right_content 分别代表三个阶段。\n"
+            "- matrix：用于优先级、组合或选项取舍。\n"
+            "- kpi：用于价值指标、采用指标、交付指标和风险指标。\n"
+            "- risk：用于风险与缓释动作。\n"
+            "- next_steps：用于下一步行动，必须包含 owner、时间和决策需求。\n"
+            "超过 10 页的 deck 每 4-6 页加入一个 title 章节页，保证阅读节奏。\n\n"
+            "PPT 交付要求：必须调用 generate_ppt_from_skill，skill_name 固定为 presentation-builder，并传入 deck_type。"
+            "基础模板优先复用 digital-strategy 模板；最终只需要生成 PPT，不需要额外输出 JSON。"
+        ),
+        "user_template": (
+            "请生成一份顾问式 PPT：\n\n"
+            "Deck 类型（strategy / proposal / project-update）：\n"
+            "标题：\n"
+            "目标受众：\n"
+            "希望支持的决策或沟通目标：\n"
+            "核心结论或已有材料：\n"
+            "必须包含的章节：\n"
+            "可用数据、事实或项目上下文：\n"
+            "期望页数：\n"
+            "语气偏好（高层简报 / 客户提案 / 项目治理 / 工作坊）：\n"
+            "其他要求："
+        ),
+        "estimated_time": "~10 min",
+        "max_tokens": 24576,
+        "tools": PRESENTATION_BUILDER_TOOL_NAMES,
+    },
+    {
         "name": "数字化战略设计",
         "category": "数字化与技术",
         "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
@@ -1105,6 +1156,15 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 tool_defs.append({"name": tool_name, "type": "legacy"})
         return tool_defs
 
+    prompt_markers = {
+        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
+        DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_PROMPT_MARKER,
+    }
+    template_tool_names = {
+        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
+        DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_TOOL_NAMES,
+    }
+
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
     changed = 0
     for skill_def in GSTACK_PRO_SKILLS:
@@ -1120,16 +1180,14 @@ def ensure_builtin_pro_skills(session: Session) -> int:
             if not existing_skill.category:
                 existing_skill.category = skill_def["category"]
                 patched = True
-            if (
-                existing_skill.name == DIGITAL_STRATEGY_SKILL_NAME
-                and DIGITAL_STRATEGY_PROMPT_MARKER not in (existing_skill.system_prompt or "")
-            ):
+            prompt_marker = prompt_markers.get(existing_skill.name)
+            if prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
                 existing_skill.description = skill_def.get("description", existing_skill.description)
                 existing_skill.system_prompt = skill_def.get("system_prompt", existing_skill.system_prompt)
                 existing_skill.user_template = skill_def.get("user_template", existing_skill.user_template)
                 existing_skill.estimated_time = skill_def.get("estimated_time", existing_skill.estimated_time)
                 patched = True
-            if existing_skill.name == DIGITAL_STRATEGY_SKILL_NAME:
+            if existing_skill.name in template_tool_names:
                 tool_names = skill_def.get("tools", [])
                 try:
                     existing_tool_defs = json.loads(existing_skill.tools_definition_json or "[]")
@@ -1140,7 +1198,8 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                     for item in existing_tool_defs
                     if isinstance(item, dict)
                 }
-                if not set(DIGITAL_STRATEGY_TOOL_NAMES).issubset(existing_tool_names):
+                required_tool_names = set(template_tool_names[existing_skill.name])
+                if not required_tool_names.issubset(existing_tool_names):
                     existing_skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
                     existing_skill.tools = tool_names
                     patched = True

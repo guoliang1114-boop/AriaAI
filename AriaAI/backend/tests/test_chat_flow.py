@@ -4805,17 +4805,143 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertIn("Manufacturing", industry_text)
 
     def test_digital_strategy_ppt_normalizer_expands_sparse_deck(self):
-        from app.tools.file_generators import _normalize_digital_strategy_slides
+        from app.tools.file_generators import _normalize_digital_strategy_slides, _wants_visual_slide
 
         slides = _normalize_digital_strategy_slides(
             [{"type": "content", "title": "Executive Summary", "content": "- Initial thesis"}]
         )
 
-        self.assertGreaterEqual(len(slides), 16)
+        self.assertGreaterEqual(len(slides), 20)
         self.assertIn("Use-Case Portfolio", {slide["title"] for slide in slides})
+        self.assertIn("Executive Alignment", {slide["title"] for slide in slides})
+        self.assertIn("Target Blueprint", {slide["title"] for slide in slides})
         investment_slide = next(slide for slide in slides if slide["title"] == "Investment, KPI and Risk Controls")
         self.assertIn("technology, data, talent, change", investment_slide["content"])
         self.assertGreaterEqual(investment_slide["content"].count("\n- ") + 1, 5)
+        self.assertTrue(_wants_visual_slide("Maturity Heatmap: Strengths vs Constraints"))
+        self.assertTrue(_wants_visual_slide("Investment, KPI and Risk Controls"))
+        self.assertTrue(_wants_visual_slide("Risk Register and Mitigation Plan"))
+
+    def test_presentation_builder_skill_is_seeded_with_ppt_tooling(self):
+        with Session(self.engine) as session:
+            skills_router_module.ensure_builtin_pro_skills(session)
+            skill = session.exec(
+                select(Skill).where(Skill.name == skills_router_module.PRESENTATION_BUILDER_SKILL_NAME)
+            ).one()
+
+        self.assertEqual(skill.category, "提案与项目交付")
+        self.assertIn("presentation-builder workflow", skill.system_prompt)
+        self.assertIn("deck_type", skill.system_prompt)
+        self.assertIn("generate_ppt_from_skill", skill.system_prompt)
+        self.assertEqual(skill.tools, ["generate_ppt_from_skill"])
+        self.assertEqual(skill.max_tokens, 24576)
+        tool_defs = json.loads(skill.tools_definition_json)
+        tool_def_names = {tool.get("name") for tool in tool_defs}
+        self.assertEqual(tool_def_names, {"generate_ppt_from_skill"})
+
+    def test_digital_strategy_generation_renders_richer_template_deck(self):
+        from app.tools.file_generators import generate_ppt_from_skill
+
+        result = asyncio.run(
+            generate_ppt_from_skill(
+                "digital-strategy",
+                "Digital Strategy Rich Deck Test",
+                [{"type": "content", "title": "Executive Summary", "content": "- Initial thesis"}],
+                "Local validation run",
+            )
+        )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["template_name"], "Template.pptx")
+        self.assertEqual(result["template_mode"], "cloned_prototype_slides")
+        self.assertGreaterEqual(result["slide_count"], 22)
+        generated_path = Path(result["full_path"])
+        self.assertTrue(generated_path.exists())
+        generated_path.unlink(missing_ok=True)
+
+    def test_presentation_builder_normalizer_supports_deck_presets(self):
+        from app.tools.file_generators import _normalize_presentation_builder_slides
+
+        proposal_slides = _normalize_presentation_builder_slides(
+            [{"type": "content", "title": "Opening", "content": "- Initial point"}],
+            "proposal",
+        )
+        update_slides = _normalize_presentation_builder_slides([], "project-update")
+
+        self.assertGreaterEqual(len(proposal_slides), 12)
+        self.assertIn("Proposed Approach", {slide["title"] for slide in proposal_slides})
+        self.assertIn("Commercials, Risks and Next Steps", {slide["title"] for slide in proposal_slides})
+        self.assertIn("Key Assumptions", {slide["title"] for slide in proposal_slides})
+        self.assertGreaterEqual(len(update_slides), 12)
+        self.assertIn("Progress vs Plan", {slide["title"] for slide in update_slides})
+        self.assertIn("Risks, Issues and Decisions", {slide["title"] for slide in update_slides})
+
+    def test_presentation_builder_formats_rich_slide_types_for_ppt(self):
+        from app.tools.file_generators import (
+            _normalize_presentation_builder_slide_format,
+        )
+
+        slides = _normalize_presentation_builder_slide_format(
+            [
+                {
+                    "type": "roadmap",
+                    "title": "Roadmap",
+                    "left_content": "Phase 1\n- Align",
+                    "content": "Phase 2\n- Scale",
+                    "right_content": "Phase 3\n- Optimize",
+                },
+                {
+                    "type": "matrix",
+                    "title": "Prioritization",
+                    "labels": ["Quick wins", "Foundations"],
+                    "content": "- Use value and feasibility to sequence work",
+                },
+                {
+                    "type": "content",
+                    "title": "Dense Page",
+                    "content": "- One\n- Two\n- Three\n- Four\n- Five\n- Six\n- Seven",
+                },
+            ]
+        )
+
+        self.assertEqual(slides[0]["type"], "content")
+        self.assertIn("Phase 1", slides[0]["content"])
+        self.assertIn("Phase 3", slides[0]["content"])
+        self.assertEqual(slides[1]["type"], "content")
+        self.assertIn("Quick wins", slides[1]["content"])
+        self.assertLessEqual(slides[2]["content"].count("\n- ") + 1, 6)
+
+    def test_presentation_builder_uses_digital_strategy_template_fallback(self):
+        from app.tools.file_generators import generate_ppt_from_skill
+
+        result = asyncio.run(
+            generate_ppt_from_skill(
+                "presentation-builder",
+                "Presentation Builder Smoke Test",
+                [],
+                "Local validation run",
+                deck_type="proposal",
+            )
+        )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["file_type"], "pptx")
+        self.assertEqual(result["template_name"], "Template.pptx")
+        self.assertTrue(result["template_applied"])
+        self.assertGreaterEqual(result["slide_count"], 14)
+        generated_path = Path(result["full_path"])
+        self.assertTrue(generated_path.exists())
+        generated_path.unlink(missing_ok=True)
+
+    def test_presentation_builder_file_skill_assets_exist(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        skill_dir = repo_root / "skills" / "presentation-builder"
+
+        self.assertTrue((skill_dir / "SKILL.md").exists())
+        skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("name: presentation-builder", skill_text)
+        self.assertIn("deck_type", skill_text)
+        self.assertIn("generate_ppt_from_skill", skill_text)
 
     def test_ppt_generation_clones_template_slide_artwork(self):
         from pptx import Presentation
