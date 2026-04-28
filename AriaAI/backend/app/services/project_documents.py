@@ -47,7 +47,9 @@ def write_project_markdown_file(
     next_content = content
     if append:
         existing = full_path.read_text(encoding="utf-8", errors="replace")
-        next_content = existing + content
+        if existing and not existing.endswith("\n"):
+            existing = f"{existing}\n"
+        next_content = f"{existing}{content.lstrip() if existing else content}"
 
     full_path.write_text(next_content, encoding="utf-8")
     return full_path.stat().st_size

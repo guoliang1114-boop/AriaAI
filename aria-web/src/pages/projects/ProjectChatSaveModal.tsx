@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle2, Loader2, RefreshCw, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "../../api/client";
@@ -57,6 +57,12 @@ export function ProjectChatSaveModal({
     files,
     isOpen,
   });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSaved(false);
+    setRefreshingMemory(false);
+  }, [conversationId, isOpen, messageId]);
 
   if (!isOpen || (!messageId && !conversationId)) {
     return null;
