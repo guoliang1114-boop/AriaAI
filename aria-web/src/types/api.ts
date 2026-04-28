@@ -734,6 +734,18 @@ export interface MessageMetadata {
   references?: Reference[]
   tool_calls?: ToolCallEvent[]
   artifacts?: GeneratedArtifact[]
+  pending_markdown_saves?: Array<{
+    tool_use_id?: string
+    project_id?: number
+    file_id?: number | null
+    file_name?: string | null
+    mode?: 'replace' | 'append' | 'create' | string
+    content?: string
+    summary?: string | null
+    folder_id?: number | null
+    saved?: boolean
+    saved_result?: Record<string, unknown>
+  }>
   project_id?: number
 }
 

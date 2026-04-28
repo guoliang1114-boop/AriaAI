@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Copy,
   FileText,
+  Loader2,
   Save,
   Sparkles,
   Users,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
+import { api } from "../../api/client";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
@@ -65,6 +67,8 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
   ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onSaveToNotes, projectId }) => {
     const { t, i18n } = useTranslation();
     const { resolvedTimeZone } = useAppTimeZone();
+    const [savingMarkdownIndex, setSavingMarkdownIndex] = useState<number | null>(null);
+    const [savedMarkdownIndexes, setSavedMarkdownIndexes] = useState<Set<number>>(new Set());
     const isUser = msg.role === "user";
     const isZh = i18n.language.startsWith("zh");
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
@@ -78,6 +82,19 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const references: Reference[] = metadata.references || [];
     const toolCalls: ToolCallEvent[] = metadata.tool_calls || [];
     const artifacts: GeneratedArtifact[] = metadata.artifacts || [];
+    const pendingMarkdownSaves = metadata.pending_markdown_saves || [];
+
+    const confirmMarkdownSave = async (pendingIndex: number) => {
+      setSavingMarkdownIndex(pendingIndex);
+      try {
+        await api.post(`/projects/${projectId}/messages/${msg.id}/confirm-markdown-save`, {
+          pending_index: pendingIndex,
+        });
+        setSavedMarkdownIndexes((current) => new Set(current).add(pendingIndex));
+      } finally {
+        setSavingMarkdownIndex(null);
+      }
+    };
 
     const buildReferenceHref = (reference: Reference) => {
       if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
@@ -161,6 +178,44 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
               )}
             </div>
           )}
+
+          {!isUser && pendingMarkdownSaves.some((item, index) => item && !item.saved && !savedMarkdownIndexes.has(index)) ? (
+            <div className="mt-3 max-w-[40rem] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-amber-900">
+                    {isZh ? "是否写入项目 Markdown 文件？" : "Write this into the project Markdown file?"}
+                  </p>
+                  <p className="mt-1 text-xs text-amber-700">
+                    {isZh ? "正文已经输出在上方，确认后才会保存到文件。" : "The content is shown above. It will only be saved after confirmation."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {pendingMarkdownSaves.map((item, index) =>
+                    item && !item.saved && !savedMarkdownIndexes.has(index) ? (
+                      <button
+                        key={`${item.tool_use_id || "md"}-${index}`}
+                        type="button"
+                        onClick={() => void confirmMarkdownSave(index)}
+                        disabled={savingMarkdownIndex !== null}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary disabled:opacity-50"
+                      >
+                        {savingMarkdownIndex === index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                        {isZh ? "写入文件" : "Save file"}
+                      </button>
+                    ) : null,
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {!isUser && pendingMarkdownSaves.some((item, index) => item?.saved || savedMarkdownIndexes.has(index)) ? (
+            <div className="mt-3 inline-flex max-w-[40rem] items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {isZh ? "已写入项目文件" : "Saved to project file"}
+            </div>
+          ) : null}
 
           <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
             <span className="text-[11px] text-gray-300 px-0.5">

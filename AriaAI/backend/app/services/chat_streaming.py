@@ -622,6 +622,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
     need_title = False
     tool_call_events = []
     artifacts = []
+    pending_markdown_saves = []
 
     try:
         text_buffer = ""
@@ -792,6 +793,34 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     else:
                         text_buffer = markdown_content
                         yield _sse_event({"type": "text", "content": markdown_content})
+                pending_markdown_saves.append(
+                    {
+                        "tool_use_id": tool_id,
+                        "project_id": runtime.project_id,
+                        "file_id": tool_input.get("file_id"),
+                        "file_name": tool_input.get("file_name"),
+                        "mode": tool_input.get("mode"),
+                        "content": markdown_content,
+                        "summary": tool_input.get("summary"),
+                        "folder_id": tool_input.get("folder_id"),
+                    }
+                )
+                tool_call_events.append(
+                    {
+                        "tool_name": tool_name,
+                        "status": "completed",
+                        "message": "已生成 Markdown 正文，等待你确认是否写入文件。",
+                        "summary": "待确认写入项目 Markdown 文件",
+                    }
+                )
+                yield _sse_event(
+                    {
+                        "type": "status",
+                        "stage": "confirm_markdown_save",
+                        "message": "Markdown 正文已生成，请确认是否写入项目文件。",
+                    }
+                )
+                continue
 
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 
@@ -1006,6 +1035,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 metadata["tool_calls"] = tool_call_events
             if artifacts:
                 metadata["artifacts"] = artifacts
+            if pending_markdown_saves:
+                metadata["pending_markdown_saves"] = pending_markdown_saves
             if req.project_id:
                 metadata["project_id"] = req.project_id
             if runtime.skill_name:

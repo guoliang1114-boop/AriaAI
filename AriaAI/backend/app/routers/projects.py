@@ -124,6 +124,7 @@ from app.services.project_milestones import (
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
+from app.tools.project_markdown import update_project_markdown_document
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -1277,6 +1278,10 @@ class SaveMessageToDocumentRequest(BaseModel):
     prepend_header: bool = True
 
 
+class ConfirmMarkdownSaveRequest(BaseModel):
+    pending_index: int = 0
+
+
 class ProjectDocumentCreate(BaseModel):
     folder_id: Optional[int] = None
     name: str
@@ -1951,6 +1956,63 @@ def save_message_to_document(
         "folder_id": new_file.folder_id,
         "size_bytes": new_file.size_bytes,
     }
+
+
+@router.post("/{project_id}/messages/{message_id}/confirm-markdown-save", status_code=201)
+async def confirm_message_markdown_save(
+    project_id: int,
+    message_id: int,
+    data: ConfirmMarkdownSaveRequest,
+    session: Session = Depends(get_session),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    message = session.get(Message, message_id)
+    if not message:
+        raise HTTPException(404, "Message not found")
+
+    conv = session.get(Conversation, message.conversation_id)
+    if not conv or conv.project_id != project_id:
+        raise HTTPException(404, "Message does not belong to this project")
+
+    try:
+        metadata = json.loads(message.metadata_json or "{}")
+        if not isinstance(metadata, dict):
+            metadata = {}
+    except json.JSONDecodeError:
+        metadata = {}
+
+    pending = metadata.get("pending_markdown_saves") or []
+    if not isinstance(pending, list) or data.pending_index < 0 or data.pending_index >= len(pending):
+        raise HTTPException(404, "Pending markdown save not found")
+
+    item = pending[data.pending_index]
+    if not isinstance(item, dict):
+        raise HTTPException(400, "Invalid pending markdown save")
+    if item.get("saved"):
+        raise HTTPException(400, "Markdown save already confirmed")
+
+    result = await update_project_markdown_document(
+        project_id=project_id,
+        mode=item.get("mode") or "append",
+        content=item.get("content") or message.content,
+        file_id=item.get("file_id"),
+        file_name=item.get("file_name"),
+        summary=item.get("summary"),
+        folder_id=item.get("folder_id"),
+    )
+
+    item["saved"] = True
+    item["saved_result"] = result
+    pending[data.pending_index] = item
+    metadata["pending_markdown_saves"] = pending
+    message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    session.add(message)
+    session.commit()
+
+    return result
 
 
 @router.post("/{project_id}/files", status_code=201)
