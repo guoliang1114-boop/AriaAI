@@ -3011,8 +3011,9 @@ async def generate_project_memory_summaries(
 
     lock_key = _project_summary_lock_key(project_id, "all", normalized_language, memory_version)
     summary_lock = _get_project_summary_lock(lock_key)
+    was_locked = summary_lock.locked()
     async with summary_lock:
-        if not body.force_refresh and memory_version > 0:
+        if memory_version > 0 and (was_locked or not body.force_refresh):
             fresh_cached_items = {
                 summary_type: get_project_memory_summary_cache(
                     session,

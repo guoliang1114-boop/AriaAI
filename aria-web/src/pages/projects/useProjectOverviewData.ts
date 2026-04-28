@@ -47,6 +47,43 @@ interface UseProjectOverviewDataOptions {
 
 type SummaryCache = ProjectMemorySummaryMap;
 const API_LIMIT_COOLDOWN_MS = 90_000;
+const SUMMARY_GENERATION_LOCK_TTL_MS = 120_000;
+const SUMMARY_GENERATION_LOCK_PREFIX = "aria:project-summary-generation";
+
+function getSummaryGenerationLockKey(projectId: string, language: string, memoryVersion?: number) {
+  return [
+    SUMMARY_GENERATION_LOCK_PREFIX,
+    projectId,
+    normalizeProjectSummaryLanguage(language),
+    memoryVersion ?? 0,
+  ].join(":");
+}
+
+function readSummaryGenerationLock(lockKey: string) {
+  if (typeof window === "undefined") return false;
+  const rawValue = window.localStorage.getItem(lockKey);
+  if (!rawValue) return false;
+  const expiresAt = Number(rawValue);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    window.localStorage.removeItem(lockKey);
+    return false;
+  }
+  return true;
+}
+
+function writeSummaryGenerationLock(lockKey: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(lockKey, String(Date.now() + SUMMARY_GENERATION_LOCK_TTL_MS));
+}
+
+function clearSummaryGenerationLock(lockKey: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(lockKey);
+}
+
+function hasCompleteSummaryCache(cache: SummaryCache) {
+  return PROJECT_MEMORY_SUMMARY_TYPES.every((type) => !!cache[type]?.trim());
+}
 
 function isApiLimitError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "");
@@ -80,6 +117,13 @@ export function useProjectOverviewData({
   const [summaryText, setSummaryText] = useState(project.context_summary || "");
   const [summaryError, setSummaryError] = useState("");
   const [summaryCooldownUntil, setSummaryCooldownUntil] = useState<number | null>(null);
+  const summaryGenerationLockKey = useMemo(
+    () => getSummaryGenerationLockKey(projectId, language, project.memory_version ?? 0),
+    [language, project.memory_version, projectId],
+  );
+  const [hasPersistedSummaryGeneration, setHasPersistedSummaryGeneration] = useState(() =>
+    readSummaryGenerationLock(summaryGenerationLockKey),
+  );
   const [descExpanded, setDescExpanded] = useState(false);
   const [overviewNotesText, setOverviewNotesText] = useState((mdNotes || "").trim());
   const [recentArtifacts, setRecentArtifacts] = useState<GeneratedArtifact[]>([]);
@@ -103,6 +147,20 @@ export function useProjectOverviewData({
     const timer = window.setTimeout(() => setSummaryCooldownUntil(null), delay);
     return () => window.clearTimeout(timer);
   }, [summaryCooldownUntil]);
+
+  useEffect(() => {
+    const syncSummaryGenerationLock = () => {
+      setHasPersistedSummaryGeneration(readSummaryGenerationLock(summaryGenerationLockKey));
+    };
+
+    syncSummaryGenerationLock();
+    const timer = window.setInterval(syncSummaryGenerationLock, 1000);
+    window.addEventListener("storage", syncSummaryGenerationLock);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("storage", syncSummaryGenerationLock);
+    };
+  }, [summaryGenerationLockKey]);
 
   const firstMarkdownFile = useMemo(
     () =>
@@ -253,6 +311,10 @@ export function useProjectOverviewData({
           if (content) nextCache[type] = content;
         }
         setSummaryCache(nextCache);
+        if (hasCompleteSummaryCache(nextCache)) {
+          clearSummaryGenerationLock(summaryGenerationLockKey);
+          setHasPersistedSummaryGeneration(false);
+        }
         const currentContent = nextCache[summaryType];
         if (currentContent) {
           setSummaryText(currentContent);
@@ -336,8 +398,16 @@ export function useProjectOverviewData({
       return;
     }
 
+    if (generatingSummary || readSummaryGenerationLock(summaryGenerationLockKey)) {
+      setHasPersistedSummaryGeneration(true);
+      setSummaryError(isZh ? "项目总结正在生成中，请稍候。" : "Project summaries are already being generated. Please wait.");
+      return;
+    }
+
     setSummaryType(nextType);
     setGeneratingSummary(true);
+    setHasPersistedSummaryGeneration(true);
+    writeSummaryGenerationLock(summaryGenerationLockKey);
     setSummaryError("");
 
     try {
@@ -358,6 +428,10 @@ export function useProjectOverviewData({
       }
       setSummaryCache(nextCache);
       setSummaryText(nextCache[nextType] || "");
+      if (hasCompleteSummaryCache(nextCache)) {
+        clearSummaryGenerationLock(summaryGenerationLockKey);
+        setHasPersistedSummaryGeneration(false);
+      }
       dispatchProjectMemorySummariesUpdated({
         language,
         memoryVersion: data.source_memory_version || project.memory_version,
@@ -381,6 +455,8 @@ export function useProjectOverviewData({
       );
     } finally {
       setGeneratingSummary(false);
+      clearSummaryGenerationLock(summaryGenerationLockKey);
+      setHasPersistedSummaryGeneration(false);
     }
   };
 
@@ -414,7 +490,7 @@ export function useProjectOverviewData({
     formatAmount,
     formatAmountInTenThousand,
     generateSummary,
-    generatingSummary,
+    generatingSummary: generatingSummary || hasPersistedSummaryGeneration,
     handleSummaryTypeChange,
     isLoadingArtifacts,
     isLoadingMemory,
