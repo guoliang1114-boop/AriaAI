@@ -7,6 +7,7 @@ import {
   Wrench,
   FolderKanban,
   Building2,
+  Users,
   BookOpen,
   LogOut,
   Settings,
@@ -18,7 +19,8 @@ import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 import { setAppTimeZone } from '../utils/timezone'
 
 export function Layout() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
   const location = useLocation()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -31,6 +33,7 @@ export function Layout() {
     { path: '/skills', label: t('nav.skills'), icon: Wrench },
     { path: '/projects', label: t('nav.projects'), icon: FolderKanban },
     { path: '/clients', label: t('nav.clients') || '客户', icon: Building2 },
+    { path: '/contacts', label: isZh ? '联系人' : 'Contacts', icon: Users },
     { path: '/knowledge', label: t('nav.knowledge'), icon: BookOpen },
   ]
 

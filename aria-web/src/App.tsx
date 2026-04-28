@@ -13,6 +13,7 @@ import {
   loadNewProject,
   loadKnowledge,
   loadClients,
+  loadContacts,
   loadClientDetail,
   loadClientMemoryPage,
   loadMessagesPage,
@@ -43,6 +44,7 @@ const ProjectDetail = lazy(() => loadProjectDetail().then((module) => ({ default
 const NewProject = lazy(() => loadNewProject().then((module) => ({ default: module.NewProject })))
 const Knowledge = lazy(() => loadKnowledge().then((module) => ({ default: module.Knowledge })))
 const Clients = lazy(() => loadClients().then((module) => ({ default: module.Clients })))
+const Contacts = lazy(() => loadContacts().then((module) => ({ default: module.Contacts })))
 const ClientDetail = lazy(() => loadClientDetail().then((module) => ({ default: module.ClientDetail })))
 const ClientMemoryPage = lazy(() => loadClientMemoryPage().then((module) => ({ default: module.ClientMemoryPage })))
 const MessagesPage = lazy(() => loadMessagesPage().then((module) => ({ default: module.MessagesPage })))
@@ -215,6 +217,14 @@ function AppRoutes() {
           element={
             <LazyPage>
               <Clients />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="contacts"
+          element={
+            <LazyPage>
+              <Contacts />
             </LazyPage>
           }
         />
