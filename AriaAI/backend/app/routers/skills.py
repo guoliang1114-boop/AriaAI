@@ -652,9 +652,11 @@ GSTACK_PRO_SKILLS = [
             "5. Transformation Roadmap：三阶段计划、举措 backlog、里程碑。\n"
             "6. Governance & Investment：组织、投资、风险、KPI。\n"
             "7. Appendices：成熟度明细、基准数据假设、举措章程模板。\n\n"
-            "PPT 交付要求：如果用户要求高层汇报、PPT、演示文稿、材料或可下载交付物，必须先生成 12-18 页 slide-by-slide 内容，"
+            "PPT 交付要求：如果用户要求高层汇报、PPT、演示文稿、材料或可下载交付物，必须先生成 16-22 页 slide-by-slide 内容，"
             "然后调用 generate_ppt_from_skill，skill_name 固定为 digital-strategy；slides 必须使用 title/content/two_column 结构，"
-            "每页包含行动导向标题、核心结论和支撑要点。最终交付物只需要生成基于模板的 PPT，不需要额外生成 JSON。\n\n"
+            "每页包含行动导向标题、核心结论、支撑证据/关键假设、管理层含义和下一步行动。"
+            "每页建议 4-6 条高密度要点，必须覆盖执行摘要、战略背景、成熟度诊断、根因、目标愿景、能力蓝图、用例组合、差距优先级、三阶段路线图、运营模式、投资测算、KPI、风险控制、90 天行动计划和附录。"
+            "不要输出只有标题或泛泛而谈的占位页。最终交付物只需要生成基于模板的 PPT，不需要额外生成 JSON。\n\n"
             "质量要求：结论先行、业务价值优先，不要只写技术清单；投资估算必须包含人才和变革管理；KPI 必须连接业务结果；所有假设要显式标注。"
         ),
         "user_template": (

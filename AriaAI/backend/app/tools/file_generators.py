@@ -679,7 +679,7 @@ def _render_back_cover(slide, title: str):
 
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
     normalized = [dict(slide) for slide in slides if slide.get("title")]
-    if len(normalized) >= 12:
+    if len(normalized) >= 16:
         return normalized
 
     existing = {str(slide.get("title", "")).strip().lower() for slide in normalized}
@@ -687,32 +687,37 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         {
             "type": "content",
             "title": "Executive Summary",
-            "content": "- Transformation thesis and value ambition\n- Strategic priorities and expected outcomes\n- Critical decisions required from leadership",
+            "content": "- Transformation thesis: digital must be managed as a business value portfolio, not a technology refresh\n- Value ambition: set explicit targets for growth, efficiency, risk control and decision speed\n- Priority moves: fix data foundations, launch high-value use cases and establish portfolio governance\n- Leadership decisions: confirm scope, funding envelope, owner model and first-wave pilot list\n- Success condition: every initiative has a business KPI, adoption target and accountable owner",
         },
         {
             "type": "content",
             "title": "Strategic Context and Transformation Thesis",
-            "content": "- Market and customer behavior shifts\n- Internal operating constraints and opportunity windows\n- Why now: urgency, value pool and risk of inaction",
+            "content": "- Market shift: customers expect faster response, more transparency and personalized service\n- Competitive shift: digitally mature players compound advantage through data and operating speed\n- Internal constraint: fragmented systems and manual processes slow execution and obscure accountability\n- Opportunity window: AI, automation and cloud platforms now make cross-functional redesign feasible\n- Management implication: fund reusable capabilities rather than disconnected digital projects",
         },
         {
             "type": "content",
             "title": "Current Digital Maturity Diagnosis",
-            "content": "- Strategy, customer, operations, organization, data and technology maturity\n- Top capability gaps ranked by business impact\n- Key assumptions to validate in interviews",
+            "content": "- Strategy: test whether digital priorities are linked to growth, cost and risk objectives\n- Customer: assess channel integration, journey orchestration and customer data completeness\n- Operations: identify manual handoffs, process bottlenecks and automation opportunities\n- Organization: evaluate decision rights, product ownership, digital talent and change capacity\n- Data/technology: score master data, data governance, API maturity, cloud readiness and legacy risk",
         },
         {
             "type": "content",
             "title": "Customer and Growth Experience Gaps",
-            "content": "- Priority customer journeys and pain points\n- Data and channel breakpoints\n- Growth scenarios where digital capabilities can create measurable value",
+            "content": "- Map priority journeys from awareness, sales, onboarding, service to retention\n- Identify breakpoints: duplicated data entry, slow response, inconsistent channels and limited personalization\n- Quantify impact through conversion leakage, retention risk, service cost and customer satisfaction gaps\n- Define growth scenarios such as precision marketing, sales productivity and next-best-action engagement\n- Link each scenario to required data assets, workflow changes and owner accountability",
         },
         {
             "type": "content",
             "title": "Digital Vision and Target State",
-            "content": "- Target vision and north-star metrics\n- Future-state operating principles\n- Capability ambition by planning horizon",
+            "content": "- Vision: become a data-driven enterprise where decisions, operations and customer engagement are continuously optimized\n- North-star metrics: revenue uplift, margin improvement, cycle-time reduction and risk incident reduction\n- Operating principles: business-led, data-governed, platform-enabled and adoption-measured\n- Capability ambition: move priority domains from opportunistic pilots to managed enterprise capabilities\n- Design guardrail: standardize core platforms while enabling local business innovation",
         },
         {
             "type": "content",
             "title": "Capability Blueprint",
-            "content": "- Customer intelligence and engagement\n- Data foundation and governance\n- Digital operations and automation\n- AI-enabled decision support",
+            "content": "- Customer intelligence: unified profile, segmentation, journey triggers and service personalization\n- Digital operations: workflow automation, process mining, exception management and SLA visibility\n- Data foundation: master data, quality rules, data products, access controls and ownership model\n- AI decision support: forecasting, recommendation, knowledge retrieval and assisted execution\n- Platform architecture: API layer, cloud services, security controls and reusable integration components",
+        },
+        {
+            "type": "content",
+            "title": "Use-Case Portfolio",
+            "content": "- Growth use cases: lead scoring, precision marketing, churn prediction and pricing optimization\n- Efficiency use cases: automated reporting, workflow routing, demand planning and service operations\n- Risk use cases: compliance monitoring, anomaly detection, access governance and early-warning dashboards\n- Employee use cases: knowledge assistant, document drafting, training recommendation and expert matching\n- Portfolio rule: balance quick wins, foundation enablers and strategic differentiators",
         },
         {
             "type": "two_column",
@@ -723,32 +728,42 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         {
             "type": "content",
             "title": "Gap Prioritization Matrix",
-            "content": "- Quick wins: high impact and low complexity\n- Foundations: required data, architecture and governance enablers\n- Differentiators: capabilities that create strategic advantage",
+            "content": "- Quick wins: high value, low complexity and visible within 90-180 days\n- Foundations: data, architecture and governance enablers required before scaled rollout\n- Differentiators: capabilities that create customer, cost or ecosystem advantage\n- Defer items: low-value automation or technology experiments without business sponsorship\n- Decision rule: prioritize by value, feasibility, dependency and change readiness",
         },
         {
             "type": "content",
             "title": "Three-Horizon Roadmap",
-            "content": "- Horizon 1: stabilize foundations and launch priority pilots\n- Horizon 2: scale validated capabilities across domains\n- Horizon 3: build AI-native and ecosystem-enabled operating model",
+            "content": "- Horizon 1 Foundation: stabilize data, launch pilots, establish governance and prove value\n- Horizon 2 Scale: extend validated use cases across business units and integrate platforms\n- Horizon 3 Lead: build AI-native operations, ecosystem integration and continuous innovation loops\n- Roadmap dependency: do not scale advanced analytics before data ownership is working\n- Review cadence: quarterly value review and semi-annual roadmap refresh",
         },
         {
             "type": "content",
             "title": "Initiative Portfolio and Milestones",
-            "content": "- Year 1 initiatives, owners and deliverables\n- Year 2-3 scaling roadmap and dependencies\n- Milestone cadence and value realization checkpoints",
+            "content": "- Each initiative defines owner, value KPI, user group, data dependency and milestone\n- Year 1: maturity baseline, data governance launch, 3-5 pilots and first value dashboard\n- Year 2: platform integration, scaled workflows, business-unit rollout and talent academy\n- Year 3: AI operating model, ecosystem collaboration and continuous optimization\n- Governance checkpoint: stop, scale or redesign initiatives based on adoption and value",
         },
         {
             "type": "content",
             "title": "Governance and Operating Model",
-            "content": "- Steering committee and decision rights\n- Transformation PMO and product ownership model\n- Talent, partner and change management mechanism",
+            "content": "- Steering committee owns priorities, funding trade-offs and cross-functional escalation\n- Transformation PMO manages portfolio rhythm, benefits tracking and dependency resolution\n- Product owners translate business pain points into roadmaps and adoption plans\n- Data owners govern definitions, quality, access and lifecycle management\n- Technology teams provide reusable platforms, standards and security guardrails",
         },
         {
             "type": "content",
             "title": "Investment, KPI and Risk Controls",
-            "content": "- Investment envelope and funding principles\n- KPI dashboard linked to business outcomes\n- Key risks, mitigations and management cadence",
+            "content": "- Investment envelope covers technology, data, talent, change and partner support\n- Suggested split: 40% technology, 30% talent/change, 20% data, 10% ecosystem experimentation\n- KPI dashboard links business outcomes, adoption, data quality and delivery milestones\n- Key risks: legacy complexity, data ownership gaps, low adoption, vendor lock-in and security exposure\n- Control rhythm: monthly PMO dashboard and quarterly executive value review",
+        },
+        {
+            "type": "content",
+            "title": "90-Day Action Plan",
+            "content": "- Week 1-2: confirm ambition, scope, sponsor, decision forum and baseline assumptions\n- Week 3-5: run leadership interviews, maturity assessment and data/platform diagnostic\n- Week 6-8: prioritize use cases, estimate benefits and define first-wave pilots\n- Week 9-11: design operating model, investment case, KPI dashboard and roadmap dependencies\n- Week 12: align steering committee on launch plan, funding and owners",
         },
         {
             "type": "content",
             "title": "Immediate Next Steps",
-            "content": "- Confirm leadership alignment and scope\n- Run targeted interviews and data validation\n- Convert roadmap into 90-day execution plan",
+            "content": "- Confirm leadership alignment and decision rights for the transformation portfolio\n- Validate maturity baseline with interviews, KPI data, system inventory and process evidence\n- Select first-wave use cases with clear value owners and measurable adoption targets\n- Convert roadmap into funded quarterly releases with dependency and risk controls\n- Prepare steering committee materials for scope, funding and mobilization approval",
+        },
+        {
+            "type": "content",
+            "title": "Appendix: Assessment and Interview Guide",
+            "content": "- Executive interviews: strategic priorities, pain points, risk tolerance and value ambition\n- Business interviews: journey friction, process bottlenecks, adoption barriers and KPI baselines\n- IT/data interviews: architecture, integration, data quality, security and delivery constraints\n- Evidence pack: process maps, system inventory, data dictionary, project portfolio and budget baseline\n- Use findings to replace assumptions and sharpen the next deck version",
         },
     ]
 
@@ -758,7 +773,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             continue
         normalized.append(slide)
         existing.add(key)
-        if len(normalized) >= 12:
+        if len(normalized) >= 16:
             break
     return normalized
 

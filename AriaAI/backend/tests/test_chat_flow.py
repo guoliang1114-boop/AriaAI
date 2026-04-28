@@ -62,7 +62,7 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
-from app.services.chat_streaming import ChatRuntime, _route_ppt_tool_for_skill, stream_chat_events
+from app.services.chat_streaming import ChatRuntime, _build_slides_from_strategy_text, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
 
 
@@ -2953,6 +2953,19 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(routed_name, "generate_ppt_from_skill")
         self.assertEqual(routed_input["skill_name"], "digital-strategy")
 
+    def test_digital_strategy_auto_ppt_fallback_builds_rich_deck(self):
+        _, slides = _build_slides_from_strategy_text("Digital transformation strategy deck\n\nOnly a short strategy note.")
+
+        self.assertGreaterEqual(len(slides), 16)
+        self.assertIn("Use-Case Portfolio", {slide["title"] for slide in slides})
+        self.assertTrue(
+            any("90-Day Action Plan" == slide["title"] for slide in slides),
+            "fallback deck should include an execution-oriented 90-day plan",
+        )
+        for slide in slides[-4:]:
+            content = slide.get("content", "")
+            self.assertGreaterEqual(content.count("\n- ") + int(content.startswith("- ")), 4)
+
     def test_prepare_chat_runtime_limits_history_window_for_standalone_chat(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
@@ -4790,6 +4803,19 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertNotIn("save_json", skill_text)
         self.assertIn("Huawei 5-See 3-Define", framework_text)
         self.assertIn("Manufacturing", industry_text)
+
+    def test_digital_strategy_ppt_normalizer_expands_sparse_deck(self):
+        from app.tools.file_generators import _normalize_digital_strategy_slides
+
+        slides = _normalize_digital_strategy_slides(
+            [{"type": "content", "title": "Executive Summary", "content": "- Initial thesis"}]
+        )
+
+        self.assertGreaterEqual(len(slides), 16)
+        self.assertIn("Use-Case Portfolio", {slide["title"] for slide in slides})
+        investment_slide = next(slide for slide in slides if slide["title"] == "Investment, KPI and Risk Controls")
+        self.assertIn("technology, data, talent, change", investment_slide["content"])
+        self.assertGreaterEqual(investment_slide["content"].count("\n- ") + 1, 5)
 
     def test_ppt_generation_clones_template_slide_artwork(self):
         from pptx import Presentation

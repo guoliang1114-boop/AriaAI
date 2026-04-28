@@ -505,32 +505,84 @@ def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
             }
         )
 
-    if len(slides) < 12:
-        fallback_titles = [
-            "Executive Summary",
-            "Strategic Context and Transformation Thesis",
-            "Current Digital Maturity Diagnosis",
-            "Customer and Growth Experience Gaps",
-            "Digital Vision and Target State",
-            "Capability Blueprint",
-            "Gap Prioritization Matrix",
-            "Three-Horizon Roadmap",
-            "Initiative Portfolio and Milestones",
-            "Governance and Operating Model",
-            "Investment, KPI and Risk Controls",
-            "Immediate Next Steps",
+    if len(slides) < 16:
+        fallback_plan = [
+            (
+                "Executive Summary",
+                "- Strategic thesis: digital transformation must be anchored in business value, not system replacement\n- Value ambition: define growth, efficiency and risk-control targets before solution design\n- Priority moves: focus first on data foundation, customer/operations use cases and governance cadence\n- Leadership decisions: confirm scope, funding envelope, owners and first-wave pilots\n- Success condition: every initiative must map to a measurable business KPI",
+            ),
+            (
+                "Strategic Context and Transformation Thesis",
+                "- Market pressure: customers, competitors and regulators are raising expectations for speed and transparency\n- Internal pressure: fragmented processes and data reduce decision quality and execution pace\n- Opportunity window: AI, cloud and workflow automation can now unlock cross-functional productivity\n- Transformation thesis: build reusable capabilities instead of isolated digital projects\n- Management implication: treat digital as a portfolio of value bets with quarterly steering",
+            ),
+            (
+                "Current Digital Maturity Diagnosis",
+                "- Strategy: assess whether digital priorities are explicitly linked to business goals and budget choices\n- Customer: review journey coverage, channel integration and customer data completeness\n- Operations: identify manual handoffs, duplicated approvals and automation bottlenecks\n- Organization: test decision rights, product ownership, agile adoption and digital talent depth\n- Data and technology: score governance, architecture modularity, API maturity and legacy constraints",
+            ),
+            (
+                "Pain Point Root Causes",
+                "- Process pain points often come from unclear ownership, not only missing systems\n- Data pain points usually reflect weak master data, inconsistent definitions and low accountability\n- Technology pain points come from point-to-point integration and customized legacy platforms\n- Adoption pain points come from incentives and training gaps rather than tool availability\n- Root-cause view should separate symptoms, structural causes and required management actions",
+            ),
+            (
+                "Digital Vision and Target Ambition",
+                "- Vision: become a data-driven enterprise where decisions, operations and customer engagement are continuously optimized\n- North-star metrics: revenue uplift, operating-cost reduction, cycle-time compression and risk reduction\n- Target ambition: move priority domains from L2/L3 maturity to L4 managed capability within 3 years\n- Design principle: standardize core platforms while allowing business-led innovation at the edge\n- Leadership implication: align ambition to funding and talent capacity before roadmap approval",
+            ),
+            (
+                "Capability Blueprint",
+                "- Customer intelligence: unified profiles, segmentation, journey orchestration and next-best-action triggers\n- Digital operations: workflow automation, exception management, process mining and SLA visibility\n- Data foundation: master data, data quality rules, governance roles and analytics-ready data products\n- AI decision support: forecasting, recommendation, knowledge retrieval and assisted execution\n- Platform architecture: API integration, cloud-native services, security controls and reusable components",
+            ),
+            (
+                "Use-Case Portfolio",
+                "- Growth use cases: precision marketing, sales productivity, retention prediction and pricing optimization\n- Efficiency use cases: automated reporting, workflow routing, demand planning and service operations\n- Risk use cases: compliance monitoring, anomaly detection, access governance and early-warning dashboards\n- Employee use cases: knowledge assistant, document generation, training recommendation and expert matching\n- Portfolio rule: balance quick wins, foundation enablers and strategic differentiators",
+            ),
+            (
+                "Gap Prioritization Matrix",
+                "- Quick wins: high value, low complexity and visible within 90-180 days\n- Foundations: data, architecture and governance enablers required before scaled rollout\n- Differentiators: capabilities that create customer, cost or ecosystem advantage\n- Defer items: low-value automation or technology experiments without business sponsorship\n- Decision rule: prioritize by value, feasibility, dependency and change readiness",
+            ),
+            (
+                "Three-Horizon Roadmap",
+                "- Horizon 1 Foundation: stabilize data, launch pilots, set governance and prove value\n- Horizon 2 Scale: extend validated use cases across business units and integrate platforms\n- Horizon 3 Lead: build AI-native operations, ecosystem integration and continuous innovation loops\n- Roadmap dependency: do not scale AI or advanced analytics before data ownership is working\n- Review cadence: quarterly value review and semi-annual roadmap refresh",
+            ),
+            (
+                "Initiative Portfolio and Milestones",
+                "- Each initiative should define owner, value KPI, user group, data dependency and delivery milestone\n- Year 1 milestones: maturity baseline, data governance launch, 3-5 pilots and first value dashboard\n- Year 2 milestones: platform integration, scaled workflows, business-unit rollout and talent academy\n- Year 3 milestones: AI operating model, ecosystem collaboration and continuous optimization\n- Governance checkpoint: stop, scale or redesign initiatives based on measured adoption and value",
+            ),
+            (
+                "Target Operating Model",
+                "- Steering committee owns priorities, funding trade-offs and cross-functional escalation\n- Transformation PMO manages portfolio rhythm, benefits tracking and dependency resolution\n- Product owners translate business pain points into roadmaps and adoption plans\n- Data owners govern definitions, quality, access and lifecycle management\n- Technology teams provide reusable platforms, standards and security guardrails",
+            ),
+            (
+                "Investment and Business Case",
+                "- Investment envelope should cover technology, data, talent, change and partner support\n- Suggested split: 40% technology, 30% talent/change, 20% data, 10% ecosystem experimentation\n- Benefit pools: revenue uplift, working-capital improvement, cost reduction and risk avoidance\n- Stage-gate funding: release scale investment only after pilots prove adoption and KPI movement\n- CFO view: present base, upside and downside cases with explicit assumptions",
+            ),
+            (
+                "KPI Dashboard",
+                "- Business KPIs: revenue conversion, retention, gross margin, cycle time, service cost and risk incidents\n- Adoption KPIs: active users, workflow coverage, automation rate and decision usage frequency\n- Data KPIs: completeness, accuracy, timeliness, ownership coverage and issue resolution SLA\n- Delivery KPIs: milestone hit rate, dependency closure, budget burn and value realization\n- Review mechanism: monthly PMO dashboard and quarterly executive value review",
+            ),
+            (
+                "Risk Controls",
+                "- Legacy risk: integration complexity, hidden customization and migration downtime\n- Data risk: inconsistent definitions, privacy exposure and weak ownership\n- Adoption risk: low frontline usage, insufficient incentives and training fatigue\n- Vendor risk: lock-in, unclear accountability and capability transfer gaps\n- Mitigation: phased rollout, architecture guardrails, change champions and exit criteria",
+            ),
+            (
+                "90-Day Action Plan",
+                "- Week 1-2: confirm ambition, scope, sponsor, decision forum and baseline assumptions\n- Week 3-5: run leadership interviews, maturity assessment and data/platform diagnostic\n- Week 6-8: prioritize use cases, estimate benefits and define first-wave pilots\n- Week 9-11: design operating model, investment case, KPI dashboard and roadmap dependencies\n- Week 12: align steering committee on launch plan, funding and owners",
+            ),
+            (
+                "Appendix: Assessment and Interview Guide",
+                "- Interview executives on strategic priorities, pain points, decision bottlenecks and value ambition\n- Interview business owners on process friction, customer impact and adoption barriers\n- Interview IT/data teams on architecture, data quality, security and integration constraints\n- Collect evidence: KPI baselines, process maps, system inventory, data dictionary and project portfolio\n- Use findings to replace assumptions in the next deck version",
+            ),
         ]
         existing = {slide["title"] for slide in slides}
-        for fallback_title in fallback_titles:
+        for fallback_title, fallback_content in fallback_plan:
             if fallback_title not in existing:
                 slides.append(
                     {
                         "type": "content",
                         "title": fallback_title,
-                        "content": "- Build from the strategy narrative\n- Validate with client interviews and operating data\n- Convert into measurable initiatives and governance actions",
+                        "content": fallback_content,
                     }
                 )
-            if len(slides) >= 12:
+            if len(slides) >= 16:
                 break
 
     return title, slides

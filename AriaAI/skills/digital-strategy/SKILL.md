@@ -234,6 +234,15 @@ This skill produces **structured strategic content** and can hand it to AriaAI g
 
 When the user asks for a PPT, leadership deck, presentation material, downloadable deliverable, or slide version, always create a slide-by-slide outline first and then call `generate_ppt_from_skill`.
 
+PPT depth standard:
+
+- Build a consulting-grade deck of **16-22 slides** by default, unless the user explicitly asks for fewer pages.
+- Every business slide needs an action-oriented title, a clear recommendation, supporting evidence or assumptions, and implications for management.
+- Use at least 4-6 substantive bullets per content slide. Avoid placeholder bullets such as "validate with interviews" unless they are attached to a specific question, data source, or decision.
+- Include quantified assumptions where exact data is missing: revenue impact range, cost takeout range, investment envelope, timeline, adoption target, KPI baseline and target.
+- Include the full storyline: executive answer, context, maturity diagnosis, pain-point root causes, target ambition, capability blueprint, use-case portfolio, gap prioritization, roadmap, operating model, investment case, KPI dashboard, risk controls, 90-day action plan, and appendices.
+- Make the deck useful for a consulting partner reviewing client-ready material: each slide should be able to stand alone with enough detail for discussion.
+
 ```json
 {
   "skill_name": "digital-strategy",
@@ -255,7 +264,7 @@ When the user asks for a PPT, leadership deck, presentation material, downloadab
 }
 ```
 
-Recommended PPT structure: 12-18 slides covering executive summary, strategic context, maturity assessment, target vision, capability blueprint, gap analysis, roadmap, governance, investment, risk and next steps.
+Recommended PPT structure: 16-22 slides covering executive summary, strategic context, maturity assessment, target vision, capability blueprint, use-case portfolio, gap analysis, roadmap, governance, investment, KPI dashboard, risk and next steps.
 
 ## Dependencies
 
