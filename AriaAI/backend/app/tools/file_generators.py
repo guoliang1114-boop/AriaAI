@@ -359,6 +359,17 @@ def _clear_generated_text_shapes(slide):
             shape.text_frame.clear()
 
 
+def _render_section_slide(slide, title: str, section_number: int):
+    _clear_generated_text_shapes(slide)
+    if not _set_named_or_placeholder_text(slide, "aria_section_title", title):
+        if slide.shapes.title is not None:
+            slide.shapes.title.text = title
+    if not _set_named_or_placeholder_text(slide, "aria_section_number", f"{section_number:02d}"):
+        body = _find_body_placeholder(slide)
+        if body is not None:
+            body.text = f"{section_number:02d}"
+
+
 def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = False, color: str = "1F2937"):
     from pptx.dml.color import RGBColor
     from pptx.util import Pt
