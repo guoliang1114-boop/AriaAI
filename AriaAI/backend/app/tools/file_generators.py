@@ -2482,10 +2482,32 @@ def _resolve_digital_strategy_layout(slide_data: dict) -> str:
         "risk_heatmap": "risk_register",
         "next_steps": "action_plan",
         "action": "action_plan",
+        "current_target": "current_target",
+        "current_vs_target": "current_target",
+        "as_is_to_be": "current_target",
     }
     if explicit:
         return aliases.get(explicit, explicit)
-    return _digital_strategy_layout_key(str(slide_data.get("title") or ""), str(slide_data.get("type") or ""))
+    resolved = _digital_strategy_layout_key(str(slide_data.get("title") or ""), str(slide_data.get("type") or ""))
+    if resolved:
+        return resolved
+    combined_text = " ".join(
+        str(slide_data.get(key) or "")
+        for key in ("title", "content", "left_content", "right_content")
+    ).lower()
+    if (
+        ("current state" in combined_text and "target state" in combined_text)
+        or ("as-is" in combined_text and "to-be" in combined_text)
+        or ("现状" in combined_text and "目标" in combined_text)
+    ):
+        return "current_target"
+    if any(token in combined_text for token in ("why now", "market shift", "competitive shift", "为什么现在", "市场变化", "竞争变化", "机会窗口")):
+        return "strategic_context"
+    if any(token in combined_text for token in ("customer journey", "journey", "客户旅程", "旅程", "获客", "留存")):
+        return "customer_journey"
+    if any(token in combined_text for token in ("initiative", "milestone", "year 1", "year 2", "year 3", "举措", "里程碑", "第一年", "第二年", "第三年")):
+        return "initiative_milestones"
+    return ""
 
 
 def _combined_slide_content(slide_data: dict) -> str:
@@ -2504,21 +2526,30 @@ def _combined_slide_content(slide_data: dict) -> str:
     return "\n".join(part for part in parts if part.strip())
 
 
-def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int):
+def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, full_canvas: bool = False):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
     bullets = _split_bullets(body, limit=8)
-    used_template = (
-        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
-        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
-    )
-    visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
+    title_set = _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+    if full_canvas:
+        body_set = _set_named_or_placeholder_text(slide, "aria_slide_body", "")
+        used_template = title_set and body_set
+        visual_bounds = (Inches(1.02), Inches(1.38), Inches(11.28), Inches(5.22))
+    else:
+        used_template = (
+            title_set
+            and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
+        )
+        visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
-        visual_bounds = (Inches(6.9), Inches(1.35), Inches(5.6), Inches(5.25))
-        _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
+        if full_canvas:
+            visual_bounds = (Inches(0.92), Inches(1.38), Inches(11.48), Inches(5.18))
+        else:
+            visual_bounds = (Inches(6.9), Inches(1.35), Inches(5.6), Inches(5.25))
+            _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
     return bullets, visual_bounds, used_template
 
 
@@ -2564,6 +2595,30 @@ def _render_strategy_executive_summary(slide, x, y, w, h, bullets: list[str]):
         _add_textbox(slide, left + Inches(0.16), top + Inches(0.58), w * 0.40, h * 0.20, text[:125], size=7, color="334155")
 
 
+def _render_strategy_context(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    labels = ["市场压力", "竞争压力", "内部约束", "机会窗口"]
+    colors = [("EFF6FF", "1D4ED8"), ("ECFDF5", "047857"), ("FFF7ED", "C2410C"), ("F5F3FF", "7C3AED")]
+    center_x = x + w * 0.5
+    center_y = y + h * 0.46
+    _add_shape(slide, MSO_SHAPE.OVAL, center_x - Inches(0.84), center_y - Inches(0.62), Inches(1.68), Inches(1.24), fill="0F172A", line="0F172A")
+    _add_textbox(slide, center_x - Inches(0.62), center_y - Inches(0.22), Inches(1.24), Inches(0.32), "现在必须\n加速转型", size=10, bold=True, color="FFFFFF")
+    positions = [(0.02, 0.04), (0.62, 0.04), (0.02, 0.66), (0.62, 0.66)]
+    for idx, label in enumerate(labels):
+        fill, accent = colors[idx]
+        left = x + w * positions[idx][0]
+        top = y + h * positions[idx][1]
+        card_w = w * 0.34
+        _add_card(slide, left, top, card_w, Inches(1.22), fill=fill, line=accent)
+        _add_shape(slide, MSO_SHAPE.RECTANGLE, left, top, card_w, Inches(0.07), fill=accent, line=accent)
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.18), card_w - Inches(0.32), Inches(0.28), label, size=10, bold=True, color=accent)
+        text = bullets[idx] if idx < len(bullets) else "明确变化对增长、效率、风险和客户体验的管理影响"
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.55), card_w - Inches(0.32), Inches(0.46), text[:120], size=7, color="334155")
+        _add_shape(slide, MSO_SHAPE.LINE_INVERSE, left + card_w * 0.5, top + Inches(1.22), center_x, center_y, fill="CBD5E1", line="CBD5E1")
+
+
 def _render_strategy_root_cause(slide, x, y, w, h, bullets: list[str]):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
@@ -2602,6 +2657,29 @@ def _render_strategy_capability_blueprint(slide, x, y, w, h, bullets: list[str])
         _add_textbox(slide, left + Inches(0.12), top + Inches(0.14), w * 0.34, Inches(0.22), label, size=8, bold=True, color="1D4ED8")
         detail = bullets[idx] if idx < len(bullets) else "定义能力、场景、数据和指标"
         _add_textbox(slide, left + Inches(0.12), top + Inches(0.42), w * 0.34, Inches(0.38), detail[:92], size=6, color="475569")
+
+
+def _render_strategy_customer_journey(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    stages = ["获客", "销售", "上线", "服务", "留存"]
+    accents = ["1D4ED8", "047857", "C2410C", "7C3AED", "0F766E"]
+    step_w = w / len(stages) - Inches(0.08)
+    top = y + Inches(0.34)
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x + Inches(0.3), top + Inches(0.45), w - Inches(0.6), Inches(0.06), fill="CBD5E1", line="CBD5E1")
+    for idx, stage in enumerate(stages):
+        left = x + idx * (step_w + Inches(0.1))
+        accent = accents[idx]
+        _add_shape(slide, MSO_SHAPE.OVAL, left + step_w / 2 - Inches(0.24), top + Inches(0.24), Inches(0.48), Inches(0.48), fill=accent, line=accent)
+        _add_textbox(slide, left + step_w / 2 - Inches(0.08), top + Inches(0.35), Inches(0.16), Inches(0.12), str(idx + 1), size=7, bold=True, color="FFFFFF")
+        _add_card(slide, left, top + Inches(1.0), step_w, h - Inches(1.2), fill="FFFFFF", line="D7DEE8")
+        _add_textbox(slide, left + Inches(0.14), top + Inches(1.18), step_w - Inches(0.28), Inches(0.28), stage, size=11, bold=True, color=accent)
+        text = bullets[idx] if idx < len(bullets) else "识别断点、数据需求和业务负责人"
+        _add_textbox(slide, left + Inches(0.14), top + Inches(1.58), step_w - Inches(0.28), Inches(0.92), text[:115], size=7, color="334155")
+    insight = bullets[5] if len(bullets) > 5 else "用旅程断点连接增长场景、数据资产、流程变化和责任人机制"
+    _add_card(slide, x + Inches(0.25), y + h - Inches(0.48), w - Inches(0.5), Inches(0.42), fill="EFF6FF", line="BFDBFE")
+    _add_textbox(slide, x + Inches(0.45), y + h - Inches(0.37), w - Inches(0.9), Inches(0.18), insight[:130], size=8, bold=True, color="1E3A8A")
 
 
 def _render_strategy_operating_model(slide, x, y, w, h, bullets: list[str]):
@@ -2662,6 +2740,31 @@ def _render_strategy_roadmap(slide, x, y, w, h, bullets: list[str]):
             _add_shape(slide, MSO_SHAPE.CHEVRON, left + card_w + Inches(0.03), y + h * 0.48, Inches(0.28), Inches(0.28), fill="CBD5E1", line="CBD5E1")
 
 
+def _render_strategy_initiative_milestones(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    rows = ["Year 1", "Year 2", "Year 3"]
+    row_labels = ["基线与试点", "平台与复制", "AI 运营与优化"]
+    accents = ["1D4ED8", "047857", "C2410C"]
+    row_h = (h - Inches(0.34)) / 3
+    for idx, year in enumerate(rows):
+        top = y + idx * (row_h + Inches(0.1))
+        accent = accents[idx]
+        _add_card(slide, x, top, w, row_h, fill="FFFFFF", line="D7DEE8")
+        _add_shape(slide, MSO_SHAPE.RECTANGLE, x, top, Inches(1.16), row_h, fill=accent, line=accent)
+        _add_textbox(slide, x + Inches(0.16), top + Inches(0.22), Inches(0.84), Inches(0.28), year, size=11, bold=True, color="FFFFFF")
+        _add_textbox(slide, x + Inches(1.38), top + Inches(0.18), Inches(2.0), Inches(0.28), row_labels[idx], size=10, bold=True, color=accent)
+        source = bullets[idx] if idx < len(bullets) else "明确负责人、价值 KPI、用户群体、数据依赖和里程碑"
+        chunks = [part.strip() for part in source.replace("；", ";").replace("，", ";").split(";") if part.strip()] or [source]
+        lane_w = (w - Inches(3.45)) / 3
+        for lane_idx in range(3):
+            left = x + Inches(3.25) + lane_idx * (lane_w + Inches(0.12))
+            _add_card(slide, left, top + Inches(0.18), lane_w, row_h - Inches(0.36), fill=["EFF6FF", "ECFDF5", "FFF7ED"][lane_idx], line="E2E8F0")
+            text = chunks[lane_idx] if lane_idx < len(chunks) else source[:74]
+            _add_textbox(slide, left + Inches(0.12), top + Inches(0.34), lane_w - Inches(0.24), row_h - Inches(0.62), text[:86], size=7, color="334155")
+
+
 def _render_strategy_kpi(slide, x, y, w, h, bullets: list[str]):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
@@ -2678,6 +2781,35 @@ def _render_strategy_kpi(slide, x, y, w, h, bullets: list[str]):
         _add_textbox(slide, left + Inches(0.16), top + Inches(0.46), Inches(0.9), Inches(0.36), sample_values[idx], size=16, bold=True, color=accents[idx])
         text = bullets[idx] if idx < len(bullets) else "定义基线、目标、负责人和复盘节奏"
         _add_textbox(slide, left + Inches(1.18), top + Inches(0.50), w * 0.28, h * 0.22, text[:105], size=7, color="334155")
+
+
+def _render_strategy_current_target(slide, x, y, w, h, slide_data: dict, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    left_text = str(slide_data.get("left_content") or "")
+    right_text = str(slide_data.get("right_content") or "")
+    current_points = _split_bullets(left_text, limit=5) or bullets[:3] or ["数据与流程仍较割裂", "客户旅程编排有限", "价值追踪尚未嵌入治理"]
+    target_points = _split_bullets(right_text, limit=5) or bullets[3:6] or ["建立统一数据底座", "形成场景化运营自动化", "用 KPI 驱动组合治理"]
+    delta_points = bullets[6:9] or bullets[:3] or ["补齐数据责任机制", "优先上线高价值场景", "建立采用率和价值复盘节奏"]
+
+    column_w = (w - Inches(0.72)) / 3
+    columns = [
+        ("现状", current_points, "F8FAFC", "64748B"),
+        ("关键差距", delta_points, "FFF7ED", "C2410C"),
+        ("目标状态", target_points, "EFF6FF", "1D4ED8"),
+    ]
+    for idx, (label, points, fill, accent) in enumerate(columns):
+        left = x + idx * (column_w + Inches(0.36))
+        _add_card(slide, left, y, column_w, h, fill=fill, line=accent)
+        _add_shape(slide, MSO_SHAPE.RECTANGLE, left, y, column_w, Inches(0.08), fill=accent, line=accent)
+        _add_textbox(slide, left + Inches(0.22), y + Inches(0.22), column_w - Inches(0.44), Inches(0.34), label, size=13, bold=True, color=accent)
+        for point_idx, point in enumerate(points[:5]):
+            top = y + Inches(0.82) + point_idx * Inches(0.72)
+            _add_shape(slide, MSO_SHAPE.OVAL, left + Inches(0.24), top + Inches(0.04), Inches(0.22), Inches(0.22), fill=accent, line=accent)
+            _add_textbox(slide, left + Inches(0.58), top - Inches(0.02), column_w - Inches(0.82), Inches(0.42), point[:86], size=8, color="334155")
+        if idx < 2:
+            _add_shape(slide, MSO_SHAPE.CHEVRON, left + column_w + Inches(0.08), y + h * 0.46, Inches(0.22), Inches(0.34), fill="CBD5E1", line="CBD5E1")
 
 
 def _render_strategy_risk(slide, x, y, w, h, bullets: list[str]):
@@ -2716,9 +2848,35 @@ def _render_strategy_action_plan(slide, x, y, w, h, bullets: list[str]):
 def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, layout_key: str) -> bool:
     title = str(slide_data.get("title") or "")
     body = _combined_slide_content(slide_data)
-    bullets, (x, y, w, h), used_template = _prepare_strategy_canvas(slide, title, body, slide_number)
+    full_canvas_layouts = {
+        "executive_summary",
+        "maturity_heatmap",
+        "root_cause",
+        "target_blueprint",
+        "capability_blueprint",
+        "operating_model",
+        "portfolio_matrix",
+        "prioritization_matrix",
+        "roadmap",
+        "investment_kpi",
+        "risk_register",
+        "action_plan",
+        "current_target",
+        "strategic_context",
+        "customer_journey",
+        "initiative_milestones",
+    }
+    bullets, (x, y, w, h), used_template = _prepare_strategy_canvas(
+        slide,
+        title,
+        body,
+        slide_number,
+        full_canvas=layout_key in full_canvas_layouts,
+    )
     if layout_key == "executive_summary":
         _render_strategy_executive_summary(slide, x, y, w, h, bullets)
+    elif layout_key == "strategic_context":
+        _render_strategy_context(slide, x, y, w, h, bullets)
     elif layout_key == "target_blueprint":
         _render_strategy_capability_blueprint(slide, x, y, w, h, bullets)
     elif layout_key == "maturity_heatmap":
@@ -2727,14 +2885,20 @@ def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, 
         _render_strategy_root_cause(slide, x, y, w, h, bullets)
     elif layout_key == "capability_blueprint":
         _render_strategy_capability_blueprint(slide, x, y, w, h, bullets)
+    elif layout_key == "customer_journey":
+        _render_strategy_customer_journey(slide, x, y, w, h, bullets)
     elif layout_key == "operating_model":
         _render_strategy_operating_model(slide, x, y, w, h, bullets)
     elif layout_key in {"portfolio_matrix", "prioritization_matrix"}:
         _render_strategy_portfolio_matrix(slide, x, y, w, h, bullets)
     elif layout_key == "roadmap":
         _render_strategy_roadmap(slide, x, y, w, h, bullets)
+    elif layout_key == "initiative_milestones":
+        _render_strategy_initiative_milestones(slide, x, y, w, h, bullets)
     elif layout_key == "investment_kpi":
         _render_strategy_kpi(slide, x, y, w, h, bullets)
+    elif layout_key == "current_target":
+        _render_strategy_current_target(slide, x, y, w, h, slide_data, bullets)
     elif layout_key == "risk_register":
         _render_strategy_risk(slide, x, y, w, h, bullets)
     elif layout_key == "action_plan":
