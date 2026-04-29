@@ -51,6 +51,9 @@ Formatting constraints:
 - Avoid paragraphs inside slide content. Split paragraphs into bullets.
 - Add a chapter divider every 4-6 business pages for decks longer than 10 slides.
 - Prefer 2-column layouts when a page naturally contains contrast, trade-offs, or ownership split.
+- Keep one language per deck. For Chinese requests, use Chinese slide titles, bullets, section names, chart labels, and action labels; avoid English defaults unless the user asks for bilingual material.
+- Clean Markdown before calling the PPT tool. Do not send raw `#` headings, `**bold**`, Markdown tables, block quotes, or long prose into slide fields.
+- Use varied page families deliberately: `roadmap` for phased plans, `matrix` for prioritization, `kpi` for scorecards, `risk` for risk registers, and `next_steps` for action plans.
 - Do not leave placeholder bullets like "TBD" or "more analysis needed"; write the exact assumption or evidence gap.
 
 ## Deck Presets

@@ -245,6 +245,9 @@ PPT depth standard:
 - Add chapter divider slides every 4-6 business pages. Recommended dividers: Executive Alignment, Target Blueprint, Roadmap and Investment, Governance and Mobilization.
 - Use `two_column` whenever the page compares current vs target, strengths vs constraints, value vs feasibility, investment vs benefits, or risks vs mitigations.
 - Ensure roadmap, capability blueprint, maturity, target operating model, and investment pages contain enough visual keywords and structured bullets for the PPT generator to render richer visual pages.
+- Keep the deck language consistent with the user's language. For Chinese requests, write slide titles, bullets, labels, notes, and section names in Chinese; do not mix English labels such as Executive Summary, Current/Target, Foundation/Scale/Lead unless the user explicitly asks for bilingual output.
+- Do not pass raw Markdown into the PPT tool. Convert headings, bold text, tables, and long paragraphs into clean slide titles, bullets, two-column text, or structured visual pages.
+- Use varied layouts across the deck: `title` for chapter dividers, `content` for argument pages, `two_column` for contrast, `roadmap` for phases, `matrix` for prioritization, `kpi` for scorecards, `risk` for risk registers, and `next_steps` for action plans.
 
 ```json
 {

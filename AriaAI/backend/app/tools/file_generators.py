@@ -417,17 +417,52 @@ def _add_shape(slide, shape_type, x, y, w, h, *, fill: str = "E0F2FE", line: str
     return shape
 
 
+def _clean_ppt_text(value: Any) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.M)
+    text = re.sub(r"^\s{0,3}>\s*", "", text, flags=re.M)
+    text = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    cleaned_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [cell.strip() for cell in stripped.strip("|").split("|") if cell.strip()]
+            if cells and all(set(cell) <= {"-", ":", " "} for cell in cells):
+                continue
+            stripped = "；".join(cells)
+        cleaned_lines.append(stripped)
+    return "\n".join(cleaned_lines).strip()
+
+
 def _split_bullets(content: str, limit: int = 6) -> list[str]:
     bullets: list[str] = []
-    for raw in content.splitlines():
+    for raw in _clean_ppt_text(content).splitlines():
         item = raw.strip()
-        item = re.sub(r"^[-*•]\s*", "", item)
+        item = re.sub(r"^[-*•·]\s*", "", item)
         item = re.sub(r"^\d{1,2}[.、)）]\s*", "", item)
+        item = _clean_ppt_text(item)
         if item:
             bullets.append(item)
-    if not bullets and content.strip():
-        bullets = [content.strip()]
+    if not bullets and _clean_ppt_text(content):
+        bullets = [_clean_ppt_text(content)]
     return bullets[:limit]
+
+
+def _prepare_ppt_slide_text(slides: list[dict]) -> list[dict]:
+    prepared: list[dict] = []
+    for slide in slides:
+        item = dict(slide)
+        for key in ("title", "subtitle", "content", "left_content", "right_content"):
+            if key in item:
+                item[key] = _clean_ppt_text(item.get(key))
+        prepared.append(item)
+    return prepared
 
 
 def _add_slide_header(slide, title: str, slide_number: int):
@@ -492,11 +527,11 @@ def _add_consulting_visual_panel(slide, x, y, w, h, bullets: list[str]):
     from pptx.util import Inches
 
     _add_card(slide, x, y, w, h, fill="FAFBFC", line="D7DEE8")
-    _add_textbox(slide, x + Inches(0.24), y + Inches(0.16), w - Inches(0.48), Inches(0.28), "Executive lens", size=11, bold=True, color="0F172A")
-    _add_textbox(slide, x + Inches(0.24), y + Inches(0.48), w - Inches(0.48), Inches(0.24), "Impact drivers", size=8, color="64748B")
+    _add_textbox(slide, x + Inches(0.24), y + Inches(0.16), w - Inches(0.48), Inches(0.28), "管理层视角", size=11, bold=True, color="0F172A")
+    _add_textbox(slide, x + Inches(0.24), y + Inches(0.48), w - Inches(0.48), Inches(0.24), "价值驱动因素", size=8, color="64748B")
 
     colors = ["1D4ED8", "047857", "B45309"]
-    labels = ["Value", "Adoption", "Scale"]
+    labels = ["价值", "采用", "规模化"]
     for idx, label in enumerate(labels):
         top = y + Inches(0.88 + idx * 0.64)
         _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.28), top, Inches(0.30), Inches(0.30), fill=colors[idx], line=colors[idx])
@@ -506,21 +541,21 @@ def _add_consulting_visual_panel(slide, x, y, w, h, bullets: list[str]):
         bar.fill.fore_color.rgb = RGBColor.from_string(colors[idx])
         bar.line.fill.background()
 
-    insight = bullets[0] if bullets else "Align digital investments with measurable business outcomes."
+    insight = bullets[0] if bullets else "将数字化投入与可衡量的业务结果绑定。"
     matrix_x = x + Inches(0.26)
     matrix_y = y + Inches(2.95)
     matrix_w = w - Inches(0.52)
     matrix_h = Inches(0.86)
     _add_card(slide, matrix_x, matrix_y, matrix_w, matrix_h, fill="EEF2FF", line="C7D2FE")
     _add_textbox(slide, matrix_x + Inches(0.16), matrix_y + Inches(0.13), matrix_w - Inches(0.32), Inches(0.46), insight[:110], size=9, bold=True, color="1E1B4B")
-    _add_textbox(slide, x + Inches(0.28), y + Inches(3.98), w - Inches(0.56), Inches(0.22), "Decision focus: prioritize high-confidence, high-impact moves", size=7, color="64748B")
+    _add_textbox(slide, x + Inches(0.28), y + Inches(3.98), w - Inches(0.56), Inches(0.22), "决策重点：优先推进高确定性、高影响力举措", size=7, color="64748B")
 
 
 def _add_value_chain_visual(slide, x, y, w, h, bullets: list[str]):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
-    labels = ["Diagnose", "Design", "Mobilize", "Scale"]
+    labels = ["诊断", "设计", "动员", "规模化"]
     colors = ["EFF6FF", "ECFDF5", "FFF7ED", "F8FAFC"]
     accents = ["1D4ED8", "047857", "C2410C", "475569"]
     step_w = w / 4 - Inches(0.08)
@@ -543,7 +578,7 @@ def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int
 
     _clear_text_shapes(slide)
     _add_slide_header(slide, title, slide_number)
-    phases = bullets[:3] or ["Foundation", "Scale", "Lead"]
+    phases = bullets[:3] or ["阶段一：夯实基础", "阶段二：规模复制", "阶段三：领先优化"]
     colors = [("DBEAFE", "2563EB"), ("DCFCE7", "16A34A"), ("FEF3C7", "D97706")]
     for idx, phase in enumerate(phases):
         x = Inches(0.85 + idx * 4.05)
@@ -551,7 +586,7 @@ def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int
         _add_card(slide, x, Inches(1.55), Inches(3.55), Inches(4.55), fill=fill, line=accent)
         _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.25), Inches(1.85), Inches(0.58), Inches(0.58), fill=accent, line=accent)
         _add_textbox(slide, x + Inches(0.42), Inches(1.97), Inches(0.28), Inches(0.22), str(idx + 1), size=11, bold=True, color="FFFFFF")
-        label = ["Foundation", "Scale", "Lead"][idx] if idx < 3 else f"Phase {idx + 1}"
+        label = ["夯实基础", "规模复制", "领先优化"][idx] if idx < 3 else f"阶段 {idx + 1}"
         _add_textbox(slide, x + Inches(0.95), Inches(1.88), Inches(2.2), Inches(0.35), label, size=15, bold=True, color=accent)
         _add_textbox(slide, x + Inches(0.35), Inches(2.55), Inches(2.95), Inches(2.45), phase[:260], size=12, color="334155")
         if idx < len(phases) - 1:
@@ -567,12 +602,13 @@ def _wants_visual_slide(title: str, content: str = "") -> bool:
         "heatmap", "root cause", "operating model", "use-case", "use case",
         "portfolio", "prioritization", "investment", "funding", "kpi",
         "risk", "mitigation", "90-day", "90 day", "action plan",
-        "路线", "阶段", "蓝图", "能力", "成熟度", "路径", "规划",
+        "路线", "路线图", "阶段", "里程碑", "蓝图", "能力", "成熟度", "路径", "规划",
+        "组合", "优先级", "投资", "资金", "指标", "风险", "缓释", "行动计划", "治理",
     )
     return any(keyword in text for keyword in keywords)
 
 
-def _render_visual_slide(slide, title: str, content: str, slide_number: int):
+def _render_visual_slide(slide, title: str, content: str, slide_number: int, visual_kind: str = ""):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
@@ -590,10 +626,10 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
         _add_textbox(slide, Inches(0.85), Inches(1.45), Inches(5.95), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets), size=13, color="334155")
 
     x, y, w, h = visual_bounds
-    lower_title = title.lower()
+    lower_title = f"{visual_kind} {title}".lower()
 
-    if any(token in lower_title for token in ("heatmap", "maturity", "prioritization", "portfolio")):
-        labels = ["High value", "Build foundation", "Scale later", "Defer"]
+    if any(token in lower_title for token in ("matrix", "heatmap", "maturity", "prioritization", "portfolio", "矩阵", "成熟度", "优先级", "组合")):
+        labels = ["高价值快赢", "基础能力", "规模复制", "暂缓推进"]
         positions = [
             (0.06, 0.08, "DBEAFE", "1D4ED8"),
             (0.52, 0.08, "ECFDF5", "047857"),
@@ -613,12 +649,12 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
             _add_slide_footer(slide)
         return
 
-    if any(token in lower_title for token in ("kpi", "investment", "funding", "business case")):
+    if any(token in lower_title for token in ("kpi", "investment", "funding", "business case", "指标", "投资", "资金", "商业价值")):
         metrics = [
-            ("Value", "Revenue / margin impact", "1D4ED8"),
-            ("Adoption", "Users / workflow coverage", "047857"),
-            ("Delivery", "Milestones / dependencies", "C2410C"),
-            ("Risk", "Controls / mitigations", "7C3AED"),
+            ("价值", "收入 / 利润 / 成本影响", "1D4ED8"),
+            ("采用", "用户 / 流程覆盖率", "047857"),
+            ("交付", "里程碑 / 依赖项", "C2410C"),
+            ("风险", "控制点 / 缓释动作", "7C3AED"),
         ]
         card_w = w / 2 - Inches(0.12)
         card_h = h / 2 - Inches(0.14)
@@ -634,19 +670,19 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
             _add_slide_footer(slide)
         return
 
-    if any(token in lower_title for token in ("risk", "mitigation")):
+    if any(token in lower_title for token in ("risk", "mitigation", "风险", "缓释")):
         colors = [("FEF2F2", "DC2626"), ("FFF7ED", "EA580C"), ("F8FAFC", "475569")]
         for idx, (fill, accent) in enumerate(colors):
             top = y + idx * (h / 3)
             _add_card(slide, x, top, w, h / 3 - Inches(0.16), fill=fill, line=accent)
             _add_textbox(slide, x + Inches(0.16), top + Inches(0.12), Inches(0.6), Inches(0.28), f"R{idx + 1}", size=9, bold=True, color=accent)
-            risk_text = bullets[idx] if idx < len(bullets) else "Define owner, mitigation and monitoring cadence."
+            risk_text = bullets[idx] if idx < len(bullets) else "明确责任人、缓释动作和监控节奏。"
             _add_textbox(slide, x + Inches(0.86), top + Inches(0.1), w - Inches(1.05), h / 3 - Inches(0.34), risk_text[:170], size=8, color="334155")
         if not used_template:
             _add_slide_footer(slide)
         return
 
-    phases = bullets[:3] or ["Foundation", "Scale", "Lead"]
+    phases = bullets[:3] or ["阶段一：夯实基础", "阶段二：规模复制", "阶段三：领先优化"]
     colors = [("EFF6FF", "1D4ED8"), ("ECFDF5", "047857"), ("FFF7ED", "C2410C")]
     card_h = h / 3 - Inches(0.16)
     for idx, phase in enumerate(phases[:3]):
@@ -655,7 +691,7 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int):
         _add_card(slide, x, top, w, card_h, fill=fill, line=accent)
         _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.18), top + Inches(0.16), Inches(0.38), Inches(0.38), fill=accent, line=accent)
         _add_textbox(slide, x + Inches(0.31), top + Inches(0.23), Inches(0.14), Inches(0.12), str(idx + 1), size=8, bold=True, color="FFFFFF")
-        label = ["Foundation", "Scale", "Lead"][idx]
+        label = ["夯实基础", "规模复制", "领先优化"][idx]
         _add_textbox(slide, x + Inches(0.68), top + Inches(0.12), w - Inches(0.9), Inches(0.26), label, size=11, bold=True, color=accent)
         _add_textbox(slide, x + Inches(0.68), top + Inches(0.45), w - Inches(0.9), card_h - Inches(0.58), phase[:180], size=9, color="334155")
 
@@ -714,8 +750,8 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
     columns = [
-        ("Current / Foundation", left_content, "F8FAFC", "2563EB", Inches(0.85)),
-        ("Target / Scale", right_content, "F0FDF4", "16A34A", Inches(6.85)),
+        ("现状 / 基础", left_content, "F8FAFC", "2563EB", Inches(0.85)),
+        ("目标 / 规模化", right_content, "F0FDF4", "16A34A", Inches(6.85)),
     ]
     if used_template:
         # Keep the user's two-column template untouched apart from named text.
@@ -742,9 +778,9 @@ def _render_back_cover(slide, title: str):
     background.fill.solid()
     background.fill.fore_color.rgb = RGBColor.from_string("0F172A")
     background.line.fill.background()
-    _add_textbox(slide, Inches(0.9), Inches(2.35), Inches(11.5), Inches(0.7), "Thank you", size=34, bold=True, color="FFFFFF")
+    _add_textbox(slide, Inches(0.9), Inches(2.35), Inches(11.5), Inches(0.7), "谢谢", size=34, bold=True, color="FFFFFF")
     _add_textbox(slide, Inches(0.9), Inches(3.15), Inches(11.5), Inches(0.45), title, size=16, color="CBD5E1")
-    _add_textbox(slide, Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.3), "Generated by AriaAI", size=10, color="94A3B8")
+    _add_textbox(slide, Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.3), "由 AriaAI 生成", size=10, color="94A3B8")
 
 
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
@@ -888,7 +924,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         },
     ]
 
-    for slide in plan:
+    for slide in _localize_builtin_slides(plan):
         key = slide["title"].lower()
         if key in existing:
             continue
@@ -1070,175 +1106,207 @@ PRESENTATION_BUILDER_COMMON_SLIDES: list[dict] = [
 ]
 
 
-PRESENTATION_BUILDER_PRESETS: dict[str, list[dict]] = {
-    "strategy": [
-        {
-            "type": "title",
-            "title": "Strategic Direction",
-        },
-        {
-            "type": "content",
-            "title": "Executive Answer",
-            "content": "- Core recommendation and decision required\n- Value ambition and expected management impact\n- Priority moves for the next planning horizon\n- Key assumptions and evidence to validate\n- Immediate leadership asks",
-        },
-        {
-            "type": "content",
-            "title": "Strategic Context",
-            "content": "- Market, customer, competitor and internal pressure points\n- Why the topic matters now\n- Current constraints and opportunity window\n- Business implications if no action is taken\n- Scope boundaries for the recommendation",
-        },
-        {
-            "type": "two_column",
-            "title": "Current State vs Target State",
-            "left_content": "Current state\n- Fragmented priorities\n- Manual decision loops\n- Inconsistent ownership\n- Limited value tracking",
-            "right_content": "Target state\n- Clear strategic choices\n- Measurable initiatives\n- Accountable owners\n- Quarterly value review",
-        },
-        {
-            "type": "matrix",
-            "title": "Strategic Options",
-            "content": "- Option A: conservative path with lower execution risk\n- Option B: focused acceleration around priority value pools\n- Option C: bold transformation with broader operating model change\n- Trade-offs across value, feasibility, risk and speed\n- Recommended option and rationale",
-            "labels": ["Quick wins", "Foundations", "Differentiators", "Defer"],
-        },
-        {
-            "type": "title",
-            "title": "Roadmap and Governance",
-        },
-        {
-            "type": "roadmap",
-            "title": "Roadmap and Investment Logic",
-            "left_content": "Phase 1\n- Prove value and establish foundations\n- Confirm owners and operating cadence",
-            "content": "Phase 2\n- Scale validated initiatives\n- Expand across teams or business units",
-            "right_content": "Phase 3\n- Institutionalize governance\n- Optimize continuous value realization",
-        },
-        {
-            "type": "kpi",
-            "title": "Governance, KPI and Next Steps",
-            "content": "- Decision forum and escalation route\n- KPI dashboard linked to business outcomes\n- Owner model for delivery and adoption\n- Top risks and mitigations\n- 30/60/90-day actions",
-        },
-    ],
-    "proposal": [
-        {
-            "type": "title",
-            "title": "Client Need",
-        },
-        {
-            "type": "content",
-            "title": "Client Situation and Need",
-            "content": "- Client context and triggering business issue\n- What is at stake for leadership\n- Current pain points and constraints\n- Why external support is valuable now\n- Desired outcomes for the engagement",
-        },
-        {
-            "type": "content",
-            "title": "Our Understanding of the Challenge",
-            "content": "- Business questions to answer\n- Stakeholder priorities and concerns\n- Data, process or organizational unknowns\n- Success criteria for the work\n- Key assumptions to validate in kickoff",
-        },
-        {
-            "type": "title",
-            "title": "Proposed Solution",
-        },
-        {
-            "type": "roadmap",
-            "title": "Proposed Approach",
-            "left_content": "Phase 1\n- Diagnose current state and value pools\n- Align on business questions",
-            "content": "Phase 2\n- Design recommendations and target model\n- Build roadmap and business case",
-            "right_content": "Phase 3\n- Align stakeholders\n- Prepare mobilization and governance",
-        },
-        {
-            "type": "two_column",
-            "title": "Scope and Deliverables",
-            "left_content": "In scope\n- Executive interviews\n- Current-state analysis\n- Option design\n- Roadmap and business case\n- Steering materials",
-            "right_content": "Deliverables\n- Findings summary\n- Recommendation deck\n- Initiative backlog\n- Implementation roadmap\n- Governance playbook",
-        },
-        {
-            "type": "title",
-            "title": "Mobilization",
-        },
-        {
-            "type": "roadmap",
-            "title": "Team, Timeline and Ways of Working",
-            "left_content": "Team\n- Consulting team roles\n- Client participation model",
-            "content": "Timeline\n- Weekly cadence\n- Steering committee rhythm",
-            "right_content": "Ways of working\n- Required inputs\n- Escalation route",
-        },
-        {
-            "type": "risk",
-            "title": "Commercials, Risks and Next Steps",
-            "content": "- Fee and effort assumptions\n- Optional modules and expansion paths\n- Key risks and mitigation actions\n- Immediate next meeting agenda\n- Decision required to launch",
-        },
-    ],
-    "project-update": [
-        {
-            "type": "title",
-            "title": "Status Snapshot",
-        },
-        {
-            "type": "content",
-            "title": "Executive Status",
-            "content": "- Overall status and confidence level\n- Progress since last update\n- Key decisions or escalations required\n- Risks that may affect timeline, budget or value\n- Next milestone and owner",
-        },
-        {
-            "type": "two_column",
-            "title": "Progress vs Plan",
-            "left_content": "Planned\n- Milestones\n- Workstream outputs\n- Decisions expected\n- Dependencies",
-            "right_content": "Actual\n- Completed work\n- Variances\n- Open decisions\n- Dependency status",
-        },
-        {
-            "type": "content",
-            "title": "Workstream Highlights",
-            "content": "- Workstream 1: progress, blocker and next action\n- Workstream 2: progress, blocker and next action\n- Workstream 3: progress, blocker and next action\n- Cross-workstream dependencies\n- Support needed from sponsors",
-        },
-        {
-            "type": "title",
-            "title": "Risks and Decisions",
-        },
-        {
-            "type": "risk",
-            "title": "Risks, Issues and Decisions",
-            "content": "- Top risks ranked by impact and likelihood\n- Active issues and resolution owner\n- Decisions needed this cycle\n- Mitigation actions and deadlines\n- Items to monitor before next update",
-        },
-        {
-            "type": "kpi",
-            "title": "Value and Adoption Signals",
-            "content": "- Benefits delivered or leading indicators\n- User adoption and stakeholder feedback\n- KPI movement against baseline\n- Evidence collected this period\n- Gaps to address before scaling",
-        },
-        {
-            "type": "next_steps",
-            "title": "Next Steps",
-            "content": "- Actions for the next two weeks\n- Owners and deadlines\n- Upcoming workshops or steering meetings\n- Inputs needed from client or leadership\n- Decision log updates",
-        },
-    ],
+CHINESE_BUILTIN_SLIDES: dict[str, dict[str, str]] = {
+    "Strategic Direction": {"title": "战略方向"},
+    "Executive Answer": {
+        "title": "管理层答案：明确建议、价值目标和决策请求",
+        "content": "- 核心建议和需要管理层拍板的事项\n- 价值目标及其对经营管理的影响\n- 下一规划周期的优先动作\n- 需要验证的关键假设和证据\n- 立即需要高层支持的事项",
+    },
+    "Strategic Context": {
+        "title": "战略背景：说明为什么现在必须行动",
+        "content": "- 市场、客户、竞争和内部压力点\n- 该议题为什么在当前阶段重要\n- 现有约束和机会窗口\n- 如果不行动，对业务的影响\n- 本次建议的范围边界",
+    },
+    "Strategic Options": {
+        "title": "战略选项矩阵：比较价值、可行性、风险和速度",
+        "content": "- 选项 A：稳健路径，执行风险较低\n- 选项 B：围绕优先价值池集中加速\n- 选项 C：更大力度的运营模式变革\n- 从价值、可行性、风险和速度比较取舍\n- 推荐选项及其理由",
+    },
+    "Roadmap and Governance": {"title": "路线图与治理"},
+    "Roadmap and Investment Logic": {
+        "title": "路线图与投资逻辑：从证明价值到规模化复制",
+        "content": "阶段一\n- 证明价值并建立基础能力\n- 确认负责人和运营节奏\n阶段二\n- 复制已经验证的举措\n- 扩展到团队或业务单元\n阶段三\n- 固化治理机制\n- 持续优化价值实现",
+    },
+    "Governance, KPI and Next Steps": {
+        "title": "治理、KPI 与下一步：把决策转成行动闭环",
+        "content": "- 决策论坛和升级路径\n- 连接业务结果的 KPI 看板\n- 交付和采用的负责人模型\n- 主要风险和缓释动作\n- 30/60/90 天行动安排",
+    },
+    "Client Need": {"title": "客户需求"},
+    "Client Situation and Need": {
+        "title": "客户情境与需求：明确问题、约束和期望成果",
+        "content": "- 客户背景和触发议题\n- 管理层当前最关注的风险和机会\n- 现有痛点和约束条件\n- 为什么需要外部支持\n- 期望通过项目达成的结果",
+    },
+    "Our Understanding of the Challenge": {
+        "title": "我们对挑战的理解：把业务问题拆成可回答的问题",
+        "content": "- 本项目需要回答的关键业务问题\n- 主要干系人的优先级和顾虑\n- 数据、流程或组织方面的未知项\n- 项目成功标准\n- 启动阶段需要验证的关键假设",
+    },
+    "Proposed Solution": {"title": "建议方案"},
+    "Proposed Approach": {
+        "title": "建议方法：诊断、设计、对齐与动员",
+        "content": "阶段一\n- 诊断现状和价值池\n- 对齐关键业务问题\n阶段二\n- 设计建议和目标模式\n- 形成路线图和商业测算\n阶段三\n- 对齐关键干系人\n- 准备动员和治理机制",
+    },
+    "Scope and Deliverables": {
+        "title": "范围与交付物：明确边界、产出和客户投入",
+        "left_content": "范围内\n- 高层访谈\n- 现状分析\n- 选项设计\n- 路线图和商业测算\n- 指导委员会材料",
+        "right_content": "交付物\n- 发现总结\n- 建议方案 PPT\n- 举措清单\n- 实施路线图\n- 治理手册",
+    },
+    "Mobilization": {"title": "项目动员"},
+    "Team, Timeline and Ways of Working": {
+        "title": "团队、时间表与工作方式：确保启动后快速进入节奏",
+        "content": "团队\n- 咨询团队角色\n- 客户参与机制\n时间表\n- 周度工作节奏\n- 指导委员会节奏\n工作方式\n- 所需输入\n- 升级路径",
+    },
+    "Commercials, Risks and Next Steps": {
+        "title": "商务、风险与下一步：明确启动条件",
+        "content": "- 费用和投入假设\n- 可选模块和扩展路径\n- 关键风险和缓释动作\n- 下一次会议议程\n- 启动项目所需决策",
+    },
+    "Status Snapshot": {"title": "状态快照"},
+    "Executive Status": {
+        "title": "高层状态：进展、风险和所需决策",
+        "content": "- 整体状态和信心等级\n- 相比上次更新的进展\n- 需要决策或升级的事项\n- 可能影响时间、预算或价值的风险\n- 下一里程碑和负责人",
+    },
+    "Progress vs Plan": {
+        "title": "计划与实际：识别偏差、依赖和纠偏动作",
+        "left_content": "计划\n- 里程碑\n- 工作流产出\n- 预期决策\n- 关键依赖",
+        "right_content": "实际\n- 已完成工作\n- 偏差说明\n- 待定决策\n- 依赖状态",
+    },
+    "Workstream Highlights": {
+        "title": "工作流亮点：按模块呈现进展、阻碍和下一步",
+        "content": "- 工作流 1：进展、阻碍和下一步\n- 工作流 2：进展、阻碍和下一步\n- 工作流 3：进展、阻碍和下一步\n- 跨工作流依赖\n- 需要赞助人支持的事项",
+    },
+    "Risks and Decisions": {"title": "风险与决策"},
+    "Risks, Issues and Decisions": {
+        "title": "风险、问题与决策：聚焦本周期必须处理的事项",
+        "content": "- 按影响和可能性排序的主要风险\n- 当前问题及解决负责人\n- 本周期需要的决策\n- 缓释动作和截止时间\n- 下次更新前需要监控的事项",
+    },
+    "Value and Adoption Signals": {
+        "title": "价值与采用信号：用领先指标判断是否可规模化",
+        "content": "- 已实现收益或领先指标\n- 用户采用情况和干系人反馈\n- KPI 相比基线的变化\n- 本周期收集的证据\n- 规模化前需要补齐的缺口",
+    },
+    "Next Steps": {
+        "title": "下一步行动：明确负责人、时间和输入",
+        "content": "- 未来两周行动\n- 负责人和截止时间\n- 即将开展的工作坊或指导委员会\n- 需要客户或管理层提供的输入\n- 决策日志更新",
+    },
+    "Key Assumptions": {
+        "title": "关键假设：说明材料当前依据和待验证项",
+        "content": "- 业务背景和受众假设\n- 当前可用的数据和证据\n- 影响建议的约束条件\n- 需要验证的领域\n- 对下一次工作会的含义",
+    },
+    "Stakeholder Implications": {
+        "title": "干系人影响：提前管理收益、顾虑和沟通口径",
+        "content": "- 受建议影响的主要干系人\n- 各类干系人的预期收益和顾虑\n- 需要强化的沟通信息\n- 可能出现的反对意见和回应逻辑\n- 需要赞助人采取的行动",
+    },
+    "Decision and Action Log": {
+        "title": "决策与行动日志：把讨论转化为可追踪事项",
+        "content": "- 需要管理层决策的事项\n- 已达成一致的行动\n- 未完成行动和负责人\n- 截止日期和依赖关系\n- 下次治理会议需要升级的问题",
+    },
+    "Risks and Mitigations": {
+        "title": "风险与缓释：建立触发条件、责任人和监控节奏",
+        "content": "- 执行风险及可能触发条件\n- 干系人或采用风险\n- 数据、技术或运营依赖\n- 缓释动作和负责人\n- 监控节奏",
+    },
+    "Success Metrics": {
+        "title": "成功指标：把业务结果、采用和交付质量连起来",
+        "content": "- 业务结果 KPI\n- 采用率和使用指标\n- 交付里程碑指标\n- 质量和风险指标\n- 复盘节奏和责任机制",
+    },
+    "Appendix: Supporting Detail": {
+        "title": "附录：支撑材料和后续分析",
+        "content": "- 来源材料和证据包\n- 待收集的访谈或工作坊记录\n- 需要补充的分析\n- 可选模块或未来工作\n- 下一版材料所需参考数据",
+    },
+    "Executive Alignment": {"title": "高层共识"},
+    "Executive Summary": {
+        "title": "执行摘要：把数字化作为业务价值组合来管理",
+        "content": "- 转型论点：数字化不是单纯技术换新，而是围绕增长、效率、风险和体验的价值组合\n- 价值目标：明确收入提升、成本改善、响应速度和风险控制的量化目标\n- 优先动作：先补齐数据基础，选择高价值场景试点，并建立组合治理机制\n- 高层决策：确认转型范围、资金边界、责任人机制和首批试点清单\n- 成功条件：每个举措必须绑定业务 KPI、采用率目标和明确负责人\n- 立即请示：批准诊断范围、首批试点和治理例会节奏",
+    },
+    "Strategic Context and Transformation Thesis": {
+        "title": "战略背景：数字化窗口期已经从试点转向规模化",
+        "content": "- 市场变化：客户期望更快响应、更高透明度和更个性化的服务\n- 竞争变化：数字化成熟企业通过数据和运营速度持续放大优势\n- 内部约束：系统割裂和人工流程降低执行效率，也削弱责任追踪\n- 机会窗口：AI、自动化和云平台让跨职能流程重构具备现实可行性\n- 管理含义：应投资可复用能力，而不是继续建设互不连接的单点项目",
+    },
+    "Current Digital Maturity Diagnosis": {
+        "title": "现状诊断：从六个维度识别成熟度短板",
+        "content": "- 战略：检验数字化优先级是否与增长、成本和风险目标直接挂钩\n- 客户：评估渠道协同、旅程编排和客户数据完整度\n- 运营：识别人工交接、流程瓶颈和可自动化环节\n- 组织：评估决策权、产品负责人、数字人才和变革承载能力\n- 数据/技术：评估主数据、数据治理、API 成熟度、云就绪度和遗留系统风险",
+    },
+    "Maturity Heatmap: Strengths vs Constraints": {
+        "title": "成熟度热力图：优势基础与制约因素",
+        "left_content": "- 已具备动能的强势领域\n- 可复用的系统、数据资产或团队能力\n- 具备赞助和采用条件的业务单元\n- 能快速建立信心的早期证明点",
+        "right_content": "- 阻碍规模化的薄弱领域\n- 遗留系统、数据责任、人才或流程约束\n- 需要高层介入的关键决策\n- 不应只靠工具解决的能力缺口",
+    },
+    "Pain Point Root Causes": {
+        "title": "痛点根因：区分症状、结构性原因和管理动作",
+        "content": "- 流程痛点通常来自责任边界不清，而不只是缺少系统\n- 数据痛点通常来自主数据薄弱、口径不一致和责任机制不足\n- 技术痛点多来自点对点集成、过度定制和遗留平台债务\n- 采用痛点往往来自激励和培训缺口，而不只是工具可用性\n- 根因分析要把业务症状、结构性原因和管理动作拆开",
+    },
+    "Target Blueprint": {"title": "目标蓝图"},
+    "Customer and Growth Experience Gaps": {
+        "title": "客户与增长体验缺口：优先找到价值泄漏点",
+        "content": "- 梳理从获客、销售、上线、服务到留存的优先客户旅程\n- 定位断点：重复录入、响应慢、渠道不一致、个性化不足\n- 用转化流失、留存风险、服务成本和满意度缺口量化影响\n- 定义增长场景：精准营销、销售效率提升和下一最佳行动\n- 将每个场景连接到数据资产、流程变化和责任人机制",
+    },
+    "Digital Vision and Target State": {
+        "title": "数字化愿景与目标状态：形成数据驱动的运营体系",
+        "content": "- 愿景：建设数据驱动企业，让决策、运营和客户互动持续优化\n- 北极星指标：收入提升、利润改善、周期缩短和风险事件下降\n- 运营原则：业务牵引、数据治理、平台赋能、采用率可衡量\n- 能力目标：把重点领域从机会型试点推进到可管理的企业能力\n- 设计边界：核心平台标准化，同时保留业务创新空间",
+    },
+    "Capability Blueprint": {
+        "title": "能力蓝图：围绕客户、运营、数据、AI 和平台建设",
+        "content": "- 客户智能：统一画像、分群、旅程触发和服务个性化\n- 数字运营：工作流自动化、流程挖掘、异常管理和 SLA 可视化\n- 数据基础：主数据、质量规则、数据产品、访问控制和责任模型\n- AI 决策支持：预测、推荐、知识检索和辅助执行\n- 平台架构：API 层、云服务、安全控制和可复用集成组件",
+    },
+    "Target Operating Model Blueprint": {
+        "title": "目标运营模式：把价值、数据、技术和变革责任拆清",
+        "left_content": "- 业务产品负责人负责价值、采用率和需求优先级\n- 数据负责人负责口径、访问、质量和生命周期\n- 技术团队提供可复用平台和安全护栏\n- 转型 PMO 管理组合节奏和收益追踪",
+        "right_content": "- 指导委员会解决范围、资金和跨部门取舍\n- 领域小队通过敏捷发布交付场景\n- 变革冠军推动一线采用和培训\n- 财务验证价值实现并支持阶段门资金",
+    },
+    "Use-Case Portfolio": {
+        "title": "场景组合：平衡快赢、基础能力和战略差异化",
+        "content": "- 增长场景：线索评分、精准营销、流失预测和定价优化\n- 效率场景：自动报表、流程路由、需求计划和服务运营\n- 风险场景：合规监测、异常识别、权限治理和预警看板\n- 员工场景：知识助手、文档生成、培训推荐和专家匹配\n- 组合原则：同时配置快赢、基础使能和战略差异化场景",
+    },
+    "Use-Case Prioritization Logic": {
+        "title": "场景优先级逻辑：按价值、可行性、依赖和变革准备度排序",
+        "left_content": "- 价值池规模和收益确定性\n- 赞助强度和业务负责人准备度\n- 数据可用性和数据质量\n- 交付复杂度和依赖关系",
+        "right_content": "- 先推进可见快赢，建立组织信心\n- 投资能释放多个场景的数据和平台基础\n- 在数据和责任机制成熟后推进差异化能力\n- 暂缓缺少业务赞助的低价值自动化",
+    },
+    "Roadmap and Investment": {"title": "路线图与投资"},
+    "Current State vs Target State": {
+        "title": "现状与目标状态对比",
+        "left_content": "现状\n- 数据割裂，流程依赖人工\n- 客户旅程编排能力有限\n- 价值追踪尚未嵌入治理",
+        "right_content": "目标状态\n- 建立客户和业务数据底座\n- 场景化运营自动化\n- 基于 KPI 的组合治理机制",
+    },
+    "Gap Prioritization Matrix": {
+        "title": "差距优先级矩阵：先做高价值、低复杂度和可见成果",
+        "content": "- 快赢：高价值、低复杂度，并能在 90-180 天内可见\n- 基础能力：数据、架构和治理等规模化前置条件\n- 差异化能力：形成客户、成本或生态优势的能力\n- 暂缓项：缺少业务赞助、价值不清的低价值自动化或技术实验\n- 决策规则：按价值、可行性、依赖和变革准备度排序",
+    },
+    "Three-Horizon Roadmap": {
+        "title": "三阶段路线图：夯实基础、规模复制、领先优化",
+        "content": "- 阶段一：夯实数据基础，启动试点，建立治理并证明价值\n- 阶段二：把验证过的场景复制到业务单元并整合平台\n- 阶段三：建设 AI 原生运营、生态协同和持续创新机制\n- 路线依赖：数据责任机制未运转前，不宜大规模复制高级分析\n- 复盘节奏：季度价值复盘，半年度路线图刷新\n- 管理闸口：只有在采用率和业务 KPI 变化可见后才进入规模化",
+    },
+    "Initiative Portfolio and Milestones": {
+        "title": "举措组合与里程碑：每个项目都要有价值、负责人和闸口",
+        "content": "- 每个举措明确负责人、价值 KPI、用户群体、数据依赖和里程碑\n- 第一年：完成成熟度基线、启动数据治理、3-5 个试点和首版价值看板\n- 第二年：推进平台集成、流程规模化、业务单元复制和人才学院\n- 第三年：建设 AI 运营模式、生态协同和持续优化机制\n- 治理检查点：按采用率和价值结果决定停止、扩大或重设举措",
+    },
+    "Investment Case and Funding Model": {
+        "title": "投资测算与资金机制：用阶段门把投入和价值绑定",
+        "left_content": "- 技术：平台、集成、安全和自动化工具\n- 数据：主数据、治理、质量和数据产品\n- 人才/变革：产品负责人、培训、采用和能力学院\n- 生态：精选伙伴、试点和能力转移",
+        "right_content": "- 阶段门资金与价值证明绑定\n- 设置基础、乐观和保守收益假设\n- KPI 责任由业务和财务共同承担\n- 季度复盘决定停止、扩大或重设",
+    },
+    "Investment, KPI and Risk Controls": {
+        "title": "投资、KPI 与风险控制：建立可追踪的价值闭环",
+        "content": "- 投资范围覆盖技术、数据、人才、变革和伙伴支持\n- 建议结构：40% 技术、30% 人才/变革、20% 数据、10% 生态实验\n- KPI 看板连接业务结果、采用率、数据质量和交付里程碑\n- 关键风险：遗留复杂度、数据责任缺口、低采用率、供应商锁定和安全暴露\n- 控制节奏：月度 PMO 看板和季度高层价值复盘",
+    },
+    "Governance and Mobilization": {"title": "治理与动员"},
+    "Governance and Operating Model": {
+        "title": "治理与运营模式：用节奏、责任和指标保证落地",
+        "content": "- 指导委员会负责优先级、资金取舍和跨职能升级\n- 转型 PMO 管理组合节奏、收益追踪和依赖协调\n- 产品负责人把业务痛点转化为路线图和采用计划\n- 数据负责人治理口径、质量、访问和生命周期\n- 技术团队提供可复用平台、标准和安全护栏",
+    },
+    "Risk Register and Mitigation Plan": {
+        "title": "风险登记与缓释计划：提前管理遗留、数据、采用和伙伴风险",
+        "left_content": "- 遗留风险：隐藏定制、停机和集成债务\n- 数据风险：口径不一致、责任弱和隐私暴露\n- 采用风险：一线使用率低、培训疲劳和激励不足\n- 伙伴风险：锁定、责任不清和能力转移不足",
+        "right_content": "- 采用分阶段迁移和架构护栏\n- 指定数据负责人和质量 SLA\n- 建立变革冠军和分角色赋能\n- 定义伙伴退出标准和内部能力转移",
+    },
+    "90-Day Action Plan": {
+        "title": "90 天行动计划：把共识转成可执行启动方案",
+        "content": "- 第 1-2 周：确认目标、范围、赞助人、决策机制和基线假设\n- 第 3-5 周：开展高层访谈、成熟度评估和数据/平台诊断\n- 第 6-8 周：排序场景、估算收益并定义首批试点\n- 第 9-11 周：设计运营模式、投资测算、KPI 看板和路线依赖\n- 第 12 周：在指导委员会对齐启动计划、资金和负责人",
+    },
+    "Immediate Next Steps": {
+        "title": "立即下一步：确认决策、验证基线并启动首批试点",
+        "content": "- 确认高层共识和转型组合的决策权\n- 用访谈、KPI 数据、系统清单和流程证据验证成熟度基线\n- 选择首批场景，明确价值负责人和采用率目标\n- 把路线图转成有资金支持的季度发布计划\n- 准备指导委员会材料，推动范围、资金和动员审批",
+    },
+    "Appendix: Assessment and Interview Guide": {
+        "title": "附录：评估与访谈指南",
+        "content": "- 高层访谈：战略优先级、痛点、风险偏好和价值目标\n- 业务访谈：旅程摩擦、流程瓶颈、采用障碍和 KPI 基线\n- IT/数据访谈：架构、集成、数据质量、安全和交付约束\n- 证据包：流程图、系统清单、数据字典、项目组合和预算基线\n- 用调研结果替换假设，并持续打磨下一版材料",
+    },
 }
-
-PRESENTATION_BUILDER_COMMON_SLIDES: list[dict] = [
-    {
-        "type": "content",
-        "title": "Key Assumptions",
-        "content": "- Business context and audience assumptions\n- Data and evidence currently available\n- Constraints that shape the recommendation\n- Areas requiring validation\n- Implications for the next working session",
-    },
-    {
-        "type": "content",
-        "title": "Stakeholder Implications",
-        "content": "- Primary stakeholders affected by the recommendation\n- Expected benefits and concerns by stakeholder group\n- Communication messages to reinforce\n- Likely objections and response logic\n- Sponsor actions required",
-    },
-    {
-        "type": "content",
-        "title": "Decision and Action Log",
-        "content": "- Decisions required from leadership\n- Actions already agreed\n- Open actions and owners\n- Due dates and dependencies\n- Escalations for the next governance meeting",
-    },
-    {
-        "type": "risk",
-        "title": "Risks and Mitigations",
-        "content": "- Execution risks and likely triggers\n- Stakeholder or adoption risks\n- Data, technology or operational dependencies\n- Mitigation actions and owners\n- Monitoring cadence",
-    },
-    {
-        "type": "kpi",
-        "title": "Success Metrics",
-        "content": "- Business outcome KPIs\n- Adoption and usage indicators\n- Delivery milestone metrics\n- Quality and risk indicators\n- Review cadence and accountability",
-    },
-    {
-        "type": "content",
-        "title": "Appendix: Supporting Detail",
-        "content": "- Source materials and evidence pack\n- Interview or workshop notes to collect\n- Additional analysis required\n- Optional modules or future work\n- Reference data for the next version",
-    },
-]
 
 
 def _normalize_presentation_deck_type(deck_type: str | None) -> str:
@@ -1266,7 +1334,7 @@ def _normalize_presentation_builder_slides(slides: list[dict], deck_type: str | 
         return normalized
 
     existing = {str(slide.get("title", "")).strip().lower() for slide in normalized}
-    for slide in PRESENTATION_BUILDER_PRESETS[preset_key]:
+    for slide in _localize_builtin_slides(PRESENTATION_BUILDER_PRESETS[preset_key]):
         key = slide["title"].lower()
         if key in existing:
             continue
@@ -1274,7 +1342,7 @@ def _normalize_presentation_builder_slides(slides: list[dict], deck_type: str | 
         existing.add(key)
         if len(normalized) >= minimum_slide_count:
             break
-    for slide in PRESENTATION_BUILDER_COMMON_SLIDES:
+    for slide in _localize_builtin_slides(PRESENTATION_BUILDER_COMMON_SLIDES):
         if len(normalized) >= minimum_slide_count:
             break
         key = slide["title"].lower()
@@ -1326,11 +1394,7 @@ def _normalize_presentation_builder_slide_format(slides: list[dict]) -> list[dic
             item["content"] = "\n".join([*label_lines, body]).strip()
         if slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"}:
             item.setdefault("content", item.get("content") or "")
-        if slide_type == "next_steps":
-            item["type"] = "content"
-        if slide_type in {"roadmap", "matrix", "kpi", "risk"}:
-            item["type"] = "content"
-        if item["type"] == "content" and item.get("content"):
+        if item["type"] in {"content", "roadmap", "matrix", "kpi", "risk", "next_steps"} and item.get("content"):
             bullets = _split_bullets(str(item.get("content") or ""), limit=6)
             item["content"] = "\n".join(f"- {bullet}" for bullet in bullets)
         if item["type"] == "two_column":
@@ -1349,6 +1413,9 @@ async def generate_ppt(
     template_path: str = ""
 ) -> dict[str, Any]:
     """Generate a PowerPoint presentation."""
+    title = _clean_ppt_text(title)
+    subtitle = _clean_ppt_text(subtitle)
+    slides = _prepare_ppt_slide_text(slides)
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt
@@ -1376,7 +1443,9 @@ async def generate_ppt(
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
                 content = slide_data.get("content", "")
-                use_visual = slide_type == "content" and _wants_visual_slide(slide_title, content)
+                use_visual = slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"} or (
+                    slide_type == "content" and _wants_visual_slide(slide_title, content)
+                )
 
                 if slide_type in {"title", "section"}:
                     slide = _clone_slide_from_prototype(prs, visual_prototype)
@@ -1390,7 +1459,7 @@ async def generate_ppt(
                 if slide_type in {"title", "section"}:
                     _render_section_slide(slide, slide_title, slide_index + 1)
                 elif use_visual:
-                    _render_visual_slide(slide, slide_title, content, slide_index + 1)
+                    _render_visual_slide(slide, slide_title, content, slide_index + 1, slide_type)
                 elif slide_type == "two_column":
                     _render_two_column_slide(
                         slide,
@@ -1575,11 +1644,14 @@ async def generate_ppt_from_skill(
     template_key: str = "",
 ) -> dict[str, Any]:
     """Generate PPT using a skill's template."""
+    title = _clean_ppt_text(title)
+    subtitle = _clean_ppt_text(subtitle)
     if skill_name == "digital-strategy":
         slides = _normalize_digital_strategy_slides(slides)
     elif skill_name == "presentation-builder":
         slides = _normalize_presentation_builder_slides(slides, deck_type or template_key)
         slides = _normalize_presentation_builder_slide_format(slides)
+    slides = _prepare_ppt_slide_text(slides)
 
     strict_template_skills = {"digital-strategy", "presentation-builder"}
 

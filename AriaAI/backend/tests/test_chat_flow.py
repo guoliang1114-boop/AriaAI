@@ -4869,12 +4869,12 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         update_slides = _normalize_presentation_builder_slides([], "project-update")
 
         self.assertGreaterEqual(len(proposal_slides), 12)
-        self.assertIn("Proposed Approach", {slide["title"] for slide in proposal_slides})
-        self.assertIn("Commercials, Risks and Next Steps", {slide["title"] for slide in proposal_slides})
-        self.assertIn("Key Assumptions", {slide["title"] for slide in proposal_slides})
+        self.assertIn("建议方法：诊断、设计、对齐与动员", {slide["title"] for slide in proposal_slides})
+        self.assertIn("商务、风险与下一步：明确启动条件", {slide["title"] for slide in proposal_slides})
+        self.assertIn("关键假设：说明材料当前依据和待验证项", {slide["title"] for slide in proposal_slides})
         self.assertGreaterEqual(len(update_slides), 12)
-        self.assertIn("Progress vs Plan", {slide["title"] for slide in update_slides})
-        self.assertIn("Risks, Issues and Decisions", {slide["title"] for slide in update_slides})
+        self.assertIn("计划与实际：识别偏差、依赖和纠偏动作", {slide["title"] for slide in update_slides})
+        self.assertIn("风险、问题与决策：聚焦本周期必须处理的事项", {slide["title"] for slide in update_slides})
 
     def test_presentation_builder_formats_rich_slide_types_for_ppt(self):
         from app.tools.file_generators import (
@@ -4904,12 +4904,29 @@ class BuiltinSkillsTestCase(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(slides[0]["type"], "content")
+        self.assertEqual(slides[0]["type"], "roadmap")
         self.assertIn("Phase 1", slides[0]["content"])
         self.assertIn("Phase 3", slides[0]["content"])
-        self.assertEqual(slides[1]["type"], "content")
+        self.assertEqual(slides[1]["type"], "matrix")
         self.assertIn("Quick wins", slides[1]["content"])
         self.assertLessEqual(slides[2]["content"].count("\n- ") + 1, 6)
+
+    def test_ppt_text_cleanup_removes_markdown_formatting(self):
+        from app.tools.file_generators import _split_bullets
+
+        bullets = _split_bullets(
+            "### **关键发现**\n"
+            "- **价值机会**：减少人工处理\n"
+            "| 维度 | 结论 |\n"
+            "| --- | --- |\n"
+            "| 数据 | 需要统一口径 |\n",
+            limit=5,
+        )
+
+        self.assertIn("关键发现", bullets[0])
+        self.assertIn("价值机会：减少人工处理", bullets[1])
+        self.assertIn("数据；需要统一口径", bullets[-1])
+        self.assertNotIn("**", "\n".join(bullets))
 
     def test_presentation_builder_uses_digital_strategy_template_fallback(self):
         from app.tools.file_generators import generate_ppt_from_skill
