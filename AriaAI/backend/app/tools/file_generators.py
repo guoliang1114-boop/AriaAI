@@ -2873,16 +2873,14 @@ def _merge_digital_strategy_plan(existing: list[dict], plan: list[dict]) -> list
     if not _is_sparse_digital_strategy_deck(existing) and len(existing) >= 20:
         return existing
 
-    rich_existing: list[dict] = []
-    for slide in existing:
-        if _digital_strategy_slide_density(slide) >= 260 or str(slide.get("type") or "") in {"title", "section"}:
-            rich_existing.append(slide)
-        if len(rich_existing) >= 6:
-            break
+    source_slides = [
+        slide for slide in existing
+        if _digital_strategy_slide_density(slide) >= 160 and str(slide.get("type") or "") not in {"title", "section"}
+    ]
 
     merged: list[dict] = []
     seen: set[str] = set()
-    for slide in rich_existing + plan:
+    for slide in plan:
         title = str(slide.get("title") or "").strip()
         if not title:
             continue
@@ -2890,10 +2888,61 @@ def _merge_digital_strategy_plan(existing: list[dict], plan: list[dict]) -> list
         if key in seen:
             continue
         seen.add(key)
-        merged.append(_enrich_digital_strategy_slide(slide, len(merged) + 1))
+        current = dict(slide)
+        source = _find_matching_digital_strategy_source_slide(current, source_slides)
+        if source:
+            current = _blend_digital_strategy_source_slide(current, source)
+        merged.append(_enrich_digital_strategy_slide(current, len(merged) + 1))
         if len(merged) >= 22:
             break
     return merged
+
+
+def _find_matching_digital_strategy_source_slide(target: dict, sources: list[dict]) -> dict | None:
+    layout_key = str(target.get("layout_key") or "")
+    target_text = f"{target.get('title', '')} {layout_key}".lower()
+    keyword_map = {
+        "executive_summary": ("执行摘要", "战略方案", "digital-strategy", "转型论点"),
+        "maturity_heatmap": ("成熟度", "现状", "评估", "rating", "l1", "l2", "l3"),
+        "root_cause": ("痛点", "根因", "瓶颈", "不足", "差距"),
+        "target_blueprint": ("愿景", "目标", "2029", "north", "北极星"),
+        "capability_blueprint": ("能力", "cdp", "画像", "ai", "数据", "平台"),
+        "operating_model": ("运营模式", "治理", "pmo", "owner", "责任"),
+        "portfolio_matrix": ("场景", "用例", "营销", "复购", "自动化"),
+        "prioritization_matrix": ("优先级", "p1", "p2", "价值", "可行"),
+        "roadmap": ("路线图", "阶段", "year", "年", "里程碑"),
+        "investment_kpi": ("投资", "it 投入", "kpi", "指标", "roi", "营收"),
+        "risk_register": ("风险", "遗留", "供应商", "采用", "安全"),
+        "action_plan": ("90", "行动", "周", "启动", "下一步"),
+    }
+    tokens = keyword_map.get(layout_key) or tuple(part for part in target_text.split() if len(part) > 2)
+    best: tuple[int, dict] | None = None
+    for source in sources:
+        source_text = f"{source.get('title', '')}\n{_combined_slide_content(source)}".lower()
+        score = sum(1 for token in tokens if token and token.lower() in source_text)
+        score += min(4, _digital_strategy_slide_density(source) // 180)
+        if score and (best is None or score > best[0]):
+            best = (score, source)
+    return best[1] if best else None
+
+
+def _blend_digital_strategy_source_slide(target: dict, source: dict) -> dict:
+    blended = dict(target)
+    source_bullets = _split_bullets(_combined_slide_content(source), limit=5)
+    if not source_bullets:
+        return blended
+    source_text = "\n".join(f"- {bullet[:150]}" for bullet in source_bullets[:4])
+    if str(blended.get("type") or "") == "two_column":
+        right = str(blended.get("right_content") or "").strip()
+        blended["right_content"] = f"{right}\n\n客户事实补充\n{source_text}".strip()
+    else:
+        content = str(blended.get("content") or "").strip()
+        blended["content"] = f"{content}\n- 客户事实：{source_bullets[0][:145]}".strip()
+        if len(source_bullets) > 1:
+            data_points = list(blended.get("data_points") or [])
+            data_points.extend(source_bullets[1:4])
+            blended["data_points"] = data_points[:6]
+    return blended
 
 
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
@@ -3036,7 +3085,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
     ]
 
     localized_plan = [_enrich_digital_strategy_slide(slide, index + 1) for index, slide in enumerate(_localize_builtin_slides(plan))]
-    if len(normalized) >= 20:
+    if normalized:
         return _merge_digital_strategy_plan(normalized, localized_plan)
 
     for slide in localized_plan:

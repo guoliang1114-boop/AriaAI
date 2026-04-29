@@ -516,6 +516,7 @@ def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
     if current_title:
         sections.append((current_title, current_lines))
 
+    parsed_sections_from_text = bool(sections)
     if not sections:
         chunks = ["\n".join(lines[i : i + 8]) for i in range(0, min(len(lines), 56), 8)]
         sections = [(f"核心内容 {index + 1}", chunk.splitlines()) for index, chunk in enumerate(chunks)]
@@ -533,7 +534,7 @@ def _build_slides_from_strategy_text(full_text: str) -> tuple[str, list[dict]]:
             }
         )
 
-    if len(slides) < 16:
+    if len(slides) < 16 and not parsed_sections_from_text:
         fallback_plan = [
             (
                 "Executive Summary",
