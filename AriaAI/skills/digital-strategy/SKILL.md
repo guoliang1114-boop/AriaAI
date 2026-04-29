@@ -248,6 +248,36 @@ PPT depth standard:
 - Keep the deck language consistent with the user's language. For Chinese requests, write slide titles, bullets, labels, notes, and section names in Chinese; do not mix English labels such as Executive Summary, Current/Target, Foundation/Scale/Lead unless the user explicitly asks for bilingual output.
 - Do not pass raw Markdown into the PPT tool. Convert headings, bold text, tables, and long paragraphs into clean slide titles, bullets, two-column text, or structured visual pages.
 - Use varied layouts across the deck: `title` for chapter dividers, `content` for argument pages, `two_column` for contrast, `roadmap` for phases, `matrix` for prioritization, `kpi` for scorecards, `risk` for risk registers, and `next_steps` for action plans.
+
+PPT design specification:
+
+- Visual tone: consulting partner review deck, white background, restrained blue/teal accents, clear hierarchy, high whitespace, no decorative gradients or random illustration.
+- Canvas: 16:9 executive presentation; each business page must have one main argument, one primary visual structure, and no more than 6 dense bullets.
+- Page rhythm:
+  - `breathing`: cover, chapter divider, single-message page.
+  - `anchor`: executive answer, blueprint, operating model, capability map.
+  - `dense`: diagnosis, matrix, roadmap, KPI, risk, appendix.
+- Every slide object must include `layout_key`, `page_rhythm`, `visualization_type`, `insight`, and either `content` or `left_content/right_content`.
+- `insight` is the page's one-sentence takeaway. It should be written like a slide headline claim, not a topic label.
+- `data_points` should contain quantified assumptions, benchmark ranges, KPI targets, or evidence needed for the visual. If exact data is missing, provide explicit assumptions and label them as assumptions.
+- `management_implications` should state the decision, trade-off, owner, or governance action required from management.
+
+Allowed `layout_key` values:
+
+| layout_key | Use for | Visual discipline |
+|---|---|---|
+| `executive_summary` | executive answer, high-level thesis | 4 executive cards: thesis, value, priorities, decisions |
+| `maturity_heatmap` | maturity diagnosis | 6-dimension maturity grid / heatmap |
+| `root_cause` | pain-point analysis | symptom -> structural cause -> management action |
+| `target_blueprint` | target-state ambition | target capability map |
+| `capability_blueprint` | digital capability blueprint | hub-and-spoke capability system |
+| `operating_model` | governance and TOM | role / decision-rights map |
+| `portfolio_matrix` | use-case portfolio | 2x2 quick-win / foundation / differentiator / defer matrix |
+| `prioritization_matrix` | initiative priority | value vs feasibility matrix |
+| `roadmap` | implementation roadmap | 3-phase timeline |
+| `investment_kpi` | investment, funding, KPI | 4-card scorecard |
+| `risk_register` | risk and mitigation | risk-mitigation paired rows |
+| `action_plan` | 90-day plan | week-by-week action timeline |
 - 逐页版式意图：
   - 执行摘要 / 战略答案：价值论点卡片 + 管理层决策焦点。
   - 成熟度诊断 / 热力图：六维成熟度网格。
@@ -299,16 +329,25 @@ PPT depth standard:
   "slides": [
     {
       "type": "content",
+      "layout_key": "executive_summary",
+      "page_rhythm": "anchor",
+      "visualization_type": "executive_summary",
       "title": "执行摘要：把数字化作为业务价值组合来管理",
-      "content": "- 转型论点
-- 投资和时间安排
-- 预期业务结果"
+      "insight": "数字化转型应从零散项目升级为由业务价值、数据能力和治理节奏共同驱动的组合管理机制。",
+      "content": "- 战略判断：数字化窗口期已从试点验证转向规模复制\n- 价值目标：用增长、效率、风险和决策速度四类 KPI 衡量转型\n- 优先动作：先补数据基础，再推进高价值场景和流程重构\n- 高层决策：确认范围、资金、负责人和第一批试点",
+      "data_points": ["假设：3 年投资强度为收入的 1.5%-3.5%", "目标：首年形成 3-5 个可量化价值样板"],
+      "management_implications": ["需要指导委员会确认投资边界和跨部门决策权"]
     },
     {
       "type": "two_column",
-      "title": "现状与目标状态对比",
-      "left_content": "当前成熟度、痛点和约束",
-      "right_content": "目标能力、运营模式和成功指标"
+      "layout_key": "operating_model",
+      "page_rhythm": "anchor",
+      "visualization_type": "operating_model",
+      "title": "目标运营模式：把价值、数据、技术和变革责任拆清",
+      "insight": "目标运营模式的关键不是新增组织层级，而是把业务价值、数据责任、平台能力和采用率责任绑定到同一套节奏。",
+      "left_content": "当前状态\n- 价值目标与项目交付脱节\n- 数据口径和质量责任不清\n- 技术平台重复建设\n- 一线采用率缺少责任人",
+      "right_content": "目标状态\n- 业务负责人拥有价值和采用率 KPI\n- 数据负责人管理口径、质量和权限\n- 技术团队提供平台与安全护栏\n- PMO 跟踪组合价值和依赖风险",
+      "management_implications": ["需要明确转型 PMO、业务 Owner、数据 Owner 和技术平台团队的 RACI"]
     }
   ]
 }

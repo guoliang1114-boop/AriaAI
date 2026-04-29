@@ -4,7 +4,9 @@ Provides tools to generate PPT, Word, Excel, and PDF files.
 """
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import os
 import re
 from copy import deepcopy
@@ -23,11 +25,1682 @@ GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 # file is at backend/app/tools/ → need 4 parents to reach project root
 SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "skills"
 
+GRAPHIC_LIBRARY_H5_THEME = """
+:root {
+  --gl-bg: #f5f7fb;
+  --gl-surface: #ffffff;
+  --gl-ink: #17191d;
+  --gl-body: #333333;
+  --gl-muted: #64748b;
+  --gl-brand: #003294;
+  --gl-brand-2: #00338d;
+  --gl-brand-soft: #e8eefb;
+  --gl-line: #d9dee8;
+  --gl-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+  --gl-radius: 24px;
+  --gl-font-display: "KPMG Bold", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --gl-font-body: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background:
+    radial-gradient(circle at top right, rgba(0, 50, 148, 0.1), transparent 28%),
+    linear-gradient(180deg, #eef3fb 0%, #f7f9fc 100%);
+  color: var(--gl-ink);
+  font-family: var(--gl-font-body);
+}
+body { min-height: 100vh; }
+.deck-shell { width: min(100vw, 1480px); margin: 0 auto; padding: 28px 24px 60px; }
+.deck-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; color:var(--gl-muted); font-size:14px; }
+.deck-title { font-family:var(--gl-font-display); color:var(--gl-brand); font-size:15px; letter-spacing:.08em; text-transform:uppercase; }
+.deck-nav { display:flex; gap:8px; flex-wrap:wrap; }
+.deck-nav a { color:var(--gl-muted); text-decoration:none; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.7); border:1px solid rgba(0,50,148,.08); }
+.deck { display:grid; gap:24px; }
+.slide { position:relative; width:100%; aspect-ratio:16/9; min-height:540px; background:var(--gl-surface); border-radius:28px; box-shadow:var(--gl-shadow); overflow:hidden; }
+.slide-inner { position:absolute; inset:0; padding:56px 72px; }
+.eyebrow { display:inline-flex; align-items:center; gap:10px; color:var(--gl-brand); font-size:14px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.eyebrow::before { content:""; width:44px; height:4px; background:var(--gl-brand); border-radius:999px; }
+.slide-title { margin:18px 0 0; max-width:980px; font-family:var(--gl-font-display); font-size:clamp(30px,2.4vw,42px); line-height:1.08; letter-spacing:-.02em; color:var(--gl-ink); }
+.slide-subtitle { margin-top:14px; max-width:820px; font-size:18px; line-height:1.6; color:var(--gl-muted); }
+.slide-no { position:absolute; right:42px; bottom:26px; font-size:13px; color:rgba(23,25,29,.36); }
+.cover { background:linear-gradient(135deg, rgba(0, 50, 148, 0.94), rgba(0, 20, 56, 0.96)), #0b1c47; color:#fff; }
+.cover::before { content:""; position:absolute; inset:auto -10% -18% 48%; height:72%; background:linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); transform:skewX(-26deg); }
+.cover::after { content:""; position:absolute; inset:0 0 auto auto; width:240px; height:240px; background:radial-gradient(circle, rgba(172,234,255,.28) 0%, rgba(172,234,255,0) 72%); }
+.cover .slide-inner { display:grid; grid-template-columns:1.1fr .9fr; align-items:end; }
+.cover .cover-kicker { font-size:15px; text-transform:uppercase; letter-spacing:.1em; color:rgba(255,255,255,.72); }
+.cover .slide-title { color:#fff; max-width:620px; font-size:clamp(42px,3.6vw,62px); }
+.cover .slide-subtitle { color:rgba(255,255,255,.78); max-width:560px; }
+.cover-visual { position:relative; justify-self:end; width:100%; max-width:430px; height:100%; min-height:460px; }
+.cover-visual .frame { position:absolute; inset:14% 0 6% 14%; border:1px solid rgba(255,255,255,.18); border-radius:26px; background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); }
+.cover-visual .frame::before, .cover-visual .frame::after { content:""; position:absolute; border-radius:18px; background:rgba(255,255,255,.12); }
+.cover-visual .frame::before { width:68%; height:18%; left:10%; top:14%; }
+.cover-visual .frame::after { width:52%; height:10%; right:12%; bottom:16%; }
+.section-slide { background:linear-gradient(135deg, rgba(0, 50, 148, 0.96), rgba(0, 28, 82, 0.98)), #0d2458; }
+.section-slide .slide-inner { display:grid; align-content:center; }
+.section-no { margin-bottom:18px; color:rgba(255,255,255,.75); font-family:var(--gl-font-display); font-size:28px; letter-spacing:.12em; }
+.section-slide .slide-title { color:#fff; max-width:760px; font-size:clamp(38px,3vw,56px); }
+.content-layout, .two-col-layout, .roadmap-layout, .matrix-layout, .cards-layout { display:grid; gap:24px; margin-top:42px; }
+.content-layout { grid-template-columns:.95fr .85fr; }
+.lead-note { padding:18px 22px; border-radius:20px; background:var(--gl-brand-soft); color:var(--gl-brand); font-weight:700; line-height:1.55; }
+.bullet-list { display:grid; gap:14px; margin:0; padding:0; list-style:none; }
+.bullet-list li { position:relative; padding-left:18px; font-size:18px; line-height:1.65; color:var(--gl-body); }
+.bullet-list li::before { content:""; position:absolute; left:0; top:12px; width:8px; height:8px; border-radius:50%; background:var(--gl-brand); }
+.visual-card { min-height:420px; border-radius:24px; border:1px solid var(--gl-line); background:linear-gradient(180deg,#fff 0%,#f9fbfd 100%); position:relative; overflow:hidden; }
+.visual-card .visual-ribbon { position:absolute; inset:24px 24px auto auto; padding:8px 12px; border-radius:999px; font-size:12px; color:var(--gl-brand); background:rgba(0,50,148,.08); }
+.visual-card .visual-stack { position:absolute; inset:90px 28px 28px; display:grid; gap:14px; }
+.visual-card .visual-stack span { display:block; border-radius:18px; background:linear-gradient(90deg, rgba(0,50,148,.1), rgba(0,50,148,.02)); }
+.visual-card .visual-stack span:nth-child(1){height:78px;width:76%}.visual-card .visual-stack span:nth-child(2){height:110px;width:100%}.visual-card .visual-stack span:nth-child(3){height:90px;width:84%;justify-self:end}
+.two-col-layout { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.compare-card { border-radius:24px; border:1px solid var(--gl-line); background:#fff; padding:28px 28px 24px; }
+.compare-card.current { box-shadow: inset 0 4px 0 #94a3b8; }
+.compare-card.target { box-shadow: inset 0 4px 0 var(--gl-brand); }
+.compare-card h3 { margin:0 0 18px; font-family:var(--gl-font-display); font-size:24px; color:var(--gl-ink); }
+.roadmap-layout { grid-template-columns:repeat(3,minmax(0,1fr)); position:relative; margin-top:56px; }
+.roadmap-layout::before { content:""; position:absolute; left:8%; right:8%; top:50px; height:2px; background:var(--gl-line); }
+.roadmap-phase { position:relative; padding-top:78px; }
+.roadmap-phase::before { content:""; position:absolute; top:40px; left:50%; width:18px; height:18px; margin-left:-9px; border-radius:50%; background:var(--gl-brand); box-shadow:0 0 0 10px rgba(0,50,148,.08); }
+.roadmap-phase h3 { margin:0 0 16px; font-size:24px; color:var(--gl-brand); font-family:var(--gl-font-display); text-align:center; }
+.roadmap-phase .phase-card { border-radius:22px; border:1px solid var(--gl-line); background:#fff; padding:22px 22px 18px; min-height:280px; }
+.matrix-layout { grid-template-columns:1fr 320px; align-items:start; }
+.matrix-board { position:relative; height:430px; border-radius:24px; border:1px solid var(--gl-line); background:linear-gradient(180deg,#fff 0%,#f8fafc 100%); }
+.matrix-board::before, .matrix-board::after { content:""; position:absolute; background:var(--gl-line); }
+.matrix-board::before { left:50%; top:20px; bottom:20px; width:1px; }
+.matrix-board::after { top:50%; left:20px; right:20px; height:1px; }
+.matrix-pill { position:absolute; padding:8px 12px; border-radius:999px; background:rgba(0,50,148,.1); color:var(--gl-brand); font-size:13px; font-weight:700; }
+.matrix-note { border-radius:24px; border:1px solid var(--gl-line); background:#fff; padding:24px; }
+.cards-layout { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.metric-card { border-radius:22px; border:1px solid var(--gl-line); background:#fff; padding:24px 22px 20px; min-height:170px; position:relative; }
+.metric-card::before { content:""; position:absolute; left:0; top:0; width:100%; height:6px; border-radius:22px 22px 0 0; background:var(--accent, var(--gl-brand)); }
+.metric-label { font-size:14px; color:var(--gl-muted); }
+.metric-value { margin-top:18px; font-family:var(--gl-font-display); font-size:34px; color:var(--gl-ink); }
+.metric-detail { margin-top:12px; font-size:15px; line-height:1.55; color:var(--gl-body); }
+.steps { display:grid; gap:18px; margin-top:42px; }
+.step { display:grid; grid-template-columns:54px 1fr; gap:18px; align-items:start; padding:18px 20px; border-radius:22px; border:1px solid var(--gl-line); background:#fff; }
+.step-no { width:42px; height:42px; display:grid; place-items:center; border-radius:50%; background:var(--gl-brand); color:#fff; font-weight:700; }
+.step-text { font-size:18px; line-height:1.6; color:var(--gl-body); }
+.closing { background:linear-gradient(135deg, rgba(0, 50, 148, 0.97), rgba(8, 20, 44, 0.98)), #0f172a; }
+.closing .slide-title,.closing .slide-subtitle,.closing .slide-no { color:#fff; }
+@media (max-width: 1100px) {
+  .cover .slide-inner, .content-layout, .two-col-layout, .roadmap-layout, .matrix-layout, .cards-layout { grid-template-columns:1fr; }
+  .slide { min-height:760px; aspect-ratio:auto; }
+  .cover-visual { max-width:none; min-height:280px; }
+}
+"""
+
 
 def _generate_filename(extension: str) -> str:
     """Generate a unique filename with timestamp."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"generated_{timestamp}.{extension}"
+
+
+def _slugify_filename(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip()).strip("-").lower()
+    return slug or "deck"
+
+
+def _html_escape(value: Any) -> str:
+    text = str(value or "")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _html_bullets(content: str) -> str:
+    bullets = _split_bullets(content, limit=8)
+    if not bullets:
+        return ""
+    items = "".join(f"<li>{_html_escape(item)}</li>" for item in bullets)
+    return f'<ul class="bullet-list">{items}</ul>'
+
+
+def _normalize_graphic_library_slide_type(slide_type: Any) -> str:
+    value = str(slide_type or "content").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "title": "section",
+        "section_divider": "section",
+        "divider": "section",
+        "executive_summary": "summary",
+        "summary": "summary",
+        "card_grid": "summary",
+        "numbered_cards": "summary",
+        "insight": "content",
+        "insight_content": "content",
+        "compare": "two_column",
+        "current_target": "two_column",
+        "three_part_framework": "framework",
+        "three_column": "framework",
+        "framework_3": "framework",
+        "kpi_cards": "kpi",
+        "risks": "risk",
+        "risk_mitigation": "risk",
+        "risk_mitigations": "risk",
+        "risks_and_mitigations": "risk",
+        "stakeholders": "stakeholder",
+        "stakeholder_map": "stakeholder",
+        "nextsteps": "next_steps",
+        "next_step": "next_steps",
+    }
+    return aliases.get(value, value)
+
+
+def _normalize_graphic_library_style_key(style_key: Any) -> str:
+    value = str(style_key or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "summary_cards": "executive_summary",
+        "executive_summary_cards": "executive_summary",
+        "summary_stack": "executive_summary",
+        "text": "text_focus",
+        "text_only": "text_focus",
+        "insight_visual": "insight_visual",
+        "visual": "insight_visual",
+        "two_column": "compare",
+        "three_part": "framework",
+        "three_column": "framework",
+        "card_grid": "quad_grid",
+        "tile_grid": "quad_grid",
+        "four_up": "quad_grid",
+        "grid_4": "quad_grid",
+        "numbered_grid": "quad_numbered",
+        "grid_numbered": "quad_numbered",
+        "three_tiles": "triple_tiles",
+        "triple_tile": "triple_tiles",
+        "tile_triptych": "triple_tiles",
+        "detail_grid": "detail_grid",
+        "grid_6": "six_tiles",
+        "six_grid": "six_tiles",
+        "risk_mitigation": "risk",
+        "risks_and_mitigations": "risk",
+        "visual_note": "visual_note",
+        "visual_caption": "visual_note",
+        "nextsteps": "next_steps",
+    }
+    return aliases.get(value, value)
+
+
+def _graphic_library_style_to_template_slide(style_key: Any) -> int | None:
+    normalized = _normalize_graphic_library_style_key(style_key)
+    mapping = {
+        "cover": 1,
+        "agenda": 2,
+        "section": 3,
+        "executive_summary": 4,
+        "text_focus": 5,
+        "insight_visual": 6,
+        "compare": 7,
+        "framework": 8,
+        "roadmap": 9,
+        "matrix": 10,
+        "kpi": 11,
+        "risk": 12,
+        "visual_note": 13,
+        "stakeholder": 13,
+        "next_steps": 14,
+        "executive_summary_alt": 22,
+        "quad_grid": 23,
+        "quad_numbered": 24,
+        "triple_tiles": 25,
+        "detail_grid": 26,
+        "six_tiles": 27,
+        "closing": 15,
+    }
+    return mapping.get(normalized)
+
+
+def _graphic_library_template_slide_to_style_key(template_slide: Any) -> str | None:
+    try:
+        slide_no = int(template_slide)
+    except (TypeError, ValueError):
+        return None
+    mapping = {
+        1: "cover",
+        2: "agenda",
+        3: "section",
+        4: "executive_summary",
+        5: "text_focus",
+        6: "insight_visual",
+        7: "compare",
+        8: "framework",
+        9: "roadmap",
+        10: "matrix",
+        11: "kpi",
+        12: "risk",
+        13: "visual_note",
+        14: "next_steps",
+        15: "closing",
+        21: "executive_summary",
+        22: "executive_summary_alt",
+        23: "quad_grid",
+        24: "quad_numbered",
+        25: "triple_tiles",
+        26: "detail_grid",
+        27: "six_tiles",
+    }
+    return mapping.get(slide_no)
+
+
+def _infer_graphic_library_style_key(slide: dict[str, Any], index: int) -> str | None:
+    explicit_style = _normalize_graphic_library_style_key(slide.get("style_key"))
+    if explicit_style:
+        return explicit_style
+
+    template_style = _graphic_library_template_slide_to_style_key(slide.get("template_slide"))
+    if template_style:
+        if template_style == "visual_note":
+            normalized_type = _normalize_graphic_library_slide_type(slide.get("type"))
+            if normalized_type == "stakeholder":
+                return "stakeholder"
+        return template_style
+
+    normalized_type = _normalize_graphic_library_slide_type(slide.get("type"))
+    bullets = _split_bullets(str(slide.get("content") or ""), limit=8)
+
+    if normalized_type == "section":
+        return "section"
+    if normalized_type == "framework":
+        return "framework"
+    if normalized_type == "two_column":
+        return "compare"
+    if normalized_type == "roadmap":
+        return "roadmap"
+    if normalized_type == "matrix":
+        return "matrix"
+    if normalized_type == "kpi":
+        return "kpi"
+    if normalized_type == "risk":
+        return "risk"
+    if normalized_type == "stakeholder":
+        return "stakeholder"
+    if normalized_type in {"next_steps", "steps"}:
+        return "next_steps"
+    if normalized_type == "summary":
+        return "executive_summary"
+    if normalized_type == "content":
+        if slide.get("visual_caption") or slide.get("caption"):
+            return "insight_visual"
+        labels = slide.get("labels") or slide.get("card_titles") or []
+        if len(labels) >= 6:
+            return "six_tiles"
+        if len(labels) == 4:
+            return "quad_grid"
+        if len(labels) == 3 and len(bullets) >= 6:
+            return "executive_summary_alt"
+        if slide.get("card_titles") or slide.get("labels"):
+            return "executive_summary"
+        if index == 0 and len(bullets) >= 3:
+            return "executive_summary"
+        if 5 <= len(bullets) <= 6:
+            return "detail_grid"
+        if len(bullets) == 4:
+            return "quad_grid"
+        if len(bullets) <= 4:
+            return "text_focus"
+        return "insight_visual"
+    return None
+
+
+def _prepare_graphic_library_h5_slides(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    seen_business_page = False
+    for index, slide in enumerate(slides):
+        current = deepcopy(slide)
+        explicit_style = _normalize_graphic_library_style_key(current.get("style_key"))
+        template_style = _graphic_library_template_slide_to_style_key(current.get("template_slide"))
+        normalized_type = _normalize_graphic_library_slide_type(current.get("type"))
+        bullets = _split_bullets(str(current.get("content") or ""), limit=8)
+        if (
+            not seen_business_page
+            and not explicit_style
+            and not template_style
+            and normalized_type == "content"
+            and len(bullets) >= 3
+        ):
+            inferred_style = "executive_summary"
+        else:
+            inferred_style = _infer_graphic_library_style_key(current, index)
+        if inferred_style and not current.get("style_key"):
+            current["style_key"] = inferred_style
+        if current.get("template_slide") is None and inferred_style:
+            template_slide = _graphic_library_style_to_template_slide(inferred_style)
+            if template_slide is not None and (3 <= template_slide <= 14 or 21 <= template_slide <= 27):
+                current["template_slide"] = template_slide
+        prepared.append(current)
+        resolved_style = _normalize_graphic_library_style_key(current.get("style_key"))
+        if resolved_style and resolved_style not in {"cover", "agenda", "section", "closing"}:
+            seen_business_page = True
+    return prepared
+
+
+def _data_uri_for_asset(path: Path) -> str:
+    if not path.exists():
+        return ""
+    mime_type, _ = mimetypes.guess_type(path.name)
+    mime_type = mime_type or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _graphic_library_source_slide_for_template(
+    template_slide_no: int | None, style_key: str | None = None
+) -> int | None:
+    normalized_style = _normalize_graphic_library_style_key(style_key)
+    if normalized_style == "executive_summary":
+        return 21
+    if normalized_style == "executive_summary_alt":
+        return 22
+    if template_slide_no is None:
+        return None
+    if 3 <= template_slide_no <= 15 or 21 <= template_slide_no <= 27:
+        return template_slide_no
+    return None
+
+
+def _build_graphic_library_h5_html(title: str, subtitle: str, slides: list[dict]) -> str:
+    nav_items = []
+    sections = []
+
+    cover_id = "cover"
+    nav_items.append(f'<a href="#{cover_id}">封面</a>')
+    sections.append(
+        f"""
+        <section class="slide cover" id="{cover_id}">
+          <div class="slide-inner">
+            <div class="cover-meta">
+              <div class="cover-kicker">Graphic Library Inspired</div>
+              <h1 class="slide-title">{_html_escape(title)}</h1>
+              <p class="slide-subtitle">{_html_escape(subtitle or "Consulting-style H5 deck generated from the company visual system.")}</p>
+            </div>
+            <div class="cover-visual"><div class="frame"></div></div>
+            <div class="slide-no">01</div>
+          </div>
+        </section>
+        """
+    )
+
+    for index, slide in enumerate(slides, start=2):
+        slide_type = str(slide.get("type") or "content").strip().lower()
+        slide_title = _html_escape(slide.get("title") or f"Slide {index}")
+        slide_id = f"slide-{index:02d}"
+        nav_items.append(f'<a href="#{slide_id}">{slide_title}</a>')
+
+        if slide_type in {"title", "section"}:
+            body = f"""
+            <section class="slide section-slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="section-no">{index:02d}</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        elif slide_type == "two_column":
+            left_content = _html_bullets(str(slide.get("left_content") or ""))
+            right_content = _html_bullets(str(slide.get("right_content") or ""))
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">Compare</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="two-col-layout">
+                  <article class="compare-card current">
+                    <h3>Current / Foundation</h3>
+                    {left_content}
+                  </article>
+                  <article class="compare-card target">
+                    <h3>Target / Direction</h3>
+                    {right_content}
+                  </article>
+                </div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        elif slide_type == "roadmap":
+            columns = [
+                ("Phase 1", _html_bullets(str(slide.get("left_content") or slide.get("phase_1") or ""))),
+                ("Phase 2", _html_bullets(str(slide.get("content") or slide.get("phase_2") or ""))),
+                ("Phase 3", _html_bullets(str(slide.get("right_content") or slide.get("phase_3") or ""))),
+            ]
+            cards = "".join(
+                f'<div class="roadmap-phase"><h3>{label}</h3><div class="phase-card">{content}</div></div>'
+                for label, content in columns
+            )
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">Roadmap</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="roadmap-layout">{cards}</div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        elif slide_type == "matrix":
+            body_text = _html_bullets(str(slide.get("content") or ""))
+            labels = slide.get("labels") or ["Priority A", "Priority B", "Priority C", "Priority D"]
+            pills = "".join(
+                f'<div class="matrix-pill" style="left:{left}%; top:{top}%;">{_html_escape(label)}</div>'
+                for (left, top), label in zip(((16, 24), (28, 64), (60, 32), (72, 58)), labels)
+            )
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">Matrix</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="matrix-layout">
+                  <div class="matrix-board">{pills}</div>
+                  <aside class="matrix-note">
+                    <div class="lead-note">Decision note</div>
+                    {body_text}
+                  </aside>
+                </div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        elif slide_type == "kpi":
+            metrics = slide.get("metrics") or [
+                {"label": "Metric 1", "value": "XX%", "detail": "Key reading", "accent": "#003294"},
+                {"label": "Metric 2", "value": "XX%", "detail": "Key reading", "accent": "#16A34A"},
+                {"label": "Metric 3", "value": "XX%", "detail": "Key reading", "accent": "#D97706"},
+                {"label": "Metric 4", "value": "XX%", "detail": "Key reading", "accent": "#DC2626"},
+            ]
+            cards = "".join(
+                f"""
+                <div class="metric-card" style="--accent:{_html_escape(item.get('accent') or '#003294')}">
+                  <div class="metric-label">{_html_escape(item.get('label') or '')}</div>
+                  <div class="metric-value">{_html_escape(item.get('value') or '')}</div>
+                  <div class="metric-detail">{_html_escape(item.get('detail') or '')}</div>
+                </div>
+                """
+                for item in metrics[:4]
+            )
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">KPI Cards</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="cards-layout">{cards}</div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        elif slide_type in {"next_steps", "steps"}:
+            steps = _split_bullets(str(slide.get("content") or ""), limit=5)
+            step_html = "".join(
+                f'<div class="step"><div class="step-no">{idx}</div><div class="step-text">{_html_escape(item)}</div></div>'
+                for idx, item in enumerate(steps or ["Action item"], start=1)
+            )
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">Next Steps</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="steps">{step_html}</div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+        else:
+            body_html = _html_bullets(str(slide.get("content") or ""))
+            lead = _split_bullets(str(slide.get("content") or ""), limit=1)
+            lead_note = (
+                f'<div class="lead-note">{_html_escape(lead[0])}</div>'
+                if lead
+                else '<div class="lead-note">Key takeaway</div>'
+            )
+            body = f"""
+            <section class="slide" id="{slide_id}">
+              <div class="slide-inner">
+                <div class="eyebrow">Consulting Page</div>
+                <h2 class="slide-title">{slide_title}</h2>
+                <div class="content-layout">
+                  <div class="content-body">
+                    {lead_note}
+                    {body_html}
+                  </div>
+                  <div class="visual-card">
+                    <div class="visual-ribbon">Visual area</div>
+                    <div class="visual-stack"><span></span><span></span><span></span></div>
+                  </div>
+                </div>
+                <div class="slide-no">{index:02d}</div>
+              </div>
+            </section>
+            """
+
+        sections.append(body)
+
+    return f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{_html_escape(title)}</title>
+    <style>{GRAPHIC_LIBRARY_H5_THEME}</style>
+  </head>
+  <body>
+    <div class="deck-shell">
+      <div class="deck-header">
+        <div class="deck-title">Graphic Library H5</div>
+        <div class="deck-nav">{''.join(nav_items)}</div>
+      </div>
+      <main class="deck" id="deck-track">
+        {''.join(sections)}
+      </main>
+      <div class="deck-counter" id="deck-counter">1 / {len(sections)}</div>
+      <div class="deck-controls">
+        <button type="button" id="deck-prev">上一页</button>
+        <button type="button" id="deck-next">下一页</button>
+      </div>
+    </div>
+    <script>
+      (() => {{
+        const track = document.getElementById('deck-track');
+        const slides = Array.from(track.querySelectorAll('.slide'));
+        const prev = document.getElementById('deck-prev');
+        const next = document.getElementById('deck-next');
+        const counter = document.getElementById('deck-counter');
+        let current = 0;
+
+        const update = () => {{
+          const width = window.innerWidth || 1;
+          current = Math.round(track.scrollLeft / width);
+          current = Math.max(0, Math.min(current, slides.length - 1));
+          counter.textContent = `${{current + 1}} / ${{slides.length}}`;
+          prev.disabled = current === 0;
+          next.disabled = current === slides.length - 1;
+        }};
+
+        const goTo = (index) => {{
+          const width = window.innerWidth || 1;
+          const target = Math.max(0, Math.min(index, slides.length - 1));
+          track.scrollTo({{ left: target * width, behavior: 'smooth' }});
+        }};
+
+        prev.addEventListener('click', () => goTo(current - 1));
+        next.addEventListener('click', () => goTo(current + 1));
+        track.addEventListener('scroll', () => requestAnimationFrame(update), {{ passive: true }});
+        window.addEventListener('resize', update);
+        document.addEventListener('keydown', (event) => {{
+          if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {{
+            event.preventDefault();
+            goTo(current + 1);
+          }}
+          if (event.key === 'ArrowLeft' || event.key === 'PageUp') {{
+            event.preventDefault();
+            goTo(current - 1);
+          }}
+        }});
+
+        document.querySelectorAll('.deck-nav a').forEach((link, index) => {{
+          link.addEventListener('click', (event) => {{
+            event.preventDefault();
+            goTo(index);
+          }});
+        }});
+
+        update();
+      }})();
+    </script>
+  </body>
+</html>"""
+
+
+
+
+
+
+def _build_graphic_library_h5_html_v2(title: str, subtitle: str, slides: list[dict]) -> str:
+    skill_dir = SKILLS_DIR / "graphic-library-h5"
+    template_map_path = skill_dir / "references" / "automation-template-map.json"
+    template_map = json.loads(template_map_path.read_text(encoding="utf-8"))
+    templates = {item["slide"]: item for item in template_map}
+    source_media_dir = skill_dir / "assets" / "source-media"
+    source_svg_dir = skill_dir / "assets" / "source-svg"
+    cover_image = _data_uri_for_asset(source_media_dir / "image2.png")
+
+    def get_entry(slide_no: int, name: str) -> dict[str, Any]:
+        for entry in templates[slide_no]["placeholders"]:
+            if entry["name"] == name:
+                return entry
+        raise KeyError(f"Missing placeholder {name} on slide {slide_no}")
+
+    def box_style(entry: dict[str, Any], extra: str = "") -> str:
+        return f"left:{entry['x']}%;top:{entry['y']}%;width:{entry['w']}%;height:{entry['h']}%;{extra}"
+
+    def render_text(entry: dict[str, Any], value: str, cls: str, extra: str = "") -> str:
+        safe = _html_escape(value)
+        return f'<div class="{cls}" style="{box_style(entry, extra)}">{safe}</div>'
+
+    def render_box(entry: dict[str, Any], cls: str, extra: str = "") -> str:
+        return f'<div class="{cls}" style="{box_style(entry, extra)}"></div>'
+
+    def render_bullets(items: list[str], cls: str, extra: str = "") -> str:
+        if not items:
+            items = ["-"]
+        lis = "".join(f"<li>{_html_escape(item)}</li>" for item in items)
+        return f'<ul class="{cls}" style="{extra}">{lis}</ul>'
+
+    def compact_copy(value: Any, limit: int = 72) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(text) <= limit:
+            return text
+        clipped = text[: limit - 1].rstrip(" ,;:.")
+        return f"{clipped}…"
+
+    def first_items(slide: dict[str, Any], count: int, fallback_prefix: str) -> list[str]:
+        labels = slide.get("labels") or slide.get("card_titles") or []
+        items = [str(value) for value in labels if str(value).strip()]
+        if len(items) < count:
+            items.extend(_split_bullets(str(slide.get("content") or ""), limit=count * 2))
+        items = [item for item in items if item.strip()]
+        while len(items) < count:
+            items.append(f"{fallback_prefix} {len(items) + 1}")
+        return items[:count]
+
+    def render_source_background(template_slide_no: int | None, style_key: Any = None) -> str:
+        source_slide_no = _graphic_library_source_slide_for_template(template_slide_no, str(style_key or ""))
+        if source_slide_no is None:
+            return ""
+        source_asset = source_svg_dir / f"source-slide-{source_slide_no}.svg"
+        source_uri = _data_uri_for_asset(source_asset)
+        if not source_uri:
+            return ""
+        normalized_style = _normalize_graphic_library_style_key(style_key)
+        wash = "rgba(255,255,255,.84)"
+        texture = "rgba(255,255,255,.18)"
+        blur = "0.2px"
+        image_opacity = ".26"
+        if normalized_style in {"framework", "roadmap", "matrix", "stakeholder"}:
+            wash = "rgba(255,255,255,.72)"
+            texture = "rgba(255,255,255,.14)"
+            blur = "0px"
+            image_opacity = ".34"
+        elif normalized_style in {"compare", "risk", "next_steps"}:
+            wash = "rgba(255,255,255,.78)"
+            texture = "rgba(255,255,255,.16)"
+            image_opacity = ".30"
+        elif normalized_style in {"text_focus"}:
+            wash = "rgba(255,255,255,.92)"
+            texture = "rgba(255,255,255,.12)"
+            blur = "0.5px"
+            image_opacity = ".18"
+        elif normalized_style in {"executive_summary", "executive_summary_alt", "quad_grid", "quad_numbered", "triple_tiles", "detail_grid", "six_tiles"}:
+            wash = "rgba(255,255,255,.90)"
+            texture = "rgba(255,255,255,.12)"
+            image_opacity = ".18"
+
+        mask_specs: list[tuple[float, float, float, float, str]] = []
+        if template_slide_no in {4, 21, 22}:
+            mask_specs.extend([
+                (8.0, 9.8, 50.0, 13.8, "rgba(255,255,255,.96)"),
+                (8.0, 54.6, 84.0, 15.2, "rgba(255,255,255,.92)"),
+            ])
+        elif template_slide_no in {5, 6}:
+            mask_specs.extend([
+                (8.0, 10.0, 48.0, 13.0, "rgba(255,255,255,.96)"),
+                (8.0, 24.0, 38.0, 42.0, "rgba(255,255,255,.88)"),
+            ])
+        elif template_slide_no in {23, 24, 25, 26, 27}:
+            mask_specs.extend([
+                (8.0, 10.0, 52.0, 13.0, "rgba(255,255,255,.96)"),
+                (8.0, 50.0, 84.0, 18.0, "rgba(255,255,255,.90)") if template_slide_no in {23, 24, 25} else (0, 0, 0, 0, ""),
+            ])
+            mask_specs = [spec for spec in mask_specs if spec[2] > 0]
+        mask_html = "".join(
+            f'<div class="ppt-source-mask" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;background:{color};"></div>'
+            for x, y, w, h, color in mask_specs
+        )
+        return (
+            '<div class="ppt-source-bg" aria-hidden="true">'
+            f'<img class="ppt-source-svg" src="{source_uri}" alt="" style="opacity:{image_opacity};filter:blur({blur}) saturate(.88) contrast(.94);" />'
+            f'<div class="ppt-source-wash" style="background:{wash};"></div>'
+            f'<div class="ppt-source-texture" style="background:{texture};"></div>'
+            f'{mask_html}'
+            "</div>"
+        )
+
+    css = """
+:root {
+  --brand: #00338d;
+  --brand-2: #005eb8;
+  --ink: #17191d;
+  --muted: #5b6472;
+  --line: rgba(0, 51, 141, 0.12);
+  --surface: rgba(255,255,255,0.96);
+  --surface-soft: #f5f7fb;
+  --canvas: #eef2f7;
+  --display: "KPMG Bold", Arial, "Microsoft YaHei", "PingFang SC", sans-serif;
+  --body: Arial, "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
+  --shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+* { box-sizing: border-box; }
+html, body { margin:0; width:100%; height:100%; overflow:hidden; background:var(--canvas); font-family:var(--body); }
+body { color: var(--ink); }
+.deck-shell { position:relative; width:100vw; height:100vh; overflow:hidden; }
+.deck { display:flex; width:100vw; height:100vh; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; scrollbar-width:none; }
+.deck::-webkit-scrollbar { display:none; }
+.slide { position:relative; flex:0 0 100vw; width:100vw; height:100vh; overflow:hidden; scroll-snap-align:start; background:#ffffff; }
+.slide-inner { position:absolute; inset:0; }
+.ppt-source-bg { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+.ppt-source-svg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center; transform:scale(1.008); }
+.ppt-source-wash { position:absolute; inset:0; }
+.ppt-source-texture { position:absolute; inset:0; backdrop-filter:blur(1px); }
+.ppt-source-mask { position:absolute; border-radius:14px; box-shadow:0 4px 10px rgba(15,23,42,.03); }
+.slide-no { position:absolute; right:2.8vw; bottom:2.5vh; font-size:12px; letter-spacing:.06em; color:rgba(23,25,29,.4); font-family:var(--body); }
+.ppt-title, .ppt-big-title, .ppt-section-title, .ppt-closing-title {
+  position:absolute; white-space:pre-wrap; font-family:var(--display); letter-spacing:-0.03em; font-weight:700;
+  -webkit-font-smoothing:antialiased; text-rendering:geometricPrecision;
+}
+.ppt-title { font-size:30px; line-height:1.06; color:var(--brand); }
+.ppt-big-title { font-size:44px; line-height:1.0; color:var(--brand); }
+.ppt-section-title { font-size:50px; line-height:1.0; color:#ffffff; }
+.ppt-closing-title { font-size:46px; line-height:1.02; color:#ffffff; }
+.ppt-subtitle, .ppt-body, .ppt-caption, .ppt-axis, .ppt-note, .ppt-closing-body {
+  position:absolute; white-space:pre-wrap; color:#334155; font-family:var(--body); font-weight:400;
+  -webkit-font-smoothing:antialiased; text-rendering:geometricPrecision;
+}
+.ppt-subtitle { font-size:14px; line-height:1.36; color:#4b5563; }
+.ppt-body { font-size:14px; line-height:1.42; color:#2f3947; }
+.ppt-caption { font-size:11px; line-height:1.3; color:#526072; }
+.ppt-note { font-size:13px; line-height:1.38; color:#334155; }
+.ppt-axis { font-size:12px; font-weight:700; color:#334155; }
+.ppt-closing-body { font-size:16px; line-height:1.36; color:rgba(255,255,255,.82); }
+.ppt-chip-number {
+  position:absolute; display:grid; place-items:center; font-family:var(--display); font-size:38px; line-height:0.96; letter-spacing:-0.04em; font-weight:800; color:#ffffff;
+}
+.ppt-box, .ppt-card, .ppt-panel, .ppt-visual, .ppt-summary-card, .ppt-kpi-card, .ppt-step-badge, .ppt-matrix-q, .ppt-copy-panel {
+  position:absolute; border-radius:10px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow);
+}
+.ppt-copy-panel { border-radius:14px; background:rgba(255,255,255,.92); backdrop-filter:blur(8px); }
+.ppt-summary-card { border-radius:10px; background:#ffffff; }
+.summary-chip {
+  position:absolute; display:grid; place-items:center; border-radius:999px;
+  background:rgba(0, 51, 141, 0.08); color:var(--brand); font-family:var(--display);
+  font-size:13px; font-weight:700; line-height:1;
+}
+.ppt-panel { background:#ffffff; }
+.ppt-visual { background:linear-gradient(180deg,rgba(0,51,141,.05),rgba(0,94,184,.02)); }
+.ppt-cover-plate { position:absolute; background:rgba(255,255,255,.96); }
+.ppt-cover-image { position:absolute; object-fit:cover; }
+.ppt-cover-marker { position:absolute; background:var(--brand); clip-path: polygon(0 0, 100% 0, 78% 100%, 0 100%); }
+.cover-slide { background:#ffffff; }
+.contents-slide { background:#ffffff; }
+.section-slide { background:#00338d; }
+.closing-slide { background:#00338d; }
+.contents-bar { position:absolute; background:var(--brand); border-radius:999px; }
+.contents-frame { position:absolute; border:1px solid rgba(0,51,141,.12); border-radius:12px; background:#ffffff; box-shadow:none; }
+.agenda-list { position:absolute; margin:0; padding:0; list-style:none; display:grid; gap:14px; }
+.agenda-list li { display:grid; grid-template-columns:48px 1fr; gap:14px; padding:0; border-top:1px solid rgba(0,51,141,.12); padding-top:10px; color:#2f3947; font-size:14px; line-height:1.34; }
+.agenda-list li:last-child { border-bottom:1px solid rgba(0,51,141,.12); padding-bottom:10px; }
+.agenda-index { font-family:var(--display); color:var(--brand); font-size:12px; letter-spacing:.03em; }
+.summary-card-text { position:absolute; padding:14px 14px 0; font-family:var(--display); font-size:16px; line-height:1.08; color:var(--brand); }
+.summary-supporting-note { position:absolute; padding:16px 18px; border-radius:12px; background:rgba(255,255,255,.88); border:1px solid rgba(0,51,141,.10); box-shadow:var(--shadow); color:#334155; font-size:13px; line-height:1.45; }
+.ppt-grid-card { position:absolute; border-radius:14px; background:rgba(255,255,255,.90); border:1px solid rgba(0,51,141,.10); box-shadow:var(--shadow); backdrop-filter:blur(8px); }
+.ppt-grid-card-title { position:absolute; font-family:var(--display); font-size:15px; line-height:1.08; color:var(--brand); }
+.ppt-grid-card-body { position:absolute; font-size:12px; line-height:1.36; color:#334155; }
+.ppt-grid-badge { position:absolute; display:grid; place-items:center; border-radius:999px; background:rgba(0,51,141,.10); color:var(--brand); font-family:var(--display); font-size:14px; line-height:1; }
+.body-list, .two-col-list, .timeline-list, .matrix-list, .stakeholder-list, .step-list, .kpi-body-list, .framework-list, .risk-list { margin:0; padding:0; list-style:none; display:grid; gap:12px; }
+.body-list li, .two-col-list li, .timeline-list li, .matrix-list li, .stakeholder-list li, .step-list li, .kpi-body-list li, .framework-list li, .risk-list li {
+  position:relative; padding-left:16px; font-size:14px; line-height:1.44; color:#2f3947;
+}
+.body-list li::before, .two-col-list li::before, .timeline-list li::before, .matrix-list li::before, .stakeholder-list li::before, .step-list li::before, .kpi-body-list li::before, .framework-list li::before, .risk-list li::before {
+  content:""; position:absolute; left:0; top:8px; width:6px; height:6px; border-radius:999px; background:var(--brand);
+}
+.kpi-accent { position:absolute; border-radius:10px 10px 0 0; }
+.framework-panel { position:absolute; border-radius:14px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+.framework-panel-title { position:absolute; font-family:var(--display); font-size:16px; line-height:1.1; color:var(--brand); }
+.framework-topbar { position:absolute; border-radius:10px 10px 0 0; background:var(--brand); }
+.framework-badge { position:absolute; display:grid; place-items:center; border-radius:999px; background:rgba(0,51,141,.08); color:var(--brand); font-family:var(--display); font-size:14px; }
+.risk-panel { position:absolute; border-radius:14px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+.risk-head { position:absolute; font-family:var(--display); font-size:16px; color:var(--brand); }
+.risk-ribbon { position:absolute; border-radius:10px 10px 0 0; background:var(--brand); }
+.timeline-line { position:absolute; background:rgba(0,51,141,.18); }
+.timeline-dot { position:absolute; border-radius:999px; background:var(--brand); box-shadow:0 0 0 10px rgba(0,51,141,.08); }
+.timeline-label { position:absolute; font-family:var(--display); font-size:17px; color:var(--brand); text-align:center; }
+.matrix-line-v, .matrix-line-h { position:absolute; background:rgba(0,51,141,.16); }
+.matrix-pill {
+  position:absolute; display:grid; place-items:center; text-align:center; padding:9px 10px; border-radius:14px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); color:var(--brand); font-weight:700; font-size:12px;
+}
+.matrix-body { position:absolute; white-space:pre-wrap; color:#334155; font-size:13px; line-height:1.36; }
+.step-row { position:absolute; border-radius:18px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+.step-row-text { position:absolute; font-size:15px; line-height:1.4; color:#2f3947; }
+.stakeholder-grid { position:absolute; inset:0; }
+.stakeholder-node { position:absolute; display:grid; place-items:center; border-radius:999px; background:linear-gradient(180deg, rgba(0,51,141,.96), rgba(0,94,184,.72)); color:#ffffff; font-family:var(--display); font-size:12px; line-height:1.15; text-align:center; padding:8px; box-shadow:var(--shadow); }
+.stakeholder-ring { position:absolute; border-radius:50%; border:1px dashed rgba(0,51,141,.18); }
+.ppt-floating-label { position:absolute; padding:6px 12px; border-radius:999px; background:rgba(255,255,255,.86); color:var(--brand); font-family:var(--display); font-size:12px; line-height:1; border:1px solid rgba(0,51,141,.10); box-shadow:var(--shadow); }
+.deck-pager { position:absolute; left:50%; bottom:18px; transform:translateX(-50%); z-index:30; display:inline-flex; align-items:center; gap:14px; padding:8px 14px; border-radius:999px; background:rgba(255,255,255,.92); color:#334155; border:1px solid rgba(0,51,141,.12); box-shadow:0 4px 12px rgba(15,23,42,.05); }
+.deck-pager button { border:0; background:transparent; color:inherit; font-size:18px; cursor:pointer; padding:0 4px; }
+.deck-pager button:disabled { opacity:.35; cursor:not-allowed; }
+.deck-status { min-width:72px; text-align:center; font-size:12px; letter-spacing:.06em; }
+@media (max-width: 960px) {
+  .ppt-big-title, .ppt-section-title, .ppt-closing-title { width:78% !important; }
+}
+"""
+
+    sections: list[str] = []
+
+    cover_title = get_entry(1, "aria_cover_title")
+    cover_subtitle = get_entry(1, "aria_cover_subtitle")
+    sections.append(
+        f"""
+        <section class="slide cover-slide" id="cover">
+          <div class="slide-inner">
+            <div class="ppt-cover-marker" style="left:6%;top:7.62%;width:7.48%;height:5.41%;"></div>
+            <div class="ppt-cover-plate" style="left:49.06%;top:21.24%;width:44.94%;height:55.92%;"></div>
+            <img class="ppt-cover-image" src="{cover_image}" alt="cover visual" style="left:37.38%;top:23.71%;width:56.71%;height:71.75%;" />
+            {render_text(cover_title, title, 'ppt-big-title')}
+            {render_text(cover_subtitle, subtitle or 'Subtitle | Client | Date', 'ppt-subtitle')}
+            <div class="slide-no">01</div>
+          </div>
+        </section>
+        """
+    )
+
+    agenda_title = get_entry(2, "aria_slide_title")
+    agenda_bar = get_entry(2, "aria_accent_bar")
+    agenda_items_entry = get_entry(2, "aria_agenda_items")
+    agenda_frame = get_entry(2, "aria_visual_frame")
+    agenda_caption = get_entry(2, "aria_visual_caption")
+    agenda_items = []
+    for idx, slide in enumerate(slides, start=3):
+        agenda_items.append(f'<li><span class="agenda-index">{idx:02d}</span><span>{_html_escape(slide.get("title") or f"Slide {idx}")}</span></li>')
+    sections.append(
+        f"""
+        <section class="slide contents-slide" id="contents">
+          <div class="slide-inner">
+            {render_box(agenda_bar, 'contents-bar')}
+            {render_text(agenda_title, 'Agenda', 'ppt-title')}
+            <ol class="agenda-list" style="{box_style(agenda_items_entry)}">{''.join(agenda_items)}</ol>
+            {render_box(agenda_frame, 'contents-frame')}
+            {render_text(agenda_caption, 'Overview visual area', 'ppt-caption', 'display:grid;place-items:center;')}
+            <div class="slide-no">02</div>
+          </div>
+        </section>
+        """
+    )
+
+    def section_slide(page_no: int, heading: str) -> str:
+        return f"""
+        <section class="slide section-slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_text(get_entry(3, 'aria_section_number'), f'{page_no:02d}', 'ppt-chip-number')}
+            {render_text(get_entry(3, 'aria_section_title'), heading, 'ppt-section-title')}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def summary_slide(page_no: int, slide: dict[str, Any]) -> str:
+        bullets = _split_bullets(str(slide.get('content') or ''), limit=6)
+        labels = slide.get("labels") or slide.get("card_titles") or []
+        cards = labels[:3] or bullets[:3] or ['Insight 1', 'Insight 2', 'Insight 3']
+        details = bullets[3:] or bullets[:3] or ['Key evidence', 'Strategic implication', 'Immediate action']
+        supporting_text = slide.get("supporting_text") or slide.get("caption") or "Use this page to land the three most important messages before moving into detail."
+        card_html = []
+        for i, name in enumerate(['aria_summary_card_1', 'aria_summary_card_2', 'aria_summary_card_3'], start=1):
+            entry = get_entry(4, name)
+            card_html.append(render_box(entry, 'ppt-summary-card'))
+            card_html.append(
+                f'<div class="summary-chip" style="left:{entry["x"] + 1.5}%;top:{entry["y"] + 2.2}%;width:3.8%;height:5.8%;">{i:02d}</div>'
+            )
+        text_html = []
+        for i, name in enumerate(['aria_kpi_1', 'aria_kpi_2', 'aria_kpi_3'], start=0):
+            value = cards[i] if i < len(cards) else f'Insight {i+1}'
+            text_html.append(render_text(get_entry(4, name), value, 'summary-card-text'))
+        body_entry = get_entry(4, 'aria_slide_body')
+        visual_entry = get_entry(4, 'aria_visual_area')
+        caption_entry = get_entry(4, 'aria_visual_caption')
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(4, slide.get('style_key') or 'executive_summary')}
+            {render_text(get_entry(4, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {''.join(card_html)}
+            {''.join(text_html)}
+            <div class="summary-supporting-note" style="{box_style(visual_entry)}">{_html_escape(str(supporting_text))}</div>
+            <div class="ppt-copy-panel" style="{box_style(body_entry)}">
+              <div class="ppt-body" style="position:absolute;inset:18px 20px 18px 20px;">{render_bullets(details, 'body-list')}</div>
+            </div>
+            {render_text(caption_entry, 'Executive summary | original slide grammar preserved', 'ppt-caption', 'display:grid;place-items:center;')}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def insight_slide(page_no: int, slide: dict[str, Any]) -> str:
+        body_entry = get_entry(6, 'aria_slide_body')
+        visual_entry = get_entry(6, 'aria_visual_area')
+        caption_entry = get_entry(6, 'aria_visual_caption')
+        footer_entry = get_entry(6, 'aria_footer_note')
+        bullets = _split_bullets(str(slide.get('content') or ''), limit=6)
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(6, slide.get('style_key') or 'insight_visual')}
+            {render_text(get_entry(6, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            <div class="ppt-copy-panel" style="{box_style(body_entry)}">
+              <div class="ppt-body" style="position:absolute;inset:20px 22px;">{render_bullets(bullets, 'body-list')}</div>
+            </div>
+            {render_box(visual_entry, 'ppt-visual', 'background:rgba(255,255,255,.22);border-color:rgba(0,51,141,.08);')}
+            {render_text(caption_entry, slide.get('visual_caption') or 'Visual area', 'ppt-caption', 'display:grid;place-items:center;background:rgba(255,255,255,.72);border-radius:999px;')}
+            {render_text(footer_entry, f'{page_no:02d}', 'ppt-caption', 'text-align:right;color:#64748b;')}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def compare_slide(page_no: int, slide: dict[str, Any]) -> str:
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(7, slide.get('style_key') or 'compare')}
+            {render_text(get_entry(7, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {render_box(get_entry(7, 'aria_left_panel'), 'ppt-copy-panel')}
+            {render_box(get_entry(7, 'aria_right_panel'), 'ppt-copy-panel')}
+            <div class="ppt-floating-label" style="left:11%;top:24.5%;">Option A</div>
+            <div class="ppt-floating-label" style="left:54.3%;top:24.5%;">Option B</div>
+            <div class="ppt-body" style="{box_style(get_entry(7, 'aria_left_body'), 'padding:14px 18px 0;')}">{render_bullets(_split_bullets(str(slide.get('left_content') or ''), limit=6), 'two-col-list')}</div>
+            <div class="ppt-body" style="{box_style(get_entry(7, 'aria_right_body'), 'padding:14px 18px 0;')}">{render_bullets(_split_bullets(str(slide.get('right_content') or ''), limit=6), 'two-col-list')}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def framework_slide(page_no: int, slide: dict[str, Any]) -> str:
+        columns = [
+            ("left", str(slide.get("left_content") or "")),
+            ("center", str(slide.get("content") or "")),
+            ("right", str(slide.get("right_content") or "")),
+        ]
+        labels = ["Dimension 1", "Dimension 2", "Dimension 3"]
+        parts = []
+        for index, (key, content) in enumerate(columns):
+            panel = get_entry(8, f"aria_{key}_panel")
+            body = get_entry(8, f"aria_{key}_body")
+            lines = _split_bullets(content, limit=4)
+            heading = lines[0] if lines else labels[index]
+            bullets = lines[1:] or ["Key point", "Key point"]
+            parts.append(render_box(panel, "framework-panel"))
+            parts.append(render_box(panel, "framework-topbar", "height:6%;"))
+            parts.append(f'<div class="framework-badge" style="left:{panel["x"] + 1.5}%;top:{panel["y"] + 3.2}%;width:3.2%;height:5.8%;">{index + 1}</div>')
+            parts.append(render_text(body, heading, "framework-panel-title"))
+            parts.append(f'<div class="ppt-body" style="{box_style(body, "padding-top:34px;")}">{render_bullets(bullets, "framework-list")}</div>')
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(8, slide.get('style_key') or 'framework')}
+            {render_text(get_entry(8, 'aria_slide_title'), slide.get('title') or 'Three-part framework', 'ppt-title')}
+            {''.join(parts)}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def text_focus_slide(page_no: int, slide: dict[str, Any]) -> str:
+        body_entry = get_entry(5, 'aria_slide_body')
+        footer_entry = get_entry(5, 'aria_footer_note')
+        bullets = _split_bullets(str(slide.get('content') or ''), limit=7)
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(5, slide.get('style_key') or 'text_focus')}
+            {render_text(get_entry(5, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            <div class="ppt-copy-panel" style="{box_style(body_entry)}">
+              <div class="ppt-body" style="position:absolute;inset:20px 22px;">{render_bullets(bullets, 'body-list')}</div>
+            </div>
+            {render_text(footer_entry, f'{page_no:02d}', 'ppt-caption', 'text-align:right;color:#64748b;')}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def roadmap_slide(page_no: int, slide: dict[str, Any]) -> str:
+        blocks = [
+            ('left', str(slide.get('left_content') or slide.get('phase_1') or '')),
+            ('center', str(slide.get('content') or slide.get('phase_2') or '')),
+            ('right', str(slide.get('right_content') or slide.get('phase_3') or '')),
+        ]
+        body_parts = []
+        for key, content in blocks:
+            body_parts.append(render_box(get_entry(9, f'aria_{key}_dot'), 'timeline-dot'))
+            body_parts.append(render_text(get_entry(9, f'aria_{key}_label'), f'Phase {1 if key=="left" else 2 if key=="center" else 3}', 'timeline-label'))
+            body_parts.append(f'<div class="ppt-body" style="{box_style(get_entry(9, f"aria_{key}_body"))}">{render_bullets(_split_bullets(content, limit=4), "timeline-list")}</div>')
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(9, slide.get('style_key') or 'roadmap')}
+            {render_text(get_entry(9, 'aria_slide_title'), slide.get('title') or 'Roadmap', 'ppt-title')}
+            {render_box(get_entry(9, 'aria_timeline'), 'timeline-line')}
+            {''.join(body_parts)}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def matrix_slide(page_no: int, slide: dict[str, Any]) -> str:
+        labels = slide.get('labels') or ['Priority A', 'Priority B', 'Priority C', 'Priority D']
+        q_names = ['aria_matrix_q1', 'aria_matrix_q2', 'aria_matrix_q3', 'aria_matrix_q4']
+        pills = ''.join(
+            f'<div class="matrix-pill" style="{box_style(get_entry(10, q_names[i]))}">{_html_escape(labels[i] if i < len(labels) else f"Priority {i+1}")}</div>'
+            for i in range(4)
+        )
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(10, slide.get('style_key') or 'matrix')}
+            {render_text(get_entry(10, 'aria_slide_title'), slide.get('title') or 'Prioritization matrix', 'ppt-title')}
+            {render_box(get_entry(10, 'aria_matrix_v'), 'matrix-line-v')}
+            {render_box(get_entry(10, 'aria_matrix_h'), 'matrix-line-h')}
+            {pills}
+            <div class="ppt-copy-panel" style="{box_style(get_entry(10, 'aria_slide_body'))}">
+              <div class="matrix-body" style="position:absolute;inset:16px 18px;">{render_bullets(_split_bullets(str(slide.get('content') or ''), limit=5), 'matrix-list')}</div>
+            </div>
+            {render_text(get_entry(10, 'aria_y_axis'), 'Impact', 'ppt-axis')}
+            {render_text(get_entry(10, 'aria_x_axis'), 'Effort', 'ppt-axis')}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def kpi_slide(page_no: int, slide: dict[str, Any]) -> str:
+        metrics = slide.get('metrics') or []
+        cards = []
+        for i in range(4):
+            metric = metrics[i] if i < len(metrics) else {'label': f'Metric {i+1}', 'value': 'XX%', 'detail': 'Detail', 'accent': '#00338d'}
+            cards.append(render_box(get_entry(11, f'aria_kpi_{i+1}_card'), 'ppt-kpi-card'))
+            cards.append(render_box(get_entry(11, f'aria_kpi_{i+1}_accent'), 'kpi-accent', f'background:{metric.get("accent") or "#00338d"};'))
+            metric_text = f'{metric.get("label") or "Metric"}\n{metric.get("value") or "XX%"}'
+            cards.append(render_text(get_entry(11, f'aria_kpi_{i+1}'), metric_text, 'ppt-note', 'font-family:var(--display);font-size:24px;line-height:1.15;color:#17191d;'))
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(11, slide.get('style_key') or 'kpi')}
+            {render_text(get_entry(11, 'aria_slide_title'), slide.get('title') or 'KPI dashboard', 'ppt-title')}
+            {''.join(cards)}
+            <div class="ppt-copy-panel" style="{box_style(get_entry(11, 'aria_slide_body'))}">
+              <div class="ppt-body" style="position:absolute;inset:18px 20px;">{render_bullets(_split_bullets(' '.join(str((m.get('detail') or '')) for m in metrics), limit=4), 'kpi-body-list')}</div>
+            </div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def risk_slide(page_no: int, slide: dict[str, Any]) -> str:
+        left_panel = get_entry(12, "aria_left_panel")
+        right_panel = get_entry(12, "aria_right_panel")
+        left_body = get_entry(12, "aria_left_body")
+        right_body = get_entry(12, "aria_right_body")
+        risk_points = _split_bullets(str(slide.get("left_content") or slide.get("content") or ""), limit=5)
+        mitigation_points = _split_bullets(str(slide.get("right_content") or ""), limit=5)
+        if not mitigation_points:
+            mitigation_points = ["Assign owner and response cadence", "Define trigger thresholds", "Review progress monthly"]
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(12, slide.get('style_key') or 'risk')}
+            {render_text(get_entry(12, 'aria_slide_title'), slide.get('title') or 'Risks and mitigations', 'ppt-title')}
+            {render_box(left_panel, 'risk-panel', 'background:rgba(255,255,255,.92);backdrop-filter:blur(8px);')}
+            {render_box(right_panel, 'risk-panel', 'background:rgba(255,255,255,.92);backdrop-filter:blur(8px);')}
+            {render_box(left_panel, 'risk-ribbon', 'height:5.2%;')}
+            {render_box(right_panel, 'risk-ribbon', 'height:5.2%;')}
+            <div class="risk-head" style="left:{left_panel['x'] + 2.0}%;top:{left_panel['y'] + 2.2}%;width:14%;height:4%;">Risks</div>
+            <div class="risk-head" style="left:{right_panel['x'] + 2.0}%;top:{right_panel['y'] + 2.2}%;width:20%;height:4%;">Mitigations</div>
+            <div class="ppt-body" style="{box_style(left_body)}">{render_bullets(risk_points, 'risk-list')}</div>
+            <div class="ppt-body" style="{box_style(right_body)}">{render_bullets(mitigation_points, 'risk-list')}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def stakeholder_slide(page_no: int, slide: dict[str, Any]) -> str:
+        visual = get_entry(13, "aria_visual_area")
+        node_specs = [
+            (visual["x"] + 6.0, visual["y"] + 8.0, 10.0, 10.0, "Sponsor"),
+            (visual["x"] + 22.0, visual["y"] + 20.0, 11.0, 11.0, "Business"),
+            (visual["x"] + 8.0, visual["y"] + 38.0, 10.0, 10.0, "IT"),
+        ]
+        nodes = ''.join(
+            f'<div class="stakeholder-node" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;">{_html_escape(label)}</div>'
+            for x, y, w, h, label in node_specs
+        )
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(13, slide.get('style_key') or 'stakeholder')}
+            {render_text(get_entry(13, 'aria_slide_title'), slide.get('title') or 'Stakeholder map', 'ppt-title')}
+            {render_box(visual, 'ppt-visual')}
+            <div class="stakeholder-ring" style="left:{visual['x'] + 7.5}%;top:{visual['y'] + 7.5}%;width:24%;height:24%;"></div>
+            <div class="stakeholder-ring" style="left:{visual['x'] + 2.5}%;top:{visual['y'] + 2.5}%;width:34%;height:34%;"></div>
+            <div class="stakeholder-grid">{nodes}</div>
+            {render_text(get_entry(13, 'aria_visual_caption'), 'Stakeholder influence / alignment map', 'ppt-caption', 'display:grid;place-items:center;')}
+            <div class="ppt-body" style="{box_style(get_entry(13, 'aria_slide_body'))}">{render_bullets(_split_bullets(str(slide.get('content') or ''), limit=5), 'stakeholder-list')}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def visual_note_slide(page_no: int, slide: dict[str, Any]) -> str:
+        visual = get_entry(13, "aria_visual_area")
+        caption = slide.get('visual_caption') or slide.get('caption') or 'Visual area'
+        body = _split_bullets(str(slide.get('content') or ''), limit=5)
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(13, slide.get('style_key') or 'visual_note')}
+            {render_text(get_entry(13, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {render_box(visual, 'ppt-visual')}
+            {render_text(get_entry(13, 'aria_visual_caption'), str(caption), 'ppt-caption', 'display:grid;place-items:center;background:rgba(255,255,255,.74);border-radius:999px;')}
+            <div class="ppt-copy-panel" style="{box_style(get_entry(13, 'aria_slide_body'))}">
+              <div class="ppt-body" style="position:absolute;inset:18px 20px;">{render_bullets(body, 'stakeholder-list')}</div>
+            </div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def executive_summary_alt_slide(page_no: int, slide: dict[str, Any]) -> str:
+        cards = first_items(slide, 3, "Priority")
+        notes = _split_bullets(str(slide.get('content') or ''), limit=6)
+        supporting = notes[3:] or notes[:3] or ['Supporting text here']
+        card_specs = [
+            (10.4, 28.0, 23.5, 23.0),
+            (38.3, 28.0, 23.5, 23.0),
+            (66.2, 28.0, 23.5, 23.0),
+        ]
+        body_html = []
+        for idx, (x, y, w, h) in enumerate(card_specs, start=1):
+            title = cards[idx - 1]
+            detail = compact_copy(supporting[idx - 1] if idx - 1 < len(supporting) else supporting[-1], 78)
+            body_html.append(
+                f'<div class="ppt-grid-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;"></div>'
+                f'<div class="ppt-grid-badge" style="left:{x + 1.6}%;top:{y + 2.1}%;width:4.2%;height:6.2%;">{idx:02d}</div>'
+                f'<div class="ppt-grid-card-title" style="left:{x + 2.0}%;top:{y + 10.0}%;width:{w - 4.0}%;height:7%;">{_html_escape(title)}</div>'
+                f'<div class="ppt-grid-card-body" style="left:{x + 2.0}%;top:{y + 17.0}%;width:{w - 4.0}%;height:8%;">{_html_escape(detail)}</div>'
+            )
+        footer_note = slide.get("supporting_text") or slide.get("caption") or "Supporting text here"
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(22, slide.get('style_key') or 'executive_summary_alt')}
+            <div class="ppt-copy-panel" style="left:8.2%;top:10.5%;width:48%;height:12.5%;"></div>
+            <div class="ppt-copy-panel" style="left:8.2%;top:55.5%;width:82%;height:12.5%;"></div>
+            {render_text(get_entry(4, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            <div class="ppt-body" style="left:9.8%;top:57.8%;width:79%;height:8.4%;">{render_bullets(notes[:3] or notes, 'body-list')}</div>
+            {''.join(body_html)}
+            <div class="ppt-caption" style="left:9.8%;top:67.6%;width:77%;height:4.6%;">{_html_escape(str(footer_note))}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def quad_grid_slide(page_no: int, slide: dict[str, Any], numbered: bool = False, source_slide_no: int = 23) -> str:
+        items = first_items(slide, 4, "Theme")
+        details = _split_bullets(str(slide.get('content') or ''), limit=8)
+        card_specs = [
+            (9.2, 25.0, 17.8, 20.5),
+            (31.0, 25.0, 17.8, 20.5),
+            (52.8, 25.0, 17.8, 20.5),
+            (74.6, 25.0, 17.8, 20.5),
+        ]
+        cards = []
+        for idx, (x, y, w, h) in enumerate(card_specs, start=1):
+            title = items[idx - 1]
+            body = compact_copy(details[idx - 1] if idx - 1 < len(details) else "Theme color makes PPT more convenient to change.", 62)
+            badge = (
+                f'<div class="ppt-grid-badge" style="left:{x + 1.6}%;top:{y + 2.0}%;width:3.4%;height:5.2%;">{idx}</div>'
+                if numbered else ""
+            )
+            cards.append(
+                f'<div class="ppt-grid-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;"></div>'
+                f'{badge}'
+                f'<div class="ppt-grid-card-title" style="left:{x + 1.8}%;top:{y + 7.0}%;width:{w - 3.6}%;height:6.2%;">{_html_escape(title)}</div>'
+                f'<div class="ppt-grid-card-body" style="left:{x + 1.8}%;top:{y + 13.2}%;width:{w - 3.6}%;height:6.8%;">{_html_escape(body)}</div>'
+            )
+        footer = slide.get("supporting_text") or slide.get("caption") or "Supporting text here."
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(source_slide_no, slide.get('style_key') or ('quad_numbered' if numbered else 'quad_grid'))}
+            <div class="ppt-copy-panel" style="left:8.3%;top:10.8%;width:44%;height:10.8%;"></div>
+            <div class="ppt-copy-panel" style="left:8.3%;top:50.5%;width:84%;height:14.5%;"></div>
+            {render_text(get_entry(5, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {''.join(cards)}
+            <div class="ppt-body" style="left:10.1%;top:52.9%;width:81%;height:9.6%;">{render_bullets(details[4:] or details[:4], 'body-list')}</div>
+            <div class="ppt-caption" style="left:10.1%;top:63.0%;width:79%;height:4.0%;">{_html_escape(str(footer))}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def triple_tiles_slide(page_no: int, slide: dict[str, Any]) -> str:
+        items = first_items(slide, 3, "Pillar")
+        details = _split_bullets(str(slide.get('content') or ''), limit=6)
+        card_specs = [
+            (12.5, 28.5, 20.5, 24.5),
+            (39.8, 28.5, 20.5, 24.5),
+            (67.1, 28.5, 20.5, 24.5),
+        ]
+        cards = []
+        for idx, (x, y, w, h) in enumerate(card_specs, start=1):
+            cards.append(
+                f'<div class="ppt-grid-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;"></div>'
+                f'<div class="ppt-grid-card-title" style="left:{x + 1.8}%;top:{y + 10.4}%;width:{w - 3.6}%;height:6.2%;">{_html_escape(items[idx - 1])}</div>'
+                f'<div class="ppt-grid-card-body" style="left:{x + 1.8}%;top:{y + 16.7}%;width:{w - 3.6}%;height:6.2%;">{_html_escape(compact_copy(details[idx - 1] if idx - 1 < len(details) else "Copy paste fonts. Choose the only option to retain text.", 58))}</div>'
+            )
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(25, slide.get('style_key') or 'triple_tiles')}
+            <div class="ppt-copy-panel" style="left:8.3%;top:10.8%;width:48%;height:11.5%;"></div>
+            <div class="ppt-copy-panel" style="left:8.3%;top:54.5%;width:84%;height:12.0%;"></div>
+            {render_text(get_entry(5, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {''.join(cards)}
+            <div class="ppt-body" style="left:10.0%;top:57.0%;width:81%;height:7.6%;">{render_bullets(details[3:] or details, 'body-list')}</div>
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def detail_grid_slide(page_no: int, slide: dict[str, Any]) -> str:
+        items = first_items(slide, 4, "Detail")
+        details = _split_bullets(str(slide.get('content') or ''), limit=8)
+        card_specs = [
+            (10.2, 28.5, 18.5, 20.8),
+            (31.0, 28.5, 18.5, 20.8),
+            (51.8, 28.5, 18.5, 20.8),
+            (72.6, 28.5, 18.5, 20.8),
+        ]
+        cards = []
+        for idx, (x, y, w, h) in enumerate(card_specs, start=1):
+            supporting = compact_copy(details[idx - 1] if idx - 1 < len(details) else "Supporting text here.", 60)
+            cards.append(
+                f'<div class="ppt-grid-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;"></div>'
+                f'<div class="ppt-grid-card-title" style="left:{x + 1.6}%;top:{y + 6.5}%;width:{w - 3.2}%;height:5.5%;">{_html_escape(items[idx - 1])}</div>'
+                f'<div class="ppt-grid-card-body" style="left:{x + 1.6}%;top:{y + 12.6}%;width:{w - 3.2}%;height:8.6%;">{_html_escape(supporting)}</div>'
+            )
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(26, slide.get('style_key') or 'detail_grid')}
+            <div class="ppt-copy-panel" style="left:8.3%;top:10.8%;width:45%;height:11.0%;"></div>
+            {render_text(get_entry(5, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {''.join(cards)}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def six_tiles_slide(page_no: int, slide: dict[str, Any]) -> str:
+        items = first_items(slide, 6, "Item")
+        details = _split_bullets(str(slide.get('content') or ''), limit=12)
+        card_specs = [
+            (10.0, 23.8, 24.0, 15.5),
+            (38.0, 23.8, 24.0, 15.5),
+            (66.0, 23.8, 24.0, 15.5),
+            (10.0, 43.2, 24.0, 15.5),
+            (38.0, 43.2, 24.0, 15.5),
+            (66.0, 43.2, 24.0, 15.5),
+        ]
+        cards = []
+        for idx, (x, y, w, h) in enumerate(card_specs, start=1):
+            supporting = compact_copy(details[idx - 1] if idx - 1 < len(details) else "Copy paste fonts. Choose the only option to retain text.", 54)
+            cards.append(
+                f'<div class="ppt-grid-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;"></div>'
+                f'<div class="ppt-grid-card-title" style="left:{x + 1.6}%;top:{y + 2.8}%;width:{w - 3.2}%;height:4.8%;">{_html_escape(items[idx - 1])}</div>'
+                f'<div class="ppt-grid-card-body" style="left:{x + 1.6}%;top:{y + 7.6}%;width:{w - 3.2}%;height:6.0%;">{_html_escape(supporting)}</div>'
+            )
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(27, slide.get('style_key') or 'six_tiles')}
+            <div class="ppt-copy-panel" style="left:8.3%;top:10.8%;width:45%;height:11.0%;"></div>
+            {render_text(get_entry(5, 'aria_slide_title'), slide.get('title') or f'Slide {page_no}', 'ppt-title')}
+            {''.join(cards)}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    def render_named_template_slide(page_no: int, slide: dict[str, Any], template_slide_no: int) -> str:
+        if template_slide_no == 3:
+            return section_slide(page_no, slide.get('title') or f'Section {page_no}')
+        if template_slide_no == 4:
+            return summary_slide(page_no, slide)
+        if template_slide_no == 5:
+            return text_focus_slide(page_no, slide)
+        if template_slide_no == 6:
+            return insight_slide(page_no, slide)
+        if template_slide_no == 7:
+            return compare_slide(page_no, slide)
+        if template_slide_no == 8:
+            return framework_slide(page_no, slide)
+        if template_slide_no == 9:
+            return roadmap_slide(page_no, slide)
+        if template_slide_no == 10:
+            return matrix_slide(page_no, slide)
+        if template_slide_no == 11:
+            return kpi_slide(page_no, slide)
+        if template_slide_no == 12:
+            return risk_slide(page_no, slide)
+        if template_slide_no == 13:
+            style_key = _normalize_graphic_library_style_key(slide.get('style_key'))
+            if style_key == 'stakeholder':
+                return stakeholder_slide(page_no, slide)
+            return visual_note_slide(page_no, slide)
+        if template_slide_no == 14:
+            return steps_slide(page_no, slide)
+        if template_slide_no == 21:
+            return summary_slide(page_no, slide)
+        if template_slide_no == 22:
+            return executive_summary_alt_slide(page_no, slide)
+        if template_slide_no == 23:
+            return quad_grid_slide(page_no, slide, numbered=False, source_slide_no=23)
+        if template_slide_no == 24:
+            return quad_grid_slide(page_no, slide, numbered=True, source_slide_no=24)
+        if template_slide_no == 25:
+            return triple_tiles_slide(page_no, slide)
+        if template_slide_no == 26:
+            return detail_grid_slide(page_no, slide)
+        if template_slide_no == 27:
+            return six_tiles_slide(page_no, slide)
+        return insight_slide(page_no, slide)
+
+    def steps_slide(page_no: int, slide: dict[str, Any]) -> str:
+        items = _split_bullets(str(slide.get('content') or ''), limit=4)
+        rows = []
+        for i in range(4):
+            rows.append(render_box(get_entry(14, f'aria_step_{i+1}_badge'), 'ppt-step-badge', 'background:#00338d;border:none;box-shadow:none;'))
+            rows.append(render_text(get_entry(14, f'aria_step_{i+1}_num'), str(i+1), 'ppt-chip-number', 'font-size:22px;'))
+            rows.append(render_text(get_entry(14, f'aria_step_{i+1}_body'), items[i] if i < len(items) else f'Action item {i+1}', 'ppt-note', 'font-size:17px;line-height:1.5;color:#2f3947;'))
+        return f"""
+        <section class="slide" id="slide-{page_no:02d}">
+          <div class="slide-inner">
+            {render_source_background(14, slide.get('style_key') or 'next_steps')}
+            {render_text(get_entry(14, 'aria_slide_title'), slide.get('title') or 'Next steps', 'ppt-title')}
+            {''.join(rows)}
+            <div class="slide-no">{page_no:02d}</div>
+          </div>
+        </section>
+        """
+
+    current_page = 3
+    for idx, slide in enumerate(slides):
+        template_slide_no = None
+        if slide.get('template_slide') is not None:
+            try:
+                template_slide_no = int(slide.get('template_slide'))
+            except (TypeError, ValueError):
+                template_slide_no = None
+        if template_slide_no is None:
+            template_slide_no = _graphic_library_style_to_template_slide(slide.get('style_key'))
+        slide_type = _normalize_graphic_library_slide_type(slide.get('type'))
+        is_first_body_page = idx == 0
+        if template_slide_no in {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 21, 22, 23, 24, 25, 26, 27}:
+            sections.append(render_named_template_slide(current_page, slide, template_slide_no))
+        elif is_first_body_page and slide_type in {'content', 'summary'}:
+            sections.append(summary_slide(current_page, slide))
+        elif slide_type == 'section':
+            sections.append(section_slide(current_page, slide.get('title') or f'Section {current_page}'))
+        elif slide_type == 'framework':
+            sections.append(framework_slide(current_page, slide))
+        elif slide_type == 'two_column':
+            sections.append(compare_slide(current_page, slide))
+        elif slide_type == 'roadmap':
+            sections.append(roadmap_slide(current_page, slide))
+        elif slide_type == 'matrix':
+            sections.append(matrix_slide(current_page, slide))
+        elif slide_type == 'kpi':
+            sections.append(kpi_slide(current_page, slide))
+        elif slide_type in {'risk', 'risks', 'risk_mitigation', 'risk-mitigation'}:
+            sections.append(risk_slide(current_page, slide))
+        elif slide_type in {'next_steps', 'steps'}:
+            sections.append(steps_slide(current_page, slide))
+        elif slide_type in {'stakeholder', 'stakeholders'}:
+            sections.append(stakeholder_slide(current_page, slide))
+        else:
+            sections.append(insight_slide(current_page, slide))
+        current_page += 1
+
+    sections.append(
+        f"""
+        <section class="slide closing-slide" id="closing">
+          <div class="slide-inner">
+            {render_box(get_entry(15, 'aria_closing_bg'), 'ppt-box', 'background:transparent;border:none;box-shadow:none;')}
+            {render_text(get_entry(15, 'aria_slide_title'), 'Thank you', 'ppt-closing-title')}
+            {render_text(get_entry(15, 'aria_slide_body'), 'Discussion / Q&A / Next discussion', 'ppt-closing-body')}
+            <div class="slide-no">{current_page:02d}</div>
+          </div>
+        </section>
+        """
+    )
+
+    total_count = len(sections)
+    return f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{_html_escape(title)}</title>
+    <style>{css}</style>
+  </head>
+  <body>
+    <div class="deck-shell">
+      <main class="deck" id="deck-track">{''.join(sections)}</main>
+      <div class="deck-pager" aria-live="polite">
+        <button type="button" id="deck-prev" aria-label="Previous slide">&#8592;</button>
+        <div class="deck-status" id="deck-status">01 / {total_count:02d}</div>
+        <button type="button" id="deck-next" aria-label="Next slide">&#8594;</button>
+      </div>
+    </div>
+    <script>
+      (() => {{
+        const track = document.getElementById('deck-track');
+        const slides = Array.from(track.querySelectorAll('.slide'));
+        const prev = document.getElementById('deck-prev');
+        const next = document.getElementById('deck-next');
+        const status = document.getElementById('deck-status');
+        let current = 0;
+        const pad = (value) => String(value).padStart(2, '0');
+        const update = () => {{
+          const width = window.innerWidth || 1;
+          current = Math.round(track.scrollLeft / width);
+          current = Math.max(0, Math.min(current, slides.length - 1));
+          status.textContent = `${{pad(current + 1)}} / ${{pad(slides.length)}}`;
+          prev.disabled = current === 0;
+          next.disabled = current === slides.length - 1;
+        }};
+        const goTo = (index) => {{
+          const width = window.innerWidth || 1;
+          const target = Math.max(0, Math.min(index, slides.length - 1));
+          track.scrollTo({{ left: target * width, behavior: 'smooth' }});
+        }};
+        prev.addEventListener('click', () => goTo(current - 1));
+        next.addEventListener('click', () => goTo(current + 1));
+        track.addEventListener('scroll', () => requestAnimationFrame(update), {{ passive: true }});
+        window.addEventListener('resize', update);
+        document.addEventListener('keydown', (event) => {{
+          if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {{
+            event.preventDefault();
+            goTo(current + 1);
+          }}
+          if (event.key === 'ArrowLeft' || event.key === 'PageUp') {{
+            event.preventDefault();
+            goTo(current - 1);
+          }}
+        }});
+        update();
+      }})();
+    </script>
+  </body>
+</html>"""
+
+
+@registry.register(
+    name="generate_html_deck_from_skill",
+    description="Generate a consulting-style HTML/H5 deck using a Skill's approved visual system.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "skill_name": {
+                "type": "string",
+                "description": "Skill folder name (e.g., 'graphic-library-h5')"
+            },
+            "title": {
+                "type": "string",
+                "description": "Deck title"
+            },
+            "subtitle": {
+                "type": "string",
+                "description": "Optional deck subtitle"
+            },
+            "slides": {
+                "type": "array",
+                "description": "Structured slide/page definitions for the H5 deck",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "title",
+                                "section",
+                                "section_divider",
+                                "executive_summary",
+                                "summary",
+                                "content",
+                                "insight",
+                                "insight_content",
+                                "two_column",
+                                "compare",
+                                "three_part",
+                                "three-part",
+                                "three_column",
+                                "framework",
+                                "roadmap",
+                                "matrix",
+                                "kpi",
+                                "kpi_cards",
+                                "risk",
+                                "risks",
+                                "risks_and_mitigations",
+                                "stakeholder",
+                                "stakeholder_map",
+                                "next_steps",
+                                "steps"
+                            ]
+                        },
+                        "style_key": {
+                            "type": "string",
+                            "description": "Optional explicit Graphic Library style key. Examples include executive_summary, executive_summary_alt, text_focus, insight_visual, compare, framework, roadmap, matrix, kpi, risk, visual_note, stakeholder, next_steps, quad_grid, quad_numbered, triple_tiles, detail_grid, and six_tiles. If omitted, the generator will infer the closest existing page style automatically."
+                        },
+                        "template_slide": {
+                            "type": "integer",
+                            "description": "Optional explicit template slide number from the Graphic Library H5 automation map. Standard body pages use 3-14; source-near extended styles also support 21-27. If omitted, it can be inferred from style_key."
+                        },
+                        "title": {"type": "string"},
+                        "content": {"type": "string"},
+                        "left_content": {"type": "string"},
+                        "right_content": {"type": "string"},
+                        "visual_caption": {"type": "string"},
+                        "caption": {"type": "string"},
+                        "phase_1": {"type": "string"},
+                        "phase_2": {"type": "string"},
+                        "phase_3": {"type": "string"},
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "card_titles": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "metrics": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {"type": "string"},
+                                    "value": {"type": "string"},
+                                    "detail": {"type": "string"},
+                                    "accent": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                    "required": ["type", "title"]
+                }
+            }
+        },
+        "required": ["skill_name", "title", "slides"]
+    }
+)
+async def generate_html_deck_from_skill(
+    skill_name: str,
+    title: str,
+    slides: list[dict],
+    subtitle: str = "",
+) -> dict[str, Any]:
+    """Generate a branded HTML/H5 deck from a skill-specific visual grammar."""
+    if skill_name != "graphic-library-h5":
+        return {
+            "success": False,
+            "error": f"{skill_name} does not support HTML/H5 deck generation.",
+        }
+
+    if not slides:
+        return {
+            "success": False,
+            "error": "slides cannot be empty for HTML deck generation.",
+        }
+
+    skill_dir = SKILLS_DIR / skill_name
+    required_paths = [
+        skill_dir / "SKILL.md",
+        skill_dir / "references" / "style-system.md",
+        skill_dir / "references" / "page-families.md",
+        skill_dir / "references" / "deck-structure.md",
+    ]
+    missing_paths = [str(path) for path in required_paths if not path.exists()]
+    if missing_paths:
+        return {
+            "success": False,
+            "error": f"{skill_name} references are incomplete; refusing to generate an ungoverned deck.",
+            "missing_paths": missing_paths,
+        }
+
+    normalized_slides = _prepare_graphic_library_h5_slides(slides)
+    html = _build_graphic_library_h5_html_v2(title, subtitle, normalized_slides)
+    filename = f"{_slugify_filename(title)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    filepath = GENERATED_DIR / filename
+    filepath.write_text(html, encoding="utf-8")
+
+    return {
+        "success": True,
+        "file_type": "html",
+        "file_name": filename,
+        "file_path": str(filepath.relative_to(UPLOADS_DIR)),
+        "full_path": str(filepath),
+        "template_applied": True,
+        "template_name": "graphic-library-h5",
+        "template_mode": "graphic_library_h5",
+        "slide_count": html.count('<section class="slide'),
+        "resolved_styles": [
+            {
+                "title": str(slide.get("title") or ""),
+                "type": str(slide.get("type") or ""),
+                "style_key": str(slide.get("style_key") or ""),
+                "template_slide": slide.get("template_slide"),
+            }
+            for slide in normalized_slides
+        ],
+    }
 
 
 @registry.register(
@@ -359,6 +2032,22 @@ def _clear_generated_text_shapes(slide):
             shape.text_frame.clear()
 
 
+def _slide_has_named_shapes(slide, required_names: set[str]) -> bool:
+    shape_names = {getattr(shape, "name", "") for shape in slide.shapes}
+    return required_names.issubset(shape_names)
+
+
+def _find_named_prototype_slide(prs, required_names: set[str], preferred_layout_name: str | None = None):
+    if preferred_layout_name:
+        for slide in prs.slides:
+            if slide.slide_layout.name == preferred_layout_name and _slide_has_named_shapes(slide, required_names):
+                return slide
+    for slide in prs.slides:
+        if _slide_has_named_shapes(slide, required_names):
+            return slide
+    return None
+
+
 def _render_section_slide(slide, title: str, section_number: int):
     _clear_generated_text_shapes(slide)
     if not _set_named_or_placeholder_text(slide, "aria_section_title", title):
@@ -368,6 +2057,43 @@ def _render_section_slide(slide, title: str, section_number: int):
         body = _find_body_placeholder(slide)
         if body is not None:
             body.text = f"{section_number:02d}"
+
+
+def _render_graphic_library_title_slide(slide, title: str):
+    _clear_generated_text_shapes(slide)
+    if not _set_named_or_placeholder_text(slide, "aria_slide_title", title) and slide.shapes.title is not None:
+        slide.shapes.title.text = title
+
+
+def _render_graphic_library_content_slide(slide, title: str, content: str, slide_number: int):
+    from pptx.util import Inches
+
+    _clear_generated_text_shapes(slide)
+    bullets = _split_bullets(content, limit=6)
+    body_text = "\n".join(f"- {bullet}" for bullet in bullets) if bullets else ""
+
+    title_shape = None
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False) and "Title" in getattr(shape, "name", ""):
+            title_shape = shape
+            break
+    if title_shape is not None:
+        title_shape.text_frame.clear()
+        title_shape.text_frame.text = title
+        title_shape.text_frame.word_wrap = True
+
+    placed = False
+    body = _find_body_placeholder(slide)
+    if body is not None:
+        body.text_frame.clear()
+        body.text_frame.text = body_text
+        body.text_frame.word_wrap = True
+        placed = True
+
+    if not placed:
+        _add_textbox(slide, Inches(0.9), Inches(1.55), Inches(5.8), Inches(4.8), body_text, size=13, color="334155")
+
+    _add_textbox(slide, Inches(11.55), Inches(6.75), Inches(0.7), Inches(0.3), f"{slide_number:02d}", size=8, color="94A3B8")
 
 
 def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = False, color: str = "1F2937"):
@@ -702,29 +2428,83 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
 def _digital_strategy_layout_key(title: str, slide_type: str = "") -> str:
     text = f"{slide_type} {title}".lower()
     rules = [
-        ("executive", ("执行摘要", "executive summary", "executive answer")),
-        ("heatmap", ("成熟度", "热力图", "maturity", "heatmap", "diagnosis")),
+        ("executive_summary", ("执行摘要", "executive summary", "executive answer")),
+        ("maturity_heatmap", ("成熟度", "热力图", "maturity", "heatmap", "diagnosis")),
         ("root_cause", ("根因", "痛点", "root cause", "pain point")),
-        ("blueprint", ("目标蓝图", "能力蓝图", "愿景", "capability", "blueprint", "vision")),
+        ("target_blueprint", ("目标蓝图", "愿景", "target state", "vision")),
+        ("capability_blueprint", ("能力蓝图", "capability blueprint")),
         ("operating_model", ("运营模式", "operating model", "治理与运营")),
-        ("portfolio", ("场景组合", "用例组合", "use-case", "portfolio")),
-        ("matrix", ("优先级", "prioritization", "priority", "matrix")),
+        ("portfolio_matrix", ("场景组合", "用例组合", "use-case", "use case", "portfolio")),
+        ("prioritization_matrix", ("优先级", "prioritization", "priority", "matrix")),
         ("roadmap", ("路线图", "三阶段", "roadmap", "horizon", "milestone")),
-        ("kpi", ("投资", "资金", "kpi", "指标", "investment", "funding")),
-        ("risk", ("风险", "缓释", "risk", "mitigation")),
-        ("action", ("90", "行动计划", "下一步", "next step", "action plan")),
+        ("investment_kpi", ("投资", "资金", "kpi", "指标", "investment", "funding", "business case")),
+        ("risk_register", ("风险", "缓释", "risk", "mitigation")),
+        ("action_plan", ("90", "行动计划", "下一步", "next step", "action plan")),
     ]
     for key, tokens in rules:
         if any(token in text for token in tokens):
             return key
-    return {"matrix": "matrix", "kpi": "kpi", "risk": "risk", "roadmap": "roadmap", "next_steps": "action"}.get(slide_type, "")
+    if slide_type in {"matrix", "kpi", "risk", "roadmap", "next_steps"}:
+        return {
+            "matrix": "prioritization_matrix",
+            "kpi": "investment_kpi",
+            "risk": "risk_register",
+            "roadmap": "roadmap",
+            "next_steps": "action_plan",
+        }[slide_type]
+    return ""
+
+
+def _resolve_digital_strategy_layout(slide_data: dict) -> str:
+    explicit = str(
+        slide_data.get("layout_key")
+        or slide_data.get("visualization_type")
+        or slide_data.get("visualization")
+        or ""
+    ).strip().lower()
+    aliases = {
+        "executive": "executive_summary",
+        "summary": "executive_summary",
+        "maturity": "maturity_heatmap",
+        "heatmap": "maturity_heatmap",
+        "maturity_radar": "maturity_heatmap",
+        "gap_matrix": "prioritization_matrix",
+        "matrix": "prioritization_matrix",
+        "portfolio": "portfolio_matrix",
+        "use_case_portfolio": "portfolio_matrix",
+        "capability": "capability_blueprint",
+        "blueprint": "capability_blueprint",
+        "tom": "operating_model",
+        "operating": "operating_model",
+        "investment": "investment_kpi",
+        "kpi_dashboard": "investment_kpi",
+        "risk": "risk_register",
+        "risk_heatmap": "risk_register",
+        "next_steps": "action_plan",
+        "action": "action_plan",
+    }
+    if explicit:
+        return aliases.get(explicit, explicit)
+    return _digital_strategy_layout_key(str(slide_data.get("title") or ""), str(slide_data.get("type") or ""))
 
 
 def _combined_slide_content(slide_data: dict) -> str:
-    return "\n".join(str(slide_data.get(key) or "") for key in ("content", "left_content", "right_content") if str(slide_data.get(key) or "").strip())
+    parts = [
+        str(slide_data.get("insight") or ""),
+        str(slide_data.get("content") or ""),
+        str(slide_data.get("left_content") or ""),
+        str(slide_data.get("right_content") or ""),
+        "\n".join(str(item) for item in slide_data.get("data_points", []) if str(item).strip())
+        if isinstance(slide_data.get("data_points"), list)
+        else "",
+        "\n".join(str(item) for item in slide_data.get("management_implications", []) if str(item).strip())
+        if isinstance(slide_data.get("management_implications"), list)
+        else "",
+    ]
+    return "\n".join(part for part in parts if part.strip())
 
 
-def _strategy_canvas(slide, title: str, body: str, slide_number: int):
+def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
@@ -737,78 +2517,126 @@ def _strategy_canvas(slide, title: str, body: str, slide_number: int):
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
-        _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
         visual_bounds = (Inches(6.9), Inches(1.35), Inches(5.6), Inches(5.25))
+        _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
     return bullets, visual_bounds, used_template
-
-
-def _strategy_four_cards(slide, x, y, w, h, bullets: list[str], labels: list[str], colors: list[str]):
-    from pptx.util import Inches
-
-    for idx, label in enumerate(labels):
-        left = x + (idx % 2) * (w * 0.52)
-        top = y + (idx // 2) * (h * 0.52)
-        _add_card(slide, left, top, w * 0.46, h * 0.42, fill=["EFF6FF", "ECFDF5", "FFF7ED", "F8FAFC"][idx], line=colors[idx])
-        _add_textbox(slide, left + Inches(0.16), top + Inches(0.12), w * 0.4, Inches(0.26), label, size=9, bold=True, color=colors[idx])
-        text = bullets[idx] if idx < len(bullets) else "明确责任、指标和下一步动作"
-        _add_textbox(slide, left + Inches(0.16), top + Inches(0.48), w * 0.4, h * 0.22, text[:120], size=7, color="334155")
 
 
 def _render_strategy_heatmap(slide, x, y, w, h, bullets: list[str]):
     from pptx.util import Inches
 
     dimensions = ["战略", "客户", "运营", "组织", "数据", "技术"]
+    levels = ["L1", "L2", "L3", "L4", "L5"]
     colors = ["FEE2E2", "FFEDD5", "FEF3C7", "DCFCE7", "DBEAFE"]
+    _add_textbox(slide, x, y - Inches(0.55), w, Inches(0.22), "成熟度等级：从机会式试点到可管理、可复制的企业能力", size=8, bold=True, color="1E3A8A")
     cell_w = w / 5
-    row_h = h / 6
+    row_h = (h - Inches(0.55)) / 6
     for row, dim in enumerate(dimensions):
-        top = y + row * row_h
-        _add_textbox(slide, x - Inches(0.78), top + Inches(0.08), Inches(0.7), Inches(0.22), dim, size=8, bold=True, color="334155")
-        active = min(4, max(1, (row % 5) + 1))
-        for col in range(5):
+        top = y + Inches(0.28) + row * row_h
+        _add_textbox(slide, x - Inches(0.92), top + Inches(0.08), Inches(0.82), Inches(0.25), dim, size=8, bold=True, color="334155")
+        active = [2, 1, 2, 1, 1, 2][row]
+        for col, level in enumerate(levels):
             left = x + col * cell_w
-            _add_card(slide, left, top, cell_w - Inches(0.06), row_h - Inches(0.07), fill=colors[col] if col < active else "F8FAFC", line="E2E8F0")
+            fill = colors[col] if col <= active else "F8FAFC"
+            _add_card(slide, left, top, cell_w - Inches(0.06), row_h - Inches(0.07), fill=fill, line="E2E8F0")
             if row == 0:
-                _add_textbox(slide, left + Inches(0.04), y - Inches(0.28), cell_w, Inches(0.18), f"L{col + 1}", size=7, bold=True, color="64748B")
+                _add_textbox(slide, left + Inches(0.05), y - Inches(0.18), cell_w - Inches(0.1), Inches(0.18), level, size=7, bold=True, color="64748B")
+            if col == active:
+                _add_textbox(slide, left + Inches(0.05), top + Inches(0.24), cell_w - Inches(0.1), Inches(0.16), "当前", size=6, bold=True, color="0F172A")
+    if bullets:
+        _add_card(slide, x, y + h - Inches(0.2), w, Inches(0.52), fill="EFF6FF", line="BFDBFE")
+        _add_textbox(slide, x + Inches(0.15), y + h - Inches(0.08), w - Inches(0.3), Inches(0.24), bullets[0][:110], size=8, bold=True, color="1E3A8A")
 
 
-def _render_strategy_funnel(slide, x, y, w, h, bullets: list[str]):
+def _render_strategy_executive_summary(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    labels = ["战略判断", "价值目标", "优先动作", "高层决策"]
+    accents = ["1D4ED8", "047857", "C2410C", "7C3AED"]
+    for idx, label in enumerate(labels):
+        left = x + (idx % 2) * (w * 0.52)
+        top = y + (idx // 2) * (h * 0.52)
+        _add_card(slide, left, top, w * 0.46, h * 0.42, fill="FFFFFF", line="D7DEE8")
+        _add_shape(slide, MSO_SHAPE.OVAL, left + Inches(0.16), top + Inches(0.16), Inches(0.34), Inches(0.34), fill=accents[idx], line=accents[idx])
+        _add_textbox(slide, left + Inches(0.6), top + Inches(0.16), w * 0.34, Inches(0.25), label, size=9, bold=True, color=accents[idx])
+        text = bullets[idx] if idx < len(bullets) else "明确管理层需要确认的取舍、范围和投入节奏"
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.58), w * 0.40, h * 0.20, text[:125], size=7, color="334155")
+
+
+def _render_strategy_root_cause(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
     labels = ["业务症状", "结构根因", "管理动作"]
+    fills = ["EFF6FF", "FFF7ED", "ECFDF5"]
+    accents = ["2563EB", "C2410C", "047857"]
     for idx, label in enumerate(labels):
         top = y + idx * (h / 3)
-        left = x + Inches(0.25 * idx)
-        width = w - Inches(0.5 * idx)
-        _add_card(slide, left, top, width, h / 3 - Inches(0.18), fill=["EFF6FF", "FFF7ED", "ECFDF5"][idx], line=["2563EB", "C2410C", "047857"][idx])
-        _add_textbox(slide, left + Inches(0.18), top + Inches(0.12), Inches(1.05), Inches(0.24), label, size=9, bold=True, color=["2563EB", "C2410C", "047857"][idx])
-        _add_textbox(slide, left + Inches(1.35), top + Inches(0.1), width - Inches(1.55), h / 3 - Inches(0.34), (bullets[idx] if idx < len(bullets) else "补充证据并明确治理动作")[:150], size=8, color="334155")
+        width = w - Inches(0.58 * idx)
+        left = x + Inches(0.29 * idx)
+        _add_card(slide, left, top, width, h / 3 - Inches(0.2), fill=fills[idx], line=accents[idx])
+        _add_textbox(slide, left + Inches(0.14), top + Inches(0.12), Inches(0.34), Inches(0.28), f"{idx + 1}", size=10, bold=True, color=accents[idx])
+        _add_textbox(slide, left + Inches(0.52), top + Inches(0.12), Inches(1.0), Inches(0.26), label, size=9, bold=True, color=accents[idx])
+        text = bullets[idx] if idx < len(bullets) else "补充访谈证据，明确责任边界和治理动作"
+        _add_textbox(slide, left + Inches(1.55), top + Inches(0.1), width - Inches(1.75), h / 3 - Inches(0.36), text[:165], size=8, color="334155")
+        if idx < 2:
+            _add_shape(slide, MSO_SHAPE.DOWN_ARROW, x + w * 0.48, top + h / 3 - Inches(0.25), Inches(0.34), Inches(0.34), fill="CBD5E1", line="CBD5E1")
 
 
-def _render_strategy_blueprint(slide, x, y, w, h, bullets: list[str]):
+def _render_strategy_capability_blueprint(slide, x, y, w, h, bullets: list[str]):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
     center_x = x + w * 0.5
     center_y = y + h * 0.45
-    _add_shape(slide, MSO_SHAPE.OVAL, center_x - Inches(0.72), center_y - Inches(0.52), Inches(1.44), Inches(1.04), fill="1D4ED8", line="1D4ED8")
-    _add_textbox(slide, center_x - Inches(0.52), center_y - Inches(0.16), Inches(1.04), Inches(0.28), "数字能力", size=10, bold=True, color="FFFFFF")
+    _add_shape(slide, MSO_SHAPE.OVAL, center_x - Inches(0.82), center_y - Inches(0.62), Inches(1.64), Inches(1.24), fill="1D4ED8", line="1D4ED8")
+    _add_textbox(slide, center_x - Inches(0.62), center_y - Inches(0.28), Inches(1.24), Inches(0.42), "数字能力\n操作系统", size=9, bold=True, color="FFFFFF")
     labels = ["客户智能", "数字运营", "数据基础", "AI 决策", "平台架构"]
-    positions = [(0.04, 0.08), (0.60, 0.08), (0.04, 0.66), (0.60, 0.66), (0.32, 0.38)]
+    positions = [(0.02, 0.04), (0.60, 0.04), (0.02, 0.70), (0.60, 0.70), (0.31, 0.38)]
     for idx, label in enumerate(labels):
         left = x + w * positions[idx][0]
         top = y + h * positions[idx][1]
-        _add_card(slide, left, top, w * 0.34, Inches(0.82), fill="FFFFFF", line="C7D2FE")
-        _add_textbox(slide, left + Inches(0.12), top + Inches(0.1), w * 0.3, Inches(0.22), label, size=8, bold=True, color="1D4ED8")
-        _add_textbox(slide, left + Inches(0.12), top + Inches(0.36), w * 0.28, Inches(0.32), (bullets[idx] if idx < len(bullets) else "定义场景、数据和指标")[:72], size=6, color="475569")
+        _add_card(slide, left, top, w * 0.38, Inches(0.96), fill="FFFFFF", line="C7D2FE")
+        _add_shape(slide, MSO_SHAPE.RECTANGLE, left, top, w * 0.38, Inches(0.06), fill="1D4ED8", line="1D4ED8")
+        _add_textbox(slide, left + Inches(0.12), top + Inches(0.14), w * 0.34, Inches(0.22), label, size=8, bold=True, color="1D4ED8")
+        detail = bullets[idx] if idx < len(bullets) else "定义能力、场景、数据和指标"
+        _add_textbox(slide, left + Inches(0.12), top + Inches(0.42), w * 0.34, Inches(0.38), detail[:92], size=6, color="475569")
 
 
 def _render_strategy_operating_model(slide, x, y, w, h, bullets: list[str]):
     from pptx.util import Inches
 
-    _add_card(slide, x + w * 0.18, y, w * 0.64, Inches(0.72), fill="EFF6FF", line="2563EB")
-    _add_textbox(slide, x + w * 0.22, y + Inches(0.16), w * 0.56, Inches(0.26), "指导委员会：范围、资金与跨部门取舍", size=9, bold=True, color="1E3A8A")
-    _strategy_four_cards(slide, x, y + Inches(1.1), w, h - Inches(1.1), bullets, ["业务负责人", "数据负责人", "技术平台", "转型 PMO"], ["1D4ED8", "047857", "C2410C", "7C3AED"])
+    _add_card(slide, x + w * 0.18, y, w * 0.64, Inches(0.75), fill="EFF6FF", line="2563EB")
+    _add_textbox(slide, x + w * 0.22, y + Inches(0.18), w * 0.56, Inches(0.28), "指导委员会：范围、资金与跨部门取舍", size=9, bold=True, color="1E3A8A")
+    roles = ["业务负责人", "数据负责人", "技术平台", "转型 PMO"]
+    for idx, role in enumerate(roles):
+        left = x + (idx % 2) * (w * 0.52)
+        top = y + Inches(1.15) + (idx // 2) * Inches(1.55)
+        _add_card(slide, left, top, w * 0.46, Inches(1.12), fill="FFFFFF", line="D7DEE8")
+        _add_textbox(slide, left + Inches(0.15), top + Inches(0.14), w * 0.42, Inches(0.24), role, size=9, bold=True, color="0F172A")
+        detail = bullets[idx] if idx < len(bullets) else "明确价值、采用率、交付节奏和升级路径"
+        _add_textbox(slide, left + Inches(0.15), top + Inches(0.45), w * 0.4, Inches(0.42), detail[:96], size=7, color="475569")
+
+
+def _render_strategy_portfolio_matrix(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _add_textbox(slide, x + w * 0.34, y - Inches(0.36), w * 0.32, Inches(0.18), "业务价值", size=7, bold=True, color="64748B")
+    _add_textbox(slide, x - Inches(0.55), y + h * 0.42, Inches(0.45), Inches(0.32), "可行性", size=7, bold=True, color="64748B")
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x, y + h * 0.5, w, Inches(0.01), fill="CBD5E1", line="CBD5E1")
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x + w * 0.5, y, Inches(0.01), h, fill="CBD5E1", line="CBD5E1")
+    labels = ["快赢场景", "基础能力", "差异化能力", "暂缓事项"]
+    fills = ["DBEAFE", "ECFDF5", "FFF7ED", "F8FAFC"]
+    accents = ["1D4ED8", "047857", "C2410C", "475569"]
+    for idx, label in enumerate(labels):
+        left = x + (idx % 2) * (w * 0.52)
+        top = y + (idx // 2) * (h * 0.52)
+        _add_card(slide, left, top, w * 0.46, h * 0.42, fill=fills[idx], line=accents[idx])
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.12), w * 0.42, Inches(0.26), label, size=9, bold=True, color=accents[idx])
+        text = bullets[idx] if idx < len(bullets) else "按价值、可行性、依赖和变革准备度排序"
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.48), w * 0.4, h * 0.24, text[:120], size=7, color="334155")
 
 
 def _render_strategy_roadmap(slide, x, y, w, h, bullets: list[str]):
@@ -816,62 +2644,101 @@ def _render_strategy_roadmap(slide, x, y, w, h, bullets: list[str]):
     from pptx.util import Inches
 
     phases = ["夯实基础", "规模复制", "领先优化"]
+    gates = ["价值样板", "平台复用", "AI 原生"]
+    fills = ["EFF6FF", "ECFDF5", "FFF7ED"]
+    accents = ["2563EB", "047857", "C2410C"]
     card_w = w / 3 - Inches(0.12)
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x + Inches(0.2), y + Inches(0.21), w - Inches(0.4), Inches(0.04), fill="CBD5E1", line="CBD5E1")
     for idx, phase in enumerate(phases):
         left = x + idx * (card_w + Inches(0.18))
-        _add_card(slide, left, y + Inches(0.52), card_w, h - Inches(0.7), fill=["EFF6FF", "ECFDF5", "FFF7ED"][idx], line=["2563EB", "047857", "C2410C"][idx])
-        _add_shape(slide, MSO_SHAPE.OVAL, left + card_w / 2 - Inches(0.2), y, Inches(0.4), Inches(0.4), fill=["2563EB", "047857", "C2410C"][idx], line=["2563EB", "047857", "C2410C"][idx])
-        _add_textbox(slide, left + Inches(0.2), y + Inches(0.78), card_w - Inches(0.4), Inches(0.3), phase, size=10, bold=True, color=["2563EB", "047857", "C2410C"][idx])
-        _add_textbox(slide, left + Inches(0.2), y + Inches(1.2), card_w - Inches(0.4), h - Inches(1.55), (bullets[idx] if idx < len(bullets) else "明确里程碑、依赖和管理闸口")[:180], size=8, color="334155")
+        _add_card(slide, left, y + Inches(0.52), card_w, h - Inches(0.7), fill=fills[idx], line=accents[idx])
+        _add_shape(slide, MSO_SHAPE.OVAL, left + card_w / 2 - Inches(0.2), y, Inches(0.4), Inches(0.4), fill=accents[idx], line=accents[idx])
+        _add_textbox(slide, left + card_w / 2 - Inches(0.08), y + Inches(0.08), Inches(0.16), Inches(0.12), str(idx + 1), size=7, bold=True, color="FFFFFF")
+        _add_textbox(slide, left + Inches(0.2), y + Inches(0.78), card_w - Inches(0.4), Inches(0.3), phase, size=10, bold=True, color=accents[idx])
+        _add_textbox(slide, left + Inches(0.2), y + Inches(1.08), card_w - Inches(0.4), Inches(0.2), f"阶段门：{gates[idx]}", size=7, bold=True, color="64748B")
+        text = bullets[idx] if idx < len(bullets) else "明确里程碑、依赖和管理闸口"
+        _add_textbox(slide, left + Inches(0.2), y + Inches(1.42), card_w - Inches(0.4), h - Inches(1.75), text[:190], size=8, color="334155")
         if idx < 2:
             _add_shape(slide, MSO_SHAPE.CHEVRON, left + card_w + Inches(0.03), y + h * 0.48, Inches(0.28), Inches(0.28), fill="CBD5E1", line="CBD5E1")
+
+
+def _render_strategy_kpi(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    labels = ["业务价值", "采用率", "交付进度", "风险控制"]
+    sample_values = ["+3-5%", "70%+", "90%", "月度"]
+    accents = ["1D4ED8", "047857", "C2410C", "7C3AED"]
+    for idx, label in enumerate(labels):
+        left = x + (idx % 2) * (w * 0.52)
+        top = y + (idx // 2) * (h * 0.52)
+        _add_card(slide, left, top, w * 0.46, h * 0.42, fill="FFFFFF", line="D7DEE8")
+        _add_shape(slide, MSO_SHAPE.RECTANGLE, left, top, w * 0.46, Inches(0.06), fill=accents[idx], line=accents[idx])
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.18), w * 0.4, Inches(0.28), label, size=9, bold=True, color=accents[idx])
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.46), Inches(0.9), Inches(0.36), sample_values[idx], size=16, bold=True, color=accents[idx])
+        text = bullets[idx] if idx < len(bullets) else "定义基线、目标、负责人和复盘节奏"
+        _add_textbox(slide, left + Inches(1.18), top + Inches(0.50), w * 0.28, h * 0.22, text[:105], size=7, color="334155")
 
 
 def _render_strategy_risk(slide, x, y, w, h, bullets: list[str]):
     from pptx.util import Inches
 
-    risks = bullets[:4] or ["遗留系统迁移风险", "数据口径和责任风险", "一线采用率风险", "供应商锁定风险"]
+    risk_points = bullets[:4] or ["遗留系统迁移风险", "数据口径和责任风险", "一线采用率风险", "供应商锁定风险"]
     mitigations = ["架构护栏和分阶段迁移", "指定数据负责人和质量 SLA", "变革冠军和角色化培训", "退出标准和能力转移"]
-    for idx, risk in enumerate(risks[:4]):
+    _add_textbox(slide, x, y - Inches(0.32), w * 0.46, Inches(0.2), "关键风险", size=8, bold=True, color="991B1B")
+    _add_textbox(slide, x + w * 0.52, y - Inches(0.32), w * 0.46, Inches(0.2), "缓释动作与责任", size=8, bold=True, color="065F46")
+    for idx, risk in enumerate(risk_points[:4]):
         top = y + idx * (h / 4)
         _add_card(slide, x, top, w * 0.46, h / 4 - Inches(0.12), fill="FEF2F2", line="DC2626")
         _add_card(slide, x + w * 0.52, top, w * 0.46, h / 4 - Inches(0.12), fill="ECFDF5", line="047857")
-        _add_textbox(slide, x + Inches(0.12), top + Inches(0.1), w * 0.42, Inches(0.34), risk[:82], size=7, bold=True, color="991B1B")
-        _add_textbox(slide, x + w * 0.52 + Inches(0.12), top + Inches(0.1), w * 0.42, Inches(0.34), mitigations[idx] if idx < len(mitigations) else "明确责任人和监控节奏", size=7, bold=True, color="065F46")
+        _add_textbox(slide, x + Inches(0.12), top + Inches(0.1), Inches(0.34), Inches(0.24), f"R{idx + 1}", size=8, bold=True, color="991B1B")
+        _add_textbox(slide, x + Inches(0.52), top + Inches(0.1), w * 0.36, Inches(0.34), risk[:82], size=7, bold=True, color="991B1B")
+        mitigation = mitigations[idx] if idx < len(mitigations) else "明确责任人和监控节奏"
+        _add_textbox(slide, x + w * 0.52 + Inches(0.12), top + Inches(0.1), Inches(0.34), Inches(0.24), "✓", size=8, bold=True, color="065F46")
+        _add_textbox(slide, x + w * 0.52 + Inches(0.52), top + Inches(0.1), w * 0.36, Inches(0.34), mitigation, size=7, bold=True, color="065F46")
 
 
-def _render_strategy_action(slide, x, y, w, h, bullets: list[str]):
+def _render_strategy_action_plan(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
     steps = ["1-2 周", "3-5 周", "6-8 周", "9-12 周"]
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x + Inches(0.25), y + Inches(0.28), Inches(0.05), h - Inches(0.56), fill="BFDBFE", line="BFDBFE")
     for idx, step in enumerate(steps):
         top = y + idx * (h / 4)
         _add_card(slide, x, top, w, h / 4 - Inches(0.12), fill="F8FAFC", line="D7DEE8")
-        _add_textbox(slide, x + Inches(0.16), top + Inches(0.12), Inches(0.72), Inches(0.24), step, size=8, bold=True, color="1D4ED8")
-        _add_textbox(slide, x + Inches(1.0), top + Inches(0.1), w - Inches(1.18), h / 4 - Inches(0.3), (bullets[idx] if idx < len(bullets) else "明确行动、负责人、输入和输出")[:150], size=8, color="334155")
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.12), top + Inches(0.18), Inches(0.32), Inches(0.32), fill="1D4ED8", line="1D4ED8")
+        _add_textbox(slide, x + Inches(0.52), top + Inches(0.16), Inches(0.72), Inches(0.24), step, size=8, bold=True, color="1D4ED8")
+        text = bullets[idx] if idx < len(bullets) else "明确行动、负责人、输入和输出"
+        _add_textbox(slide, x + Inches(1.32), top + Inches(0.1), w - Inches(1.5), h / 4 - Inches(0.3), text[:155], size=8, color="334155")
 
 
 def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, layout_key: str) -> bool:
     title = str(slide_data.get("title") or "")
-    bullets, (x, y, w, h), used_template = _strategy_canvas(slide, title, _combined_slide_content(slide_data), slide_number)
-    if layout_key in {"executive", "blueprint"}:
-        _render_strategy_blueprint(slide, x, y, w, h, bullets)
-    elif layout_key == "heatmap":
+    body = _combined_slide_content(slide_data)
+    bullets, (x, y, w, h), used_template = _prepare_strategy_canvas(slide, title, body, slide_number)
+    if layout_key == "executive_summary":
+        _render_strategy_executive_summary(slide, x, y, w, h, bullets)
+    elif layout_key == "target_blueprint":
+        _render_strategy_capability_blueprint(slide, x, y, w, h, bullets)
+    elif layout_key == "maturity_heatmap":
         _render_strategy_heatmap(slide, x, y, w, h, bullets)
     elif layout_key == "root_cause":
-        _render_strategy_funnel(slide, x, y, w, h, bullets)
+        _render_strategy_root_cause(slide, x, y, w, h, bullets)
+    elif layout_key == "capability_blueprint":
+        _render_strategy_capability_blueprint(slide, x, y, w, h, bullets)
     elif layout_key == "operating_model":
         _render_strategy_operating_model(slide, x, y, w, h, bullets)
-    elif layout_key in {"portfolio", "matrix"}:
-        _strategy_four_cards(slide, x, y, w, h, bullets, ["快赢场景", "基础能力", "差异化能力", "暂缓事项"], ["1D4ED8", "047857", "C2410C", "475569"])
+    elif layout_key in {"portfolio_matrix", "prioritization_matrix"}:
+        _render_strategy_portfolio_matrix(slide, x, y, w, h, bullets)
     elif layout_key == "roadmap":
         _render_strategy_roadmap(slide, x, y, w, h, bullets)
-    elif layout_key == "kpi":
-        _strategy_four_cards(slide, x, y, w, h, bullets, ["业务价值", "采用率", "交付进度", "风险控制"], ["1D4ED8", "047857", "C2410C", "7C3AED"])
-    elif layout_key == "risk":
+    elif layout_key == "investment_kpi":
+        _render_strategy_kpi(slide, x, y, w, h, bullets)
+    elif layout_key == "risk_register":
         _render_strategy_risk(slide, x, y, w, h, bullets)
-    elif layout_key == "action":
-        _render_strategy_action(slide, x, y, w, h, bullets)
+    elif layout_key == "action_plan":
+        _render_strategy_action_plan(slide, x, y, w, h, bullets)
     else:
         return False
     if not used_template:
@@ -963,8 +2830,29 @@ def _render_back_cover(slide, title: str):
     _add_textbox(slide, Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.3), "由 AriaAI 生成", size=10, color="94A3B8")
 
 
+def _enrich_digital_strategy_slide(slide: dict, page_number: int | None = None) -> dict:
+    enriched = dict(slide)
+    slide_type = str(enriched.get("type") or "content")
+    layout_key = _resolve_digital_strategy_layout(enriched)
+    if layout_key:
+        enriched.setdefault("layout_key", layout_key)
+    if slide_type in {"title", "section"}:
+        enriched.setdefault("page_rhythm", "breathing")
+    elif layout_key in {"maturity_heatmap", "prioritization_matrix", "roadmap", "investment_kpi", "risk_register"}:
+        enriched.setdefault("page_rhythm", "dense")
+    elif layout_key in {"executive_summary", "target_blueprint", "capability_blueprint", "operating_model", "portfolio_matrix"}:
+        enriched.setdefault("page_rhythm", "anchor")
+    else:
+        enriched.setdefault("page_rhythm", "dense")
+    if layout_key and not enriched.get("visualization_type"):
+        enriched["visualization_type"] = layout_key
+    if page_number is not None:
+        enriched.setdefault("page_number", page_number)
+    return enriched
+
+
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
-    normalized = [dict(slide) for slide in slides if slide.get("title")]
+    normalized = [_enrich_digital_strategy_slide(dict(slide), idx + 1) for idx, slide in enumerate(slides) if slide.get("title")]
     if len(normalized) >= 20:
         return normalized
 
@@ -1108,7 +2996,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         key = slide["title"].lower()
         if key in existing:
             continue
-        normalized.append(slide)
+        normalized.append(_enrich_digital_strategy_slide(slide, len(normalized) + 1))
         existing.add(key)
         if len(normalized) >= 22:
             break
@@ -1499,6 +3387,7 @@ def _localize_builtin_slides(slides: list[dict]) -> list[dict]:
         localized.append(item)
     return localized
 
+
 def _normalize_presentation_deck_type(deck_type: str | None) -> str:
     normalized = (deck_type or "strategy").strip().lower().replace("_", "-")
     aliases = {
@@ -1616,8 +3505,152 @@ async def generate_ppt(
         }
 
     using_template = bool(template_path and Path(template_path).exists())
+    template_name = Path(template_path).name.lower() if using_template else ""
+    is_graphic_library_template = template_name == "graphic library.pptx"
     if using_template:
         prs = Presentation(template_path)
+        if is_graphic_library_template:
+            aria_cover_prototype = _find_named_prototype_slide(
+                prs,
+                {"aria_cover_title", "aria_cover_subtitle"},
+                preferred_layout_name="Cover style 1-D",
+            )
+            aria_section_prototype = _find_named_prototype_slide(
+                prs,
+                {"aria_section_title", "aria_section_number"},
+                preferred_layout_name="Divider with image",
+            )
+            aria_content_prototype = _find_named_prototype_slide(
+                prs,
+                {"aria_slide_title", "aria_slide_body"},
+                preferred_layout_name="ONE COLUMN TEXT",
+            )
+            aria_two_col_prototype = _find_named_prototype_slide(
+                prs,
+                {"aria_slide_title", "aria_left_body", "aria_right_body"},
+                preferred_layout_name="TWO COLUMN TEXT",
+            )
+            aria_title_prototype = _find_named_prototype_slide(
+                prs,
+                {"aria_slide_title", "aria_visual_area"},
+                preferred_layout_name="Title Only",
+            )
+
+            if all((aria_cover_prototype, aria_section_prototype, aria_content_prototype, aria_two_col_prototype, aria_title_prototype)):
+                original_refs = list(prs.slides._sldIdLst)
+                _set_template_cover_text(aria_cover_prototype, title, subtitle)
+
+                for slide_index, slide_data in enumerate(slides):
+                    slide_type = slide_data.get("type", "content")
+                    slide_title = slide_data.get("title", "")
+
+                    if slide_type == "section":
+                        slide = _clone_slide_from_prototype(prs, aria_section_prototype)
+                        _render_section_slide(slide, slide_title, slide_index + 1)
+                    elif slide_type == "title":
+                        slide = _clone_slide_from_prototype(prs, aria_title_prototype)
+                        _render_graphic_library_title_slide(slide, slide_title)
+                    elif slide_type == "two_column":
+                        slide = _clone_slide_from_prototype(prs, aria_two_col_prototype)
+                        _render_two_column_slide(
+                            slide,
+                            slide_title,
+                            slide_data.get("left_content", ""),
+                            slide_data.get("right_content", ""),
+                            slide_index + 1,
+                        )
+                    else:
+                        slide = _clone_slide_from_prototype(prs, aria_content_prototype)
+                        _render_content_slide(
+                            slide,
+                            slide_title,
+                            slide_data.get("content", ""),
+                            slide_index + 1,
+                        )
+
+                keep_ref = None
+                for index, slide_ref in enumerate(original_refs):
+                    if prs.slides[index] is aria_cover_prototype:
+                        keep_ref = slide_ref
+                        break
+                for slide_ref in list(original_refs):
+                    if slide_ref is keep_ref:
+                        continue
+                    _remove_slide_ref(prs, slide_ref)
+
+                filename = _generate_filename("pptx")
+                filepath = GENERATED_DIR / filename
+                prs.save(filepath)
+                return {
+                    "success": True,
+                    "file_type": "pptx",
+                    "file_name": filename,
+                    "file_path": str(filepath.relative_to(UPLOADS_DIR)),
+                    "full_path": str(filepath),
+                    "template_path": str(template_path),
+                    "template_name": Path(template_path).name,
+                    "template_applied": True,
+                    "template_mode": "graphic_library_named_prototypes",
+                    "slide_count": len(prs.slides),
+                }
+
+        if is_graphic_library_template and len(prs.slides) >= 4:
+            original_refs = list(prs.slides._sldIdLst)
+            _set_template_cover_text(prs.slides[0], title, subtitle)
+
+            agenda_ref = _slide_ref(prs, 1)
+            divider_ref = _slide_ref(prs, 2)
+            content_ref = _slide_ref(prs, 3)
+            content_prototype = prs.slides[3]
+            divider_prototype = prs.slides[2]
+            two_col_layout = next(
+                (layout for layout in prs.slide_layouts if layout.name == "TWO COLUMN TEXT"),
+                _safe_layout(prs, 1),
+            )
+
+            for slide_index, slide_data in enumerate(slides):
+                slide_type = slide_data.get("type", "content")
+                slide_title = slide_data.get("title", "")
+
+                if slide_type == "title":
+                    slide = _clone_slide_from_prototype(prs, divider_prototype)
+                    _render_section_slide(slide, slide_title, slide_index + 1)
+                elif slide_type == "two_column":
+                    slide = prs.slides.add_slide(two_col_layout)
+                    _render_two_column_slide(
+                        slide,
+                        slide_title,
+                        slide_data.get("left_content", ""),
+                        slide_data.get("right_content", ""),
+                        slide_index + 1,
+                    )
+                else:
+                    slide = _clone_slide_from_prototype(prs, content_prototype)
+                    _render_graphic_library_content_slide(
+                        slide,
+                        slide_title,
+                        slide_data.get("content", ""),
+                        slide_index + 1,
+                    )
+
+            for slide_ref in list(original_refs)[1:]:
+                _remove_slide_ref(prs, slide_ref)
+
+            filename = _generate_filename("pptx")
+            filepath = GENERATED_DIR / filename
+            prs.save(filepath)
+            return {
+                "success": True,
+                "file_type": "pptx",
+                "file_name": filename,
+                "file_path": str(filepath.relative_to(UPLOADS_DIR)),
+                "full_path": str(filepath),
+                "template_path": str(template_path),
+                "template_name": Path(template_path).name,
+                "template_applied": True,
+                "template_mode": "graphic_library_prototypes",
+                "slide_count": len(prs.slides),
+            }
         if len(prs.slides) >= 5:
             _set_template_cover_text(prs.slides[0], title, subtitle)
 
@@ -1633,7 +3666,7 @@ async def generate_ppt(
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
                 content = slide_data.get("content", "")
-                strategy_layout = _digital_strategy_layout_key(slide_title, slide_type)
+                strategy_layout = _resolve_digital_strategy_layout(slide_data)
                 use_visual = slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"} or (
                     slide_type == "content" and _wants_visual_slide(slide_title, content)
                 )
@@ -1846,17 +3879,17 @@ async def generate_ppt_from_skill(
         slides = _normalize_presentation_builder_slide_format(slides)
     slides = _prepare_ppt_slide_text(slides)
 
-    strict_template_skills = {"digital-strategy", "presentation-builder"}
+    strict_template_skills = {"digital-strategy", "graphic-library-ppt", "presentation-builder"}
 
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
     searched_paths: list[str] = []
     template_skill_names = [skill_name]
     if skill_name == "presentation-builder":
-        template_skill_names.extend(["digital-strategy"])
+        template_skill_names.extend(["digital-strategy", "graphic-library-ppt"])
     for template_skill_name in template_skill_names:
         for folder in ("assets", "references"):
-            for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx"):
+            for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx", "Graphic library.pptx"):
                 candidate = SKILLS_DIR / template_skill_name / folder / filename
                 searched_paths.append(str(candidate))
                 if candidate.exists():
