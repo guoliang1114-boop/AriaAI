@@ -248,29 +248,73 @@ PPT depth standard:
 - Keep the deck language consistent with the user's language. For Chinese requests, write slide titles, bullets, labels, notes, and section names in Chinese; do not mix English labels such as Executive Summary, Current/Target, Foundation/Scale/Lead unless the user explicitly asks for bilingual output.
 - Do not pass raw Markdown into the PPT tool. Convert headings, bold text, tables, and long paragraphs into clean slide titles, bullets, two-column text, or structured visual pages.
 - Use varied layouts across the deck: `title` for chapter dividers, `content` for argument pages, `two_column` for contrast, `roadmap` for phases, `matrix` for prioritization, `kpi` for scorecards, `risk` for risk registers, and `next_steps` for action plans.
+- 逐页版式意图：
+  - 执行摘要 / 战略答案：价值论点卡片 + 管理层决策焦点。
+  - 成熟度诊断 / 热力图：六维成熟度网格。
+  - 痛点根因：业务症状 -> 结构性原因 -> 管理动作漏斗。
+  - 能力蓝图：中心辐射式数字能力地图。
+  - 目标运营模式：治理与角色责任图。
+  - 场景组合 / 优先级：2x2 组合矩阵。
+  - 路线图 / 举措里程碑：三阶段时间线。
+  - 投资 / KPI：价值、采用、交付、风险四卡片计分板。
+  - 风险登记：风险与缓释动作成对展示。
+  - 90 天计划 / 下一步：按周推进的行动时间线。
+
+数字化战略 PPT 标准目录：
+
+默认使用以下 **22 页标准结构**，除非用户明确要求更短、更长或行业定制版本。请保持章节顺序稳定，便于 PPT 生成器按页面类型应用专属版式和图形。
+
+| 页码 | 章节 | 页面类型 | 标准页标题 | 页面目的 |
+|------|------|----------|------------|----------|
+| 1 | 封面 | title | 数字化转型战略方案 | 明确客户、范围、规划周期和高层汇报语境 |
+| 2 | 高层共识 | title | 高层共识 | 作为管理层答案章节的分隔页 |
+| 3 | 高层共识 | content | 执行摘要：把数字化作为业务价值组合来管理 | 说明转型论点、价值目标、所需决策和立即请示事项 |
+| 4 | 高层共识 | content | 战略背景：数字化窗口期已经从试点转向规模化 | 解释市场、客户、竞争和内部压力点 |
+| 5 | 现状诊断 | content | 现状诊断：从六个维度识别成熟度短板 | 评估战略、客户、运营、组织、数据和技术成熟度 |
+| 6 | 现状诊断 | matrix | 成熟度热力图：优势基础与制约因素 | 可视化优势、短板和需要高层介入的领域 |
+| 7 | 现状诊断 | content | 痛点根因：区分症状、结构性原因和管理动作 | 将观察到的痛点转化为根因和管理动作 |
+| 8 | 目标蓝图 | title | 目标蓝图 | 作为目标状态设计章节的分隔页 |
+| 9 | 目标蓝图 | content | 客户与增长体验缺口：优先找到价值泄漏点 | 识别客户旅程断点和增长场景 |
+| 10 | 目标蓝图 | content | 数字化愿景与目标状态：形成数据驱动的运营体系 | 定义北极星目标、运营原则和目标状态 |
+| 11 | 目标蓝图 | content | 能力蓝图：围绕客户、运营、数据、AI 和平台建设 | 展示数字能力地图和关键使能条件 |
+| 12 | 目标蓝图 | two_column | 目标运营模式：把价值、数据、技术和变革责任拆清 | 明确角色、决策权、治理节奏和责任边界 |
+| 13 | 场景组合 | content | 场景组合：平衡快赢、基础能力和战略差异化 | 构建增长、效率、风险和员工场景组合 |
+| 14 | 场景组合 | matrix | 场景优先级逻辑：按价值、可行性、依赖和变革准备度排序 | 用组合矩阵排序举措优先级 |
+| 15 | 路线图与投资 | title | 路线图与投资 | 作为实施顺序和资金机制章节的分隔页 |
+| 16 | 路线图与投资 | two_column | 现状与目标状态对比 | 展示数据、流程、治理和能力的前后变化 |
+| 17 | 路线图与投资 | roadmap | 三阶段路线图：夯实基础、规模复制、领先优化 | 定义三阶段实施路径和管理闸口 |
+| 18 | 路线图与投资 | content | 举措组合与里程碑：每个项目都要有价值、负责人和闸口 | 将战略转化为举措组合、负责人和里程碑 |
+| 19 | 路线图与投资 | kpi | 投资测算与资金机制：用阶段门把投入和价值绑定 | 说明投资边界、资金模型、收益假设和阶段门 |
+| 20 | 治理与动员 | title | 治理与动员 | 作为执行控制章节的分隔页 |
+| 21 | 治理与动员 | risk | 风险登记与缓释计划：提前管理遗留、数据、采用和伙伴风险 | 将关键风险与缓释责任人、监控节奏配对 |
+| 22 | 治理与动员 | next_steps | 90 天行动计划：把共识转成可执行启动方案 | 定义分周行动、负责人、所需输入和指导委员会决策 |
+
+可选附录页，仅在用户要求更长版本时添加：评估问卷、访谈提纲、基准假设、系统清单、详细举措章程、商业测算模型、KPI 字典和治理 RACI。
 
 ```json
 {
   "skill_name": "digital-strategy",
-  "title": "[Company] Digital Transformation Strategy",
-  "subtitle": "Digital Strategy, Capability Blueprint, Roadmap and Governance",
+  "title": "[公司名称] 数字化转型战略方案",
+  "subtitle": "数字化战略、能力蓝图、路线图与治理机制",
   "slides": [
     {
       "type": "content",
-      "title": "Executive Summary",
-      "content": "- Transformation thesis\n- Investment and timeline\n- Expected business outcomes"
+      "title": "执行摘要：把数字化作为业务价值组合来管理",
+      "content": "- 转型论点
+- 投资和时间安排
+- 预期业务结果"
     },
     {
       "type": "two_column",
-      "title": "Current State vs Target State",
-      "left_content": "Current maturity, pain points, constraints",
-      "right_content": "Target capabilities, operating model, success metrics"
+      "title": "现状与目标状态对比",
+      "left_content": "当前成熟度、痛点和约束",
+      "right_content": "目标能力、运营模式和成功指标"
     }
   ]
 }
 ```
 
-Recommended PPT structure: 20-24 slides covering executive summary, strategic context, maturity assessment, heatmap, root causes, target vision, operating model blueprint, capability blueprint, use-case portfolio, prioritization, roadmap, initiative portfolio, governance, investment, KPI dashboard, risk register, 90-day plan and next steps.
+推荐 PPT 结构：默认使用上方 22 页标准目录。如果用户要求 20-24 页，保持同一顺序，只在第 22 页后追加可选附录页。
 
 ## Dependencies
 

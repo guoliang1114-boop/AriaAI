@@ -699,6 +699,186 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
         _add_slide_footer(slide)
 
 
+def _digital_strategy_layout_key(title: str, slide_type: str = "") -> str:
+    text = f"{slide_type} {title}".lower()
+    rules = [
+        ("executive", ("执行摘要", "executive summary", "executive answer")),
+        ("heatmap", ("成熟度", "热力图", "maturity", "heatmap", "diagnosis")),
+        ("root_cause", ("根因", "痛点", "root cause", "pain point")),
+        ("blueprint", ("目标蓝图", "能力蓝图", "愿景", "capability", "blueprint", "vision")),
+        ("operating_model", ("运营模式", "operating model", "治理与运营")),
+        ("portfolio", ("场景组合", "用例组合", "use-case", "portfolio")),
+        ("matrix", ("优先级", "prioritization", "priority", "matrix")),
+        ("roadmap", ("路线图", "三阶段", "roadmap", "horizon", "milestone")),
+        ("kpi", ("投资", "资金", "kpi", "指标", "investment", "funding")),
+        ("risk", ("风险", "缓释", "risk", "mitigation")),
+        ("action", ("90", "行动计划", "下一步", "next step", "action plan")),
+    ]
+    for key, tokens in rules:
+        if any(token in text for token in tokens):
+            return key
+    return {"matrix": "matrix", "kpi": "kpi", "risk": "risk", "roadmap": "roadmap", "next_steps": "action"}.get(slide_type, "")
+
+
+def _combined_slide_content(slide_data: dict) -> str:
+    return "\n".join(str(slide_data.get(key) or "") for key in ("content", "left_content", "right_content") if str(slide_data.get(key) or "").strip())
+
+
+def _strategy_canvas(slide, title: str, body: str, slide_number: int):
+    from pptx.util import Inches
+
+    _clear_generated_text_shapes(slide)
+    bullets = _split_bullets(body, limit=8)
+    used_template = (
+        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
+    )
+    visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
+    if not used_template or visual_bounds is None:
+        _clear_text_shapes(slide)
+        _add_slide_header(slide, title, slide_number)
+        _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
+        visual_bounds = (Inches(6.9), Inches(1.35), Inches(5.6), Inches(5.25))
+    return bullets, visual_bounds, used_template
+
+
+def _strategy_four_cards(slide, x, y, w, h, bullets: list[str], labels: list[str], colors: list[str]):
+    from pptx.util import Inches
+
+    for idx, label in enumerate(labels):
+        left = x + (idx % 2) * (w * 0.52)
+        top = y + (idx // 2) * (h * 0.52)
+        _add_card(slide, left, top, w * 0.46, h * 0.42, fill=["EFF6FF", "ECFDF5", "FFF7ED", "F8FAFC"][idx], line=colors[idx])
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.12), w * 0.4, Inches(0.26), label, size=9, bold=True, color=colors[idx])
+        text = bullets[idx] if idx < len(bullets) else "明确责任、指标和下一步动作"
+        _add_textbox(slide, left + Inches(0.16), top + Inches(0.48), w * 0.4, h * 0.22, text[:120], size=7, color="334155")
+
+
+def _render_strategy_heatmap(slide, x, y, w, h, bullets: list[str]):
+    from pptx.util import Inches
+
+    dimensions = ["战略", "客户", "运营", "组织", "数据", "技术"]
+    colors = ["FEE2E2", "FFEDD5", "FEF3C7", "DCFCE7", "DBEAFE"]
+    cell_w = w / 5
+    row_h = h / 6
+    for row, dim in enumerate(dimensions):
+        top = y + row * row_h
+        _add_textbox(slide, x - Inches(0.78), top + Inches(0.08), Inches(0.7), Inches(0.22), dim, size=8, bold=True, color="334155")
+        active = min(4, max(1, (row % 5) + 1))
+        for col in range(5):
+            left = x + col * cell_w
+            _add_card(slide, left, top, cell_w - Inches(0.06), row_h - Inches(0.07), fill=colors[col] if col < active else "F8FAFC", line="E2E8F0")
+            if row == 0:
+                _add_textbox(slide, left + Inches(0.04), y - Inches(0.28), cell_w, Inches(0.18), f"L{col + 1}", size=7, bold=True, color="64748B")
+
+
+def _render_strategy_funnel(slide, x, y, w, h, bullets: list[str]):
+    from pptx.util import Inches
+
+    labels = ["业务症状", "结构根因", "管理动作"]
+    for idx, label in enumerate(labels):
+        top = y + idx * (h / 3)
+        left = x + Inches(0.25 * idx)
+        width = w - Inches(0.5 * idx)
+        _add_card(slide, left, top, width, h / 3 - Inches(0.18), fill=["EFF6FF", "FFF7ED", "ECFDF5"][idx], line=["2563EB", "C2410C", "047857"][idx])
+        _add_textbox(slide, left + Inches(0.18), top + Inches(0.12), Inches(1.05), Inches(0.24), label, size=9, bold=True, color=["2563EB", "C2410C", "047857"][idx])
+        _add_textbox(slide, left + Inches(1.35), top + Inches(0.1), width - Inches(1.55), h / 3 - Inches(0.34), (bullets[idx] if idx < len(bullets) else "补充证据并明确治理动作")[:150], size=8, color="334155")
+
+
+def _render_strategy_blueprint(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    center_x = x + w * 0.5
+    center_y = y + h * 0.45
+    _add_shape(slide, MSO_SHAPE.OVAL, center_x - Inches(0.72), center_y - Inches(0.52), Inches(1.44), Inches(1.04), fill="1D4ED8", line="1D4ED8")
+    _add_textbox(slide, center_x - Inches(0.52), center_y - Inches(0.16), Inches(1.04), Inches(0.28), "数字能力", size=10, bold=True, color="FFFFFF")
+    labels = ["客户智能", "数字运营", "数据基础", "AI 决策", "平台架构"]
+    positions = [(0.04, 0.08), (0.60, 0.08), (0.04, 0.66), (0.60, 0.66), (0.32, 0.38)]
+    for idx, label in enumerate(labels):
+        left = x + w * positions[idx][0]
+        top = y + h * positions[idx][1]
+        _add_card(slide, left, top, w * 0.34, Inches(0.82), fill="FFFFFF", line="C7D2FE")
+        _add_textbox(slide, left + Inches(0.12), top + Inches(0.1), w * 0.3, Inches(0.22), label, size=8, bold=True, color="1D4ED8")
+        _add_textbox(slide, left + Inches(0.12), top + Inches(0.36), w * 0.28, Inches(0.32), (bullets[idx] if idx < len(bullets) else "定义场景、数据和指标")[:72], size=6, color="475569")
+
+
+def _render_strategy_operating_model(slide, x, y, w, h, bullets: list[str]):
+    from pptx.util import Inches
+
+    _add_card(slide, x + w * 0.18, y, w * 0.64, Inches(0.72), fill="EFF6FF", line="2563EB")
+    _add_textbox(slide, x + w * 0.22, y + Inches(0.16), w * 0.56, Inches(0.26), "指导委员会：范围、资金与跨部门取舍", size=9, bold=True, color="1E3A8A")
+    _strategy_four_cards(slide, x, y + Inches(1.1), w, h - Inches(1.1), bullets, ["业务负责人", "数据负责人", "技术平台", "转型 PMO"], ["1D4ED8", "047857", "C2410C", "7C3AED"])
+
+
+def _render_strategy_roadmap(slide, x, y, w, h, bullets: list[str]):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    phases = ["夯实基础", "规模复制", "领先优化"]
+    card_w = w / 3 - Inches(0.12)
+    for idx, phase in enumerate(phases):
+        left = x + idx * (card_w + Inches(0.18))
+        _add_card(slide, left, y + Inches(0.52), card_w, h - Inches(0.7), fill=["EFF6FF", "ECFDF5", "FFF7ED"][idx], line=["2563EB", "047857", "C2410C"][idx])
+        _add_shape(slide, MSO_SHAPE.OVAL, left + card_w / 2 - Inches(0.2), y, Inches(0.4), Inches(0.4), fill=["2563EB", "047857", "C2410C"][idx], line=["2563EB", "047857", "C2410C"][idx])
+        _add_textbox(slide, left + Inches(0.2), y + Inches(0.78), card_w - Inches(0.4), Inches(0.3), phase, size=10, bold=True, color=["2563EB", "047857", "C2410C"][idx])
+        _add_textbox(slide, left + Inches(0.2), y + Inches(1.2), card_w - Inches(0.4), h - Inches(1.55), (bullets[idx] if idx < len(bullets) else "明确里程碑、依赖和管理闸口")[:180], size=8, color="334155")
+        if idx < 2:
+            _add_shape(slide, MSO_SHAPE.CHEVRON, left + card_w + Inches(0.03), y + h * 0.48, Inches(0.28), Inches(0.28), fill="CBD5E1", line="CBD5E1")
+
+
+def _render_strategy_risk(slide, x, y, w, h, bullets: list[str]):
+    from pptx.util import Inches
+
+    risks = bullets[:4] or ["遗留系统迁移风险", "数据口径和责任风险", "一线采用率风险", "供应商锁定风险"]
+    mitigations = ["架构护栏和分阶段迁移", "指定数据负责人和质量 SLA", "变革冠军和角色化培训", "退出标准和能力转移"]
+    for idx, risk in enumerate(risks[:4]):
+        top = y + idx * (h / 4)
+        _add_card(slide, x, top, w * 0.46, h / 4 - Inches(0.12), fill="FEF2F2", line="DC2626")
+        _add_card(slide, x + w * 0.52, top, w * 0.46, h / 4 - Inches(0.12), fill="ECFDF5", line="047857")
+        _add_textbox(slide, x + Inches(0.12), top + Inches(0.1), w * 0.42, Inches(0.34), risk[:82], size=7, bold=True, color="991B1B")
+        _add_textbox(slide, x + w * 0.52 + Inches(0.12), top + Inches(0.1), w * 0.42, Inches(0.34), mitigations[idx] if idx < len(mitigations) else "明确责任人和监控节奏", size=7, bold=True, color="065F46")
+
+
+def _render_strategy_action(slide, x, y, w, h, bullets: list[str]):
+    from pptx.util import Inches
+
+    steps = ["1-2 周", "3-5 周", "6-8 周", "9-12 周"]
+    for idx, step in enumerate(steps):
+        top = y + idx * (h / 4)
+        _add_card(slide, x, top, w, h / 4 - Inches(0.12), fill="F8FAFC", line="D7DEE8")
+        _add_textbox(slide, x + Inches(0.16), top + Inches(0.12), Inches(0.72), Inches(0.24), step, size=8, bold=True, color="1D4ED8")
+        _add_textbox(slide, x + Inches(1.0), top + Inches(0.1), w - Inches(1.18), h / 4 - Inches(0.3), (bullets[idx] if idx < len(bullets) else "明确行动、负责人、输入和输出")[:150], size=8, color="334155")
+
+
+def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, layout_key: str) -> bool:
+    title = str(slide_data.get("title") or "")
+    bullets, (x, y, w, h), used_template = _strategy_canvas(slide, title, _combined_slide_content(slide_data), slide_number)
+    if layout_key in {"executive", "blueprint"}:
+        _render_strategy_blueprint(slide, x, y, w, h, bullets)
+    elif layout_key == "heatmap":
+        _render_strategy_heatmap(slide, x, y, w, h, bullets)
+    elif layout_key == "root_cause":
+        _render_strategy_funnel(slide, x, y, w, h, bullets)
+    elif layout_key == "operating_model":
+        _render_strategy_operating_model(slide, x, y, w, h, bullets)
+    elif layout_key in {"portfolio", "matrix"}:
+        _strategy_four_cards(slide, x, y, w, h, bullets, ["快赢场景", "基础能力", "差异化能力", "暂缓事项"], ["1D4ED8", "047857", "C2410C", "475569"])
+    elif layout_key == "roadmap":
+        _render_strategy_roadmap(slide, x, y, w, h, bullets)
+    elif layout_key == "kpi":
+        _strategy_four_cards(slide, x, y, w, h, bullets, ["业务价值", "采用率", "交付进度", "风险控制"], ["1D4ED8", "047857", "C2410C", "7C3AED"])
+    elif layout_key == "risk":
+        _render_strategy_risk(slide, x, y, w, h, bullets)
+    elif layout_key == "action":
+        _render_strategy_action(slide, x, y, w, h, bullets)
+    else:
+        return False
+    if not used_template:
+        _add_slide_footer(slide)
+    return True
+
+
 def _render_content_slide(slide, title: str, content: str, slide_number: int):
     from pptx.util import Inches
 
@@ -1453,21 +1633,24 @@ async def generate_ppt(
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
                 content = slide_data.get("content", "")
+                strategy_layout = _digital_strategy_layout_key(slide_title, slide_type)
                 use_visual = slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"} or (
                     slide_type == "content" and _wants_visual_slide(slide_title, content)
                 )
 
                 if slide_type in {"title", "section"}:
                     slide = _clone_slide_from_prototype(prs, visual_prototype)
+                elif strategy_layout or use_visual:
+                    slide = _clone_slide_from_prototype(prs, visual_prototype)
                 elif slide_type == "two_column":
                     slide = _clone_slide_from_prototype(prs, two_col_prototype)
-                elif use_visual:
-                    slide = _clone_slide_from_prototype(prs, visual_prototype)
                 else:
                     slide = _clone_slide_from_prototype(prs, content_prototype)
 
                 if slide_type in {"title", "section"}:
                     _render_section_slide(slide, slide_title, slide_index + 1)
+                elif strategy_layout and _render_digital_strategy_layout(slide, slide_data, slide_index + 1, strategy_layout):
+                    pass
                 elif use_visual:
                     _render_visual_slide(slide, slide_title, content, slide_index + 1, slide_type)
                 elif slide_type == "two_column":
