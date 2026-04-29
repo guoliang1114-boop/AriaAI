@@ -11,7 +11,7 @@ export function Login() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const { login } = useAuth()
-  const [email, setEmail] = useState('admin@d2cgo.com')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -89,7 +89,7 @@ export function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-12 pr-4 py-3.5 bg-surface-container-lowest rounded-xl border-none text-on-surface placeholder:text-on-surface-muted outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="admin@d2cgo.com"
+                  placeholder="name@example.com"
                   required
                 />
               </div>

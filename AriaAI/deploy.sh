@@ -14,8 +14,8 @@ SSH_PORT="${SSH_PORT:-22}"             # SSH 端口
 REMOTE_DIR="/opt/ariaai"              # 服务器上的部署目录
 SERVICE_NAME="ariaai"                 # systemd 服务名
 API_PORT="${API_PORT:-8000}"           # 后端监听端口
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@d2cgo.com}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-Admin@d2cgo}"
+ADMIN_EMAIL="${ADMIN_EMAIL:?Set ADMIN_EMAIL before running}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running}"
 
 # ── 颜色输出 ──────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -139,7 +139,8 @@ fi
 echo ""
 echo "  部署完成！"
 echo "  API 地址：  http://$SERVER:$API_PORT"
-echo "  管理员账号：$ADMIN_EMAIL / $ADMIN_PASSWORD"
+echo "  管理员账号：$ADMIN_EMAIL"
+echo "  管理员密码：<set from ADMIN_PASSWORD>"
 echo ""
 echo "  常用命令："
 echo "    查看日志：ssh $SSH_USER@$SERVER 'journalctl -u $SERVICE_NAME -f'"

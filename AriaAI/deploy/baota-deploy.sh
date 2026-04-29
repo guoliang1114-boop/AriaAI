@@ -14,6 +14,8 @@ BACKEND_PORT=8000
 DB_NAME="ariaai"
 DB_USER="ariaai_user"
 DB_PASSWORD="$(openssl rand -base64 32)"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@$DOMAIN}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
 
 # 颜色输出
 red() { echo -e "\033[31m$1\033[0m"; }
@@ -87,8 +89,8 @@ cat > .env << EOF
 # 生产环境配置
 DATABASE_URL=sqlite:///./data/ariaai.db
 JWT_SECRET=$(openssl rand -hex 32)
-ADMIN_EMAIL=admin@$DOMAIN
-ADMIN_PASSWORD=Admin@123456
+ADMIN_EMAIL=$ADMIN_EMAIL
+ADMIN_PASSWORD=$ADMIN_PASSWORD
 
 # CORS 配置
 CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
@@ -234,8 +236,8 @@ echo ""
 yellow "访问地址: http://$DOMAIN"
 echo ""
 echo "默认管理员账号:"
-echo "  邮箱: admin@$DOMAIN"
-echo "  密码: Admin@123456"
+echo "  邮箱: $ADMIN_EMAIL"
+echo "  密码: 已写入 $PROJECT_PATH/backend/.env"
 echo ""
 echo "数据库信息:"
 echo "  数据库: $DB_NAME"

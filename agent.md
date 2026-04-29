@@ -154,7 +154,7 @@ All registered tools live in `AriaAI/backend/app/tools/file_generators.py`:
 
 - All endpoints require `X-Auth-Token` header (except `/auth/login`).
 - Token issued at login, invalidated on logout, stored in `UserToken` table.
-- Default admin: `admin@d2cgo.com` / `Admin@d2cgo` (seeded only if no users exist).
+- Initial admin credentials must be provided via `ADMIN_EMAIL` and `ADMIN_PASSWORD`; no default password is seeded.
 
 ---
 

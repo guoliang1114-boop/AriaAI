@@ -111,12 +111,17 @@ async def lifespan(app: FastAPI):
     _backfill_folders()
     _patch_templates()
     _patch_runtime_llm_settings()
-    # Seed default admin (only if no users exist)
+    # Seed the first admin only when credentials are explicitly configured.
     from app.config import os as config_os  # Import os locally to avoid shadowing
-    admin_email = config_os.getenv("ADMIN_EMAIL", "admin@d2cgo.com")
-    admin_password = config_os.getenv("ADMIN_PASSWORD", "Admin@d2cgo")
-    with Session(engine) as session:
-        seed_admin_user(session, email=admin_email, password=admin_password, display_name="Admin")
+    admin_email = config_os.getenv("ADMIN_EMAIL")
+    admin_password = config_os.getenv("ADMIN_PASSWORD")
+    if admin_email and admin_password:
+        with Session(engine) as session:
+            seed_admin_user(session, email=admin_email, password=admin_password, display_name="Admin")
+    else:
+        logging.getLogger(__name__).info(
+            "ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping default admin seed."
+        )
     if SCHEDULER_ENABLED:
         scheduler.start()
     yield

@@ -14,7 +14,7 @@ error() { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 # ── 配置 ──────────────────────────────────────────────────────
 DEPLOY_DIR="/www/wwwroot/ariaai"   # 宝塔网站目录（aria.d2cgo.co）
 API_PORT=8000
-ADMIN_EMAIL="admin@d2cgo.com"
+ADMIN_EMAIL="${ADMIN_EMAIL:?Set ADMIN_EMAIL before running}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running}"
 DATABASE_URL="${DATABASE_URL:-sqlite:///./data/ariaai.db}"
 
@@ -117,7 +117,7 @@ echo "       宝塔 → 安全 → 放行端口 $API_PORT"
 echo ""
 echo "  默认管理员账号："
 echo "       邮箱：$ADMIN_EMAIL"
-echo "       密码：$ADMIN_PASSWORD"
+echo "       密码：<set from ADMIN_PASSWORD>"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
