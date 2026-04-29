@@ -5,7 +5,7 @@ AriaAI backend now defaults to PostgreSQL.
 ## Default connection
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/ariaai
+DATABASE_URL=set DATABASE_URL in your environment; do not commit real credentials
 ```
 
 ## Recommended setup

@@ -6,20 +6,24 @@ import os
 import sys
 
 # 设置环境变量
-os.environ["DATABASE_URL"] = "postgresql://postgres:4LsPEyLFeaj3ZdAy@85.137.244.146:5432/ariaai"
-
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 # Supabase 连接信息
-SUPABASE_HOST = "aws-1-ap-southeast-1.pooler.supabase.com"
-SUPABASE_PORT = "6543"
-SUPABASE_DB = "postgres"
-SUPABASE_USER = "postgres.lhvomzvdozwairpibdpp"
-SUPABASE_PASS = "Qweruiop@123"
+SUPABASE_HOST = os.environ.get("SUPABASE_HOST", "")
+SUPABASE_PORT = os.environ.get("SUPABASE_PORT", "6543")
+SUPABASE_DB = os.environ.get("SUPABASE_DB", "postgres")
+SUPABASE_USER = os.environ.get("SUPABASE_USER", "")
+SUPABASE_PASS = os.environ.get("SUPABASE_PASSWORD", "")
 
 # 生产数据库连接信息
 PROD_DATABASE_URL = os.environ.get("DATABASE_URL")
+if not PROD_DATABASE_URL:
+    print("DATABASE_URL is required.")
+    sys.exit(1)
+if not all((SUPABASE_HOST, SUPABASE_USER, SUPABASE_PASS)):
+    print("SUPABASE_HOST, SUPABASE_USER and SUPABASE_PASSWORD are required.")
+    sys.exit(1)
 
 # 表列表（按依赖顺序）
 TABLES = [

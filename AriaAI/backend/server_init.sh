@@ -15,8 +15,8 @@ error() { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 DEPLOY_DIR="/www/wwwroot/ariaai"   # 宝塔网站目录（aria.d2cgo.co）
 API_PORT=8000
 ADMIN_EMAIL="admin@d2cgo.com"
-ADMIN_PASSWORD="Admin@d2cgo"
-DATABASE_URL="postgresql://postgres:4LsPEyLFeaj3ZdAy@localhost/aria"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running}"
+DATABASE_URL="${DATABASE_URL:?Set DATABASE_URL before running}"
 
 echo ""
 echo "  AriaAI 宝塔初始化"

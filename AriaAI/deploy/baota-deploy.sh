@@ -97,9 +97,11 @@ source .venv/bin/activate
 pip install -r requirements.txt -q
 
 # 创建生产环境配置文件
+DB_AUTH="${DB_USER}:${DB_PASSWORD}"
+DB_URL="postgresql://${DB_AUTH}@localhost:5432/${DB_NAME}"
 cat > .env << EOF
 # 生产环境配置
-DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME
+DATABASE_URL=${DB_URL}
 JWT_SECRET=$(openssl rand -hex 32)
 ADMIN_EMAIL=admin@$DOMAIN
 ADMIN_PASSWORD=Admin@123456

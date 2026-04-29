@@ -13,7 +13,7 @@ This document clarifies the three layers of configuration in AriaAI.
 ### Examples
 ```bash
 # Database
-DATABASE_URL=postgresql://user:pass@host/db
+DATABASE_URL=set DATABASE_URL in your environment; do not commit real credentials
 
 # Security
 JWT_SECRET=your-secret-key

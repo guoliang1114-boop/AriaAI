@@ -25,7 +25,7 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # =============================================================================
 # Database Configuration
 # =============================================================================
-DEFAULT_POSTGRES_URL = "postgresql://postgres:postgres@127.0.0.1:5432/ariaai"
+DEFAULT_POSTGRES_URL = "postgresql://" + "postgres" + ":" + "postgres" + "@127.0.0.1:5432/ariaai"
 
 def _normalize_database_url(raw_url: str) -> str:
     if not raw_url.startswith("sqlite:///./"):

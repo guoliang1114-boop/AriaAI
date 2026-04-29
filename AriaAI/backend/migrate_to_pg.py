@@ -19,7 +19,10 @@ if not SQLITE_PATH.exists():
     sys.exit(0)
 
 import os
-PG_URL = os.getenv("DATABASE_URL", "postgresql://postgres:4LsPEyLFeaj3ZdAy@localhost/aria")
+PG_URL = os.getenv("DATABASE_URL")
+if not PG_URL:
+    print("DATABASE_URL is required. Set it in the environment; do not commit real credentials.")
+    sys.exit(1)
 
 try:
     import psycopg2
