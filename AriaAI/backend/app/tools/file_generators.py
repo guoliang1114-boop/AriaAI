@@ -1309,6 +1309,16 @@ CHINESE_BUILTIN_SLIDES: dict[str, dict[str, str]] = {
 }
 
 
+def _localize_builtin_slides(slides: list[dict]) -> list[dict]:
+    localized: list[dict] = []
+    for slide in slides:
+        item = dict(slide)
+        override = CHINESE_BUILTIN_SLIDES.get(str(item.get("title") or ""))
+        if override:
+            item.update(override)
+        localized.append(item)
+    return localized
+
 def _normalize_presentation_deck_type(deck_type: str | None) -> str:
     normalized = (deck_type or "strategy").strip().lower().replace("_", "-")
     aliases = {
