@@ -4,13 +4,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 if (-not $env:DATABASE_URL -or [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
-    $dbUser = if ($env:DB_USER) { $env:DB_USER } else { "postgres" }
-    $dbPassword = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "postgres" }
-    $dbHost = if ($env:DB_HOST) { $env:DB_HOST } else { "127.0.0.1" }
-    $dbPort = if ($env:DB_PORT) { $env:DB_PORT } else { "5432" }
-    $dbName = if ($env:DB_NAME) { $env:DB_NAME } else { "ariaai" }
-    $dbAuth = "${dbUser}:${dbPassword}"
-    $env:DATABASE_URL = "postgresql://${dbAuth}@${dbHost}:${dbPort}/${dbName}"
+    $env:DATABASE_URL = "sqlite:///./data/ariaai.db"
 }
 
 if (-not $env:ARIAAI_BACKEND_VENV -or [string]::IsNullOrWhiteSpace($env:ARIAAI_BACKEND_VENV)) {

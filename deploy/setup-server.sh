@@ -35,7 +35,7 @@ fi
 # 1. 安装基础依赖
 log_info "安装基础依赖..."
 yum update -y
-yum install -y git nginx python3 python3-pip nodejs npm postgresql-server postgresql-contrib
+yum install -y git nginx python3 python3-pip nodejs npm
 
 # 2. 配置 Nginx
 log_info "配置 Nginx..."

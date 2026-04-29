@@ -71,7 +71,7 @@ AP/
 | Web client | React 19, TypeScript 5.9, Vite 8, React Router 7, i18next |
 | Backend | FastAPI, Uvicorn, Python 3.9–3.12 |
 | ORM | SQLModel |
-| Database | SQLite (dev) / PostgreSQL (prod) |
+| Database | SQLite (local) |
 | LLM providers | Anthropic Claude, Kimi (OpenAI-compatible), BigModel (Zhipu AI) |
 | RAG | fastembed + cosine similarity (baseline) |
 | File generation | python-pptx, python-docx, openpyxl, reportlab |
@@ -166,7 +166,7 @@ All settings are read from `backend/.env` (or environment variables).
 Key variables:
 
 ```
-DATABASE_URL          # SQLite path or postgres:// URL
+DATABASE_URL          # SQLite path; defaults to sqlite:///./data/ariaai.db
 ADMIN_EMAIL / ADMIN_PASSWORD
 JWT_SECRET
 CORS_ORIGINS          # comma-separated allowed origins

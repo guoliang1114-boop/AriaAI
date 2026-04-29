@@ -13,8 +13,7 @@ if [ -f ".env" ]; then
 fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
-    DB_AUTH="${DB_USER:-postgres}:${DB_PASSWORD:-postgres}"
-    export DATABASE_URL="postgresql://${DB_AUTH}@${DB_HOST:-127.0.0.1}:${DB_PORT:-5432}/${DB_NAME:-ariaai}"
+    export DATABASE_URL="sqlite:///./data/ariaai.db"
 fi
 
 is_windows_bash() {

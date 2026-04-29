@@ -58,26 +58,12 @@ fi
 green "依赖检查完成"
 
 # ===========================================
-# 2. 配置数据库
+# 2. 配置本地 SQLite 数据库
 # ===========================================
-yellow "[2/6] 配置 PostgreSQL 数据库..."
+yellow "[2/6] 配置本地 SQLite 数据库..."
 
-# 检查 PostgreSQL 是否安装
-if ! command -v psql &> /dev/null; then
-    yellow "未检测到 PostgreSQL，请在宝塔面板中安装 PostgreSQL"
-    yellow "安装路径: 宝塔面板 -> 软件商店 -> PostgreSQL"
-    read -p "安装完成后按回车继续..."
-fi
-
-# 创建数据库和用户
-sudo -u postgres psql << EOF 2>/dev/null || true
-CREATE DATABASE $DB_NAME;
-CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
-\q
-EOF
-
-green "数据库配置完成"
+mkdir -p "$PROJECT_PATH/backend/data"
+green "本地数据库目录已准备: $PROJECT_PATH/backend/data"
 
 # ===========================================
 # 3. 配置后端
@@ -97,11 +83,9 @@ source .venv/bin/activate
 pip install -r requirements.txt -q
 
 # 创建生产环境配置文件
-DB_AUTH="${DB_USER}:${DB_PASSWORD}"
-DB_URL="postgresql://${DB_AUTH}@localhost:5432/${DB_NAME}"
 cat > .env << EOF
 # 生产环境配置
-DATABASE_URL=${DB_URL}
+DATABASE_URL=sqlite:///./data/ariaai.db
 JWT_SECRET=$(openssl rand -hex 32)
 ADMIN_EMAIL=admin@$DOMAIN
 ADMIN_PASSWORD=Admin@123456

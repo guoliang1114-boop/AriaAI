@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 UPLOADS_DIR = DATA_DIR / "uploads"
-DB_PATH = DATA_DIR / "ariaai.db"   # SQLite for local development
+DB_PATH = DATA_DIR / "ariaai.db"
 
 # Load .env file automatically
 load_dotenv(BASE_DIR / ".env")
@@ -25,7 +25,7 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # =============================================================================
 # Database Configuration
 # =============================================================================
-DEFAULT_POSTGRES_URL = "postgresql://" + "postgres" + ":" + "postgres" + "@127.0.0.1:5432/ariaai"
+DEFAULT_DATABASE_URL = "sqlite:///./data/ariaai.db"
 
 def _normalize_database_url(raw_url: str) -> str:
     if not raw_url.startswith("sqlite:///./"):
@@ -34,7 +34,7 @@ def _normalize_database_url(raw_url: str) -> str:
     return f"sqlite:///{(BASE_DIR / relative_part).resolve().as_posix()}"
 
 
-DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", DEFAULT_POSTGRES_URL))
+DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
 
 # =============================================================================
 # Security & Authentication
