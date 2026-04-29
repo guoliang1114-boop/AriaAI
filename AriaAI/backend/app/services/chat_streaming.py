@@ -438,6 +438,33 @@ def _route_ppt_tool_for_skill(runtime: ChatRuntime, tool_name: str, tool_input: 
     return "generate_ppt_from_skill", routed_input
 
 
+def _repair_digital_strategy_ppt_tool_input(
+    runtime: ChatRuntime,
+    tool_name: str,
+    tool_input: dict,
+    source_text: str,
+) -> dict:
+    """DeepSeek can emit a tool call with empty/partial args after long planning."""
+    if tool_name != "generate_ppt_from_skill" or not _is_digital_strategy_runtime(runtime):
+        return tool_input
+
+    title = str(tool_input.get("title") or "").strip()
+    slides = tool_input.get("slides")
+    if title and isinstance(slides, list) and slides:
+        return tool_input
+
+    fallback_title, fallback_slides = _build_slides_from_strategy_text(source_text)
+    repaired = dict(tool_input)
+    repaired["skill_name"] = "digital-strategy"
+    if not title:
+        repaired["title"] = fallback_title
+    if not isinstance(slides, list) or not slides:
+        repaired["slides"] = fallback_slides
+    if not str(repaired.get("subtitle") or "").strip():
+        repaired["subtitle"] = "Generated from the digital strategy response"
+    return repaired
+
+
 def _clean_slide_line(line: str) -> str:
     cleaned = line.strip()
     cleaned = cleaned.lstrip("-*• ").strip()
@@ -835,6 +862,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if not tool_name or not isinstance(tool_input, dict):
                 continue
             tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
+            tool_input = _repair_digital_strategy_ppt_tool_input(runtime, tool_name, tool_input, text_buffer)
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 markdown_content = str(tool_input.get("content") or "").strip()

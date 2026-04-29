@@ -3895,6 +3895,56 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(saved_artifact.name, "generated_test_deck.pptx")
             self.assertEqual(saved_artifact.path, "generated/generated_test_deck.pptx")
 
+    def test_stream_chat_events_repairs_empty_digital_strategy_ppt_tool_input(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                [
+                    "# Digital Strategy Plan\n",
+                    "## Executive Summary\n",
+                    "- Build a data foundation\n",
+                    "- Prioritize operating efficiency\n",
+                    '{"type":"tool_use","id":"tool-1","name":"generate_ppt_from_skill","input":{}}',
+                ],
+                ["deck created"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="deepseek-v4",
+            llm=llm,
+            system="Use digital-strategy to create a PPT.",
+            api_messages=[{"role": "user", "content": "make deck"}],
+            rag_sources=[],
+            tools=[{"name": "generate_ppt_from_skill"}],
+            max_tokens=1024,
+            temperature=0.7,
+            skill_name="digital-strategy",
+        )
+        req = chat_router_module.SendMessageRequest(content="make deck", skill_id=24)
+
+        execute_mock = AsyncMock(
+            return_value={
+                "type": "tool_result",
+                "tool_name": "generate_ppt_from_skill",
+                "status": "success",
+                "output": {
+                    "success": True,
+                    "file_name": "repaired_deck.pptx",
+                    "file_type": "pptx",
+                    "file_path": "generated/repaired_deck.pptx",
+                },
+            }
+        )
+        with patch("app.services.chat_streaming.registry.execute", new=execute_mock):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        self.assertTrue(any('"tool_result"' in event for event in events))
+        _, repaired_input = execute_mock.await_args.args
+        self.assertEqual(repaired_input["skill_name"], "digital-strategy")
+        self.assertTrue(repaired_input["title"])
+        self.assertGreaterEqual(len(repaired_input["slides"]), 1)
+
     def test_stream_chat_events_auto_generates_ppt_when_digital_strategy_only_saved_json(self):
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
