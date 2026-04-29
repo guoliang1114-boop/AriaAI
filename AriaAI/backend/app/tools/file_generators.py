@@ -2851,10 +2851,53 @@ def _enrich_digital_strategy_slide(slide: dict, page_number: int | None = None) 
     return enriched
 
 
+def _digital_strategy_slide_density(slide: dict) -> int:
+    text = _combined_slide_content(slide)
+    bullets = _split_bullets(text, limit=12)
+    return len(text.strip()) + len(bullets) * 25
+
+
+def _is_sparse_digital_strategy_deck(slides: list[dict]) -> bool:
+    if not slides:
+        return True
+    business_slides = [slide for slide in slides if str(slide.get("type") or "") not in {"title", "section"}]
+    if not business_slides:
+        return True
+    avg_density = sum(_digital_strategy_slide_density(slide) for slide in business_slides) / len(business_slides)
+    layout_keys = {str(slide.get("layout_key") or "") for slide in business_slides if slide.get("layout_key")}
+    visual_types = {str(slide.get("type") or "") for slide in business_slides}
+    return avg_density < 260 or len(layout_keys) < 6 or len(visual_types) < 4
+
+
+def _merge_digital_strategy_plan(existing: list[dict], plan: list[dict]) -> list[dict]:
+    if not _is_sparse_digital_strategy_deck(existing) and len(existing) >= 20:
+        return existing
+
+    rich_existing: list[dict] = []
+    for slide in existing:
+        if _digital_strategy_slide_density(slide) >= 260 or str(slide.get("type") or "") in {"title", "section"}:
+            rich_existing.append(slide)
+        if len(rich_existing) >= 6:
+            break
+
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for slide in rich_existing + plan:
+        title = str(slide.get("title") or "").strip()
+        if not title:
+            continue
+        key = title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(_enrich_digital_strategy_slide(slide, len(merged) + 1))
+        if len(merged) >= 22:
+            break
+    return merged
+
+
 def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
     normalized = [_enrich_digital_strategy_slide(dict(slide), idx + 1) for idx, slide in enumerate(slides) if slide.get("title")]
-    if len(normalized) >= 20:
-        return normalized
 
     existing = {str(slide.get("title", "")).strip().lower() for slide in normalized}
     plan = [
@@ -2992,7 +3035,11 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         },
     ]
 
-    for slide in _localize_builtin_slides(plan):
+    localized_plan = [_enrich_digital_strategy_slide(slide, index + 1) for index, slide in enumerate(_localize_builtin_slides(plan))]
+    if len(normalized) >= 20:
+        return _merge_digital_strategy_plan(normalized, localized_plan)
+
+    for slide in localized_plan:
         key = slide["title"].lower()
         if key in existing:
             continue

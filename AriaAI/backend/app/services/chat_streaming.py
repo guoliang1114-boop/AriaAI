@@ -443,6 +443,7 @@ def _repair_digital_strategy_ppt_tool_input(
     tool_name: str,
     tool_input: dict,
     source_text: str,
+    force_rebuild: bool = False,
 ) -> dict:
     """DeepSeek can emit a tool call with empty/partial args after long planning."""
     if tool_name != "generate_ppt_from_skill" or not _is_digital_strategy_runtime(runtime):
@@ -450,7 +451,7 @@ def _repair_digital_strategy_ppt_tool_input(
 
     title = str(tool_input.get("title") or "").strip()
     slides = tool_input.get("slides")
-    if title and isinstance(slides, list) and slides:
+    if title and isinstance(slides, list) and slides and not force_rebuild:
         return tool_input
 
     fallback_title, fallback_slides = _build_slides_from_strategy_text(source_text)
@@ -458,7 +459,7 @@ def _repair_digital_strategy_ppt_tool_input(
     repaired["skill_name"] = "digital-strategy"
     if not title:
         repaired["title"] = fallback_title
-    if not isinstance(slides, list) or not slides:
+    if force_rebuild or not isinstance(slides, list) or not slides:
         repaired["slides"] = fallback_slides
     if not str(repaired.get("subtitle") or "").strip():
         repaired["subtitle"] = "Generated from the digital strategy response"
@@ -805,12 +806,12 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
         stage_timings["planning_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
         yield _sse_event({"type": "timing", "key": "planning_ms", "duration_ms": stage_timings["planning_ms"]})
-        if p1_truncated and not tool_use_blocks and text_buffer.strip():
+        if p1_truncated and text_buffer.strip():
             continuation_messages = runtime.api_messages + [
                 {"role": "assistant", "content": text_buffer.strip()},
                 {
                     "role": "user",
-                    "content": "请从上一条回复被截断的位置继续，直接续写正文，不要重复已经写过的内容。",
+                    "content": "请从上一条回复被截断的位置继续，补齐后续内容和关键论证。不要重复已经写过的内容，不要调用工具。",
                 },
             ]
             async for item in _iter_with_heartbeat(
@@ -862,7 +863,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             if not tool_name or not isinstance(tool_input, dict):
                 continue
             tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
-            tool_input = _repair_digital_strategy_ppt_tool_input(runtime, tool_name, tool_input, text_buffer)
+            tool_input = _repair_digital_strategy_ppt_tool_input(
+                runtime,
+                tool_name,
+                tool_input,
+                text_buffer,
+                force_rebuild=p1_truncated,
+            )
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 markdown_content = str(tool_input.get("content") or "").strip()
