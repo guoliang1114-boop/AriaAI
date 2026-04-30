@@ -2257,6 +2257,7 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
     if not lead:
         return False
 
+    _remove_shape_by_name(slide, "aria_generated_lead")
     placeholder_name = "aria_section_lead" if role == "section" else "aria_slide_lead"
     if _set_named_or_placeholder_text(slide, placeholder_name, lead):
         shape = _shape_by_name_or_placeholder(slide, placeholder_name)
@@ -2626,8 +2627,11 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
     _push_body_below_lead(slide)
     visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
-        _clear_text_shapes(slide)
-        _add_slide_header(slide, title, slide_number)
+        template_frame_used = _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
+        if not template_frame_used:
+            _clear_text_shapes(slide)
+            _add_slide_header(slide, title, slide_number)
+        used_template = used_template or template_frame_used
         _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
         visual_bounds = (Inches(7.4), Inches(1.45), Inches(4.7), Inches(4.8))
         _add_textbox(slide, Inches(0.85), Inches(1.45), Inches(5.95), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets), size=13, color="334155")
@@ -3237,11 +3241,24 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int, sl
         _add_slide_footer(slide)
 
 
-def _draw_generated_two_column_content(slide, title: str, left_content: str, right_content: str, slide_number: int, slide_data: dict | None = None):
+def _draw_generated_two_column_content(
+    slide,
+    title: str,
+    left_content: str,
+    right_content: str,
+    slide_number: int,
+    slide_data: dict | None = None,
+    *,
+    preserve_template_frame: bool = False,
+):
     from pptx.util import Inches
 
-    _clear_text_shapes(slide)
-    _add_slide_header(slide, title, slide_number)
+    if preserve_template_frame:
+        if not _set_title_named_or_placeholder_text(slide, "aria_slide_title", title):
+            _add_slide_header(slide, title, slide_number)
+    else:
+        _clear_text_shapes(slide)
+        _add_slide_header(slide, title, slide_number)
     _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
     columns = [
         ("\u73b0\u72b6 / \u57fa\u7840", left_content, "F8FAFC", "2563EB", Inches(0.85)),
@@ -3255,7 +3272,8 @@ def _draw_generated_two_column_content(slide, title: str, left_content: str, rig
             y = Inches(2.5 + idx * 0.62)
             _add_textbox(slide, x + Inches(0.35), y, Inches(0.25), Inches(0.24), "\u2022", size=14, bold=True, color=color)
             _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
-    _add_slide_footer(slide)
+    if not preserve_template_frame:
+        _add_slide_footer(slide)
 
 
 def _two_column_template_body_is_usable(slide) -> bool:
@@ -3271,7 +3289,15 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
     if not _two_column_template_body_is_usable(slide):
         _remove_shape_by_name(slide, "aria_left_body")
         _remove_shape_by_name(slide, "aria_right_body")
-        _draw_generated_two_column_content(slide, title, left_content, right_content, slide_number, slide_data)
+        _draw_generated_two_column_content(
+            slide,
+            title,
+            left_content,
+            right_content,
+            slide_number,
+            slide_data,
+            preserve_template_frame=True,
+        )
         return
     title_set = _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
     exact_left_body = _shape_by_name(slide, "aria_left_body")
@@ -3333,7 +3359,15 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
     if used_template:
         _remove_shape_by_name(slide, "aria_left_body")
         _remove_shape_by_name(slide, "aria_right_body")
-        _draw_generated_two_column_content(slide, title, left_content, right_content, slide_number, slide_data)
+        _draw_generated_two_column_content(
+            slide,
+            title,
+            left_content,
+            right_content,
+            slide_number,
+            slide_data,
+            preserve_template_frame=True,
+        )
         return
     for heading, content, fill, color, x in columns:
         _add_card(slide, x, Inches(1.35), Inches(5.55), Inches(5.2), fill=fill)
