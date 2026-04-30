@@ -14,13 +14,13 @@ from app.tools import file_generators as _file_generators  # noqa: F401 - regist
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
-PRESENTATION_BUILDER_SKILL_NAME = "顾问式PPT生成"
-PRESENTATION_BUILDER_PROMPT_MARKER = "presentation-builder workflow"
-PRESENTATION_BUILDER_TOOL_NAMES = ["generate_ppt_from_skill"]
-
 DIGITAL_STRATEGY_SKILL_NAME = "数字化战略设计"
 DIGITAL_STRATEGY_PROMPT_MARKER = "digital-strategy 工作流"
 DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill"]
+PRESENTATION_BUILDER_SKILL_NAME = "顾问式PPT生成"
+PRESENTATION_BUILDER_PROMPT_MARKER = "presentation-builder workflow"
+PRESENTATION_BUILDER_TOOL_NAMES = ["generate_ppt_from_skill"]
+OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
@@ -28,6 +28,7 @@ _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
 
 def _bust_skills() -> None:
     _skills_cache.clear()
+
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -637,9 +638,10 @@ GSTACK_PRO_SKILLS = [
             "页面标准：\n"
             "1) 标题必须结论先行，表达观点或建议，不要只写主题名。\n"
             "2) 每页 3-6 条高密度要点，包含证据/假设、管理层含义、负责人、KPI、风险或下一步行动。\n"
-            "3) 优先使用 content 和 two_column；current vs target、问题 vs 行动、计划 vs 实际必须用 two_column。\n"
-            "4) 不要输出泛泛占位页；如果信息不足，明确写出关键假设和需要补充的数据。\n"
-            "5) 默认 10-16 页；用户明确要求更短或更长时，以用户要求为准。\n\n"
+            "3) 每个业务页必须具备四层内容：结论、证据/量化假设、管理动作、风险/取舍/决策。\n"
+            "4) 优先使用 content 和 two_column；current vs target、问题 vs 行动、计划 vs 实际必须用 two_column。\n"
+            "5) 不要输出泛泛占位页；如果信息不足，明确写出关键假设和需要补充的数据。\n"
+            "6) 默认 10-16 页；用户明确要求更短或更长时，以用户要求为准。\n\n"
             "页面格式要求：\n"
             "- title：只用于章节分隔或重大转场，不作为普通正文页。\n"
             "- content：一页一个核心观点，4-6 条 bullet，不要写段落。\n"
@@ -1157,16 +1159,21 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         return tool_defs
 
     prompt_markers = {
-        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_PROMPT_MARKER,
+        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
     }
     template_tool_names = {
-        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_TOOL_NAMES,
+        PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
     }
 
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
     changed = 0
+    for obsolete_name in OBSOLETE_BUILTIN_SKILL_NAMES:
+        obsolete_skill = existing.pop(obsolete_name, None)
+        if obsolete_skill is not None:
+            session.delete(obsolete_skill)
+            changed += 1
     for skill_def in GSTACK_PRO_SKILLS:
         existing_skill = existing.get(skill_def["name"])
         if existing_skill:
@@ -1198,7 +1205,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                     for item in existing_tool_defs
                     if isinstance(item, dict)
                 }
-                required_tool_names = set(template_tool_names[existing_skill.name])
+                required_tool_names = set(template_tool_names.get(existing_skill.name, []))
                 if not required_tool_names.issubset(existing_tool_names):
                     existing_skill.tools_definition_json = json.dumps(build_tool_defs(tool_names))
                     existing_skill.tools = tool_names

@@ -7,6 +7,8 @@ description: "Base consulting PowerPoint generation skill. Use when the user ask
 
 This is the base Skill for consulting-style PowerPoint deliverables. It turns rough content, project context, client notes, or strategic analysis into a structured, editable PPT deck.
 
+It is distilled from the stabilized `digital-strategy` PPT generation pattern: template-first rendering, chapter dividers, action-oriented titles, one-sentence page leads, rich body content, and management-grade evidence/action layers.
+
 ## When To Use
 
 Use this Skill for:
@@ -29,7 +31,8 @@ If the request is specifically about digital transformation strategy, use `digit
 3. Build a slide-by-slide storyline before calling the PPT tool.
 4. Use action-oriented slide titles.
 5. Fill each slide with enough evidence, assumptions, implications, and next actions for management discussion.
-6. Call `generate_ppt_from_skill` with `skill_name: "presentation-builder"`.
+6. For every business page, include four layers: conclusion, evidence/assumption, management action, and risk/trade-off/decision.
+7. Call `generate_ppt_from_skill` with `skill_name: "presentation-builder"`.
 
 ## Page Format Rules
 
@@ -126,6 +129,8 @@ Suggested format:
 - Default to 10-16 slides unless the user asks otherwise.
 - Every slide needs an action-oriented title and 3-6 substantive bullets.
 - Each content slide should contain at least one of: evidence, implication, decision, risk, owner, KPI, or next action.
+- Every management-facing slide should be able to stand alone: a partner should understand the recommendation, basis, owner, and decision need without reading speaker notes.
+- Prefer concrete numbers and ranges when exact data is missing: timeline, impact range, investment envelope, adoption target, KPI baseline, risk threshold, or stage-gate criteria.
 - Avoid generic filler such as "validate with stakeholders" unless paired with the specific question, evidence source, or decision.
 - Prefer `two_column` for current vs target, issue vs action, option comparison, or plan vs actual.
 - Keep slides client-ready and editable; do not output screenshots or image-only decks.

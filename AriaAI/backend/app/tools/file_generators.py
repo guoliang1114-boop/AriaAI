@@ -4886,14 +4886,14 @@ async def generate_ppt_from_skill(
         slides = _normalize_presentation_builder_slide_format(slides)
     slides = _prepare_ppt_slide_text(slides)
 
-    strict_template_skills = {"digital-strategy", "graphic-library-ppt", "presentation-builder"}
+    strict_template_skills = {"digital-strategy", "presentation-builder"}
 
     # Search for template in assets/ then references/ (both locations are valid)
     template_path = None
     searched_paths: list[str] = []
     template_skill_names = [skill_name]
     if skill_name == "presentation-builder":
-        template_skill_names.extend(["digital-strategy", "graphic-library-ppt"])
+        template_skill_names.append("digital-strategy")
     for template_skill_name in template_skill_names:
         for folder in ("assets", "references"):
             for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx", "Graphic library.pptx"):
