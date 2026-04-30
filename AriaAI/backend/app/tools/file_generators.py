@@ -3937,10 +3937,16 @@ async def generate_ppt(
         if len(prs.slides) >= 5:
             _set_template_cover_text(prs.slides[0], title, subtitle)
 
-            section_prototype = prs.slides[1] if len(prs.slides) >= 6 else prs.slides[3]
-            content_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_slide_body"}) or prs.slides[1]
-            two_col_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_left_body", "aria_right_body"}) or content_prototype
-            visual_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_visual_area"}) or content_prototype
+            if len(prs.slides) >= 6:
+                section_prototype = prs.slides[1]
+                content_prototype = prs.slides[2]
+                two_col_prototype = prs.slides[3]
+                visual_prototype = prs.slides[4]
+            else:
+                section_prototype = prs.slides[3]
+                content_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_slide_body"}) or prs.slides[1]
+                two_col_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_left_body", "aria_right_body"}) or content_prototype
+                visual_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_visual_area"}) or content_prototype
             back_cover_ref = _slide_ref(prs, len(prs.slides) - 1)
             prototype_refs = {_slide_ref(prs, index) for index in range(1, len(prs.slides))}
 
