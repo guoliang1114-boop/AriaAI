@@ -282,6 +282,20 @@ def _tool_progress_payload(tool_name: str, tool_input: dict) -> dict:
     return {"message": f"Executing {tool_name}…"}
 
 
+def _tool_start_progress_payload(tool_name: str) -> dict | None:
+    if tool_name in ("generate_ppt", "generate_ppt_from_skill"):
+        return {"message": "Generating slides... (this may take 1-2 minutes)"}
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
+        return {"message": "Markdown 正文生成中，完成后会询问是否写入项目文件。"}
+    if tool_name == "generate_docx":
+        return {"message": "Generating document..."}
+    if tool_name == "generate_xlsx":
+        return {"message": "Generating spreadsheet..."}
+    if tool_name == "generate_pdf":
+        return {"message": "Generating PDF..."}
+    return {"message": f"Executing {tool_name}..."}
+
+
 def _to_user_friendly_error(error_msg: str) -> str:
     if "429" in error_msg or "engine_overloaded" in error_msg:
         return "AI 服务当前繁忙，请稍后重试。这是临时状况，几秒钟后再试即可。"
@@ -771,7 +785,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             stripped = chunk.strip()
             if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
                 tool_name = stripped[12:-1]
-                yield _sse_event({"type": "tool_executing", "tool_name": tool_name, "message": "Generating 15 slides... (this may take 1-2 minutes)"})
+                progress_payload = _tool_start_progress_payload(tool_name)
+                if progress_payload:
+                    yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **progress_payload})
                 continue
 
             if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
