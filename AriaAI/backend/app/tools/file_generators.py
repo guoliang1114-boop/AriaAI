@@ -1907,26 +1907,66 @@ def _set_title_named_or_placeholder_text(slide, shape_name: str, text: str, *, m
     return True
 
 
-def _bump_text_frame_font_size(frame, *, default_size: int = 14, delta: int = 2, max_size: int = 17) -> None:
+def _has_usable_text_bounds(shape, *, min_width_inches: float = 1.0, min_height_inches: float = 0.25) -> bool:
+    from pptx.util import Inches
+
+    return bool(
+        shape is not None
+        and getattr(shape, "width", 0) >= Inches(min_width_inches)
+        and getattr(shape, "height", 0) >= Inches(min_height_inches)
+    )
+
+
+def _bump_text_frame_font_size(frame, *, default_size: int = 14, delta: int = 2, max_size: int = 17, min_size: int = 12) -> None:
     from pptx.util import Pt
 
     for paragraph in frame.paragraphs:
         current = paragraph.font.size.pt if paragraph.font.size else default_size
-        paragraph.font.size = Pt(min(max_size, current + delta))
+        paragraph.font.size = Pt(max(min_size, min(max_size, current + delta)))
         for run in paragraph.runs:
             run_current = run.font.size.pt if run.font.size else current
-            run.font.size = Pt(min(max_size, run_current + delta))
+            run.font.size = Pt(max(min_size, min(max_size, run_current + delta)))
+
+
+def _ensure_min_text_frame_font_size(frame, *, min_size: int = 12, exclude_empty: bool = True) -> None:
+    from pptx.util import Pt
+
+    for paragraph in frame.paragraphs:
+        if exclude_empty and not paragraph.text.strip():
+            continue
+        current = paragraph.font.size.pt if paragraph.font.size else min_size
+        paragraph.font.size = Pt(max(min_size, current))
+        for run in paragraph.runs:
+            if exclude_empty and not run.text.strip():
+                continue
+            run_current = run.font.size.pt if run.font.size else current
+            run.font.size = Pt(max(min_size, run_current))
+
+
+def _ensure_body_min_font_sizes(prs, *, min_size: int = 12) -> None:
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            shape_name = str(getattr(shape, "name", "") or "").lower()
+            is_body_shape = any(token in shape_name for token in ("body", "content", "lead", "metric", "note", "caption"))
+            if is_body_shape:
+                _ensure_min_text_frame_font_size(shape.text_frame, min_size=min_size)
 
 
 def _set_body_named_or_placeholder_text(slide, shape_name: str, text: str, *, default_size: int = 14) -> bool:
     shape = _shape_by_name(slide, shape_name)
     if shape is not None and getattr(shape, "has_text_frame", False):
+        if not _has_usable_text_bounds(shape):
+            return False
         _write_text_preserving_style(shape.text_frame, text)
         _bump_text_frame_font_size(shape.text_frame, default_size=default_size)
         return True
 
     placeholder = _placeholder_by_layout_name(slide, shape_name)
     if placeholder is None or not placeholder.has_text_frame:
+        return False
+    if not _has_usable_text_bounds(placeholder):
         return False
     _write_text_preserving_style(placeholder.text_frame, text)
     _bump_text_frame_font_size(placeholder.text_frame, default_size=default_size)
@@ -2328,10 +2368,13 @@ def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = F
     from pptx.dml.color import RGBColor
     from pptx.util import Pt
 
+    text_value = str(text or "").strip()
     if 7 <= size <= 8:
         size += 2
     elif 9 <= size <= 13:
         size += 1
+    if len(text_value) >= 8 or sum(1 for char in text_value if ord(char) > 127) >= 4:
+        size = max(size, 12)
 
     box = slide.shapes.add_textbox(x, y, w, h)
     frame = box.text_frame
@@ -3194,15 +3237,86 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int, sl
         _add_slide_footer(slide)
 
 
+def _draw_generated_two_column_content(slide, title: str, left_content: str, right_content: str, slide_number: int, slide_data: dict | None = None):
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
+    columns = [
+        ("\u73b0\u72b6 / \u57fa\u7840", left_content, "F8FAFC", "2563EB", Inches(0.85)),
+        ("\u76ee\u6807 / \u89c4\u6a21\u5316", right_content, "F0FDF4", "16A34A", Inches(6.85)),
+    ]
+    for heading, content, fill, color, x in columns:
+        _add_card(slide, x, Inches(1.65), Inches(5.55), Inches(4.9), fill=fill)
+        _add_textbox(slide, x + Inches(0.28), Inches(1.88), Inches(5.0), Inches(0.38), heading, size=15, bold=True, color=color)
+        bullets = _split_bullets(content, limit=6)
+        for idx, bullet in enumerate(bullets):
+            y = Inches(2.5 + idx * 0.62)
+            _add_textbox(slide, x + Inches(0.35), y, Inches(0.25), Inches(0.24), "\u2022", size=14, bold=True, color=color)
+            _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
+    _add_slide_footer(slide)
+
+
+def _two_column_template_body_is_usable(slide) -> bool:
+    left_body_shape = _shape_by_name_or_placeholder(slide, "aria_left_body")
+    right_body_shape = _shape_by_name_or_placeholder(slide, "aria_right_body")
+    return _has_usable_text_bounds(left_body_shape) and _has_usable_text_bounds(right_body_shape)
+
+
 def _render_two_column_slide(slide, title: str, left_content: str, right_content: str, slide_number: int, slide_data: dict | None = None):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
-    used_template = (
-        _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
-        and _set_body_named_or_placeholder_text(slide, "aria_left_body", left_content, default_size=13)
-        and _set_body_named_or_placeholder_text(slide, "aria_right_body", right_content, default_size=13)
+    if not _two_column_template_body_is_usable(slide):
+        _remove_shape_by_name(slide, "aria_left_body")
+        _remove_shape_by_name(slide, "aria_right_body")
+        _draw_generated_two_column_content(slide, title, left_content, right_content, slide_number, slide_data)
+        return
+    title_set = _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
+    exact_left_body = _shape_by_name(slide, "aria_left_body")
+    exact_right_body = _shape_by_name(slide, "aria_right_body")
+    has_bad_template_columns = (
+        (exact_left_body is not None and not _has_usable_text_bounds(exact_left_body))
+        or (exact_right_body is not None and not _has_usable_text_bounds(exact_right_body))
     )
+    if has_bad_template_columns:
+        _remove_shape_by_name(slide, "aria_left_body")
+        _remove_shape_by_name(slide, "aria_right_body")
+        _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
+        columns = [
+            ("现状 / 约束", left_content, "F8FAFC", "2563EB", Inches(0.85)),
+            ("目标 / 动作", right_content, "F0FDF4", "16A34A", Inches(6.85)),
+        ]
+        for heading, content, fill, color, x in columns:
+            _add_card(slide, x, Inches(1.65), Inches(5.55), Inches(4.92), fill=fill)
+            _add_textbox(slide, x + Inches(0.28), Inches(1.88), Inches(5.0), Inches(0.38), heading, size=15, bold=True, color=color)
+            bullets = _split_bullets(content, limit=6)
+            for idx, bullet in enumerate(bullets):
+                y = Inches(2.5 + idx * 0.62)
+                _add_textbox(slide, x + Inches(0.35), y, Inches(0.25), Inches(0.24), "•", size=14, bold=True, color=color)
+                _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
+        return
+    if (
+        has_bad_template_columns
+    ):
+        template_columns_usable = False
+    else:
+        left_body_shape = _shape_by_name_or_placeholder(slide, "aria_left_body")
+        right_body_shape = _shape_by_name_or_placeholder(slide, "aria_right_body")
+        template_columns_usable = _has_usable_text_bounds(left_body_shape) and _has_usable_text_bounds(right_body_shape)
+    used_template = False
+    if template_columns_usable:
+        used_template = (
+            title_set
+            and _set_body_named_or_placeholder_text(slide, "aria_left_body", left_content, default_size=13)
+            and _set_body_named_or_placeholder_text(slide, "aria_right_body", right_content, default_size=13)
+        )
+        if used_template and (
+            not _has_usable_text_bounds(_shape_by_name(slide, "aria_left_body"))
+            or not _has_usable_text_bounds(_shape_by_name(slide, "aria_right_body"))
+        ):
+            used_template = False
     _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
     _push_body_below_lead(slide, ("aria_left_body", "aria_right_body"))
     if not used_template:
@@ -3213,8 +3327,13 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
         ("现状 / 基础", left_content, "F8FAFC", "2563EB", Inches(0.85)),
         ("目标 / 规模化", right_content, "F0FDF4", "16A34A", Inches(6.85)),
     ]
-    if used_template:
+    if used_template and _two_column_template_body_is_usable(slide):
         # Keep the user's two-column template untouched apart from named text.
+        return
+    if used_template:
+        _remove_shape_by_name(slide, "aria_left_body")
+        _remove_shape_by_name(slide, "aria_right_body")
+        _draw_generated_two_column_content(slide, title, left_content, right_content, slide_number, slide_data)
         return
     for heading, content, fill, color, x in columns:
         _add_card(slide, x, Inches(1.35), Inches(5.55), Inches(5.2), fill=fill)
@@ -4161,6 +4280,7 @@ async def generate_ppt(
 
                 filename = _generate_filename("pptx")
                 filepath = GENERATED_DIR / filename
+                _ensure_body_min_font_sizes(prs, min_size=12)
                 prs.save(filepath)
                 return {
                     "success": True,
@@ -4223,6 +4343,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
+            _ensure_body_min_font_sizes(prs, min_size=12)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4297,6 +4418,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
+            _ensure_body_min_font_sizes(prs, min_size=12)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4379,6 +4501,7 @@ async def generate_ppt(
     # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")
     filepath = GENERATED_DIR / filename
+    _ensure_body_min_font_sizes(prs, min_size=12)
     prs.save(filepath)
 
     return {
