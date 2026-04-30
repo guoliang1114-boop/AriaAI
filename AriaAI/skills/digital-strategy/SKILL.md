@@ -262,6 +262,54 @@ PPT design specification:
 - `data_points` should contain quantified assumptions, benchmark ranges, KPI targets, or evidence needed for the visual. If exact data is missing, provide explicit assumptions and label them as assumptions.
 - `management_implications` should state the decision, trade-off, owner, or governance action required from management.
 
+### Digital Strategy PPT Standard Storyline
+
+Use this richer second-level storyline by default for digital-strategy PPTs. Keep the order stable so the generator can apply chapter dividers, section numbering, visual pages, and lead sentences consistently.
+
+1. 高层共识
+   - 执行摘要：把数字化作为业务价值组合来管理
+   - 战略背景：数字化窗口期已经从试点转向规模化
+   - 战略目标拆解：把业务战略翻译为数字化议题
+   - 战略设计原则：哪些事情必须统一，哪些事情允许业务创新
+
+2. 现状诊断
+   - 现状诊断：从六个维度识别成熟度短板
+   - 成熟度热力图：优势基础与制约因素
+   - 痛点根因：区分症状、结构性原因和管理动作
+   - 客户与一线声音：把体验问题转化为可改造的流程断点
+   - 系统与数据底座诊断：找出规模化复制前必须补齐的短板
+
+3. 目标蓝图
+   - 客户与增长体验缺口：优先找到价值泄漏点
+   - 数字化愿景与目标状态：形成数据驱动的运营体系
+   - 能力蓝图：围绕客户、运营、数据、AI 和平台建设
+   - 数据与 AI 架构蓝图：从报表数据走向可运营的数据产品
+   - 目标运营模式：把价值、数据、技术和变革责任拆清
+
+4. 场景组合与能力落地
+   - 场景组合：平衡快赢、基础能力和战略差异化
+   - 场景优先级逻辑：按价值、可行性、依赖和变革准备度排序
+   - 首批试点设计：用 3-5 个场景验证价值、数据和组织机制
+   - 能力建设包：把单点场景沉淀为可复制的企业能力
+
+5. 路线图与投资
+   - 现状与目标状态对比
+   - 差距优先级矩阵：先做高价值、低复杂度和可见成果
+   - 三阶段路线图：夯实基础、规模复制、领先优化
+   - 举措组合与里程碑：每个项目都要有价值、负责人和闸口
+   - 收益实现路径：把业务价值拆成可跟踪的领先指标和滞后指标
+   - 投资测算与资金机制：用阶段门把投入和价值绑定
+   - 投资、KPI 与风险控制：建立可追踪的价值闭环
+
+6. 治理与动员
+   - 治理与运营模式：用节奏、责任和指标保证落地
+   - 组织与人才机制：把数字化能力嵌入业务岗位和管理节奏
+   - 风险登记与缓释计划：提前管理遗留、数据、采用和伙伴风险
+   - 90 天行动计划：把共识转成可执行启动方案
+   - 立即下一步：确认决策、验证基线并启动首批试点
+
+Each chapter divider should include a short one-sentence lead in white text. Each business slide should include a one-sentence lead below the title, followed by enough structured content for the page to stand alone.
+
 Allowed `layout_key` values:
 
 | layout_key | Use for | Visual discipline |

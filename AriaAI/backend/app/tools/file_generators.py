@@ -1933,6 +1933,25 @@ def _set_body_named_or_placeholder_text(slide, shape_name: str, text: str, *, de
     return True
 
 
+def _push_body_below_lead(slide, body_names: tuple[str, ...] = ("aria_slide_body",), gap_inches: float = 0.16) -> None:
+    from pptx.util import Inches
+
+    lead = _shape_by_name(slide, "aria_generated_lead") or _shape_by_name_or_placeholder(slide, "aria_slide_lead")
+    if lead is None:
+        return
+    lead_bottom = lead.top + lead.height + Inches(gap_inches)
+    slide_bottom = Inches(7.2)
+    min_height = Inches(1.2)
+
+    for name in body_names:
+        body = _shape_by_name_or_placeholder(slide, name)
+        if body is None or body.top >= lead_bottom:
+            continue
+        delta = lead_bottom - body.top
+        body.top = lead_bottom
+        body.height = max(min_height, min(body.height - delta, slide_bottom - body.top))
+
+
 def _placeholder_bounds(slide, placeholder_name: str):
     placeholder = _placeholder_by_layout_name(slide, placeholder_name)
     if placeholder is None:
@@ -2200,6 +2219,14 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
 
     placeholder_name = "aria_section_lead" if role == "section" else "aria_slide_lead"
     if _set_named_or_placeholder_text(slide, placeholder_name, lead):
+        shape = _shape_by_name_or_placeholder(slide, placeholder_name)
+        if role == "section" and shape is not None and getattr(shape, "has_text_frame", False):
+            from pptx.dml.color import RGBColor
+
+            for paragraph in shape.text_frame.paragraphs:
+                paragraph.font.color.rgb = RGBColor.from_string("FFFFFF")
+                for run in paragraph.runs:
+                    run.font.color.rgb = RGBColor.from_string("FFFFFF")
         return True
 
     title_shape = _shape_by_name_or_placeholder(
@@ -2229,7 +2256,7 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
         height,
         lead,
         size=12 if role != "section" else 13,
-        color="64748B",
+        color="64748B" if role != "section" else "FFFFFF",
     )
     lead_box.name = "aria_generated_lead"
     return True
@@ -2553,6 +2580,7 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
         and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
     )
     _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
+    _push_body_below_lead(slide)
     visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
@@ -2753,6 +2781,7 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
             title_set
             and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
         )
+        _push_body_below_lead(slide)
         visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
@@ -3136,6 +3165,7 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int, sl
         and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
     )
     _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
+    _push_body_below_lead(slide)
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
@@ -3174,6 +3204,7 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
         and _set_body_named_or_placeholder_text(slide, "aria_right_body", right_content, default_size=13)
     )
     _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
+    _push_body_below_lead(slide, ("aria_left_body", "aria_right_body"))
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
@@ -3275,7 +3306,7 @@ def _merge_digital_strategy_plan(existing: list[dict], plan: list[dict]) -> list
         if source:
             current = _blend_digital_strategy_source_slide(current, source)
         merged.append(_enrich_digital_strategy_slide(current, len(merged) + 1))
-        if len(merged) >= 22:
+        if len(merged) >= 36:
             break
     return merged
 
@@ -3348,6 +3379,24 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
         },
         {
             "type": "content",
+            "title": "战略目标拆解：把业务战略翻译为数字化议题",
+            "insight": "数字化战略必须先承接业务增长、效率、风险和体验目标，再反推能力、数据和平台建设重点。",
+            "content": "- 增长目标：识别获客、转化、复购、定价和客户经营中的价值池\n- 效率目标：定位人工交接、重复录入、审批周期和资源调度的改善空间\n- 风险目标：明确合规、数据安全、运营韧性和供应链风险的数字化控制点\n- 体验目标：将客户、员工和伙伴体验拆解为可观测旅程指标\n- 管理要求：每个数字化议题都需要对应业务 KPI、负责人和验证周期",
+        },
+        {
+            "type": "two_column",
+            "title": "战略设计原则：哪些事情必须统一，哪些事情允许业务创新",
+            "insight": "顶层设计的关键是建立统一底座与业务灵活性之间的边界，避免一管就死或一放就乱。",
+            "left_content": "- 必须统一：主数据、身份权限、集成标准、安全规范、指标口径\n- 必须统一：架构原则、项目分级、投资评审、价值复盘机制\n- 必须统一：跨部门流程的责任边界和升级机制\n- 必须统一：供应商准入、代码/配置资产和知识沉淀标准",
+            "right_content": "- 允许创新：面向不同客群和区域的经营场景\n- 允许创新：一线流程体验、触点运营和业务规则优化\n- 允许创新：新技术试点、生态合作和小规模验证\n- 允许创新：业务单元在统一框架下的产品路线图节奏",
+        },
+        {
+            "type": "title",
+            "title": "现状诊断",
+            "insight": "本章节从成熟度、客户体验、流程、系统和数据底座识别数字化规模化的关键约束。",
+        },
+        {
+            "type": "content",
             "title": "Current Digital Maturity Diagnosis",
             "content": "- Strategy: test whether digital priorities are linked to growth, cost and risk objectives\n- Customer: assess channel integration, journey orchestration and customer data completeness\n- Operations: identify manual handoffs, process bottlenecks and automation opportunities\n- Organization: evaluate decision rights, product ownership, digital talent and change capacity\n- Data/technology: score master data, data governance, API maturity, cloud readiness and legacy risk",
         },
@@ -3361,6 +3410,19 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "type": "content",
             "title": "Pain Point Root Causes",
             "content": "- Process pain points often come from unclear ownership, not only missing systems\n- Data pain points usually reflect weak master data, inconsistent definitions and low accountability\n- Technology pain points come from point-to-point integration and customized legacy platforms\n- Adoption pain points come from incentives and training gaps rather than tool availability\n- Root-cause view should separate symptoms, structural causes and required management actions",
+        },
+        {
+            "type": "two_column",
+            "title": "客户与一线声音：把体验问题转化为可改造的流程断点",
+            "insight": "客户体验问题往往不是单一触点问题，而是跨销售、交付、服务和数据链路的连续性问题。",
+            "left_content": "- 客户侧断点：响应慢、信息不一致、服务过程不可视、问题重复解释\n- 一线侧断点：多系统切换、重复录入、无法获得客户全貌、授权链条长\n- 管理侧断点：指标滞后、问题归因困难、跨部门责任边界模糊",
+            "right_content": "- 改造方向：统一客户视图和旅程状态\n- 改造方向：建立事件触发和自动派单规则\n- 改造方向：把体验指标纳入业务负责人 KPI\n- 改造方向：用流程数据支撑持续优化",
+        },
+        {
+            "type": "content",
+            "title": "系统与数据底座诊断：找出规模化复制前必须补齐的短板",
+            "insight": "如果系统、数据和集成底座不先补齐，高价值场景很容易停留在试点而无法复制。",
+            "content": "- 系统层：盘点核心系统、定制化程度、接口方式、运维风险和生命周期\n- 数据层：识别主数据、交易数据、行为数据和外部数据的口径与质量问题\n- 集成层：评估 API、消息、批处理和手工导入导出的依赖风险\n- 安全层：检查身份、权限、审计、脱敏和外部访问控制\n- 交付层：评估开发测试环境、发布流程、配置管理和供应商依赖",
         },
         {
             "type": "title",
@@ -3382,10 +3444,21 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "content": "- Customer intelligence: unified profile, segmentation, journey triggers and service personalization\n- Digital operations: workflow automation, process mining, exception management and SLA visibility\n- Data foundation: master data, quality rules, data products, access controls and ownership model\n- AI decision support: forecasting, recommendation, knowledge retrieval and assisted execution\n- Platform architecture: API layer, cloud services, security controls and reusable integration components",
         },
         {
+            "type": "content",
+            "title": "数据与 AI 架构蓝图：从报表数据走向可运营的数据产品",
+            "insight": "数据能力的目标不是多做报表，而是形成可复用、可治理、可嵌入流程的数据产品和 AI 服务。",
+            "content": "- 数据产品：围绕客户、项目、合同、交付、财务和风险建立主题数据产品\n- 数据治理：明确数据 Owner、口径规则、质量 SLA、权限分级和生命周期\n- AI 服务：优先建设知识检索、预测预警、推荐决策和自动生成四类能力\n- 技术架构：通过 API、事件流、数据湖仓和模型服务支撑业务场景调用\n- 安全合规：把脱敏、审计、访问控制和模型输出可追溯嵌入架构设计",
+        },
+        {
             "type": "two_column",
             "title": "Target Operating Model Blueprint",
             "left_content": "- Business product owners own value, adoption and backlog priorities\n- Data owners govern definitions, access, quality and lifecycle\n- Technology teams provide reusable platforms and security guardrails\n- Transformation PMO manages portfolio rhythm and benefit tracking",
             "right_content": "- Steering committee resolves scope, funding and cross-functional trade-offs\n- Domain squads deliver use cases through agile releases\n- Change champions drive frontline adoption and training\n- Finance validates value realization and stage-gate funding",
+        },
+        {
+            "type": "title",
+            "title": "场景组合与能力落地",
+            "insight": "本章节把目标蓝图拆成可排序、可验证、可复制的业务场景和能力建设包。",
         },
         {
             "type": "content",
@@ -3397,6 +3470,19 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "title": "Use-Case Prioritization Logic",
             "left_content": "- Value pool size and confidence\n- Sponsorship strength and owner readiness\n- Data availability and quality\n- Delivery complexity and dependencies",
             "right_content": "- Start with visible quick wins to build momentum\n- Fund foundations that unlock multiple use cases\n- Sequence differentiators after data and ownership mature\n- Defer low-value automation without business sponsorship",
+        },
+        {
+            "type": "content",
+            "title": "首批试点设计：用 3-5 个场景验证价值、数据和组织机制",
+            "insight": "首批试点不应只证明工具可用，而要同时验证业务价值、数据质量、责任机制和一线采纳。",
+            "content": "- 选择原则：业务价值明确、数据可获得、负责人有动力、流程边界可控\n- 试点包 1：客户经营或销售效率场景，验证增长和转化指标\n- 试点包 2：运营流程自动化场景，验证周期、成本和质量改善\n- 试点包 3：风险预警或经营看板场景，验证管理透明度和决策速度\n- 验证标准：每个试点设置基线、目标、用户群、采纳率和复盘节奏",
+        },
+        {
+            "type": "two_column",
+            "title": "能力建设包：把单点场景沉淀为可复制的企业能力",
+            "insight": "场景成功后要沉淀为能力包，否则每个项目都会重新搭建数据、流程和技术组件。",
+            "left_content": "- 业务组件：流程模板、规则库、角色职责、运营 SOP\n- 数据组件：指标口径、数据模型、质量规则、权限策略\n- 技术组件：API、自动化流程、模型服务、监控能力\n- 变革组件：培训材料、采纳指标、激励机制、反馈渠道",
+            "right_content": "- 复用方式：形成标准能力目录和调用说明\n- 复用方式：按业务域建立产品负责人和路线图\n- 复用方式：用平台团队维护共性组件\n- 复用方式：通过季度复盘决定扩展、停用或重构",
         },
         {
             "type": "title",
@@ -3424,6 +3510,12 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "content": "- Each initiative defines owner, value KPI, user group, data dependency and milestone\n- Year 1: maturity baseline, data governance launch, 3-5 pilots and first value dashboard\n- Year 2: platform integration, scaled workflows, business-unit rollout and talent academy\n- Year 3: AI operating model, ecosystem collaboration and continuous optimization\n- Governance checkpoint: stop, scale or redesign initiatives based on adoption and value",
         },
         {
+            "type": "content",
+            "title": "收益实现路径：把业务价值拆成可跟踪的领先指标和滞后指标",
+            "insight": "收益不是项目结束时才验证，而要在路线图中嵌入基线、领先指标、责任人和复盘机制。",
+            "content": "- 增长收益：线索转化率、复购率、客户留存率、客单价和销售周期\n- 效率收益：人均处理量、自动化率、审批周期、返工率和服务成本\n- 风险收益：异常发现时间、合规事件数量、权限违规率和关键流程中断时间\n- 体验收益：客户满意度、一次解决率、响应时效和员工使用满意度\n- 财务闭环：由业务、财务和 PMO 共同确认基线、目标、归因和复盘周期",
+        },
+        {
             "type": "two_column",
             "title": "Investment Case and Funding Model",
             "left_content": "- Technology: platforms, integration, security and automation tooling\n- Data: master data, governance, quality and analytics-ready data products\n- Talent/change: product owners, training, adoption and capability academy\n- Ecosystem: selected partners, pilots and capability transfer",
@@ -3442,6 +3534,12 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             "type": "content",
             "title": "Governance and Operating Model",
             "content": "- Steering committee owns priorities, funding trade-offs and cross-functional escalation\n- Transformation PMO manages portfolio rhythm, benefits tracking and dependency resolution\n- Product owners translate business pain points into roadmaps and adoption plans\n- Data owners govern definitions, quality, access and lifecycle management\n- Technology teams provide reusable platforms, standards and security guardrails",
+        },
+        {
+            "type": "content",
+            "title": "组织与人才机制：把数字化能力嵌入业务岗位和管理节奏",
+            "insight": "数字化组织能力的核心不是设一个部门，而是让业务、数据、技术和变革角色进入同一套管理节奏。",
+            "content": "- 角色配置：业务产品负责人、数据 Owner、架构负责人、变革负责人和价值 Owner\n- 能力建设：建立产品管理、数据治理、AI 应用、敏捷交付和变革管理训练营\n- 激励机制：把采纳率、价值实现和跨部门协作纳入业务负责人考核\n- 伙伴策略：明确外部伙伴负责交付加速，内部团队负责知识沉淀和能力接管\n- 管理节奏：月度 PMO、季度价值复盘、半年度路线图刷新和年度投资评审",
         },
         {
             "type": "two_column",
@@ -3476,7 +3574,7 @@ def _normalize_digital_strategy_slides(slides: list[dict]) -> list[dict]:
             continue
         normalized.append(_enrich_digital_strategy_slide(slide, len(normalized) + 1))
         existing.add(key)
-        if len(normalized) >= 22:
+        if len(normalized) >= 36:
             break
     return normalized
 
