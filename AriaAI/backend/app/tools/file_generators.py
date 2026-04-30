@@ -1907,6 +1907,32 @@ def _set_title_named_or_placeholder_text(slide, shape_name: str, text: str, *, m
     return True
 
 
+def _bump_text_frame_font_size(frame, *, default_size: int = 14, delta: int = 2, max_size: int = 17) -> None:
+    from pptx.util import Pt
+
+    for paragraph in frame.paragraphs:
+        current = paragraph.font.size.pt if paragraph.font.size else default_size
+        paragraph.font.size = Pt(min(max_size, current + delta))
+        for run in paragraph.runs:
+            run_current = run.font.size.pt if run.font.size else current
+            run.font.size = Pt(min(max_size, run_current + delta))
+
+
+def _set_body_named_or_placeholder_text(slide, shape_name: str, text: str, *, default_size: int = 14) -> bool:
+    shape = _shape_by_name(slide, shape_name)
+    if shape is not None and getattr(shape, "has_text_frame", False):
+        _write_text_preserving_style(shape.text_frame, text)
+        _bump_text_frame_font_size(shape.text_frame, default_size=default_size)
+        return True
+
+    placeholder = _placeholder_by_layout_name(slide, shape_name)
+    if placeholder is None or not placeholder.has_text_frame:
+        return False
+    _write_text_preserving_style(placeholder.text_frame, text)
+    _bump_text_frame_font_size(placeholder.text_frame, default_size=default_size)
+    return True
+
+
 def _placeholder_bounds(slide, placeholder_name: str):
     placeholder = _placeholder_by_layout_name(slide, placeholder_name)
     if placeholder is None:
@@ -2141,7 +2167,75 @@ def _find_named_prototype_slide(prs, required_names: set[str], preferred_layout_
     return None
 
 
-def _render_section_slide(slide, title: str, section_number: int):
+def _shorten_slide_lead(text: str, limit: int = 96) -> str:
+    text = " ".join(_clean_ppt_text(text).split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip("，,。.;； ") + "…"
+
+
+def _slide_lead_text(slide_data: dict | None, title: str = "", content: str = "") -> str:
+    slide_data = slide_data or {}
+    for key in ("lead", "insight", "subtitle", "summary", "headline"):
+        value = str(slide_data.get(key) or "").strip()
+        if value:
+            return _shorten_slide_lead(value)
+
+    bullets = _split_bullets(_combined_slide_content(slide_data) or content, limit=1)
+    if bullets:
+        return _shorten_slide_lead(bullets[0])
+
+    title = str(title or "").strip()
+    if title:
+        return _shorten_slide_lead(f"本页围绕“{title}”展开关键判断、管理含义与下一步动作。")
+    return ""
+
+
+def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> bool:
+    from pptx.util import Inches
+
+    lead = _shorten_slide_lead(text)
+    if not lead:
+        return False
+
+    placeholder_name = "aria_section_lead" if role == "section" else "aria_slide_lead"
+    if _set_named_or_placeholder_text(slide, placeholder_name, lead):
+        return True
+
+    title_shape = _shape_by_name_or_placeholder(
+        slide,
+        "aria_section_title" if role == "section" else "aria_slide_title",
+    )
+    if title_shape is None and slide.shapes.title is not None:
+        title_shape = slide.shapes.title
+
+    if title_shape is not None:
+        left = title_shape.left
+        width = title_shape.width
+        top = title_shape.top + title_shape.height + Inches(0.08)
+        if role == "section" and width < Inches(5.0):
+            width = Inches(8.6)
+    else:
+        left = Inches(0.82)
+        width = Inches(10.9)
+        top = Inches(0.95 if role != "section" else 3.05)
+
+    height = Inches(0.34 if role != "section" else 0.40)
+    lead_box = _add_textbox(
+        slide,
+        left,
+        top,
+        width,
+        height,
+        lead,
+        size=12 if role != "section" else 13,
+        color="64748B",
+    )
+    lead_box.name = "aria_generated_lead"
+    return True
+
+
+def _render_section_slide(slide, title: str, section_number: int, slide_data: dict | None = None):
     _clear_generated_text_shapes(slide)
     if not _set_title_named_or_placeholder_text(slide, "aria_section_title", title, min_size=18):
         if slide.shapes.title is not None:
@@ -2162,15 +2256,17 @@ def _render_section_slide(slide, title: str, section_number: int):
         body = _find_body_placeholder(slide)
         if body is not None:
             body.text = f"{section_number:02d}"
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title), role="section")
 
 
-def _render_graphic_library_title_slide(slide, title: str):
+def _render_graphic_library_title_slide(slide, title: str, slide_data: dict | None = None):
     _clear_generated_text_shapes(slide)
     if not _set_title_named_or_placeholder_text(slide, "aria_slide_title", title) and slide.shapes.title is not None:
         _write_title_preserving_style(slide.shapes.title, title)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title), role="section")
 
 
-def _render_graphic_library_content_slide(slide, title: str, content: str, slide_number: int):
+def _render_graphic_library_content_slide(slide, title: str, content: str, slide_number: int, slide_data: dict | None = None):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
@@ -2184,6 +2280,7 @@ def _render_graphic_library_content_slide(slide, title: str, content: str, slide
             break
     if title_shape is not None:
         _write_title_preserving_style(title_shape, title)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
 
     placed = False
     body = _find_body_placeholder(slide)
@@ -2191,6 +2288,7 @@ def _render_graphic_library_content_slide(slide, title: str, content: str, slide
         body.text_frame.clear()
         body.text_frame.text = body_text
         body.text_frame.word_wrap = True
+        _bump_text_frame_font_size(body.text_frame, default_size=14)
         placed = True
 
     if not placed:
@@ -2202,6 +2300,11 @@ def _render_graphic_library_content_slide(slide, title: str, content: str, slide
 def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = False, color: str = "1F2937"):
     from pptx.dml.color import RGBColor
     from pptx.util import Pt
+
+    if 7 <= size <= 8:
+        size += 2
+    elif 9 <= size <= 13:
+        size += 1
 
     box = slide.shapes.add_textbox(x, y, w, h)
     frame = box.text_frame
@@ -2408,6 +2511,7 @@ def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int
 
     _clear_text_shapes(slide)
     _add_slide_header(slide, title, slide_number)
+    _add_generated_slide_lead(slide, _slide_lead_text(None, title, "\n".join(bullets)), role="content")
     phases = bullets[:3] or ["阶段一：夯实基础", "阶段二：规模复制", "阶段三：领先优化"]
     colors = [("DBEAFE", "2563EB"), ("DCFCE7", "16A34A"), ("FEF3C7", "D97706")]
     for idx, phase in enumerate(phases):
@@ -2438,7 +2542,7 @@ def _wants_visual_slide(title: str, content: str = "") -> bool:
     return any(keyword in text for keyword in keywords)
 
 
-def _render_visual_slide(slide, title: str, content: str, slide_number: int, visual_kind: str = ""):
+def _render_visual_slide(slide, title: str, content: str, slide_number: int, visual_kind: str = "", slide_data: dict | None = None):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches
 
@@ -2446,12 +2550,14 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
     bullets = _split_bullets(content, limit=6)
     used_template = (
         _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
-        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
+        and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
     )
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
     visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
+        _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
         visual_bounds = (Inches(7.4), Inches(1.45), Inches(4.7), Inches(4.8))
         _add_textbox(slide, Inches(0.85), Inches(1.45), Inches(5.95), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets), size=13, color="334155")
 
@@ -2630,31 +2736,33 @@ def _combined_slide_content(slide_data: dict) -> str:
     return "\n".join(part for part in parts if part.strip())
 
 
-def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, full_canvas: bool = False):
+def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, full_canvas: bool = False, slide_data: dict | None = None):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
     bullets = _split_bullets(body, limit=8)
     title_set = _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, body), role="content")
     if full_canvas:
         _remove_shape_by_name(slide, "aria_visual_area")
-        _set_named_or_placeholder_text(slide, "aria_slide_body", "")
+        _set_body_named_or_placeholder_text(slide, "aria_slide_body", "")
         used_template = title_set
         visual_bounds = (Inches(1.02), Inches(1.38), Inches(11.28), Inches(5.22))
     else:
         used_template = (
             title_set
-            and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
+            and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
         )
         visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
     if not used_template or visual_bounds is None:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
+        _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, body), role="content")
         if full_canvas:
-            visual_bounds = (Inches(0.92), Inches(1.38), Inches(11.48), Inches(5.18))
+            visual_bounds = (Inches(0.92), Inches(1.58), Inches(11.48), Inches(4.98))
         else:
-            visual_bounds = (Inches(6.9), Inches(1.35), Inches(5.6), Inches(5.25))
-            _add_textbox(slide, Inches(0.82), Inches(1.35), Inches(5.65), Inches(5.1), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=12, color="334155")
+            visual_bounds = (Inches(6.9), Inches(1.55), Inches(5.6), Inches(5.05))
+            _add_textbox(slide, Inches(0.82), Inches(1.55), Inches(5.65), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=13, color="334155")
     return bullets, visual_bounds, used_template
 
 
@@ -2977,6 +3085,7 @@ def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, 
         body,
         slide_number,
         full_canvas=layout_key in full_canvas_layouts,
+        slide_data=slide_data,
     )
     if layout_key == "executive_summary":
         _render_strategy_executive_summary(slide, x, y, w, h, bullets)
@@ -3015,7 +3124,7 @@ def _render_digital_strategy_layout(slide, slide_data: dict, slide_number: int, 
     return True
 
 
-def _render_content_slide(slide, title: str, content: str, slide_number: int):
+def _render_content_slide(slide, title: str, content: str, slide_number: int, slide_data: dict | None = None):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
@@ -3024,11 +3133,13 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
         return
     used_template = (
         _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
-        and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
+        and _set_body_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
     )
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
+        _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
     if bullets:
         hero = bullets[0]
         if used_template:
@@ -3053,18 +3164,20 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
         _add_slide_footer(slide)
 
 
-def _render_two_column_slide(slide, title: str, left_content: str, right_content: str, slide_number: int):
+def _render_two_column_slide(slide, title: str, left_content: str, right_content: str, slide_number: int, slide_data: dict | None = None):
     from pptx.util import Inches
 
     _clear_generated_text_shapes(slide)
     used_template = (
         _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
-        and _set_named_or_placeholder_text(slide, "aria_left_body", left_content)
-        and _set_named_or_placeholder_text(slide, "aria_right_body", right_content)
+        and _set_body_named_or_placeholder_text(slide, "aria_left_body", left_content, default_size=13)
+        and _set_body_named_or_placeholder_text(slide, "aria_right_body", right_content, default_size=13)
     )
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
     if not used_template:
         _clear_text_shapes(slide)
         _add_slide_header(slide, title, slide_number)
+        _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, f"{left_content}\n{right_content}"), role="content")
     columns = [
         ("现状 / 基础", left_content, "F8FAFC", "2563EB", Inches(0.85)),
         ("目标 / 规模化", right_content, "F0FDF4", "16A34A", Inches(6.85)),
@@ -3905,16 +4018,19 @@ async def generate_ppt(
                 original_refs = list(prs.slides._sldIdLst)
                 _set_template_cover_text(aria_cover_prototype, title, subtitle)
 
+                section_counter = 0
                 for slide_index, slide_data in enumerate(slides):
                     slide_type = slide_data.get("type", "content")
                     slide_title = slide_data.get("title", "")
 
                     if slide_type == "section":
+                        section_counter += 1
                         slide = _clone_slide_from_prototype(prs, aria_section_prototype)
-                        _render_section_slide(slide, slide_title, slide_index + 1)
+                        _render_section_slide(slide, slide_title, section_counter, slide_data)
                     elif slide_type == "title":
+                        section_counter += 1
                         slide = _clone_slide_from_prototype(prs, aria_title_prototype)
-                        _render_graphic_library_title_slide(slide, slide_title)
+                        _render_graphic_library_title_slide(slide, slide_title, slide_data)
                     elif slide_type == "two_column":
                         slide = _clone_slide_from_prototype(prs, aria_two_col_prototype)
                         _render_two_column_slide(
@@ -3923,6 +4039,7 @@ async def generate_ppt(
                             slide_data.get("left_content", ""),
                             slide_data.get("right_content", ""),
                             slide_index + 1,
+                            slide_data,
                         )
                     else:
                         slide = _clone_slide_from_prototype(prs, aria_content_prototype)
@@ -3931,6 +4048,7 @@ async def generate_ppt(
                             slide_title,
                             slide_data.get("content", ""),
                             slide_index + 1,
+                            slide_data,
                         )
 
                 keep_ref = None
@@ -3973,13 +4091,15 @@ async def generate_ppt(
                 _safe_layout(prs, 1),
             )
 
+            section_counter = 0
             for slide_index, slide_data in enumerate(slides):
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
 
                 if slide_type == "title":
+                    section_counter += 1
                     slide = _clone_slide_from_prototype(prs, divider_prototype)
-                    _render_section_slide(slide, slide_title, slide_index + 1)
+                    _render_section_slide(slide, slide_title, section_counter, slide_data)
                 elif slide_type == "two_column":
                     slide = prs.slides.add_slide(two_col_layout)
                     _render_two_column_slide(
@@ -3988,6 +4108,7 @@ async def generate_ppt(
                         slide_data.get("left_content", ""),
                         slide_data.get("right_content", ""),
                         slide_index + 1,
+                        slide_data,
                     )
                 else:
                     slide = _clone_slide_from_prototype(prs, content_prototype)
@@ -3996,6 +4117,7 @@ async def generate_ppt(
                         slide_title,
                         slide_data.get("content", ""),
                         slide_index + 1,
+                        slide_data,
                     )
 
             for slide_ref in list(original_refs)[1:]:
@@ -4032,6 +4154,7 @@ async def generate_ppt(
             back_cover_ref = _slide_ref(prs, len(prs.slides) - 1)
             prototype_refs = {_slide_ref(prs, index) for index in range(1, len(prs.slides))}
 
+            section_counter = 0
             for slide_index, slide_data in enumerate(slides):
                 slide_type = slide_data.get("type", "content")
                 slide_title = slide_data.get("title", "")
@@ -4051,11 +4174,12 @@ async def generate_ppt(
                     slide = _clone_slide_from_prototype(prs, content_prototype)
 
                 if slide_type in {"title", "section"}:
-                    _render_section_slide(slide, slide_title, slide_index + 1)
+                    section_counter += 1
+                    _render_section_slide(slide, slide_title, section_counter, slide_data)
                 elif strategy_layout and _render_digital_strategy_layout(slide, slide_data, slide_index + 1, strategy_layout):
                     pass
                 elif use_visual:
-                    _render_visual_slide(slide, slide_title, content, slide_index + 1, slide_type)
+                    _render_visual_slide(slide, slide_title, content, slide_index + 1, slide_type, slide_data)
                 elif slide_type == "two_column":
                     _render_two_column_slide(
                         slide,
@@ -4063,9 +4187,10 @@ async def generate_ppt(
                         slide_data.get("left_content", ""),
                         slide_data.get("right_content", ""),
                         slide_index + 1,
+                        slide_data,
                     )
                 elif "content" in slide_data:
-                    _render_content_slide(slide, slide_title, content, slide_index + 1)
+                    _render_content_slide(slide, slide_title, content, slide_index + 1, slide_data)
 
             for slide_ref in prototype_refs:
                 if slide_ref is not back_cover_ref:
@@ -4129,7 +4254,7 @@ async def generate_ppt(
             slide = prs.slides.add_slide(layout)
 
         if slide_type == "content" and "content" in slide_data:
-            _render_content_slide(slide, slide_title, slide_data["content"], slide_index + 1)
+            _render_content_slide(slide, slide_title, slide_data["content"], slide_index + 1, slide_data)
 
         elif slide_type == "two_column":
             _render_two_column_slide(
@@ -4138,6 +4263,7 @@ async def generate_ppt(
                 slide_data.get("left_content", ""),
                 slide_data.get("right_content", ""),
                 slide_index + 1,
+                slide_data,
             )
 
     # ── Move back cover to the end ────────────────────────────────────────────
