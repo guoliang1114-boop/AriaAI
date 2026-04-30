@@ -1866,9 +1866,10 @@ def _style_text_frame(frame, role: str):
     role = role.lower()
     is_title = "title" in role
     is_cover = "cover" in role
+    is_section = "section" in role
     for paragraph in frame.paragraphs:
         paragraph.font.name = "Aptos"
-        paragraph.font.size = Pt(30 if is_cover and is_title else 21 if is_title else 12)
+        paragraph.font.size = Pt(30 if is_cover and is_title else 27 if is_section and is_title else 21 if is_title else 12)
         paragraph.font.bold = is_title
         if is_cover:
             paragraph.font.color.rgb = RGBColor.from_string("FFFFFF")
@@ -2032,6 +2033,16 @@ def _clear_generated_text_shapes(slide):
             shape.text_frame.clear()
 
 
+def _remove_shape_by_name(slide, shape_name: str) -> bool:
+    removed = False
+    for shape in list(slide.shapes):
+        if getattr(shape, "name", "") != shape_name:
+            continue
+        shape.element.getparent().remove(shape.element)
+        removed = True
+    return removed
+
+
 def _slide_has_named_shapes(slide, required_names: set[str]) -> bool:
     shape_names = {getattr(shape, "name", "") for shape in slide.shapes}
     return required_names.issubset(shape_names)
@@ -2053,6 +2064,17 @@ def _render_section_slide(slide, title: str, section_number: int):
     if not _set_named_or_placeholder_text(slide, "aria_section_title", title):
         if slide.shapes.title is not None:
             slide.shapes.title.text = title
+        else:
+            title_shape = None
+            for shape in slide.shapes:
+                if getattr(shape, "has_text_frame", False) and not getattr(shape, "is_placeholder", False):
+                    title_shape = shape
+                    break
+            if title_shape is not None:
+                title_shape.text_frame.clear()
+                title_shape.text_frame.text = title
+                title_shape.text_frame.word_wrap = True
+                _style_text_frame(title_shape.text_frame, "aria_section_title")
     if not _set_named_or_placeholder_text(slide, "aria_section_number", f"{section_number:02d}"):
         body = _find_body_placeholder(slide)
         if body is not None:
@@ -2533,6 +2555,7 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
     bullets = _split_bullets(body, limit=8)
     title_set = _set_named_or_placeholder_text(slide, "aria_slide_title", title)
     if full_canvas:
+        _remove_shape_by_name(slide, "aria_visual_area")
         body_set = _set_named_or_placeholder_text(slide, "aria_slide_body", "")
         used_template = title_set and body_set
         visual_bounds = (Inches(1.02), Inches(1.38), Inches(11.28), Inches(5.22))
@@ -3914,13 +3937,12 @@ async def generate_ppt(
         if len(prs.slides) >= 5:
             _set_template_cover_text(prs.slides[0], title, subtitle)
 
-            content_ref = _slide_ref(prs, 1)
-            two_col_ref = _slide_ref(prs, 2)
-            visual_ref = _slide_ref(prs, 3)
-            back_cover_ref = _slide_ref(prs, 4)
-            content_prototype = prs.slides[1]
-            two_col_prototype = prs.slides[2]
-            visual_prototype = prs.slides[3]
+            section_prototype = prs.slides[1] if len(prs.slides) >= 6 else prs.slides[3]
+            content_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_slide_body"}) or prs.slides[1]
+            two_col_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_left_body", "aria_right_body"}) or content_prototype
+            visual_prototype = _find_named_prototype_slide(prs, {"aria_slide_title", "aria_visual_area"}) or content_prototype
+            back_cover_ref = _slide_ref(prs, len(prs.slides) - 1)
+            prototype_refs = {_slide_ref(prs, index) for index in range(1, len(prs.slides))}
 
             for slide_index, slide_data in enumerate(slides):
                 slide_type = slide_data.get("type", "content")
@@ -3932,7 +3954,7 @@ async def generate_ppt(
                 )
 
                 if slide_type in {"title", "section"}:
-                    slide = _clone_slide_from_prototype(prs, visual_prototype)
+                    slide = _clone_slide_from_prototype(prs, section_prototype)
                 elif strategy_layout or use_visual:
                     slide = _clone_slide_from_prototype(prs, visual_prototype)
                 elif slide_type == "two_column":
@@ -3957,9 +3979,9 @@ async def generate_ppt(
                 elif "content" in slide_data:
                     _render_content_slide(slide, slide_title, content, slide_index + 1)
 
-            _remove_slide_ref(prs, content_ref)
-            _remove_slide_ref(prs, two_col_ref)
-            _remove_slide_ref(prs, visual_ref)
+            for slide_ref in prototype_refs:
+                if slide_ref is not back_cover_ref:
+                    _remove_slide_ref(prs, slide_ref)
             _move_slide_ref_to_end(prs, back_cover_ref)
 
             filename = _generate_filename("pptx")
