@@ -1,6 +1,6 @@
 # AriaAI — Agent Collaboration Guide
 
-> Version: v3.1 | Last updated: 2026-04-12
+> Version: v3.2 | Last updated: 2026-04-30
 > Purpose: Onboarding document for LLM agents collaborating on this codebase.
 > Read this file before reading anything else.
 
@@ -222,7 +222,38 @@ swift run
 
 ---
 
-## 10. Known Issues (as of 2026-04-12)
+## 10. Production Deployment Protocol
+
+The default production release path is GitHub Actions, not manual SSH.
+
+Source of truth:
+- Workflow: `.github/workflows/deploy.yml`
+- Workflow name: `Deploy to Production`
+- Triggers: push to `main` / `master`, or manual `workflow_dispatch`
+- Secrets: `SERVER_HOST`, `SERVER_USER`, `SERVER_PASSWORD`, `SERVER_PORT`
+
+Agent rules:
+
+1. After committing and pushing to `main` or `master`, check the GitHub Actions run first.
+2. Do not SSH into the server to publish while the Actions run is queued or in progress.
+3. Treat a successful Actions run as the deployment result, then verify the site and backend.
+4. Use manual SSH deployment only when Actions failed, Actions did not trigger, the user explicitly asks for manual publish, or there is an emergency hotfix with explicit user approval.
+5. If manual SSH is used, say clearly that it is a manual fallback and not the normal release path.
+6. Never confuse the server Git checkout state with the deployed runtime state; the workflow copies built frontend assets and backend files.
+
+Useful checks:
+
+```bash
+gh run list --repo guoliang1114-boop/AriaAI --workflow deploy.yml --limit 5
+curl -fsS https://aria.d2cgo.co/
+curl -fsS https://aria.d2cgo.co/api/health
+```
+
+See `DEPLOY.md` and `deploy/AUTO_DEPLOY.md` for more detail.
+
+---
+
+## 11. Known Issues (as of 2026-04-12)
 
 Priority order from `docs/03-代码问题清单.md`:
 
@@ -235,7 +266,7 @@ Priority order from `docs/03-代码问题清单.md`:
 
 ---
 
-## 11. Agent Collaboration Protocol
+## 12. Agent Collaboration Protocol
 
 When multiple LLM agents work on this codebase simultaneously, follow these rules:
 
@@ -282,7 +313,7 @@ docs: update architecture diagram for RAG changes
 
 ---
 
-## 12. Where to Find More Context
+## 13. Where to Find More Context
 
 | Question | Read |
 |---|---|
