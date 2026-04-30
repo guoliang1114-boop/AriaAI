@@ -3401,6 +3401,256 @@ def _render_back_cover(slide, title: str):
     _add_textbox(slide, Inches(0.9), Inches(6.75), Inches(11.5), Inches(0.3), "由 AriaAI 生成", size=10, color="94A3B8")
 
 
+def _append_unique_items(existing: Any, additions: list[str], *, limit: int = 8) -> list[str]:
+    items = [str(item).strip() for item in existing if str(item).strip()] if isinstance(existing, list) else []
+    seen = {item.lower() for item in items}
+    for addition in additions:
+        item = str(addition or "").strip()
+        if not item or item.lower() in seen:
+            continue
+        items.append(item)
+        seen.add(item.lower())
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _append_unique_bullet_lines(text: str, additions: list[str], *, limit: int = 10) -> str:
+    lines = [line.rstrip() for line in str(text or "").splitlines() if line.strip()]
+    normalized = {re.sub(r"^[-*\u2022]\s*", "", line).strip().lower() for line in lines}
+    bullet_count = sum(1 for line in lines if re.match(r"^\s*[-*\u2022]", line))
+    for addition in additions:
+        item = str(addition or "").strip()
+        if not item or item.lower() in normalized or bullet_count >= limit:
+            continue
+        lines.append(f"- {item}")
+        normalized.add(item.lower())
+        bullet_count += 1
+    return "\n".join(lines).strip()
+
+
+def _digital_strategy_depth_defaults(layout_key: str) -> tuple[list[str], list[str]]:
+    defaults: dict[str, tuple[list[str], list[str]]] = {
+        "executive_summary": (
+            [
+                "量化假设：首年聚焦 3-5 个高价值场景，每个场景设置基线、目标、采用率和财务影响口径",
+                "价值口径：同时追踪增长、效率、风险、体验四类结果，避免只用项目进度衡量转型",
+                "组合节奏：每月检查交付进度，每季度复盘价值兑现并调整投资组合",
+            ],
+            [
+                "管理层需一次性确认转型范围、资金池、业务 Owner、首批试点和阶段门标准",
+                "任何没有业务 KPI、采用率目标和责任人的举措不进入首批组合",
+            ],
+        ),
+        "strategic_context": (
+            [
+                "外部证据：客户响应速度、服务透明度和个性化能力正在成为行业竞争的基础门槛",
+                "内部证据：系统割裂、人工交接和指标口径不一致会直接削弱规模化复制速度",
+                "技术窗口：AI、流程自动化和云平台降低了跨部门流程重构的实施门槛",
+            ],
+            [
+                "高层需要判断数字化是防守型效率工程，还是增长与经营模式升级工程",
+                "建议把行业压力转译成 2-3 个必须在本年度启动的业务议题",
+            ],
+        ),
+        "maturity_heatmap": (
+            [
+                "评分口径：战略、客户、运营、组织、数据、技术六个维度按 L1-L5 评估",
+                "典型短板：数据责任、跨部门流程、业务产品 Owner 和平台复用能力通常低于工具建设成熟度",
+                "证据来源：高层访谈、流程样本、系统清单、数据质量报告、项目组合和 KPI 基线",
+            ],
+            [
+                "优先处理会阻断多个场景复制的共性短板，而不是逐个项目补洞",
+                "成熟度评分必须绑定责任部门和下一阶段改进动作",
+            ],
+        ),
+        "root_cause": (
+            [
+                "症状层：响应慢、重复录入、报表口径不一致、项目价值不可追踪",
+                "结构层：流程 Owner 缺失、主数据薄弱、系统点对点集成、激励与采用率脱节",
+                "动作层：重画端到端流程、指定数据 Owner、建立价值复盘和例外升级机制",
+            ],
+            [
+                "不要把所有痛点归因于系统缺失，需要区分流程、数据、组织和治理根因",
+                "根因页面应直接导向治理动作和优先级，而不是停留在问题罗列",
+            ],
+        ),
+        "customer_journey": (
+            [
+                "旅程证据：从获客、销售、交付、服务到续约逐段识别断点和责任边界",
+                "价值泄漏：转化率下降、响应周期拉长、服务成本上升和满意度下降需要量化",
+                "场景机会：下一最佳行动、客户 360、自动派单、服务预警和续约预测可作为首批候选",
+            ],
+            [
+                "每个旅程断点都要明确业务 Owner、数据来源和流程改造动作",
+                "优先选择客户可感知、财务可量化、数据可获得的场景",
+            ],
+        ),
+        "target_blueprint": (
+            [
+                "目标状态：把经营决策、客户运营和流程执行连接到同一套数据与指标体系",
+                "能力边界：统一主数据、指标口径、权限、安全和集成标准，保留业务创新空间",
+                "北极星指标：收入提升、周期缩短、成本改善、风险下降和采用率提升",
+            ],
+            [
+                "目标蓝图需要明确哪些能力企业统一建设，哪些能力由业务域自主迭代",
+                "不要把蓝图画成技术架构图，应说明业务结果、能力和责任机制",
+            ],
+        ),
+        "capability_blueprint": (
+            [
+                "能力包：客户智能、数字运营、数据基础、AI 决策、平台架构和变革运营需成体系设计",
+                "复用标准：每个能力包包含流程模板、数据产品、API/模型服务、运营 SOP 和 KPI",
+                "成熟路径：先支持 3-5 个场景验证，再沉淀为可复制的企业能力目录",
+            ],
+            [
+                "平台团队负责共性能力，业务 Owner 负责价值场景和采用率",
+                "能力蓝图必须说明依赖关系，避免场景先行但底座缺失",
+            ],
+        ),
+        "operating_model": (
+            [
+                "角色设计：业务 Owner 管价值和采用，数据 Owner 管口径和质量，技术团队管平台和安全",
+                "节奏设计：周度项目推进、月度 PMO 组合看板、季度高层价值复盘",
+                "决策设计：范围、资金、跨部门取舍和风险升级进入指导委员会",
+            ],
+            [
+                "需要把 RACI 写进治理机制，避免所有问题最终回到 IT 部门",
+                "采用率和价值兑现应成为业务部门 KPI，而不是项目团队自评指标",
+            ],
+        ),
+        "portfolio_matrix": (
+            [
+                "组合原则：同时配置快赢、基础能力、战略差异化和暂缓事项，避免只追逐低价值自动化",
+                "排序维度：价值池、可行性、数据可得性、依赖复杂度、赞助强度和变革准备度",
+                "候选场景：增长、效率、风险、员工赋能四类场景都应进入组合池",
+            ],
+            [
+                "首批场景不宜过多，建议 3-5 个足以验证价值和机制",
+                "基础能力类举措即使短期收益不显著，也要用依赖关系证明投资必要性",
+            ],
+        ),
+        "prioritization_matrix": (
+            [
+                "快赢标准：90-180 天可见、业务赞助明确、数据可获得、流程边界可控",
+                "基础标准：能释放多个场景，解决数据、平台、集成或治理共性瓶颈",
+                "暂缓标准：价值不清、数据缺失、缺少 Owner 或变革阻力高",
+            ],
+            [
+                "排序结果要进入资金分配和季度发布计划，而不是只停留在讨论页",
+                "每个优先级都要有进入、退出和复盘标准",
+            ],
+        ),
+        "roadmap": (
+            [
+                "阶段一：夯实数据和治理基础，启动首批试点并建立价值看板",
+                "阶段二：复制验证场景，平台化共性组件，扩展到多业务单元",
+                "阶段三：形成 AI 原生运营、生态协同和持续优化机制",
+            ],
+            [
+                "阶段门必须绑定采用率、业务 KPI 和数据质量，不只看项目交付完成",
+                "路线图需要体现依赖关系，避免底座未稳就大规模复制",
+            ],
+        ),
+        "initiative_milestones": (
+            [
+                "举措字段：每个举措至少包含价值 KPI、Owner、用户群、数据依赖、里程碑和风险",
+                "里程碑：用月度发布和季度价值复盘管理，不用一次性大项目交付逻辑",
+                "证据包：流程图、数据字典、系统接口清单和用户采用数据应持续沉淀",
+            ],
+            [
+                "PMO 要有权停止低采用率或价值不达标的举措",
+                "财务和业务共同确认收益口径，防止价值重复计算",
+            ],
+        ),
+        "investment_kpi": (
+            [
+                "投资结构：技术、数据、人才/变革、生态伙伴四类预算必须同时覆盖",
+                "测算口径：设置保守、基准、进取三档收益假设，并标注验证数据来源",
+                "KPI 闭环：领先指标看采用率、数据质量和流程周期，滞后指标看收入、成本和风险",
+            ],
+            [
+                "资金采用阶段门机制，下一阶段资金释放取决于价值证据和采用率",
+                "投资页必须说明不投的风险，例如效率差距扩大、客户流失或合规压力上升",
+            ],
+        ),
+        "risk_register": (
+            [
+                "遗留风险：定制化系统、停机窗口、接口债务和供应商锁定需要提前识别",
+                "数据风险：口径不一致、质量 SLA 缺失、权限过宽和隐私合规不可后置",
+                "采用风险：一线低使用率、培训疲劳和激励错配会直接影响价值兑现",
+            ],
+            [
+                "每项风险都要配触发条件、责任人、缓释动作和监控节奏",
+                "高风险依赖必须进入指导委员会升级清单",
+            ],
+        ),
+        "action_plan": (
+            [
+                "前 30 天：确认范围、赞助人、基线假设和访谈/数据收集计划",
+                "第 31-60 天：完成成熟度诊断、场景池、价值测算和首批试点设计",
+                "第 61-90 天：定稿蓝图、路线图、资金机制、治理 RACI 和启动材料",
+            ],
+            [
+                "90 天计划的输出物必须可进入立项和预算流程",
+                "每两周同步一次事实发现、风险和需要高层拍板的问题",
+            ],
+        ),
+        "current_target": (
+            [
+                "对比维度：数据、流程、系统、组织、治理和 KPI 六个维度都要有前后变化",
+                "差距判断：标明哪些差距是短期补齐，哪些需要进入年度能力建设",
+                "验证标准：目标状态必须对应可观测指标和责任人",
+            ],
+            [
+                "管理层需要确认目标状态的投入强度和组织承载能力",
+                "当前到目标的差距应直接转化为路线图举措",
+            ],
+        ),
+    }
+    return defaults.get(layout_key, ([], []))
+
+
+def _add_digital_strategy_depth(enriched: dict, layout_key: str) -> None:
+    if str(enriched.get("type") or "") in {"title", "section"}:
+        return
+    data_points, implications = _digital_strategy_depth_defaults(layout_key)
+    if data_points:
+        enriched["data_points"] = _append_unique_items(enriched.get("data_points", []), data_points, limit=8)
+    if implications:
+        enriched["management_implications"] = _append_unique_items(
+            enriched.get("management_implications", []),
+            implications,
+            limit=6,
+        )
+    if not layout_key and enriched.get("content"):
+        enriched["content"] = _append_unique_bullet_lines(
+            str(enriched.get("content") or ""),
+            [
+                "关键判断：本页结论需要绑定业务价值、责任人和下一步管理动作",
+                "证据要求：补充访谈事实、系统数据、KPI 基线或外部 benchmark 作为支撑",
+            ],
+            limit=8,
+        )
+    elif not layout_key and str(enriched.get("type") or "") == "two_column":
+        enriched["left_content"] = _append_unique_bullet_lines(
+            str(enriched.get("left_content") or ""),
+            [
+                "判断依据：明确哪些标准会影响多个业务单元、多个系统或多个数据口径",
+                "风险提示：过度分散会造成重复建设、指标不一致和后续集成成本上升",
+            ],
+            limit=6,
+        )
+        enriched["right_content"] = _append_unique_bullet_lines(
+            str(enriched.get("right_content") or ""),
+            [
+                "落地动作：为业务创新设置试点边界、复盘节奏和可复制标准",
+                "管理要求：统一底座由集团/平台负责，场景创新由业务 Owner 负责价值和采用率",
+            ],
+            limit=6,
+        )
+
+
 def _enrich_digital_strategy_slide(slide: dict, page_number: int | None = None) -> dict:
     enriched = dict(slide)
     slide_type = str(enriched.get("type") or "content")
@@ -3419,6 +3669,7 @@ def _enrich_digital_strategy_slide(slide: dict, page_number: int | None = None) 
         enriched["visualization_type"] = layout_key
     if page_number is not None:
         enriched.setdefault("page_number", page_number)
+    _add_digital_strategy_depth(enriched, layout_key)
     return enriched
 
 

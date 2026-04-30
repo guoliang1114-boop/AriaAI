@@ -239,6 +239,10 @@ PPT depth standard:
 - Build a consulting-grade deck of **20-24 slides** by default, unless the user explicitly asks for fewer pages.
 - Every business slide needs an action-oriented title, a clear recommendation, supporting evidence or assumptions, and implications for management.
 - Use at least 4-6 substantive bullets per content slide. Avoid placeholder bullets such as "validate with interviews" unless they are attached to a specific question, data source, or decision.
+- Strengthen every page with four layers of substance: (1) the conclusion or management answer, (2) the evidence or quantified assumption, (3) the concrete management action, and (4) the risk, trade-off, or decision required.
+- For diagnosis pages, include symptoms, structural root causes, evidence sources, and the management action implied by the diagnosis.
+- For blueprint pages, include capability definitions, business scenarios, enabling data/technology, operating responsibilities, and success metrics.
+- For roadmap and investment pages, include phase gates, owners, dependencies, investment envelope, benefit assumptions, and KPI tracking rhythm.
 - Include quantified assumptions where exact data is missing: revenue impact range, cost takeout range, investment envelope, timeline, adoption target, KPI baseline and target.
 - Include the full storyline: executive answer, context, maturity diagnosis, heatmap, pain-point root causes, target ambition, operating model blueprint, capability blueprint, use-case portfolio, prioritization logic, roadmap, investment case, KPI dashboard, risk controls, governance, 90-day action plan, and appendices.
 - Make the deck useful for a consulting partner reviewing client-ready material: each slide should be able to stand alone with enough detail for discussion.
