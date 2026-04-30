@@ -1813,7 +1813,6 @@ def _set_placeholder_text(slide, placeholder_name: str, text: str) -> bool:
     placeholder.text_frame.clear()
     placeholder.text_frame.text = text
     placeholder.text_frame.word_wrap = True
-    _style_text_frame(placeholder.text_frame, placeholder_name)
     return True
 
 
@@ -1824,7 +1823,6 @@ def _set_named_or_placeholder_text(slide, shape_name: str, text: str) -> bool:
         shape.text_frame.clear()
         shape.text_frame.text = text
         shape.text_frame.word_wrap = True
-        _style_text_frame(shape.text_frame, shape_name)
         return True
     return _set_placeholder_text(slide, shape_name, text)
 
@@ -2556,8 +2554,8 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
     title_set = _set_named_or_placeholder_text(slide, "aria_slide_title", title)
     if full_canvas:
         _remove_shape_by_name(slide, "aria_visual_area")
-        body_set = _set_named_or_placeholder_text(slide, "aria_slide_body", "")
-        used_template = title_set and body_set
+        _set_named_or_placeholder_text(slide, "aria_slide_body", "")
+        used_template = title_set
         visual_bounds = (Inches(1.02), Inches(1.38), Inches(11.28), Inches(5.22))
     else:
         used_template = (
