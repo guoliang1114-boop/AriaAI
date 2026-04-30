@@ -1806,13 +1806,28 @@ def _shape_by_name(slide, shape_name: str):
     return None
 
 
+def _write_text_preserving_style(frame, text: str) -> None:
+    frame.word_wrap = True
+    paragraphs = list(frame.paragraphs)
+    if paragraphs:
+        first_paragraph = paragraphs[0]
+        if first_paragraph.runs:
+            first_paragraph.runs[0].text = text
+            for run in first_paragraph.runs[1:]:
+                run.text = ""
+        else:
+            first_paragraph.text = text
+        for paragraph in paragraphs[1:]:
+            paragraph.text = ""
+        return
+    frame.text = text
+
+
 def _set_placeholder_text(slide, placeholder_name: str, text: str) -> bool:
     placeholder = _placeholder_by_layout_name(slide, placeholder_name)
     if placeholder is None or not placeholder.has_text_frame:
         return False
-    placeholder.text_frame.clear()
-    placeholder.text_frame.text = text
-    placeholder.text_frame.word_wrap = True
+    _write_text_preserving_style(placeholder.text_frame, text)
     return True
 
 
@@ -1820,9 +1835,7 @@ def _set_named_or_placeholder_text(slide, shape_name: str, text: str) -> bool:
     """Write text by normal shape name first, then by layout placeholder name."""
     shape = _shape_by_name(slide, shape_name)
     if shape is not None and getattr(shape, "has_text_frame", False):
-        shape.text_frame.clear()
-        shape.text_frame.text = text
-        shape.text_frame.word_wrap = True
+        _write_text_preserving_style(shape.text_frame, text)
         return True
     return _set_placeholder_text(slide, shape_name, text)
 
