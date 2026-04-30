@@ -69,6 +69,7 @@ from app.services.project_contexts import (
     mark_project_memory_stale,
     normalize_summary_language,
     parse_project_memory_multi_summary,
+    parse_project_memory_multi_summary_with_missing,
     parse_project_memory,
     save_project_memory,
     save_project_context_summary,
@@ -163,6 +164,25 @@ def _get_project_summary_lock(key: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _project_summary_locks[key] = lock
     return lock
+
+
+async def _generate_single_project_memory_summary_content(
+    project: Project,
+    memory_payload: dict,
+    summary_type: str,
+    language: str | None = None,
+) -> str:
+    prompt = build_project_memory_view_prompt(
+        memory_payload,
+        project.name,
+        summary_type,
+        language,
+    )
+    content = await complete_with_selected_model(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1400,
+    )
+    return str(content or "").strip()
 
 
 def _bust_project(project_id: int) -> None:
@@ -3044,7 +3064,17 @@ async def generate_project_memory_summaries(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=3200,
             )
-            summary_contents = parse_project_memory_multi_summary(raw_content, summary_types)
+            summary_contents, missing_summary_types = parse_project_memory_multi_summary_with_missing(
+                raw_content,
+                summary_types,
+            )
+            for missing_summary_type in missing_summary_types:
+                summary_contents[missing_summary_type] = await _generate_single_project_memory_summary_content(
+                    project,
+                    memory_payload,
+                    missing_summary_type,
+                    body.language,
+                )
         except Exception as e:
             _set_project_memory_failure(
                 session,

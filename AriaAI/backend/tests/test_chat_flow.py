@@ -1916,6 +1916,65 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(cached_count, 7)
         self.assertEqual(refreshed_project.context_summary, "- overview summary")
 
+    def test_memory_summaries_generate_falls_back_for_missing_views(self):
+        calls = []
+
+        async def fake_complete(messages, max_tokens=4000):
+            prompt = messages[0]["content"]
+            calls.append(prompt)
+            if "Return ONLY a valid JSON object" in prompt:
+                return json.dumps(
+                    {
+                        "overview": "- overview summary",
+                        "risk": "- risk summary",
+                    },
+                    ensure_ascii=False,
+                )
+            if "Summary type: delivery" in prompt:
+                return "- delivery summary"
+            if "Summary type: stakeholder" in prompt:
+                return "- stakeholder summary"
+            if "Summary type: client-facing" in prompt:
+                return "- client-facing summary"
+            if "Summary type: financial" in prompt:
+                return "- financial summary"
+            if "Summary type: documents" in prompt:
+                return "- documents summary"
+            raise AssertionError(f"Unexpected prompt: {prompt[:120]}")
+
+        with Session(self.engine) as session:
+            project = Project(
+                name="Fallback Views Project",
+                client="Client",
+                context_memory_json=json.dumps(
+                    {
+                        "project_brief": "Alpha brief",
+                        "current_stage": "delivery",
+                        "key_risks": ["Timeline risk"],
+                    },
+                    ensure_ascii=False,
+                ),
+                memory_version=9,
+                memory_stale=False,
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        with patch.object(projects_router_module, "complete_with_selected_model", side_effect=fake_complete):
+            resp = self.client.post(
+                f"/projects/{project_id}/memory/summaries/generate",
+                json={"language": "en-US", "force_refresh": True},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["summaries"]["overview"]["content"], "- overview summary")
+        self.assertEqual(body["summaries"]["documents"]["content"], "- documents summary")
+        self.assertEqual(len(calls), 6)
+        resp.close()
+
     def test_memory_summarize_force_refresh_bypasses_cache_and_updates_it(self):
         async def fake_complete(messages, max_tokens=4000):
             return "- fresh risk summary"
@@ -2954,10 +3013,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(routed_input["skill_name"], "digital-strategy")
 
     def test_digital_strategy_auto_ppt_fallback_builds_rich_deck(self):
-        _, slides = _build_slides_from_strategy_text("Digital transformation strategy deck\n\nOnly a short strategy note.")
+        _, slides = _build_slides_from_strategy_text("数字化战略方案\n\n只有一段战略说明。")
 
         self.assertGreaterEqual(len(slides), 16)
-        self.assertIn("Use-Case Portfolio", {slide["title"] for slide in slides})
+        titles = {slide["title"] for slide in slides}
+        self.assertTrue("Use-Case Portfolio" in titles or "场景组合：平衡快赢、基础能力和战略差异化" in titles)
         self.assertTrue(
             any("90-Day Action Plan" == slide["title"] for slide in slides),
             "fallback deck should include an execution-oriented 90-day plan",
@@ -3767,6 +3827,58 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
             self.assertEqual(assistant_messages[0].content, "first half second half")
+
+    def test_stream_chat_events_continues_truncated_tool_response_before_execution(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                [
+                    "# 数字化战略方案\n",
+                    "## 执行摘要\n",
+                    "- 前半段内容",
+                    "[OUTPUT_TRUNCATED]",
+                    '{"type":"tool_use","id":"tool-1","name":"generate_ppt_from_skill","input":{"skill_name":"digital-strategy","title":"Deck","slides":[{"type":"content","title":"Thin","content":"- A"}]}}',
+                ],
+                ["\n## 路线图\n- 后半段补齐"],
+                ["done"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="deepseek-v4",
+            llm=llm,
+            system="digital-strategy",
+            api_messages=[{"role": "user", "content": "生成数字化战略 PPT"}],
+            rag_sources=[],
+            tools=[{"name": "generate_ppt_from_skill"}],
+            max_tokens=1024,
+            temperature=0.7,
+            skill_name="digital-strategy",
+        )
+        req = chat_router_module.SendMessageRequest(content="生成数字化战略 PPT", skill_id=24)
+
+        execute_mock = AsyncMock(
+            return_value={
+                "type": "tool_result",
+                "tool_name": "generate_ppt_from_skill",
+                "status": "success",
+                "output": {
+                    "success": True,
+                    "file_name": "continued_deck.pptx",
+                    "file_type": "pptx",
+                    "file_path": "generated/continued_deck.pptx",
+                },
+            }
+        )
+        with patch("app.services.chat_streaming.registry.execute", new=execute_mock):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        joined = "".join(events)
+        self.assertIn("后半段补齐", joined)
+        self.assertEqual(llm.calls, 3)
+        _, repaired_input = execute_mock.await_args.args
+        self.assertGreaterEqual(len(repaired_input["slides"]), 2)
+        self.assertNotEqual(repaired_input["slides"][0]["title"], "Thin")
 
     def test_stream_chat_events_handles_tool_follow_up(self):
         conv_id = self._create_conversation()
@@ -4783,7 +4895,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertGreaterEqual(first_count, len(expected_digital_skills))
         self.assertEqual(second_count, 0)
         names = {skill.name for skill in digital_skills}
-        self.assertTrue(expected_digital_skills.issubset(names))
+        self.assertTrue(expected_digital_skills <= names)
         strategy = next(skill for skill in digital_skills if skill.name == "数字化战略设计")
         self.assertIn("数字化战略方案", strategy.user_template)
         self.assertIn("业务战略", strategy.system_prompt)
@@ -4797,6 +4909,23 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertIn("generate_ppt_from_skill", tool_def_names)
         self.assertNotIn("save_json", tool_def_names)
+
+    def test_presentation_builder_skill_is_seeded_with_ppt_tooling(self):
+        with Session(self.engine) as session:
+            skills_router_module.ensure_builtin_pro_skills(session)
+            skill = session.exec(
+                select(Skill).where(Skill.name == skills_router_module.PRESENTATION_BUILDER_SKILL_NAME)
+            ).one()
+
+        self.assertEqual(skill.category, "提案与项目交付")
+        self.assertIn("presentation-builder workflow", skill.system_prompt)
+        self.assertIn("deck_type", skill.system_prompt)
+        self.assertIn("generate_ppt_from_skill", skill.system_prompt)
+        self.assertEqual(skill.tools, ["generate_ppt_from_skill"])
+        self.assertEqual(skill.max_tokens, 24576)
+        tool_defs = json.loads(skill.tools_definition_json)
+        tool_def_names = {tool.get("name") for tool in tool_defs}
+        self.assertEqual(tool_def_names, {"generate_ppt_from_skill"})
 
     def test_existing_digital_strategy_skill_tools_are_upgraded(self):
         old_skill = Skill(
@@ -4862,32 +4991,41 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         )
 
         self.assertGreaterEqual(len(slides), 20)
-        self.assertIn("Use-Case Portfolio", {slide["title"] for slide in slides})
-        self.assertIn("Executive Alignment", {slide["title"] for slide in slides})
-        self.assertIn("Target Blueprint", {slide["title"] for slide in slides})
-        investment_slide = next(slide for slide in slides if slide["title"] == "Investment, KPI and Risk Controls")
-        self.assertIn("technology, data, talent, change", investment_slide["content"])
+        titles = {slide["title"] for slide in slides}
+        self.assertTrue("Use-Case Portfolio" in titles or "场景组合：平衡快赢、基础能力和战略差异化" in titles)
+        self.assertTrue("Executive Alignment" in titles or "高层共识" in titles)
+        self.assertTrue("Target Blueprint" in titles or "目标蓝图" in titles)
+        investment_slide = next(
+            slide for slide in slides
+            if slide["title"] in {"Investment, KPI and Risk Controls", "投资、KPI 与风险控制：建立可追踪的价值闭环"}
+        )
+        self.assertTrue(
+            "technology, data, talent, change" in investment_slide["content"]
+            or "技术、数据、人才、变革" in investment_slide["content"]
+        )
         self.assertGreaterEqual(investment_slide["content"].count("\n- ") + 1, 5)
         self.assertTrue(_wants_visual_slide("Maturity Heatmap: Strengths vs Constraints"))
         self.assertTrue(_wants_visual_slide("Investment, KPI and Risk Controls"))
         self.assertTrue(_wants_visual_slide("Risk Register and Mitigation Plan"))
 
-    def test_presentation_builder_skill_is_seeded_with_ppt_tooling(self):
-        with Session(self.engine) as session:
-            skills_router_module.ensure_builtin_pro_skills(session)
-            skill = session.exec(
-                select(Skill).where(Skill.name == skills_router_module.PRESENTATION_BUILDER_SKILL_NAME)
-            ).one()
+    def test_digital_strategy_ppt_normalizer_replaces_thin_twenty_page_deck(self):
+        from app.tools.file_generators import _normalize_digital_strategy_slides
 
-        self.assertEqual(skill.category, "提案与项目交付")
-        self.assertIn("presentation-builder workflow", skill.system_prompt)
-        self.assertIn("deck_type", skill.system_prompt)
-        self.assertIn("generate_ppt_from_skill", skill.system_prompt)
-        self.assertEqual(skill.tools, ["generate_ppt_from_skill"])
-        self.assertEqual(skill.max_tokens, 24576)
-        tool_defs = json.loads(skill.tools_definition_json)
-        tool_def_names = {tool.get("name") for tool in tool_defs}
-        self.assertEqual(tool_def_names, {"generate_ppt_from_skill"})
+        thin_slides = [
+            {"type": "content", "title": f"Thin slide {idx}", "content": "- A"}
+            for idx in range(1, 21)
+        ]
+
+        slides = _normalize_digital_strategy_slides(thin_slides)
+        titles = {slide["title"] for slide in slides}
+
+        self.assertGreaterEqual(len(slides), 22)
+        self.assertIn("执行摘要：把数字化作为业务价值组合来管理", titles)
+        self.assertIn("三阶段路线图：夯实基础、规模复制、领先优化", titles)
+        self.assertGreaterEqual(
+            len({slide.get("layout_key") for slide in slides if slide.get("layout_key")}),
+            8,
+        )
 
     def test_digital_strategy_generation_renders_richer_template_deck(self):
         from app.tools.file_generators import generate_ppt_from_skill

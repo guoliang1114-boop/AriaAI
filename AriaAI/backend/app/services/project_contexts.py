@@ -410,6 +410,16 @@ def build_project_memory_multi_summary_prompt(
 
 
 def parse_project_memory_multi_summary(raw: str, summary_types: list[str] | tuple[str, ...]) -> dict[str, str]:
+    summaries, missing = parse_project_memory_multi_summary_with_missing(raw, summary_types)
+    if missing:
+        raise ValueError(f"AI summary JSON missing required views: {', '.join(missing)}")
+    return summaries
+
+
+def parse_project_memory_multi_summary_with_missing(
+    raw: str,
+    summary_types: list[str] | tuple[str, ...],
+) -> tuple[dict[str, str], list[str]]:
     try:
         parsed = json.loads(_extract_first_json_object(raw))
     except Exception as exc:
@@ -431,10 +441,7 @@ def parse_project_memory_multi_summary(raw: str, summary_types: list[str] | tupl
             summaries[summary_type] = content
 
     missing = [summary_type for summary_type in summary_types if summary_type in SUPPORTED_MEMORY_SUMMARY_TYPES and not summaries.get(summary_type)]
-    if missing:
-        raise ValueError(f"AI summary JSON missing required views: {', '.join(missing)}")
-
-    return summaries
+    return summaries, missing
 
 
 def _trim_text(value: Any, max_chars: int = MAX_SUMMARY_FIELD_CHARS) -> str:
