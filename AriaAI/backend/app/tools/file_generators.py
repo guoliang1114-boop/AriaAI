@@ -2256,6 +2256,8 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
     lead = _shorten_slide_lead(text)
     if not lead:
         return False
+    if role == "section":
+        lead = _shorten_slide_lead(lead, limit=72)
 
     _remove_shape_by_name(slide, "aria_generated_lead")
     placeholder_name = "aria_section_lead" if role == "section" else "aria_slide_lead"
@@ -2282,13 +2284,16 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
         width = title_shape.width
         top = title_shape.top + title_shape.height + Inches(0.08)
         if role == "section" and width < Inches(5.0):
-            width = Inches(8.6)
+            width = Inches(4.35)
     else:
         left = Inches(0.82)
         width = Inches(10.9)
         top = Inches(0.95 if role != "section" else 3.05)
+        if role == "section":
+            left = Inches(1.53)
+            width = Inches(4.35)
 
-    height = Inches(0.34 if role != "section" else 0.40)
+    height = Inches(0.34 if role != "section" else 1.02)
     lead_box = _add_textbox(
         slide,
         left,
@@ -2296,7 +2301,7 @@ def _add_generated_slide_lead(slide, text: str, *, role: str = "content") -> boo
         width,
         height,
         lead,
-        size=12 if role != "section" else 13,
+        size=12 if role != "section" else 11,
         color="64748B" if role != "section" else "FFFFFF",
     )
     lead_box.name = "aria_generated_lead"
