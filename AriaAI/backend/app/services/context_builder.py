@@ -194,6 +194,14 @@ class SkillContext:
         self.max_tokens = max_tokens
 
 
+def _filter_skill_tools(skill: Skill, tool_defs: list[dict]) -> list[dict]:
+    """Keep deliverable-only tool scopes for skills with strict output contracts."""
+    skill_text = f"{skill.name}\n{skill.system_prompt or ''}".lower()
+    if "digital-strategy" not in skill_text and "数字化战略" not in skill_text:
+        return tool_defs
+    return [tool for tool in tool_defs if tool.get("name") == "generate_ppt_from_skill"]
+
+
 def build_skill_context(
     session: Session,
     skill_id: Optional[int],
@@ -212,9 +220,8 @@ def build_skill_context(
             # Load tools from skill
             if skill.tools_definition_json and skill.tools_definition_json.strip():
                 try:
-                    tools = format_tools_for_claude(
-                        __import__("json").loads(skill.tools_definition_json)
-                    )
+                    tool_defs = __import__("json").loads(skill.tools_definition_json)
+                    tools = format_tools_for_claude(_filter_skill_tools(skill, tool_defs))
                 except Exception:
                     pass
     
