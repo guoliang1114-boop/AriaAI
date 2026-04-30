@@ -1823,6 +1823,59 @@ def _write_text_preserving_style(frame, text: str) -> None:
     frame.text = text
 
 
+def _text_display_units(text: str) -> float:
+    units = 0.0
+    for char in str(text or ""):
+        if char.isspace():
+            units += 0.35
+        elif ord(char) > 127:
+            units += 1.05
+        elif char.isupper():
+            units += 0.68
+        else:
+            units += 0.55
+    return max(units, 1.0)
+
+
+def _fit_title_text_frame_one_line(frame, text: str, width, *, max_size: int | None = None, min_size: int = 14) -> None:
+    """Shrink title text to stay on one line while preserving template styling."""
+    from pptx.util import Pt
+
+    clean_text = " ".join(str(text or "").split())
+    if not clean_text:
+        return
+
+    frame.word_wrap = False
+    margin_pt = sum(
+        (getattr(frame, attr, 0) or 0) / 12700
+        for attr in ("margin_left", "margin_right")
+    )
+    available_pt = max(width / 12700 - margin_pt - 2, 24)
+    estimated_size = int(available_pt / (_text_display_units(clean_text) * 0.56))
+
+    current_sizes: list[int] = []
+    for paragraph in frame.paragraphs:
+        if paragraph.font.size:
+            current_sizes.append(int(paragraph.font.size.pt))
+        for run in paragraph.runs:
+            if run.font.size:
+                current_sizes.append(int(run.font.size.pt))
+    cap = max_size or (max(current_sizes) if current_sizes else 28)
+    fitted_size = max(min_size, min(cap, estimated_size))
+
+    for paragraph in frame.paragraphs:
+        paragraph.font.size = Pt(fitted_size)
+        paragraph.line_spacing = 1.0
+        for run in paragraph.runs:
+            run.font.size = Pt(fitted_size)
+
+
+def _write_title_preserving_style(shape, text: str, *, min_size: int = 14, max_size: int | None = None) -> None:
+    clean_text = " ".join(str(text or "").split())
+    _write_text_preserving_style(shape.text_frame, clean_text)
+    _fit_title_text_frame_one_line(shape.text_frame, clean_text, shape.width, min_size=min_size, max_size=max_size)
+
+
 def _set_placeholder_text(slide, placeholder_name: str, text: str) -> bool:
     placeholder = _placeholder_by_layout_name(slide, placeholder_name)
     if placeholder is None or not placeholder.has_text_frame:
@@ -1838,6 +1891,20 @@ def _set_named_or_placeholder_text(slide, shape_name: str, text: str) -> bool:
         _write_text_preserving_style(shape.text_frame, text)
         return True
     return _set_placeholder_text(slide, shape_name, text)
+
+
+def _set_title_named_or_placeholder_text(slide, shape_name: str, text: str, *, min_size: int = 14, max_size: int | None = None) -> bool:
+    """Write a named title and shrink it to one line without replacing template style."""
+    shape = _shape_by_name(slide, shape_name)
+    if shape is not None and getattr(shape, "has_text_frame", False):
+        _write_title_preserving_style(shape, text, min_size=min_size, max_size=max_size)
+        return True
+
+    placeholder = _placeholder_by_layout_name(slide, shape_name)
+    if placeholder is None or not placeholder.has_text_frame:
+        return False
+    _write_title_preserving_style(placeholder, text, min_size=min_size, max_size=max_size)
+    return True
 
 
 def _placeholder_bounds(slide, placeholder_name: str):
@@ -1897,12 +1964,13 @@ def _set_content_slide_text(slide, title: str, content: str):
     from pptx.util import Inches, Pt
 
     if slide.shapes.title:
-        slide.shapes.title.text = title
+        _write_title_preserving_style(slide.shapes.title, title)
     else:
         title_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.0), Inches(0.6))
         title_box.text_frame.text = title
         title_box.text_frame.paragraphs[0].font.size = Pt(24)
         title_box.text_frame.paragraphs[0].font.bold = True
+        _fit_title_text_frame_one_line(title_box.text_frame, title, title_box.width, min_size=13, max_size=24)
 
     body = _find_body_placeholder(slide)
     if body is not None:
@@ -2040,6 +2108,9 @@ def _clear_text_shapes(slide):
 
 def _clear_generated_text_shapes(slide):
     for shape in slide.shapes:
+        shape_name = str(getattr(shape, "name", "") or "")
+        if shape_name.startswith("aria_"):
+            continue
         if shape.has_text_frame and not shape.is_placeholder:
             shape.text_frame.clear()
 
@@ -2072,9 +2143,9 @@ def _find_named_prototype_slide(prs, required_names: set[str], preferred_layout_
 
 def _render_section_slide(slide, title: str, section_number: int):
     _clear_generated_text_shapes(slide)
-    if not _set_named_or_placeholder_text(slide, "aria_section_title", title):
+    if not _set_title_named_or_placeholder_text(slide, "aria_section_title", title, min_size=18):
         if slide.shapes.title is not None:
-            slide.shapes.title.text = title
+            _write_title_preserving_style(slide.shapes.title, title, min_size=18)
         else:
             title_shape = None
             for shape in slide.shapes:
@@ -2086,6 +2157,7 @@ def _render_section_slide(slide, title: str, section_number: int):
                 title_shape.text_frame.text = title
                 title_shape.text_frame.word_wrap = True
                 _style_text_frame(title_shape.text_frame, "aria_section_title")
+                _fit_title_text_frame_one_line(title_shape.text_frame, title, title_shape.width, min_size=18)
     if not _set_named_or_placeholder_text(slide, "aria_section_number", f"{section_number:02d}"):
         body = _find_body_placeholder(slide)
         if body is not None:
@@ -2094,8 +2166,8 @@ def _render_section_slide(slide, title: str, section_number: int):
 
 def _render_graphic_library_title_slide(slide, title: str):
     _clear_generated_text_shapes(slide)
-    if not _set_named_or_placeholder_text(slide, "aria_slide_title", title) and slide.shapes.title is not None:
-        slide.shapes.title.text = title
+    if not _set_title_named_or_placeholder_text(slide, "aria_slide_title", title) and slide.shapes.title is not None:
+        _write_title_preserving_style(slide.shapes.title, title)
 
 
 def _render_graphic_library_content_slide(slide, title: str, content: str, slide_number: int):
@@ -2111,9 +2183,7 @@ def _render_graphic_library_content_slide(slide, title: str, content: str, slide
             title_shape = shape
             break
     if title_shape is not None:
-        title_shape.text_frame.clear()
-        title_shape.text_frame.text = title
-        title_shape.text_frame.word_wrap = True
+        _write_title_preserving_style(title_shape, title)
 
     placed = False
     body = _find_body_placeholder(slide)
@@ -2234,7 +2304,8 @@ def _add_slide_header(slide, title: str, slide_number: int):
     accent.fill.fore_color.rgb = RGBColor.from_string("2563EB")
     accent.line.fill.background()
 
-    _add_textbox(slide, Inches(0.65), Inches(0.32), Inches(10.8), Inches(0.62), title, size=22, bold=True, color="111827")
+    title_box = _add_textbox(slide, Inches(0.65), Inches(0.32), Inches(10.8), Inches(0.62), " ".join(str(title or "").split()), size=22, bold=True, color="111827")
+    _fit_title_text_frame_one_line(title_box.text_frame, title, title_box.width, min_size=13, max_size=22)
     _add_textbox(slide, Inches(11.65), Inches(0.42), Inches(1.1), Inches(0.35), f"{slide_number:02d}", size=11, bold=True, color="94A3B8")
 
 
@@ -2374,7 +2445,7 @@ def _render_visual_slide(slide, title: str, content: str, slide_number: int, vis
     _clear_generated_text_shapes(slide)
     bullets = _split_bullets(content, limit=6)
     used_template = (
-        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
         and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets[:4]))
     )
     visual_bounds = _bounds_by_name_or_placeholder(slide, "aria_visual_area")
@@ -2564,7 +2635,7 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
 
     _clear_generated_text_shapes(slide)
     bullets = _split_bullets(body, limit=8)
-    title_set = _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+    title_set = _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
     if full_canvas:
         _remove_shape_by_name(slide, "aria_visual_area")
         _set_named_or_placeholder_text(slide, "aria_slide_body", "")
@@ -2952,7 +3023,7 @@ def _render_content_slide(slide, title: str, content: str, slide_number: int):
     if _add_roadmap_visual(slide, title, bullets, slide_number):
         return
     used_template = (
-        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
         and _set_named_or_placeholder_text(slide, "aria_slide_body", "\n".join(f"- {bullet}" for bullet in bullets))
     )
     if not used_template:
@@ -2987,7 +3058,7 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
 
     _clear_generated_text_shapes(slide)
     used_template = (
-        _set_named_or_placeholder_text(slide, "aria_slide_title", title)
+        _set_title_named_or_placeholder_text(slide, "aria_slide_title", title)
         and _set_named_or_placeholder_text(slide, "aria_left_body", left_content)
         and _set_named_or_placeholder_text(slide, "aria_right_body", right_content)
     )
@@ -4037,7 +4108,7 @@ async def generate_ppt(
         cover_layout = _safe_layout(prs, 0)
         slide = prs.slides.add_slide(cover_layout)
         if slide.shapes.title:
-            slide.shapes.title.text = title
+            _write_title_preserving_style(slide.shapes.title, title)
         if subtitle:
             body = _find_body_placeholder(slide)
             if body is not None:

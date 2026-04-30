@@ -5068,6 +5068,84 @@ class BuiltinSkillsTestCase(unittest.TestCase):
                 self.assertIn("brand_artifact", {shape.name for shape in slide.shapes})
             generated_path.unlink(missing_ok=True)
 
+    def test_ppt_generation_preserves_named_title_style_and_fits_one_line(self):
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches, Pt
+        from app.tools.file_generators import generate_ppt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = Path(tmpdir) / "Template.pptx"
+            prs = Presentation()
+            blank = prs.slide_layouts[6]
+
+            cover = prs.slides.add_slide(blank)
+            cover.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1)).name = "aria_cover_title"
+            cover.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(1)).name = "aria_cover_subtitle"
+
+            section = prs.slides.add_slide(blank)
+            section_title = section.shapes.add_textbox(Inches(1), Inches(2), Inches(6.5), Inches(0.9))
+            section_title.name = "aria_section_title"
+            section_title.text_frame.text = "Section"
+            section_title.text_frame.paragraphs[0].font.size = Pt(40)
+            section_title.text_frame.paragraphs[0].font.bold = True
+            section_title.text_frame.paragraphs[0].font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+            section.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(1), Inches(0.5)).name = "aria_section_number"
+
+            content = prs.slides.add_slide(blank)
+            content.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(1), Inches(7)).name = "brand_artifact"
+            content_title = content.shapes.add_textbox(Inches(1), Inches(0.5), Inches(7), Inches(0.6))
+            content_title.name = "aria_slide_title"
+            content_title.text_frame.text = "Title"
+            content_title.text_frame.paragraphs[0].font.size = Pt(30)
+            content.shapes.add_textbox(Inches(1), Inches(1.3), Inches(8), Inches(3)).name = "aria_slide_body"
+
+            two_col = prs.slides.add_slide(blank)
+            two_col.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(0.6)).name = "aria_slide_title"
+            two_col.shapes.add_textbox(Inches(1), Inches(1.5), Inches(4), Inches(3)).name = "aria_left_body"
+            two_col.shapes.add_textbox(Inches(6), Inches(1.5), Inches(4), Inches(3)).name = "aria_right_body"
+
+            visual = prs.slides.add_slide(blank)
+            visual.shapes.add_textbox(Inches(1), Inches(0.5), Inches(8), Inches(0.6)).name = "aria_slide_title"
+            visual.shapes.add_textbox(Inches(1), Inches(1.3), Inches(4), Inches(3)).name = "aria_slide_body"
+            visual.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(7), Inches(2), Inches(3), Inches(3)).name = "aria_visual_area"
+
+            prs.slides.add_slide(blank)
+            prs.save(template_path)
+
+            long_section_title = "Executive Alignment and Governance Model for a Multi-Year Digital Transformation"
+            long_content_title = "A very long content page title should be intelligently resized to remain on one line"
+            result = asyncio.run(generate_ppt(
+                "Template title fit check",
+                [
+                    {"type": "section", "title": long_section_title},
+                    {"type": "content", "title": long_content_title, "content": "- First point\n- Second point"},
+                ],
+                "Subtitle",
+                str(template_path),
+            ))
+
+            self.assertTrue(result["success"], result)
+            generated_path = Path(result["full_path"])
+            generated = Presentation(generated_path)
+
+            section_slide = generated.slides[1]
+            generated_section_title = next(shape for shape in section_slide.shapes if shape.name == "aria_section_title")
+            self.assertEqual(generated_section_title.text, long_section_title)
+            section_font = generated_section_title.text_frame.paragraphs[0].font
+            self.assertEqual(section_font.color.rgb, RGBColor(0xC0, 0x00, 0x00))
+            self.assertLessEqual(section_font.size.pt, 40)
+            self.assertFalse(generated_section_title.text_frame.word_wrap)
+
+            content_slide = generated.slides[2]
+            generated_content_title = next(shape for shape in content_slide.shapes if shape.name == "aria_slide_title")
+            content_font = generated_content_title.text_frame.paragraphs[0].font
+            self.assertLessEqual(content_font.size.pt, 30)
+            self.assertFalse(generated_content_title.text_frame.word_wrap)
+
+            generated_path.unlink(missing_ok=True)
+
 
     def test_get_skill_detail_by_id(self):
         with Session(self.engine) as session:
