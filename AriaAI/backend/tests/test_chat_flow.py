@@ -314,7 +314,7 @@ class ProviderSelectionTestCase(unittest.TestCase):
             text = ""
 
             def json(self):
-                return {"choices": [{"message": {"content": "mimo ok"}}]}
+                return {"choices": [{"message": {"content": "mimo ok", "tool_calls": None}}]}
 
         class FakeClient:
             def __init__(self):

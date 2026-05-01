@@ -465,7 +465,7 @@ async def stream_response(
                 reasoning_buffer += reasoning
 
             # Tool call deltas
-            tool_call_deltas = delta.get("tool_calls", [])
+            tool_call_deltas = delta.get("tool_calls") or []
             for tc_delta in tool_call_deltas:
                 idx = tc_delta.get("index", 0)
                 function_delta = tc_delta.get("function") or {}
@@ -590,7 +590,7 @@ async def complete(
         if text:
             parts.append(text)
 
-        for tc in message.get("tool_calls", []):
+        for tc in message.get("tool_calls") or []:
             try:
                 parsed = json.loads(tc["function"]["arguments"])
             except (json.JSONDecodeError, KeyError):
@@ -830,7 +830,7 @@ async def stream_response_deepseek(
             if reasoning:
                 reasoning_buffer += reasoning
 
-            for tc_delta in delta.get("tool_calls", []):
+            for tc_delta in delta.get("tool_calls") or []:
                 idx = tc_delta.get("index", 0)
                 function_delta = tc_delta.get("function") or {}
                 if idx not in tool_call_buffers:
@@ -930,7 +930,7 @@ async def complete_deepseek(
         if text:
             parts.append(text)
 
-        for tc in message.get("tool_calls", []):
+        for tc in message.get("tool_calls") or []:
             try:
                 parsed = json.loads(tc["function"]["arguments"])
             except (json.JSONDecodeError, KeyError):
@@ -1076,7 +1076,7 @@ async def stream_response_mimo(
             if reasoning:
                 reasoning_buffer += reasoning
 
-            for tc_delta in delta.get("tool_calls", []):
+            for tc_delta in delta.get("tool_calls") or []:
                 idx = tc_delta.get("index", 0)
                 function_delta = tc_delta.get("function") or {}
                 if idx not in tool_call_buffers:
@@ -1178,7 +1178,7 @@ async def complete_mimo(
         if text:
             parts.append(text)
 
-        for tc in message.get("tool_calls", []):
+        for tc in message.get("tool_calls") or []:
             try:
                 parsed = json.loads(tc["function"]["arguments"])
             except (json.JSONDecodeError, KeyError):
@@ -1318,7 +1318,7 @@ async def stream_response_bigmodel(
             if text:
                 yield text
 
-            tool_call_deltas = delta.get("tool_calls", [])
+            tool_call_deltas = delta.get("tool_calls") or []
             for tc_delta in tool_call_deltas:
                 idx = tc_delta.get("index", 0)
                 if idx not in tool_call_buffers:
@@ -1410,7 +1410,7 @@ async def complete_bigmodel(
         if text:
             parts.append(text)
 
-        for tc in message.get("tool_calls", []):
+        for tc in message.get("tool_calls") or []:
             try:
                 parsed = json.loads(tc["function"]["arguments"])
             except (json.JSONDecodeError, KeyError):
