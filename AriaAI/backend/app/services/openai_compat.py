@@ -22,6 +22,7 @@ from app.config import (
     DEEPSEEK_BASE_URL as CONFIG_DEEPSEEK_BASE_URL,
     KIMI_BASE_URL as CONFIG_KIMI_BASE_URL,
     MIMO_BASE_URL as CONFIG_MIMO_BASE_URL,
+    MIMO_TOKEN_PLAN_BASE_URL as CONFIG_MIMO_TOKEN_PLAN_BASE_URL,
 )
 from app.database import engine
 from sqlmodel import Session
@@ -33,6 +34,7 @@ KIMI_BASE_URL = CONFIG_KIMI_BASE_URL
 DEEPSEEK_BASE_URL = CONFIG_DEEPSEEK_BASE_URL
 BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 MIMO_BASE_URL = CONFIG_MIMO_BASE_URL
+MIMO_TOKEN_PLAN_BASE_URL = CONFIG_MIMO_TOKEN_PLAN_BASE_URL
 
 # Persistent HTTP clients for Kimi/OpenAI-compat calls.
 # AsyncClient and asyncio primitives are bound to the event loop that first uses
@@ -66,7 +68,7 @@ def _get_http_client() -> httpx.AsyncClient:
 DEFAULT_KIMI_MODEL = "kimi-k2.6"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
-DEFAULT_MIMO_MODEL = "xiaomi/mimo-v2-flash"
+DEFAULT_MIMO_MODEL = "mimo-v2-flash"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
 SETTING_DEEPSEEK_API_KEY = "deepseek_api_key"
@@ -92,6 +94,20 @@ def _apply_moonshot_fixed_params(model: str, temperature: float) -> tuple[float,
 def _is_mimo_model(model: str) -> bool:
     normalized = (model or "").lower()
     return normalized.startswith(("mimo-", "xiaomi/mimo-"))
+
+
+def _normalize_mimo_model(model: str) -> str:
+    normalized = (model or DEFAULT_MIMO_MODEL).strip()
+    if normalized.lower().startswith("xiaomi/"):
+        return normalized.split("/", 1)[1]
+    return normalized
+
+
+def _mimo_base_url_for_key(api_key: str) -> str:
+    # Xiaomi MiMo Token Plan keys use the tp- prefix and require a Token Plan endpoint.
+    if (api_key or "").strip().lower().startswith("tp-"):
+        return MIMO_TOKEN_PLAN_BASE_URL
+    return MIMO_BASE_URL
 
 
 # =============================================================================
@@ -930,6 +946,7 @@ async def complete_deepseek(
 
 async def _stream_mimo_with_retry(
     client: httpx.AsyncClient,
+    base_url: str,
     headers: dict,
     payload: dict,
     max_retries: int = 3,
@@ -941,7 +958,7 @@ async def _stream_mimo_with_retry(
         try:
             async with client.stream(
                 "POST",
-                f"{MIMO_BASE_URL}/chat/completions",
+                f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             ) as response:
@@ -991,6 +1008,8 @@ async def stream_response_mimo(
     api_key = get_mimo_api_key()
     if not api_key:
         raise ValueError("No MiMo API key configured. Visit Settings to add one.")
+    base_url = _mimo_base_url_for_key(api_key)
+    model = _normalize_mimo_model(model)
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
@@ -1005,7 +1024,7 @@ async def stream_response_mimo(
     if openai_tools:
         payload["tools"] = openai_tools
 
-    logger.info(f"[MiMo] STREAM model={model} msgs={len(openai_messages)} tools={len(openai_tools) if openai_tools else 0}")
+    logger.info(f"[MiMo] STREAM model={model} base_url={base_url} msgs={len(openai_messages)} tools={len(openai_tools) if openai_tools else 0}")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -1020,7 +1039,7 @@ async def stream_response_mimo(
     client = _get_http_client()
 
     try:
-        async for line in _stream_mimo_with_retry(client, headers, payload):
+        async for line in _stream_mimo_with_retry(client, base_url, headers, payload):
             if not line.startswith("data: "):
                 continue
             payload_str = line[6:].strip()
@@ -1110,6 +1129,8 @@ async def complete_mimo(
     api_key = get_mimo_api_key()
     if not api_key:
         raise ValueError("No MiMo API key configured. Visit Settings to add one.")
+    base_url = _mimo_base_url_for_key(api_key)
+    model = _normalize_mimo_model(model)
 
     openai_messages = _to_openai_messages(messages, system)
     openai_tools = _to_openai_tools(tools) if tools else None
@@ -1131,7 +1152,7 @@ async def complete_mimo(
     client = _get_http_client()
     try:
         response = await client.post(
-            f"{MIMO_BASE_URL}/chat/completions",
+            f"{base_url}/chat/completions",
             headers=headers,
             json=payload,
         )

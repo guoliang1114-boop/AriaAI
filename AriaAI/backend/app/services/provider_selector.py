@@ -99,7 +99,7 @@ def resolve_provider_from_model(model: str) -> str:
     Determine provider from model ID.
     
     Args:
-        model: Model ID (e.g., 'claude-sonnet-4-6', 'moonshot-v1-32k', 'glm-5.1', 'xiaomi/mimo-v2-flash')
+        model: Model ID (e.g., 'claude-sonnet-4-6', 'moonshot-v1-32k', 'glm-5.1', 'mimo-v2-flash')
     
     Returns:
         Provider name: 'claude' | 'kimi' | 'deepseek' | 'bigmodel' | 'mimo'

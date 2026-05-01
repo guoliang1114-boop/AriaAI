@@ -334,14 +334,48 @@ class ProviderSelectionTestCase(unittest.TestCase):
             ):
                 return await openai_compat_module.complete(
                     [{"role": "user", "content": "hi"}],
-                    model="xiaomi/mimo-v2-flash",
+                    model="mimo-v2-flash",
                     max_tokens=20,
                 )
 
         self.assertEqual(asyncio.run(run()), "mimo ok")
         self.assertEqual(fake_client.calls[0]["url"], f"{openai_compat_module.MIMO_BASE_URL}/chat/completions")
-        self.assertEqual(fake_client.calls[0]["json"]["model"], "xiaomi/mimo-v2-flash")
+        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2-flash")
         self.assertEqual(fake_client.calls[0]["headers"]["Authorization"], "Bearer mimo-key")
+
+    def test_mimo_token_plan_key_uses_token_plan_endpoint(self):
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"choices": [{"message": {"content": "token plan ok"}}]}
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def post(self, url, headers=None, json=None):
+                self.calls.append({"url": url, "headers": headers, "json": json})
+                return FakeResponse()
+
+        fake_client = FakeClient()
+
+        async def run():
+            with patch.object(openai_compat_module, "get_mimo_api_key", return_value="tp-test-key"), patch.object(
+                openai_compat_module,
+                "_get_http_client",
+                return_value=fake_client,
+            ):
+                return await openai_compat_module.complete(
+                    [{"role": "user", "content": "hi"}],
+                    model="xiaomi/mimo-v2-pro",
+                    max_tokens=20,
+                )
+
+        self.assertEqual(asyncio.run(run()), "token plan ok")
+        self.assertEqual(fake_client.calls[0]["url"], f"{openai_compat_module.MIMO_TOKEN_PLAN_BASE_URL}/chat/completions")
+        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2-pro")
 
 
 class ProjectServiceHelperTestCase(unittest.TestCase):

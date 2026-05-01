@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.config import DEEPSEEK_BASE_URL, KIMI_BASE_URL, MIMO_BASE_URL
+from app.config import DEEPSEEK_BASE_URL, KIMI_BASE_URL, MIMO_BASE_URL, MIMO_TOKEN_PLAN_BASE_URL
 
 
 async def test_provider_connection(provider: str, model: str | None = None) -> dict:
@@ -82,12 +82,16 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
             api_key = get_mimo_api_key()
             if not api_key:
                 return {"success": False, "message": "No API key configured"}
+            base_url = MIMO_TOKEN_PLAN_BASE_URL if api_key.strip().lower().startswith("tp-") else MIMO_BASE_URL
+            resolved_model = model or "mimo-v2-flash"
+            if resolved_model.startswith("xiaomi/"):
+                resolved_model = resolved_model.split("/", 1)[1]
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"{MIMO_BASE_URL}/chat/completions",
+                    f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": model if model and model.startswith(("mimo-", "xiaomi/mimo-")) else "xiaomi/mimo-v2-flash",
+                        "model": resolved_model if resolved_model.startswith("mimo-") else "mimo-v2-flash",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                     },

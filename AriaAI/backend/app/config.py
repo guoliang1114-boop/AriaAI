@@ -72,7 +72,7 @@ DEFAULT_MODELS = {
     "kimi": "kimi-k2.6",
     "deepseek": "deepseek-v4-pro",
     "bigmodel": "glm-5.1",
-    "mimo": "xiaomi/mimo-v2-flash",
+    "mimo": "mimo-v2-flash",
 }
 
 # Model aliases (old names -> new names)
@@ -81,9 +81,9 @@ MODEL_ALIASES = {
     "claude-sonnet-4": "claude-sonnet-4-6",
     "claude-haiku-4": "claude-haiku-4-5-20251001",
     "kimi-k2.6-code-preview": "kimi-k2.6",
-    "mimo-v2-flash": "xiaomi/mimo-v2-flash",
-    "mimo-v2-pro": "xiaomi/mimo-v2-pro",
-    "mimo-v2-omni": "xiaomi/mimo-v2-omni",
+    "xiaomi/mimo-v2-flash": "mimo-v2-flash",
+    "xiaomi/mimo-v2-pro": "mimo-v2-pro",
+    "xiaomi/mimo-v2-omni": "mimo-v2-omni",
 }
 
 # =============================================================================
@@ -109,6 +109,11 @@ KIMI_BASE_URL = os.getenv("KIMI_BASE_URL") or os.getenv("MOONSHOT_BASE_URL") or 
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 BIGMODEL_BASE_URL = os.getenv("BIGMODEL_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
 MIMO_BASE_URL = os.getenv("MIMO_BASE_URL") or os.getenv("XIAOMI_MIMO_BASE_URL") or "https://api.xiaomimimo.com/v1"
+MIMO_TOKEN_PLAN_BASE_URL = (
+    os.getenv("MIMO_TOKEN_PLAN_BASE_URL")
+    or os.getenv("XIAOMI_MIMO_TOKEN_PLAN_BASE_URL")
+    or "https://token-plan-cn.xiaomimimo.com/v1"
+)
 
 # =============================================================================
 # CORS Configuration
