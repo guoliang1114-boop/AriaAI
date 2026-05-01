@@ -18,7 +18,7 @@ def _load_provider_module(provider: str):
         if provider == "claude":
             from app.services import claude
             _provider_modules[provider] = claude
-        elif provider in ("kimi", "deepseek", "bigmodel"):
+        elif provider in ("kimi", "deepseek", "bigmodel", "mimo"):
             from app.services import openai_compat
             _provider_modules[provider] = openai_compat
         else:
@@ -41,12 +41,14 @@ def get_provider_module(session: Session):
         provider = "claude"
     elif provider == "moonshot":
         provider = "kimi"
+    elif provider == "xiaomi":
+        provider = "mimo"
     
     return _load_provider_module(provider)
 
 
 def get_provider_name(session: Session) -> str:
-    """Get the current provider name (claude | kimi | deepseek | bigmodel)."""
+    """Get the current provider name (claude | kimi | deepseek | bigmodel | mimo)."""
     setting = session.get(_Setting, "llm_provider")
     provider = (setting.value if setting and setting.value else "claude").lower().strip()
     
@@ -55,7 +57,9 @@ def get_provider_name(session: Session) -> str:
         return "claude"
     if provider == "moonshot":
         return "kimi"
-    if provider in ("claude", "kimi", "deepseek", "bigmodel"):
+    if provider == "xiaomi":
+        return "mimo"
+    if provider in ("claude", "kimi", "deepseek", "bigmodel", "mimo"):
         return provider
     
     return "claude"  # Default fallback
@@ -67,13 +71,19 @@ def get_selected_model(session: Session, provider: Optional[str] = None) -> str:
     
     Args:
         session: Database session
-        provider: Provider name (claude | kimi | deepseek | bigmodel). If None, uses current.
+        provider: Provider name (claude | kimi | deepseek | bigmodel | mimo). If None, uses current.
     
     Returns:
         Model ID string
     """
     if provider is None:
         provider = get_provider_name(session)
+    if provider == "anthropic":
+        provider = "claude"
+    elif provider == "moonshot":
+        provider = "kimi"
+    elif provider == "xiaomi":
+        provider = "mimo"
     
     setting = session.get(_Setting, "selected_model")
     if setting and setting.value:
@@ -89,10 +99,10 @@ def resolve_provider_from_model(model: str) -> str:
     Determine provider from model ID.
     
     Args:
-        model: Model ID (e.g., 'claude-sonnet-4-6', 'moonshot-v1-32k', 'glm-5.1')
+        model: Model ID (e.g., 'claude-sonnet-4-6', 'moonshot-v1-32k', 'glm-5.1', 'xiaomi/mimo-v2-flash')
     
     Returns:
-        Provider name: 'claude' | 'kimi' | 'deepseek' | 'bigmodel'
+        Provider name: 'claude' | 'kimi' | 'deepseek' | 'bigmodel' | 'mimo'
     """
     model_lower = model.lower()
     
@@ -104,6 +114,8 @@ def resolve_provider_from_model(model: str) -> str:
         return "deepseek"
     elif model_lower.startswith(("glm-", "GLM-")):
         return "bigmodel"
+    elif model_lower.startswith(("mimo-", "xiaomi/mimo-")):
+        return "mimo"
     else:
         # Default fallback
         return "claude"
@@ -114,6 +126,14 @@ def get_model_for_provider(provider: str, session: Session) -> str:
     Get the best available model for a provider.
     Checks settings first, then falls back to default.
     """
+    provider = (provider or "").lower().strip()
+    if provider == "anthropic":
+        provider = "claude"
+    elif provider == "moonshot":
+        provider = "kimi"
+    elif provider == "xiaomi":
+        provider = "mimo"
+
     current_model = get_selected_model(session)
     current_provider = resolve_provider_from_model(current_model)
     

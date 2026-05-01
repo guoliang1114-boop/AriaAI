@@ -21,6 +21,7 @@ import httpx
 from app.config import (
     DEEPSEEK_BASE_URL as CONFIG_DEEPSEEK_BASE_URL,
     KIMI_BASE_URL as CONFIG_KIMI_BASE_URL,
+    MIMO_BASE_URL as CONFIG_MIMO_BASE_URL,
 )
 from app.database import engine
 from sqlmodel import Session
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 KIMI_BASE_URL = CONFIG_KIMI_BASE_URL
 DEEPSEEK_BASE_URL = CONFIG_DEEPSEEK_BASE_URL
 BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+MIMO_BASE_URL = CONFIG_MIMO_BASE_URL
 
 # Persistent HTTP clients for Kimi/OpenAI-compat calls.
 # AsyncClient and asyncio primitives are bound to the event loop that first uses
@@ -64,10 +66,12 @@ def _get_http_client() -> httpx.AsyncClient:
 DEFAULT_KIMI_MODEL = "kimi-k2.6"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
+DEFAULT_MIMO_MODEL = "xiaomi/mimo-v2-flash"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
 SETTING_DEEPSEEK_API_KEY = "deepseek_api_key"
 SETTING_BIGMODEL_API_KEY = "bigmodel_api_key"
+SETTING_MIMO_API_KEY = "mimo_api_key"
 SETTING_LLM_PROVIDER = "llm_provider"
 
 
@@ -83,6 +87,11 @@ def _apply_moonshot_fixed_params(model: str, temperature: float) -> tuple[float,
     if model_lower.startswith("moonshot-"):
         return 0.6, 0.95
     return temperature, None
+
+
+def _is_mimo_model(model: str) -> bool:
+    normalized = (model or "").lower()
+    return normalized.startswith(("mimo-", "xiaomi/mimo-"))
 
 
 # =============================================================================
@@ -160,6 +169,25 @@ def get_deepseek_api_key() -> str | None:
 
     import os
     return os.environ.get("DEEPSEEK_API_KEY")
+
+
+def get_mimo_api_key() -> str | None:
+    """Retrieve Xiaomi MiMo API key: Keychain -> SQLite -> env var."""
+    try:
+        import keyring
+        from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO)
+        if key:
+            return key
+    except Exception:
+        pass
+
+    key = _get_setting(SETTING_MIMO_API_KEY)
+    if key:
+        return key
+
+    import os
+    return os.environ.get("MIMO_API_KEY") or os.environ.get("XIAOMI_API_KEY")
 
 
 # =============================================================================
@@ -338,6 +366,10 @@ async def stream_response(
         async for chunk in stream_response_deepseek(messages, system, model, max_tokens, tools, temperature):
             yield chunk
         return
+    if _is_mimo_model(model):
+        async for chunk in stream_response_mimo(messages, system, model, max_tokens, tools, temperature):
+            yield chunk
+        return
     
     api_key = get_kimi_api_key()
     if not api_key:
@@ -484,6 +516,8 @@ async def complete(
         return await complete_bigmodel(messages, system, model, max_tokens, tools, temperature)
     if model.startswith("deepseek-"):
         return await complete_deepseek(messages, system, model, max_tokens, tools, temperature)
+    if _is_mimo_model(model):
+        return await complete_mimo(messages, system, model, max_tokens, tools, temperature)
     
     api_key = get_kimi_api_key()
     if not api_key:
@@ -887,6 +921,249 @@ async def complete_deepseek(
         return "\n".join(parts)
     except Exception as e:
         logger.error(f"[DeepSeek] complete error: {type(e).__name__}: {e}")
+        raise
+
+
+# =============================================================================
+# Xiaomi MiMo Streaming
+# =============================================================================
+
+async def _stream_mimo_with_retry(
+    client: httpx.AsyncClient,
+    headers: dict,
+    payload: dict,
+    max_retries: int = 3,
+) -> AsyncIterator[str]:
+    """Internal stream handler with retry logic for Xiaomi MiMo rate limiting."""
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            async with client.stream(
+                "POST",
+                f"{MIMO_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"[MiMo] Rate limited (429), retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    body = await response.aread()
+                    error_msg = body.decode()[:300]
+                    raise Exception(f"MiMo service is busy. API rate limited (HTTP 429): {error_msg}")
+
+                if response.status_code != 200:
+                    body = await response.aread()
+                    error_msg = body.decode()[:300]
+                    raise Exception(f"MiMo HTTP {response.status_code}: {error_msg}")
+
+                async for line in response.aiter_lines():
+                    yield line
+                return
+
+        except Exception as e:
+            last_error = e
+            if "MiMo service is busy" in str(e):
+                raise
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"[MiMo] Stream error, retrying in {wait_time:.1f}s: {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+
+    if last_error:
+        raise last_error
+
+
+async def stream_response_mimo(
+    messages: list[dict],
+    system: str = "",
+    model: str = DEFAULT_MIMO_MODEL,
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    temperature: float = 0.7,
+) -> AsyncIterator[str]:
+    """Stream Xiaomi MiMo response, yielding same token/tool-use format as claude.py."""
+    api_key = get_mimo_api_key()
+    if not api_key:
+        raise ValueError("No MiMo API key configured. Visit Settings to add one.")
+
+    openai_messages = _to_openai_messages(messages, system)
+    openai_tools = _to_openai_tools(tools) if tools else None
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": openai_messages,
+        "stream": True,
+        "temperature": temperature,
+    }
+    if openai_tools:
+        payload["tools"] = openai_tools
+
+    logger.info(f"[MiMo] STREAM model={model} msgs={len(openai_messages)} tools={len(openai_tools) if openai_tools else 0}")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    tool_call_buffers: dict[int, dict] = {}
+    in_tool_call = False
+    reasoning_buffer = ""
+    finish_reason = None
+
+    client = _get_http_client()
+
+    try:
+        async for line in _stream_mimo_with_retry(client, headers, payload):
+            if not line.startswith("data: "):
+                continue
+            payload_str = line[6:].strip()
+            if payload_str == "[DONE]":
+                break
+            try:
+                event = json.loads(payload_str)
+            except json.JSONDecodeError:
+                continue
+
+            choices = event.get("choices", [])
+            if not choices:
+                continue
+
+            choice = choices[0] or {}
+            finish_reason = choice.get("finish_reason") or finish_reason
+            delta = choice.get("delta") or {}
+            if not isinstance(delta, dict):
+                continue
+
+            text = delta.get("content")
+            if text:
+                yield text
+
+            reasoning = delta.get("reasoning_content")
+            if reasoning:
+                reasoning_buffer += reasoning
+
+            for tc_delta in delta.get("tool_calls", []):
+                idx = tc_delta.get("index", 0)
+                function_delta = tc_delta.get("function") or {}
+                if idx not in tool_call_buffers:
+                    in_tool_call = True
+                    name = function_delta.get("name", "")
+                    tool_call_buffers[idx] = {
+                        "id": tc_delta.get("id", f"call_{idx}"),
+                        "name": name,
+                        "arguments": "",
+                    }
+                    if name:
+                        yield f"\n\n[TOOL_START:{name}]\n\n"
+
+                name = function_delta.get("name", "")
+                if name and not tool_call_buffers[idx].get("name"):
+                    tool_call_buffers[idx]["name"] = name
+                    yield f"\n\n[TOOL_START:{name}]\n\n"
+                frag = function_delta.get("arguments", "")
+                if frag:
+                    tool_call_buffers[idx]["arguments"] += frag
+
+        if in_tool_call:
+            for buf in tool_call_buffers.values():
+                try:
+                    parsed_input = json.loads(buf["arguments"]) if buf["arguments"] else {}
+                except json.JSONDecodeError:
+                    parsed_input = {}
+                yield json.dumps({
+                    "type": "tool_use",
+                    "id": buf["id"],
+                    "name": buf["name"],
+                    "input": parsed_input,
+                })
+            if reasoning_buffer:
+                yield json.dumps({
+                    "type": "reasoning_content",
+                    "content": reasoning_buffer,
+                })
+
+        if finish_reason == "length":
+            logger.warning("[MiMo] Output truncated due to max_tokens")
+            yield "\n\n[OUTPUT_TRUNCATED]"
+
+    except Exception as e:
+        logger.error(f"[MiMo] stream error: {type(e).__name__}: {e}")
+        raise
+
+
+async def complete_mimo(
+    messages: list[dict],
+    system: str = "",
+    model: str = DEFAULT_MIMO_MODEL,
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    temperature: float = 0.7,
+) -> str:
+    """Non-streaming Xiaomi MiMo completion. Returns text (and tool_use JSON if applicable)."""
+    api_key = get_mimo_api_key()
+    if not api_key:
+        raise ValueError("No MiMo API key configured. Visit Settings to add one.")
+
+    openai_messages = _to_openai_messages(messages, system)
+    openai_tools = _to_openai_tools(tools) if tools else None
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": openai_messages,
+        "temperature": temperature,
+    }
+    if openai_tools:
+        payload["tools"] = openai_tools
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    client = _get_http_client()
+    try:
+        response = await client.post(
+            f"{MIMO_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code != 200:
+            raise Exception(f"MiMo HTTP {response.status_code}: {response.text[:300]}")
+
+        result = response.json()
+        choice = result.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        parts: list[str] = []
+
+        text = message.get("content") or ""
+        if not text:
+            text = message.get("reasoning_content") or ""
+        if text:
+            parts.append(text)
+
+        for tc in message.get("tool_calls", []):
+            try:
+                parsed = json.loads(tc["function"]["arguments"])
+            except (json.JSONDecodeError, KeyError):
+                parsed = {}
+            parts.append(json.dumps({
+                "type": "tool_use",
+                "id": tc.get("id", ""),
+                "name": tc.get("function", {}).get("name", ""),
+                "input": parsed,
+            }, ensure_ascii=False))
+
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"[MiMo] complete error: {type(e).__name__}: {e}")
         raise
 
 

@@ -15,6 +15,10 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     normalized = (model or "").lower()
     if normalized.startswith(("kimi-k2.6", "kimi-k2.5")):
         return min(max_tokens, 32768)
+    if normalized.startswith(("xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni", "mimo-v2-pro", "mimo-v2-omni")):
+        return min(max_tokens, 32000)
+    if normalized.startswith(("xiaomi/mimo-v2-flash", "mimo-v2-flash")):
+        return min(max_tokens, 8192)
     if normalized.startswith("claude-"):
         return min(max_tokens, 8192)
     return min(max_tokens, 8192)

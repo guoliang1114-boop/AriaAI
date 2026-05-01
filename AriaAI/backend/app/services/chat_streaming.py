@@ -301,7 +301,7 @@ def _to_user_friendly_error(error_msg: str) -> str:
         return "AI 服务当前繁忙，请稍后重试。这是临时状况，几秒钟后再试即可。"
     if "Kimi 服务当前繁忙" in error_msg or "BigModel 服务当前繁忙" in error_msg:
         return error_msg
-    if "No Kimi API key" in error_msg or "No Claude API key" in error_msg or "No BigModel API key" in error_msg:
+    if "No Kimi API key" in error_msg or "No Claude API key" in error_msg or "No BigModel API key" in error_msg or "No MiMo API key" in error_msg:
         return "请先配置 API Key。前往「设置」页面添加您的 API Key。"
     if "timeout" in error_msg.lower() or "Connection refused" in error_msg:
         return "连接超时，请检查网络或稍后重试。"

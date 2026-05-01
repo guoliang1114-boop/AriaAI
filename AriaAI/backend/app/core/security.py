@@ -2,7 +2,15 @@
 import os
 from typing import Optional
 import keyring
-from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_KIMI, KEYCHAIN_KEY_OPENAI, KEYCHAIN_KEY_DEEPSEEK, KEYCHAIN_KEY_BIGMODEL
+from app.config import (
+    KEYCHAIN_SERVICE,
+    KEYCHAIN_KEY_CLAUDE,
+    KEYCHAIN_KEY_KIMI,
+    KEYCHAIN_KEY_OPENAI,
+    KEYCHAIN_KEY_DEEPSEEK,
+    KEYCHAIN_KEY_BIGMODEL,
+    KEYCHAIN_KEY_MIMO,
+)
 
 
 def _db_get_api_key() -> Optional[str]:
@@ -325,6 +333,70 @@ def delete_bigmodel_api_key() -> None:
         from app.models.db import Setting
         with Session(engine) as session:
             existing = session.get(Setting, "bigmodel_api_key")
+            if existing:
+                session.delete(existing)
+                session.commit()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Xiaomi MiMo API key
+# ---------------------------------------------------------------------------
+
+def get_mimo_api_key() -> Optional[str]:
+    """Retrieve Xiaomi MiMo API key: Keychain -> SQLite -> env var."""
+    try:
+        key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO)
+        if key:
+            return key
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            setting = session.get(Setting, "mimo_api_key")
+            if setting and setting.value:
+                return setting.value
+    except Exception:
+        pass
+    return os.environ.get("MIMO_API_KEY") or os.environ.get("XIAOMI_API_KEY")
+
+
+def set_mimo_api_key(api_key: str) -> None:
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO, api_key)
+    except Exception:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "mimo_api_key")
+            if existing:
+                existing.value = api_key
+                session.add(existing)
+            else:
+                session.add(Setting(key="mimo_api_key", value=api_key))
+            session.commit()
+    except Exception:
+        pass
+
+
+def delete_mimo_api_key() -> None:
+    try:
+        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    try:
+        from sqlmodel import Session
+        from app.database import engine
+        from app.models.db import Setting
+        with Session(engine) as session:
+            existing = session.get(Setting, "mimo_api_key")
             if existing:
                 session.delete(existing)
                 session.commit()

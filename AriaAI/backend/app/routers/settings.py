@@ -11,6 +11,7 @@ from app.core.security import (
     get_openai_api_key, set_openai_api_key, delete_openai_api_key,
     get_deepseek_api_key, set_deepseek_api_key, delete_deepseek_api_key,
     get_bigmodel_api_key, set_bigmodel_api_key, delete_bigmodel_api_key,
+    get_mimo_api_key, set_mimo_api_key, delete_mimo_api_key,
 )
 from app.database import get_session
 from app.models.db import Setting
@@ -159,6 +160,33 @@ def save_bigmodel_api_key(req: ApiKeyRequest):
 @router.delete("/bigmodel-api-key")
 def remove_bigmodel_api_key():
     delete_bigmodel_api_key()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Xiaomi MiMo API key endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/mimo-api-key-status")
+def mimo_api_key_status():
+    key = get_mimo_api_key()
+    if key:
+        masked = key[:8] + "••••••••" + key[-4:]
+        return {"configured": True, "masked": masked}
+    return {"configured": False}
+
+
+@router.post("/mimo-api-key")
+def save_mimo_api_key(req: ApiKeyRequest):
+    if not req.api_key.strip():
+        raise HTTPException(400, "API key cannot be empty")
+    set_mimo_api_key(req.api_key.strip())
+    return {"ok": True}
+
+
+@router.delete("/mimo-api-key")
+def remove_mimo_api_key():
+    delete_mimo_api_key()
     return {"ok": True}
 
 

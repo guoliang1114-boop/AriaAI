@@ -45,6 +45,7 @@ KEYCHAIN_KEY_KIMI = "kimi_api_key"
 KEYCHAIN_KEY_OPENAI = "openai_api_key"
 KEYCHAIN_KEY_DEEPSEEK = "deepseek_api_key"
 KEYCHAIN_KEY_BIGMODEL = "bigmodel_api_key"
+KEYCHAIN_KEY_MIMO = "mimo_api_key"
 
 # JWT / Token settings
 DEFAULT_JWT_SECRET = "your-secret-key-change-in-production"
@@ -60,7 +61,7 @@ ALLOW_INSECURE_JWT_SECRET = os.getenv("ALLOW_INSECURE_JWT_SECRET", "false").lowe
 # =============================================================================
 
 # Supported providers
-SUPPORTED_PROVIDERS = ["claude", "kimi", "deepseek", "bigmodel"]
+SUPPORTED_PROVIDERS = ["claude", "kimi", "deepseek", "bigmodel", "mimo"]
 
 # Default provider
 DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
@@ -71,6 +72,7 @@ DEFAULT_MODELS = {
     "kimi": "kimi-k2.6",
     "deepseek": "deepseek-v4-pro",
     "bigmodel": "glm-5.1",
+    "mimo": "xiaomi/mimo-v2-flash",
 }
 
 # Model aliases (old names -> new names)
@@ -79,6 +81,9 @@ MODEL_ALIASES = {
     "claude-sonnet-4": "claude-sonnet-4-6",
     "claude-haiku-4": "claude-haiku-4-5-20251001",
     "kimi-k2.6-code-preview": "kimi-k2.6",
+    "mimo-v2-flash": "xiaomi/mimo-v2-flash",
+    "mimo-v2-pro": "xiaomi/mimo-v2-pro",
+    "mimo-v2-omni": "xiaomi/mimo-v2-omni",
 }
 
 # =============================================================================
@@ -103,6 +108,7 @@ CLAUDE_BASE_URL = os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com")
 KIMI_BASE_URL = os.getenv("KIMI_BASE_URL") or os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1"
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 BIGMODEL_BASE_URL = os.getenv("BIGMODEL_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+MIMO_BASE_URL = os.getenv("MIMO_BASE_URL") or os.getenv("XIAOMI_MIMO_BASE_URL") or "https://api.xiaomimimo.com/v1"
 
 # =============================================================================
 # CORS Configuration

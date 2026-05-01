@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import httpx
 
-from app.config import DEEPSEEK_BASE_URL, KIMI_BASE_URL
+from app.config import DEEPSEEK_BASE_URL, KIMI_BASE_URL, MIMO_BASE_URL
 
 
 async def test_provider_connection(provider: str, model: str | None = None) -> dict:
-    from app.core.security import get_api_key, get_bigmodel_api_key, get_deepseek_api_key, get_kimi_api_key
+    from app.core.security import get_api_key, get_bigmodel_api_key, get_deepseek_api_key, get_kimi_api_key, get_mimo_api_key
 
-    if provider not in ["anthropic", "moonshot", "deepseek", "bigmodel"]:
+    if provider not in ["anthropic", "moonshot", "deepseek", "bigmodel", "mimo", "xiaomi"]:
         return {"success": False, "message": f"Provider not supported: {provider}"}
 
     try:
@@ -63,7 +63,7 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     },
                     timeout=30.0,
                 )
-        else:
+        elif provider == "bigmodel":
             api_key = get_bigmodel_api_key()
             if not api_key:
                 return {"success": False, "message": "No API key configured"}
@@ -73,6 +73,21 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": model if model and model.startswith(("glm-", "GLM-")) else "glm-4-plus",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 10,
+                    },
+                    timeout=30.0,
+                )
+        else:
+            api_key = get_mimo_api_key()
+            if not api_key:
+                return {"success": False, "message": "No API key configured"}
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{MIMO_BASE_URL}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model if model and model.startswith(("mimo-", "xiaomi/mimo-")) else "xiaomi/mimo-v2-flash",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                     },
@@ -95,6 +110,8 @@ def resolve_provider_for_model(model: str) -> str | None:
         return "deepseek"
     if model.startswith(("glm-", "GLM-")):
         return "bigmodel"
+    if model.startswith(("mimo-", "xiaomi/mimo-")):
+        return "mimo"
     return None
 
 

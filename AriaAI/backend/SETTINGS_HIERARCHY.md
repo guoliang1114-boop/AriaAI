@@ -65,7 +65,7 @@ TOP_K_RESULTS = 5
 | Key | Description |
 |-----|-------------|
 | `selected_model` | User's preferred LLM model |
-| `llm_provider` | Active provider (claude/kimi/bigmodel) |
+| `llm_provider` | Active provider (claude/kimi/deepseek/bigmodel/mimo) |
 | `temperature` | Generation temperature |
 | `max_tokens` | Max tokens per response |
 | `api_key` (encrypted) | User's API key in keyring |
