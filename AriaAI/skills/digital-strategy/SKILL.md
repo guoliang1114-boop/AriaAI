@@ -236,7 +236,7 @@ When the user asks for a PPT, leadership deck, presentation material, downloadab
 
 PPT depth standard:
 
-- Build a consulting-grade deck of **20-24 slides** by default, unless the user explicitly asks for fewer pages.
+- Build a consulting-grade deck of **25+ slides** by default, unless the user explicitly asks for fewer pages.
 - Every business slide needs an action-oriented title, a clear recommendation, supporting evidence or assumptions, and implications for management.
 - Use at least 4-6 substantive bullets per content slide. Avoid placeholder bullets such as "validate with interviews" unless they are attached to a specific question, data source, or decision.
 - Strengthen every page with four layers of substance: (1) the conclusion or management answer, (2) the evidence or quantified assumption, (3) the concrete management action, and (4) the risk, trade-off, or decision required.
@@ -344,7 +344,7 @@ Allowed `layout_key` values:
 
 数字化战略 PPT 标准目录：
 
-默认使用以下 **22 页标准结构**，除非用户明确要求更短、更长或行业定制版本。请保持章节顺序稳定，便于 PPT 生成器按页面类型应用专属版式和图形。
+默认使用以下 **25 页核心结构**，除非用户明确要求更短、更长或行业定制版本。请保持章节顺序稳定，便于 PPT 生成器按页面类型应用专属版式和图形。
 
 | 页码 | 章节 | 页面类型 | 标准页标题 | 页面目的 |
 |------|------|----------|------------|----------|
@@ -355,21 +355,24 @@ Allowed `layout_key` values:
 | 5 | 现状诊断 | content | 现状诊断：从六个维度识别成熟度短板 | 评估战略、客户、运营、组织、数据和技术成熟度 |
 | 6 | 现状诊断 | matrix | 成熟度热力图：优势基础与制约因素 | 可视化优势、短板和需要高层介入的领域 |
 | 7 | 现状诊断 | content | 痛点根因：区分症状、结构性原因和管理动作 | 将观察到的痛点转化为根因和管理动作 |
-| 8 | 目标蓝图 | title | 目标蓝图 | 作为目标状态设计章节的分隔页 |
-| 9 | 目标蓝图 | content | 客户与增长体验缺口：优先找到价值泄漏点 | 识别客户旅程断点和增长场景 |
-| 10 | 目标蓝图 | content | 数字化愿景与目标状态：形成数据驱动的运营体系 | 定义北极星目标、运营原则和目标状态 |
-| 11 | 目标蓝图 | content | 能力蓝图：围绕客户、运营、数据、AI 和平台建设 | 展示数字能力地图和关键使能条件 |
-| 12 | 目标蓝图 | two_column | 目标运营模式：把价值、数据、技术和变革责任拆清 | 明确角色、决策权、治理节奏和责任边界 |
-| 13 | 场景组合 | content | 场景组合：平衡快赢、基础能力和战略差异化 | 构建增长、效率、风险和员工场景组合 |
-| 14 | 场景组合 | matrix | 场景优先级逻辑：按价值、可行性、依赖和变革准备度排序 | 用组合矩阵排序举措优先级 |
-| 15 | 路线图与投资 | title | 路线图与投资 | 作为实施顺序和资金机制章节的分隔页 |
-| 16 | 路线图与投资 | two_column | 现状与目标状态对比 | 展示数据、流程、治理和能力的前后变化 |
-| 17 | 路线图与投资 | roadmap | 三阶段路线图：夯实基础、规模复制、领先优化 | 定义三阶段实施路径和管理闸口 |
-| 18 | 路线图与投资 | content | 举措组合与里程碑：每个项目都要有价值、负责人和闸口 | 将战略转化为举措组合、负责人和里程碑 |
-| 19 | 路线图与投资 | kpi | 投资测算与资金机制：用阶段门把投入和价值绑定 | 说明投资边界、资金模型、收益假设和阶段门 |
-| 20 | 治理与动员 | title | 治理与动员 | 作为执行控制章节的分隔页 |
-| 21 | 治理与动员 | risk | 风险登记与缓释计划：提前管理遗留、数据、采用和伙伴风险 | 将关键风险与缓释责任人、监控节奏配对 |
-| 22 | 治理与动员 | next_steps | 90 天行动计划：把共识转成可执行启动方案 | 定义分周行动、负责人、所需输入和指导委员会决策 |
+| 8 | 现状诊断 | content | 行业标杆与差距启示：用外部参照校准转型目标 | 用外部参照判断目标强度、投资节奏和能力缺口 |
+| 9 | 目标蓝图 | title | 目标蓝图 | 作为目标状态设计章节的分隔页 |
+| 10 | 目标蓝图 | content | 客户与增长体验缺口：优先找到价值泄漏点 | 识别客户旅程断点和增长场景 |
+| 11 | 目标蓝图 | content | 数字化愿景与目标状态：形成数据驱动的运营体系 | 定义北极星目标、运营原则和目标状态 |
+| 12 | 目标蓝图 | content | 能力蓝图：围绕客户、运营、数据、AI 和平台建设 | 展示数字能力地图和关键使能条件 |
+| 13 | 目标蓝图 | two_column | 目标运营模式：把价值、数据、技术和变革责任拆清 | 明确角色、决策权、治理节奏和责任边界 |
+| 14 | 场景组合 | content | 场景组合：平衡快赢、基础能力和战略差异化 | 构建增长、效率、风险和员工场景组合 |
+| 15 | 场景组合 | matrix | 场景优先级逻辑：按价值、可行性、依赖和变革准备度排序 | 用组合矩阵排序举措优先级 |
+| 16 | 路线图与投资 | title | 路线图与投资 | 作为实施顺序和资金机制章节的分隔页 |
+| 17 | 路线图与投资 | two_column | 现状与目标状态对比 | 展示数据、流程、治理和能力的前后变化 |
+| 18 | 路线图与投资 | roadmap | 三阶段路线图：夯实基础、规模复制、领先优化 | 定义三阶段实施路径和管理闸口 |
+| 19 | 路线图与投资 | content | 举措组合与里程碑：每个项目都要有价值、负责人和闸口 | 将战略转化为举措组合、负责人和里程碑 |
+| 20 | 路线图与投资 | kpi | 收益实现路径：把业务价值拆成可跟踪的领先指标和滞后指标 | 将收益假设拆成基线、领先指标、滞后指标和归因机制 |
+| 21 | 路线图与投资 | kpi | 投资测算与资金机制：用阶段门把投入和价值绑定 | 说明投资边界、资金模型、收益假设和阶段门 |
+| 22 | 路线图与投资 | content | 数据治理优先级：先解决会阻断多个场景复制的共性问题 | 明确首批数据域、治理责任和质量闭环 |
+| 23 | 治理与动员 | title | 治理与动员 | 作为执行控制章节的分隔页 |
+| 24 | 治理与动员 | risk | 风险登记与缓释计划：提前管理遗留、数据、采用和伙伴风险 | 将关键风险与缓释责任人、监控节奏配对 |
+| 25 | 治理与动员 | next_steps | 90 天行动计划：把共识转成可执行启动方案 | 定义分周行动、负责人、所需输入和指导委员会决策 |
 
 可选附录页，仅在用户要求更长版本时添加：评估问卷、访谈提纲、基准假设、系统清单、详细举措章程、商业测算模型、KPI 字典和治理 RACI。
 
@@ -405,7 +408,7 @@ Allowed `layout_key` values:
 }
 ```
 
-推荐 PPT 结构：默认使用上方 22 页标准目录。如果用户要求 20-24 页，保持同一顺序，只在第 22 页后追加可选附录页。
+推荐 PPT 结构：默认使用上方 25 页核心目录。如果用户要求更长版本，保持同一顺序，只在治理与动员章节后追加可选附录页。
 
 ## Dependencies
 

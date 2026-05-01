@@ -5115,6 +5115,8 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertTrue("Use-Case Portfolio" in titles or "场景组合：平衡快赢、基础能力和战略差异化" in titles)
         self.assertTrue("Executive Alignment" in titles or "高层共识" in titles)
         self.assertTrue("Target Blueprint" in titles or "目标蓝图" in titles)
+        self.assertIn("数据治理优先级：先解决会阻断多个场景复制的共性问题", titles)
+        self.assertIn("90 天行动计划：把共识转成可执行启动方案", titles)
         investment_slide = next(
             slide for slide in slides
             if slide["title"] in {"Investment, KPI and Risk Controls", "投资、KPI 与风险控制：建立可追踪的价值闭环"}
@@ -5142,6 +5144,8 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         self.assertGreaterEqual(len(slides), 22)
         self.assertIn("执行摘要：把数字化作为业务价值组合来管理", titles)
         self.assertIn("三阶段路线图：夯实基础、规模复制、领先优化", titles)
+        self.assertIn("行业标杆与差距启示：用外部参照校准转型目标", titles)
+        self.assertIn("附录：评估与访谈指南", titles)
         self.assertGreaterEqual(
             len({slide.get("layout_key") for slide in slides if slide.get("layout_key")}),
             8,
