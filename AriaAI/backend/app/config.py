@@ -72,7 +72,7 @@ DEFAULT_MODELS = {
     "kimi": "kimi-k2.6",
     "deepseek": "deepseek-v4-pro",
     "bigmodel": "glm-5.1",
-    "mimo": "mimo-v2-flash",
+    "mimo": "mimo-v2.5-flash",
 }
 
 # Model aliases (old names -> new names)
@@ -81,9 +81,15 @@ MODEL_ALIASES = {
     "claude-sonnet-4": "claude-sonnet-4-6",
     "claude-haiku-4": "claude-haiku-4-5-20251001",
     "kimi-k2.6-code-preview": "kimi-k2.6",
-    "xiaomi/mimo-v2-flash": "mimo-v2-flash",
-    "xiaomi/mimo-v2-pro": "mimo-v2-pro",
-    "xiaomi/mimo-v2-omni": "mimo-v2-omni",
+    "mimo-v2-flash": "mimo-v2.5-flash",
+    "mimo-v2-pro": "mimo-v2.5-pro",
+    "mimo-v2-omni": "mimo-v2.5-omni",
+    "xiaomi/mimo-v2-flash": "mimo-v2.5-flash",
+    "xiaomi/mimo-v2-pro": "mimo-v2.5-pro",
+    "xiaomi/mimo-v2-omni": "mimo-v2.5-omni",
+    "xiaomi/mimo-v2.5-flash": "mimo-v2.5-flash",
+    "xiaomi/mimo-v2.5-pro": "mimo-v2.5-pro",
+    "xiaomi/mimo-v2.5-omni": "mimo-v2.5-omni",
 }
 
 # =============================================================================

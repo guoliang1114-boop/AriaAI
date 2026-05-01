@@ -83,15 +83,21 @@ async def test_provider_connection(provider: str, model: str | None = None) -> d
             if not api_key:
                 return {"success": False, "message": "No API key configured"}
             base_url = MIMO_TOKEN_PLAN_BASE_URL if api_key.strip().lower().startswith("tp-") else MIMO_BASE_URL
-            resolved_model = model or "mimo-v2-flash"
+            resolved_model = model or "mimo-v2.5-flash"
             if resolved_model.startswith("xiaomi/"):
                 resolved_model = resolved_model.split("/", 1)[1]
+            legacy_aliases = {
+                "mimo-v2-flash": "mimo-v2.5-flash",
+                "mimo-v2-pro": "mimo-v2.5-pro",
+                "mimo-v2-omni": "mimo-v2.5-omni",
+            }
+            resolved_model = legacy_aliases.get(resolved_model.lower(), resolved_model)
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "model": resolved_model if resolved_model.startswith("mimo-") else "mimo-v2-flash",
+                        "model": resolved_model if resolved_model.startswith("mimo-") else "mimo-v2.5-flash",
                         "messages": [{"role": "user", "content": "Hi"}],
                         "max_tokens": 10,
                     },

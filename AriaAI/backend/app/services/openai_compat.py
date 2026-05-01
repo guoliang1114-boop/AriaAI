@@ -68,7 +68,7 @@ def _get_http_client() -> httpx.AsyncClient:
 DEFAULT_KIMI_MODEL = "kimi-k2.6"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro"
 DEFAULT_BIGMODEL_MODEL = "glm-5.1"
-DEFAULT_MIMO_MODEL = "mimo-v2-flash"
+DEFAULT_MIMO_MODEL = "mimo-v2.5-flash"
 
 SETTING_KIMI_API_KEY = "kimi_api_key"
 SETTING_DEEPSEEK_API_KEY = "deepseek_api_key"
@@ -99,7 +99,15 @@ def _is_mimo_model(model: str) -> bool:
 def _normalize_mimo_model(model: str) -> str:
     normalized = (model or DEFAULT_MIMO_MODEL).strip()
     if normalized.lower().startswith("xiaomi/"):
-        return normalized.split("/", 1)[1]
+        normalized = normalized.split("/", 1)[1]
+    legacy_aliases = {
+        "mimo-v2-flash": "mimo-v2.5-flash",
+        "mimo-v2-pro": "mimo-v2.5-pro",
+        "mimo-v2-omni": "mimo-v2.5-omni",
+    }
+    alias = legacy_aliases.get(normalized.lower())
+    if alias:
+        return alias
     return normalized
 
 

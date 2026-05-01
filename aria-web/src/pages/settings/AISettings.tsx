@@ -96,8 +96,8 @@ const models: AIModel[] = [
     icon: 'GL',
   },
   {
-    id: 'mimo-v2-flash',
-    name: 'MiMo V2 Flash',
+    id: 'mimo-v2.5-flash',
+    name: 'MiMo V2.5 Flash',
     provider: 'mimo',
     description: 'Xiaomi MiMo fast model for lower-latency daily chat, drafting, and lightweight agent tasks.',
     maxTokens: 8192,
@@ -106,8 +106,8 @@ const models: AIModel[] = [
     icon: 'MI',
   },
   {
-    id: 'mimo-v2-pro',
-    name: 'MiMo V2 Pro',
+    id: 'mimo-v2.5-pro',
+    name: 'MiMo V2.5 Pro',
     provider: 'mimo',
     description: 'Xiaomi MiMo reasoning model with large context for long-document and deeper analysis workloads.',
     maxTokens: 32000,

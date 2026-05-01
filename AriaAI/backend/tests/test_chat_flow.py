@@ -288,8 +288,8 @@ class ProviderSelectionTestCase(unittest.TestCase):
         self.assertEqual(provider_selector_module.resolve_provider_from_model("deepseek-v4-pro"), "deepseek")
 
     def test_mimo_models_resolve_to_mimo_provider(self):
-        self.assertEqual(provider_selector_module.resolve_provider_from_model("xiaomi/mimo-v2-flash"), "mimo")
-        self.assertEqual(provider_selector_module.resolve_provider_from_model("mimo-v2-pro"), "mimo")
+        self.assertEqual(provider_selector_module.resolve_provider_from_model("xiaomi/mimo-v2.5-flash"), "mimo")
+        self.assertEqual(provider_selector_module.resolve_provider_from_model("mimo-v2.5-pro"), "mimo")
 
     def test_xiaomi_provider_alias_normalizes_to_mimo(self):
         fd, db_path = tempfile.mkstemp(suffix=".db")
@@ -334,13 +334,13 @@ class ProviderSelectionTestCase(unittest.TestCase):
             ):
                 return await openai_compat_module.complete(
                     [{"role": "user", "content": "hi"}],
-                    model="mimo-v2-flash",
+                    model="mimo-v2.5-flash",
                     max_tokens=20,
                 )
 
         self.assertEqual(asyncio.run(run()), "mimo ok")
         self.assertEqual(fake_client.calls[0]["url"], f"{openai_compat_module.MIMO_BASE_URL}/chat/completions")
-        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2-flash")
+        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2.5-flash")
         self.assertEqual(fake_client.calls[0]["headers"]["Authorization"], "Bearer mimo-key")
 
     def test_mimo_token_plan_key_uses_token_plan_endpoint(self):
@@ -369,13 +369,46 @@ class ProviderSelectionTestCase(unittest.TestCase):
             ):
                 return await openai_compat_module.complete(
                     [{"role": "user", "content": "hi"}],
-                    model="xiaomi/mimo-v2-pro",
+                    model="xiaomi/mimo-v2.5-pro",
                     max_tokens=20,
                 )
 
         self.assertEqual(asyncio.run(run()), "token plan ok")
         self.assertEqual(fake_client.calls[0]["url"], f"{openai_compat_module.MIMO_TOKEN_PLAN_BASE_URL}/chat/completions")
-        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2-pro")
+        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2.5-pro")
+
+    def test_mimo_legacy_v2_model_aliases_to_v25(self):
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"choices": [{"message": {"content": "alias ok"}}]}
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def post(self, url, headers=None, json=None):
+                self.calls.append({"url": url, "headers": headers, "json": json})
+                return FakeResponse()
+
+        fake_client = FakeClient()
+
+        async def run():
+            with patch.object(openai_compat_module, "get_mimo_api_key", return_value="tp-test-key"), patch.object(
+                openai_compat_module,
+                "_get_http_client",
+                return_value=fake_client,
+            ):
+                return await openai_compat_module.complete(
+                    [{"role": "user", "content": "hi"}],
+                    model="mimo-v2-flash",
+                    max_tokens=20,
+                )
+
+        self.assertEqual(asyncio.run(run()), "alias ok")
+        self.assertEqual(fake_client.calls[0]["json"]["model"], "mimo-v2.5-flash")
 
 
 class ProjectServiceHelperTestCase(unittest.TestCase):
