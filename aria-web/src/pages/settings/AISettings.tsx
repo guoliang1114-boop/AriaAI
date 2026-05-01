@@ -19,7 +19,7 @@ import { api } from '../../api/client'
 interface AIModel {
   id: string
   name: string
-  provider: 'anthropic' | 'openai' | 'moonshot' | 'deepseek' | 'bigmodel' | 'custom'
+  provider: 'anthropic' | 'openai' | 'moonshot' | 'deepseek' | 'bigmodel' | 'mimo' | 'custom'
   description: string
   maxTokens: number
   supportsTools: boolean
@@ -95,12 +95,33 @@ const models: AIModel[] = [
     supportsVision: false,
     icon: 'GL',
   },
+  {
+    id: 'xiaomi/mimo-v2-flash',
+    name: 'MiMo V2 Flash',
+    provider: 'mimo',
+    description: 'Xiaomi MiMo fast model for lower-latency daily chat, drafting, and lightweight agent tasks.',
+    maxTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'MI',
+  },
+  {
+    id: 'xiaomi/mimo-v2-pro',
+    name: 'MiMo V2 Pro',
+    provider: 'mimo',
+    description: 'Xiaomi MiMo reasoning model with large context for long-document and deeper analysis workloads.',
+    maxTokens: 32000,
+    supportsTools: true,
+    supportsVision: false,
+    icon: 'MP',
+  },
 ]
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
   moonshot: 'Moonshot',
   deepseek: 'DeepSeek',
   bigmodel: 'BigModel',
+  mimo: 'Xiaomi MiMo',
 }
 
 const providerColors: Record<string, string> = {
@@ -108,6 +129,7 @@ const providerColors: Record<string, string> = {
   moonshot: 'bg-purple-500/10 text-purple-600 border-purple-200',
   deepseek: 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
   bigmodel: 'bg-blue-500/10 text-blue-600 border-blue-200',
+  mimo: 'bg-rose-500/10 text-rose-600 border-rose-200',
 }
 
 export function AISettings() {
@@ -122,6 +144,7 @@ export function AISettings() {
     moonshot: '',
     deepseek: '',
     bigmodel: '',
+    mimo: '',
   })
   
   // Parameters
@@ -186,6 +209,7 @@ export function AISettings() {
         moonshot: '/settings/kimi-api-key-status',
         deepseek: '/settings/deepseek-api-key-status',
         bigmodel: '/settings/bigmodel-api-key-status',
+        mimo: '/settings/mimo-api-key-status',
       }
       const newStatus: Record<string, boolean> = {}
       
@@ -223,6 +247,8 @@ export function AISettings() {
         provider = 'deepseek'
       } else if (selectedModel.startsWith('glm-')) {
         provider = 'bigmodel'
+      } else if (selectedModel.startsWith('mimo-') || selectedModel.startsWith('xiaomi/mimo-')) {
+        provider = 'mimo'
       }
       
       // Save settings (use same keys as Mac App)
@@ -267,6 +293,7 @@ export function AISettings() {
         moonshot: '',
         deepseek: '',
         bigmodel: '',
+        mimo: '',
       })
       
       // Refresh status
@@ -365,7 +392,7 @@ export function AISettings() {
   }
   
   // Only test connection for supported providers
-  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'deepseek', 'bigmodel'].includes(provider)
+  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'deepseek', 'bigmodel', 'mimo'].includes(provider)
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)
@@ -661,6 +688,48 @@ export function AISettings() {
                   className="text-primary hover:underline"
                 >
                   open.bigmodel.cn
+                </a>
+              </p>
+            </div>
+
+            {/* Xiaomi MiMo */}
+            <div className="p-4 bg-surface-container-low rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-on-surface-secondary">
+                  Xiaomi MiMo API Key
+                  {apiKeyStatus.mimo && (
+                    <span className="ml-2 text-xs text-success">Configured</span>
+                  )}
+                </label>
+                <button
+                  onClick={() => handleTestConnection('mimo')}
+                  disabled={testingProvider === 'mimo'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {testingProvider === 'mimo' ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <TestTube className="w-3 h-3" />
+                  )}
+                  Test
+                </button>
+              </div>
+              <input
+                type="password"
+                value={apiKeys.mimo}
+                onChange={(e) => setApiKeys(prev => ({ ...prev, mimo: e.target.value }))}
+                placeholder={apiKeyStatus.mimo ? 'Configured (enter to update)' : 'Enter MiMo API Key'}
+                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-lg text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary/40 transition-colors"
+              />
+              <p className="text-xs text-on-surface-muted mt-1.5">
+                Get your API key from{' '}
+                <a
+                  href="https://platform.xiaomimimo.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  platform.xiaomimimo.com
                 </a>
               </p>
             </div>

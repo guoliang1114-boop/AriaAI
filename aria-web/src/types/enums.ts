@@ -274,13 +274,14 @@ export function resolveProjectStage(status: string): ProjectStageConfig {
 }
 
 // LLM Provider
-export type LLMProvider = 'claude' | 'kimi' | 'deepseek' | 'bigmodel'
+export type LLMProvider = 'claude' | 'kimi' | 'deepseek' | 'bigmodel' | 'mimo'
 
 export const PROVIDER_LABELS: Record<LLMProvider, string> = {
   claude: 'Claude (Anthropic)',
   kimi: 'Kimi (Moonshot)',
   deepseek: 'DeepSeek',
   bigmodel: 'BigModel (智谱AI)',
+  mimo: 'Xiaomi MiMo',
 }
 
 // Milestone Priority
