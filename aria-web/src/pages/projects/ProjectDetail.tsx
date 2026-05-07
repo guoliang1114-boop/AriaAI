@@ -21,7 +21,6 @@ function renderProjectDetailContent(
   projectId: string,
   projectDetail: NonNullable<ReturnType<typeof useProjectDetailData>["projectDetail"]>,
   onRefresh: () => void,
-  pathname: string,
 ) {
   switch (activeTabId) {
     case "briefing":
@@ -38,7 +37,6 @@ function renderProjectDetailContent(
         <ProjectSpaceTab
           projectDetail={projectDetail}
           projectId={projectId}
-          initialView={pathname.endsWith("/documents") ? "files" : "markdown"}
           onUpdate={onRefresh}
         />
       );
@@ -222,7 +220,6 @@ export function ProjectDetail() {
           id!,
           projectDetail,
           refreshProjectDetail,
-          location.pathname,
         )}
       </ProjectDetailLayout>
     </>

@@ -778,6 +778,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertIn("Please summarize this week", content)
         self.assertIn("Here is the weekly summary", content)
 
+    @unittest.skip("Presales template bootstrap was removed; AI now owns project space structure.")
     def test_init_presales_template_creates_markdown_documents(self):
         with Session(self.engine) as session:
             project = Project(name="Beta", client="Client")

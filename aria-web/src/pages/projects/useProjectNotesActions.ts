@@ -34,7 +34,6 @@ export function useProjectNotesActions({
 }: UseProjectNotesActionsOptions) {
   const copy = getProjectNotesCopy(isZh);
   const [isSaving, setIsSaving] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
   const {
     aiDraft,
     aiLoading,
@@ -81,7 +80,7 @@ export function useProjectNotesActions({
   });
 
   const handleSave = async (markContentSynced: (value: string) => void) => {
-    if (!selectedFile) return;
+    if (!selectedFile || selectedFile.file_type?.toLowerCase() !== "md") return;
     setIsSaving(true);
     try {
       await api.patch(`/projects/${projectId}/documents/${selectedFile.id}`, {
@@ -98,27 +97,6 @@ export function useProjectNotesActions({
     }
   };
 
-  const handleInitTemplate = async () => {
-    setIsBootstrapping(true);
-    try {
-      const result = await api.post<{ cleaned_folder_count?: number }>(
-        `/projects/${projectId}/notes/templates/presales`,
-        {},
-      );
-      onTemplateUpdated();
-      onToastSuccess(
-        result.cleaned_folder_count
-          ? copy.templateCreatedAndCleaned
-          : copy.templateCreated,
-      );
-    } catch (error) {
-      console.error("Failed to initialize template:", error);
-      onToastError(copy.templateCreateFailed);
-    } finally {
-      setIsBootstrapping(false);
-    }
-  };
-
   return {
     aiDraft,
     aiLoading,
@@ -130,9 +108,7 @@ export function useProjectNotesActions({
     documentName,
     handleAIGenerate,
     handleDeleteDocument,
-    handleInitTemplate,
     handleSave,
-    isBootstrapping,
     isCreatingDoc,
     isDeletingDoc,
     isRenamingDoc,

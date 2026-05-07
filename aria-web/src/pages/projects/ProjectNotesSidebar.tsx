@@ -2,7 +2,6 @@ import {
   BookOpen,
   FilePlus2,
   Loader2,
-  Wand2,
 } from "lucide-react";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectNotesFolderTree } from "./ProjectNotesFolderTree";
@@ -11,29 +10,25 @@ import { getProjectNotesCopy } from "./projectNotesCopy";
 export function ProjectNotesSidebar({
   folderList,
   groupedFiles,
-  isBootstrapping,
   isCreatingDoc,
   isZh,
-  markdownFiles,
+  fileCount,
   openFolders,
   projectName,
   selectedFileId,
   onCreateDocument,
-  onInitTemplate,
   onSelectFile,
   onToggleFolder,
 }: {
   folderList: ProjectFolder[];
   groupedFiles: Map<number | "uncategorized", ProjectFile[]>;
-  isBootstrapping: boolean;
   isCreatingDoc: boolean;
   isZh: boolean;
-  markdownFiles: ProjectFile[];
+  fileCount: number;
   openFolders: Record<string, boolean>;
   projectName: string;
   selectedFileId: number | null;
   onCreateDocument: (folderId?: number | null) => void;
-  onInitTemplate: () => void;
   onSelectFile: (fileId: number) => void;
   onToggleFolder: (key: string | number) => void;
 }) {
@@ -55,21 +50,9 @@ export function ProjectNotesSidebar({
         </div>
         <div className="mt-4 flex gap-2">
           <button
-            onClick={onInitTemplate}
-            disabled={isBootstrapping}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-          >
-            {isBootstrapping ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="h-4 w-4" />
-            )}
-            {copy.bootstrap}
-          </button>
-          <button
             onClick={() => onCreateDocument(folderList[0]?.id ?? null)}
             disabled={isCreatingDoc}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
             title={copy.newDocument}
           >
             {isCreatingDoc ? (
@@ -93,7 +76,7 @@ export function ProjectNotesSidebar({
           selectedFileId={selectedFileId}
         />
 
-        {markdownFiles.length === 0 && (
+        {fileCount === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-5 py-8 text-center">
             <BookOpen className="mx-auto h-10 w-10 text-gray-300" />
             <p className="mt-3 text-sm font-medium text-gray-800">
@@ -102,18 +85,6 @@ export function ProjectNotesSidebar({
             <p className="mt-1 text-xs leading-6 text-gray-500">
               {copy.emptySidebarDescription}
             </p>
-            <button
-              onClick={onInitTemplate}
-              disabled={isBootstrapping}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-            >
-              {isBootstrapping ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Wand2 className="h-4 w-4" />
-              )}
-              {copy.emptyAction}
-            </button>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import {
   Eye,
+  Download,
   Loader2,
   MoreVertical,
   Pencil,
@@ -22,6 +23,7 @@ export function ProjectNotesToolbar({
   onOpenAIModal,
   onOpenRename,
   onRequestDelete,
+  onDownloadFile,
   onSave,
   onSetMode,
   onToggleMoreMenu,
@@ -37,11 +39,13 @@ export function ProjectNotesToolbar({
   onOpenAIModal: () => void;
   onOpenRename: () => void;
   onRequestDelete: () => void;
+  onDownloadFile: () => void;
   onSave: () => void;
   onSetMode: (mode: "edit" | "preview" | "split") => void;
   onToggleMoreMenu: () => void;
 }) {
   const copy = getProjectNotesCopy(isZh);
+  const isMarkdown = selectedFile?.file_type?.toLowerCase() === "md";
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4">
@@ -58,43 +62,45 @@ export function ProjectNotesToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex items-center rounded-lg bg-gray-100 p-1">
-          <button
-            onClick={() => onSetMode("edit")}
-            className={`rounded-md px-3 py-1.5 text-sm ${
-              mode === "edit"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500"
-            }`}
-          >
-            {copy.edit}
-          </button>
-          <button
-            onClick={() => onSetMode("split")}
-            className={`rounded-md px-3 py-1.5 text-sm ${
-              mode === "split"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500"
-            }`}
-          >
-            {copy.split}
-          </button>
-          <button
-            onClick={() => onSetMode("preview")}
-            className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${
-              mode === "preview"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500"
-            }`}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            {copy.preview}
-          </button>
-        </div>
+        {isMarkdown ? (
+          <div className="flex items-center rounded-lg bg-gray-100 p-1">
+            <button
+              onClick={() => onSetMode("edit")}
+              className={`rounded-md px-3 py-1.5 text-sm ${
+                mode === "edit"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500"
+              }`}
+            >
+              {copy.edit}
+            </button>
+            <button
+              onClick={() => onSetMode("split")}
+              className={`rounded-md px-3 py-1.5 text-sm ${
+                mode === "split"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500"
+              }`}
+            >
+              {copy.split}
+            </button>
+            <button
+              onClick={() => onSetMode("preview")}
+              className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${
+                mode === "preview"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500"
+              }`}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {copy.preview}
+            </button>
+          </div>
+        ) : null}
 
         <button
           onClick={onOpenAIModal}
-          disabled={!selectedFile}
+          disabled={!selectedFile || !isMarkdown}
           className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
         >
           <Sparkles className="h-4 w-4" />
@@ -103,7 +109,7 @@ export function ProjectNotesToolbar({
 
         <button
           onClick={onSave}
-          disabled={!selectedFile || isSaving || !dirty}
+          disabled={!selectedFile || !isMarkdown || isSaving || !dirty}
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
         >
           {isSaving ? (
@@ -113,6 +119,16 @@ export function ProjectNotesToolbar({
           )}
           {copy.save}
         </button>
+
+        {selectedFile && !isMarkdown ? (
+          <button
+            onClick={onDownloadFile}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+          >
+            <Download className="h-4 w-4" />
+            {isZh ? "下载" : "Download"}
+          </button>
+        ) : null}
 
         <button
           onClick={onToggleMoreMenu}
@@ -127,7 +143,7 @@ export function ProjectNotesToolbar({
           <div className="absolute right-0 top-full z-50 mt-2 w-40 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
             <button
               onClick={onOpenRename}
-              disabled={isRenamingDoc}
+              disabled={isRenamingDoc || !isMarkdown}
               className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
               {isRenamingDoc ? (

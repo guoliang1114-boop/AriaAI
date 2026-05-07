@@ -28,6 +28,15 @@ export function useProjectNotesDocuments({
         .sort((a, b) => a.name.localeCompare(b.name)),
     [files],
   );
+  const spaceFiles = useMemo(
+    () =>
+      [...files].sort(
+        (a, b) =>
+          (a.folder_id ?? 0) - (b.folder_id ?? 0) ||
+          a.name.localeCompare(b.name),
+      ),
+    [files],
+  );
   const folderList = useMemo(
     () =>
       [...folders].sort(
@@ -58,7 +67,7 @@ export function useProjectNotesDocuments({
   }, [folderList]);
 
   useEffect(() => {
-    if (markdownFiles.length === 0) {
+    if (spaceFiles.length === 0) {
       setSelectedFileId(null);
       setContent("");
       setDirty(false);
@@ -66,13 +75,21 @@ export function useProjectNotesDocuments({
       return;
     }
 
-    if (!selectedFileId || !markdownFiles.some((file) => file.id === selectedFileId)) {
-      setSelectedFileId(markdownFiles[0].id);
+    if (!selectedFileId || !spaceFiles.some((file) => file.id === selectedFileId)) {
+      setSelectedFileId(spaceFiles[0].id);
     }
-  }, [markdownFiles, selectedFileId]);
+  }, [spaceFiles, selectedFileId]);
 
   useEffect(() => {
     if (!selectedFileId) {
+      return;
+    }
+
+    const selected = spaceFiles.find((file) => file.id === selectedFileId);
+    if (selected?.file_type?.toLowerCase() !== "md") {
+      setContent("");
+      setDirty(false);
+      lastLoadedContentRef.current = "";
       return;
     }
 
@@ -106,10 +123,10 @@ export function useProjectNotesDocuments({
     return () => {
       cancelled = true;
     };
-  }, [projectId, selectedFileId]);
+  }, [projectId, selectedFileId, spaceFiles]);
 
   const selectedFile =
-    markdownFiles.find((file) => file.id === selectedFileId) || null;
+    spaceFiles.find((file) => file.id === selectedFileId) || null;
 
   const groupedFiles = useMemo(() => {
     const map = new Map<number | "uncategorized", ProjectFile[]>();
@@ -117,14 +134,14 @@ export function useProjectNotesDocuments({
       map.set(folder.id, []);
     }
     map.set("uncategorized", []);
-    for (const file of markdownFiles) {
+    for (const file of spaceFiles) {
       const key = file.folder_id ?? "uncategorized";
       const bucket = map.get(key) || [];
       bucket.push(file);
       map.set(key, bucket);
     }
     return map;
-  }, [folderList, markdownFiles]);
+  }, [folderList, spaceFiles]);
 
   const toggleFolder = (key: string | number) => {
     setOpenFolders((current) => ({ ...current, [key]: !current[key] }));
@@ -156,6 +173,7 @@ export function useProjectNotesDocuments({
     openFolders,
     selectedFile,
     selectedFileId,
+    spaceFiles,
     setSelectedFileId,
     toggleFolder,
     updateContent,

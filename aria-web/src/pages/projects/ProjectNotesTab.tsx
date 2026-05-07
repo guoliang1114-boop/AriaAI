@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
+import { downloadProjectFile } from "./downloadProjectFile";
 import { ProjectNotesContentPanel } from "./ProjectNotesContentPanel";
 import { ProjectNotesDialogs } from "./ProjectNotesDialogs";
 import { ProjectNotesSidebar } from "./ProjectNotesSidebar";
@@ -58,6 +59,7 @@ export function ProjectNotesTab({
     selectedFile,
     selectedFileId,
     setSelectedFileId,
+    spaceFiles,
     toggleFolder,
     updateContent,
     markContentSynced,
@@ -79,9 +81,7 @@ export function ProjectNotesTab({
     documentName,
     handleAIGenerate,
     handleDeleteDocument,
-    handleInitTemplate,
     handleSave,
-    isBootstrapping,
     isCreatingDoc,
     isDeletingDoc,
     isRenamingDoc,
@@ -110,21 +110,32 @@ export function ProjectNotesTab({
     updateContent,
   });
 
+  const handleDownloadFile = async (file: ProjectFile) => {
+    try {
+      await downloadProjectFile({
+        fileId: file.id,
+        fileName: file.name,
+        projectId,
+      });
+    } catch (error) {
+      console.error("Failed to download project file:", error);
+      toast.error(isZh ? "下载失败" : "Download failed");
+    }
+  };
+
   return (
     <div className="h-full min-h-[calc(100vh-220px)] overflow-hidden rounded-2xl border border-gray-200 bg-white">
       <div className="flex h-full min-h-[calc(100vh-220px)]">
         <ProjectNotesSidebar
           folderList={folderList}
           groupedFiles={groupedFiles}
-          isBootstrapping={isBootstrapping}
           isCreatingDoc={isCreatingDoc}
           isZh={isZh}
-          markdownFiles={markdownFiles}
+          fileCount={spaceFiles.length}
           openFolders={openFolders}
           projectName={projectName}
           selectedFileId={selectedFileId}
           onCreateDocument={openCreateDialog}
-          onInitTemplate={() => void handleInitTemplate()}
           onSelectFile={setSelectedFileId}
           onToggleFolder={toggleFolder}
         />
@@ -168,6 +179,7 @@ export function ProjectNotesTab({
                 setShowMoreMenu(false);
                 setShowDeleteDialog(true);
               }}
+              onDownloadFile={() => selectedFile && void handleDownloadFile(selectedFile)}
               onSave={() => void handleSave(markContentSynced)}
               onSetMode={setMode}
               onToggleMoreMenu={() => setShowMoreMenu((value) => !value)}
@@ -179,7 +191,9 @@ export function ProjectNotesTab({
               content={content}
               copy={copy}
               isLoadingDoc={isLoadingDoc}
+              isZh={isZh}
               mode={mode}
+              onDownloadFile={(file) => void handleDownloadFile(file)}
               selectedFile={selectedFile}
               updateContent={updateContent}
             />

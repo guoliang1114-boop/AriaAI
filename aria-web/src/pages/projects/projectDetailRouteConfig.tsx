@@ -60,7 +60,6 @@ export function buildProjectDetailRouteConfig({
         <ProjectSpaceTab
           projectDetail={projectDetail}
           projectId={projectId}
-          initialView="markdown"
           onUpdate={onRefresh}
         />
       ),
@@ -71,7 +70,6 @@ export function buildProjectDetailRouteConfig({
         <ProjectSpaceTab
           projectDetail={projectDetail}
           projectId={projectId}
-          initialView="files"
           onUpdate={onRefresh}
         />
       ),

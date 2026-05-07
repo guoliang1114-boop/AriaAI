@@ -86,7 +86,6 @@ from app.services.project_documents import (
     get_project_document_file_or_404,
     get_project_document_payload,
     ensure_markdown_filename,
-    init_presales_template_documents,
     resolve_project_folder,
     update_project_document_record,
     write_project_markdown_file,
@@ -1314,10 +1313,6 @@ class ProjectDocumentUpdate(BaseModel):
     folder_id: Optional[int] = None
 
 
-class InitPresalesTemplateRequest(BaseModel):
-    overwrite: bool = False
-
-
 class ProjectBriefingRefineRequest(BaseModel):
     meeting_type: str = "status"
     language: Optional[str] = None
@@ -1735,23 +1730,6 @@ def delete_milestone(project_id: int, ms_id: int, session: Session = Depends(get
 @router.get("/{project_id}/files")
 def list_files(project_id: int, session: Session = Depends(get_session)):
     return list_project_files(session, project_id)
-
-
-@router.post("/{project_id}/notes/templates/presales", status_code=201)
-def init_presales_notes_template(
-    project_id: int,
-    body: InitPresalesTemplateRequest,
-    session: Session = Depends(get_session),
-):
-    result = init_presales_template_documents(
-        session,
-        project_id,
-        uploads_dir=UPLOADS_DIR,
-        overwrite=body.overwrite,
-    )
-    _mark_project_memory_stale(session, project_id)
-    _bust_project(project_id)
-    return result
 
 
 @router.post("/{project_id}/documents", status_code=201)
