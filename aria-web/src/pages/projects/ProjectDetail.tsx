@@ -6,12 +6,12 @@ import { ServiceErrorState } from "../../components/ServiceErrorState";
 import { ProjectAnchorsTab } from "./ProjectAnchorsTab";
 import { ProjectBriefingTab } from "./ProjectBriefingTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
-import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
+import { ProjectSpaceTab } from "./ProjectSpaceTab";
 import { ProjectStakeholdersTab } from "./ProjectStakeholdersTab";
 import { getActiveProjectDetailTabId, type ProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
@@ -21,6 +21,7 @@ function renderProjectDetailContent(
   projectId: string,
   projectDetail: NonNullable<ReturnType<typeof useProjectDetailData>["projectDetail"]>,
   onRefresh: () => void,
+  pathname: string,
 ) {
   switch (activeTabId) {
     case "briefing":
@@ -30,11 +31,14 @@ function renderProjectDetailContent(
           projectId={projectId}
         />
       );
+    case "space":
+    case "notes":
     case "documents":
       return (
-        <ProjectDocumentsTab
+        <ProjectSpaceTab
           projectDetail={projectDetail}
           projectId={projectId}
+          initialView={pathname.endsWith("/documents") ? "files" : "markdown"}
           onUpdate={onRefresh}
         />
       );
@@ -218,6 +222,7 @@ export function ProjectDetail() {
           id!,
           projectDetail,
           refreshProjectDetail,
+          location.pathname,
         )}
       </ProjectDetailLayout>
     </>

@@ -172,6 +172,7 @@
     "projectDetail": {
       "back": "返回项目列表",
       "overview": "概览",
+      "space": "空间",
       "documents": "文档",
       "milestones": "里程碑",
       "notes": "笔记",

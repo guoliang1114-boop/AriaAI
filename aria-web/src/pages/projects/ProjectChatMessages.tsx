@@ -26,7 +26,7 @@ const ChatStreamingMessage = memo<{
 
   const buildReferenceHref = (reference: Reference) => {
     if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
-    return `/projects/${projectId}/documents`;
+    return `/projects/${projectId}/space`;
   };
 
   return (

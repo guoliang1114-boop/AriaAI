@@ -150,7 +150,7 @@ export function ProjectOverviewTab({
           <ProjectOverviewNotesCard
             isZh={isZh}
             notesText={overviewNotesText}
-            onOpen={() => navigate(`/projects/${projectId}/notes`)}
+            onOpen={() => navigate(`/projects/${projectId}/space`)}
           />
         )}
 
@@ -164,7 +164,7 @@ export function ProjectOverviewTab({
           files={recentFiles}
           isZh={isZh}
           onDownload={(file) => void handleDownload(file)}
-          onOpen={() => navigate(`/projects/${projectId}/documents`)}
+          onOpen={() => navigate(`/projects/${projectId}/space`)}
         />
       </div>
 
@@ -189,7 +189,7 @@ export function ProjectOverviewTab({
             onRebuild={() => void rebuildMemory()}
           />
         }
-        onGoToDocuments={() => navigate(`/projects/${projectId}/documents`)}
+        onGoToDocuments={() => navigate(`/projects/${projectId}/space`)}
         onGoToFinancials={() => navigate(`/projects/${projectId}/financials`)}
         onGoToMilestones={() => navigate(`/projects/${projectId}/milestones`)}
         onGoToTodos={() => navigate(`/projects/${projectId}/todos`)}

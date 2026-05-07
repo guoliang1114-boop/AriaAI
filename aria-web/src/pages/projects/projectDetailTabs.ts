@@ -16,6 +16,7 @@ import {
 export type ProjectDetailTabId =
   | "overview"
   | "briefing"
+  | "space"
   | "documents"
   | "milestones"
   | "notes"
@@ -52,11 +53,11 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     getPath: (projectId) => `/projects/${projectId}/briefing`,
   },
   {
-    id: "notes",
-    labelKey: "projects.projectDetail.notes",
+    id: "space",
+    labelKey: "projects.projectDetail.space",
     icon: BookOpen,
-    path: "notes",
-    getPath: (projectId) => `/projects/${projectId}/notes`,
+    path: "space",
+    getPath: (projectId) => `/projects/${projectId}/space`,
   },
   {
     id: "todos",
@@ -109,11 +110,20 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     getPath: (projectId) => `/projects/${projectId}/financials`,
   },
   {
+    id: "notes",
+    labelKey: "projects.projectDetail.notes",
+    icon: BookOpen,
+    path: "notes",
+    getPath: (projectId) => `/projects/${projectId}/notes`,
+    hiddenInNav: true,
+  },
+  {
     id: "documents",
     labelKey: "projects.projectDetail.documents",
     icon: Files,
     path: "documents",
     getPath: (projectId) => `/projects/${projectId}/documents`,
+    hiddenInNav: true,
   },
   {
     id: "settings",
@@ -130,6 +140,14 @@ export function getActiveProjectDetailTabId(
 ): ProjectDetailTabId {
   if (!projectId) {
     return "overview";
+  }
+
+  const legacySpacePaths = [
+    `/projects/${projectId}/notes`,
+    `/projects/${projectId}/documents`,
+  ];
+  if (legacySpacePaths.includes(pathname)) {
+    return "space";
   }
 
   const matchedTab = PROJECT_DETAIL_TABS.find(

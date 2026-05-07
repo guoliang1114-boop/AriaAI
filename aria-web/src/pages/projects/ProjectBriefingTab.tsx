@@ -226,7 +226,7 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
       navigate(`/projects/${projectId}/chat${params.toString() ? `?${params.toString()}` : ""}`);
       return;
     }
-    navigate(`/projects/${projectId}/notes`);
+    navigate(`/projects/${projectId}/space`);
   };
 
   if (isLoading && !briefing) {
