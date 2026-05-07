@@ -554,6 +554,8 @@ export function ProjectChatTab({
         conversations={conversations}
         editTitle={editTitle}
         editingConvId={editingConvId}
+        files={files}
+        folders={folders}
         isFullscreen={isFullscreen}
         isLoadingConversations={isLoadingConversations}
         isOpen={panel.isSidebarOpen}
@@ -562,6 +564,7 @@ export function ProjectChatTab({
         onDeleteConversation={openDeleteConversationDialog}
         onRenameSubmit={renameConversation}
         onRenameTitleChange={setEditTitle}
+        onOpenSpace={() => navigate(`/projects/${project.id}/space`)}
         onSelectConversation={handleSelectConversation}
         onStartNewChat={handleStartNewChat}
       />

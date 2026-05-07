@@ -58,7 +58,7 @@ function getProjectSpaceFileIconMeta(file: ProjectFile): FileIconMeta {
   return { Icon: File, className: "text-gray-500", label: extension.toUpperCase() || "FILE" };
 }
 
-function ProjectSpaceFileIcon({ file }: { file: ProjectFile }) {
+export function ProjectSpaceFileIcon({ file }: { file: ProjectFile }) {
   const { Icon, className, label } = getProjectSpaceFileIconMeta(file);
 
   return (
