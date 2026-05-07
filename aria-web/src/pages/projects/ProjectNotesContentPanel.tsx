@@ -1,4 +1,14 @@
-import { BookOpen, Download, FileText, Loader2 } from "lucide-react";
+import {
+  BookOpen,
+  Download,
+  File,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  Loader2,
+  Presentation,
+} from "lucide-react";
+import type { ComponentType } from "react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { ProjectFile } from "../../types/api";
 
@@ -16,6 +26,40 @@ interface ProjectNotesContentPanelProps {
   selectedFile: ProjectFile | null;
   onDownloadFile: (file: ProjectFile) => void;
   updateContent: (value: string) => void;
+}
+
+type FileIconMeta = {
+  Icon: ComponentType<{ className?: string }>;
+  className: string;
+  label: string;
+};
+
+function getProjectSpaceFileIconMeta(file: ProjectFile): FileIconMeta {
+  const rawType = (file.file_type || "").toLowerCase();
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  const type = rawType || extension;
+
+  if (type === "md" || extension === "md" || type.includes("markdown")) {
+    return { Icon: FileText, className: "text-slate-600", label: "MD" };
+  }
+  if (["doc", "docx"].includes(extension) || type.includes("doc") || type.includes("word")) {
+    return { Icon: FileType2, className: "text-blue-600", label: "DOCX" };
+  }
+  if (["ppt", "pptx"].includes(extension) || type.includes("ppt") || type.includes("presentation")) {
+    return { Icon: Presentation, className: "text-orange-600", label: "PPTX" };
+  }
+  if (extension === "pdf" || type.includes("pdf")) {
+    return { Icon: FileText, className: "text-red-600", label: "PDF" };
+  }
+  if (
+    ["xls", "xlsx", "csv"].includes(extension) ||
+    type.includes("xls") ||
+    type.includes("sheet") ||
+    type.includes("csv")
+  ) {
+    return { Icon: FileSpreadsheet, className: "text-emerald-600", label: "XLSX" };
+  }
+  return { Icon: File, className: "text-gray-500", label: extension.toUpperCase() || "FILE" };
 }
 
 export function ProjectNotesContentPanel({
@@ -53,16 +97,17 @@ export function ProjectNotesContentPanel({
   }
 
   if (!isMarkdown) {
+    const { Icon, className, label } = getProjectSpaceFileIconMeta(selectedFile);
     return (
       <div className="flex h-full items-center justify-center px-8">
         <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-gray-50 p-6">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
-              <FileText className="h-6 w-6" />
+              <Icon className={`h-6 w-6 ${className}`} />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-[0.18em] text-gray-400">
-                {selectedFile.file_type?.toUpperCase() || "FILE"}
+                {label}
               </p>
               <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">
                 {selectedFile.name}
