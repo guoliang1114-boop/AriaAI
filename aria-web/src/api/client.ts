@@ -8,7 +8,6 @@ interface ErrorResponsePayload {
 
 class ApiClient {
   private client: AxiosInstance
-  private isRedirecting = false
   private isDev = import.meta.env.DEV
 
   constructor() {
@@ -77,27 +76,17 @@ class ApiClient {
 
     // Handle 401 Unauthorized
     if (status === 401) {
-      if (this.isDev) {
-        console.log('[API] 401 detected, checking redirect...')
-      }
       const currentPath = window.location.pathname
-      if (this.isDev) {
-        console.log('[API] Current path:', currentPath)
-      }
-      
-      if (!currentPath.includes('/login') && !this.isRedirecting) {
-        this.isRedirecting = true
+      if (!currentPath.includes('/login')) {
         console.warn('[API] 401 Unauthorized - redirecting to login')
         localStorage.removeItem('authToken')
         localStorage.removeItem('user')
-        
+
         // Dispatch auth change event to notify AuthContext
         window.dispatchEvent(new Event('auth:logout'))
-        
-        // Use setTimeout to ensure this happens after current execution
-        setTimeout(() => {
-          window.location.href = '/login'
-        }, 100)
+
+        // Replace current history so back button won't return to the 401 page
+        window.location.replace('/login')
       }
     }
   }

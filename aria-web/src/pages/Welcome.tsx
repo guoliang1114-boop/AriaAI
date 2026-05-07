@@ -244,7 +244,12 @@ export function Welcome() {
         .catch(() => {})
     } catch (err) {
       const apiError = err as AxiosError<ErrorResponsePayload>
-      if (apiError.response?.status === 401) throw apiError
+      // 401 is handled by api/client.ts interceptor (redirects to login)
+      if (apiError.response?.status === 401) {
+        setLoading(false)
+        setSecondaryLoading(false)
+        return
+      }
       setSecondaryLoading(false)
       setLoading(false)
       setErrorStatus(apiError.response?.status ?? null)
