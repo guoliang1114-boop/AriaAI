@@ -34,7 +34,9 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
+
+_PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
@@ -287,6 +289,8 @@ def _tool_start_progress_payload(tool_name: str) -> dict | None:
         return {"message": "Generating slides... (this may take 1-2 minutes)"}
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
         return {"message": "Markdown 正文生成中，完成后会询问是否写入项目文件。"}
+    if tool_name == READ_MARKDOWN_TOOL_NAME:
+        return {"message": "正在读取项目文档…"}
     if tool_name == "generate_docx":
         return {"message": "Generating document..."}
     if tool_name == "generate_xlsx":
@@ -887,8 +891,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 text_buffer,
                 force_rebuild=p1_truncated,
             )
-            if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
+            if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
+            if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 markdown_content = str(tool_input.get("content") or "").strip()
                 if markdown_content:
                     if text_buffer.strip():

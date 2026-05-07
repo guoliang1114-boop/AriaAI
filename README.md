@@ -14,23 +14,23 @@ AriaAI 是面向咨询、售前与交付团队的 AI 协作工作台。当前仓
 
 后端：
 
-```powershell
-cd C:\Users\Administrator\AP\AriaAI\AriaAI\backend
-.\start.ps1
+```bash
+cd AriaAI/backend
+./start.sh
 ```
 
 前端：
 
-```powershell
-cd C:\Users\Administrator\AP\AriaAI\aria-web
+```bash
+cd aria-web
 npm install
 npm run dev
 ```
 
 生产构建校验：
 
-```powershell
-cd C:\Users\Administrator\AP\AriaAI\aria-web
+```bash
+cd aria-web
 npm run build
 ```
 

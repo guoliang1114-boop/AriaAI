@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
 from app.database import engine
-from app.models.db import ProjectFile
+from app.models.db import ProjectFile, ProjectFolder
 from app.services.cache import projects_cache
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
@@ -167,4 +167,105 @@ async def update_project_markdown_document(
             "name": updated["name"],
             "size_bytes": updated["size_bytes"],
             "message": f"Updated {updated['name']}",
+        }
+
+
+READ_MARKDOWN_TOOL_NAME = "read_project_markdown_document"
+_READ_MAX_CHARS = 12000
+
+
+@registry.register(
+    name=READ_MARKDOWN_TOOL_NAME,
+    description=(
+        "List or read Markdown documents in the current project. "
+        "Call with action='list' to see all available MD files (returns id, name, folder, summary). "
+        "Call with action='read' and a file_id or file_name to read the full content of a specific file."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "read"],
+                "description": "list returns the file index; read returns the content of a specific file.",
+            },
+            "file_id": {
+                "type": "integer",
+                "description": "File id to read. Prefer this when the id is known.",
+            },
+            "file_name": {
+                "type": "string",
+                "description": "File name to read, e.g. project-summary.md. Used when file_id is unknown.",
+            },
+        },
+        "required": ["action"],
+    },
+)
+async def read_project_markdown_document(
+    *,
+    project_id: int,
+    action: Literal["list", "read"],
+    file_id: int | None = None,
+    file_name: str | None = None,
+) -> dict:
+    if not project_id:
+        raise HTTPException(400, "Project id is required")
+
+    with Session(engine) as session:
+        if action == "list":
+            files = session.exec(
+                select(ProjectFile).where(
+                    ProjectFile.project_id == project_id,
+                    ProjectFile.file_type == "md",
+                )
+            ).all()
+
+            folder_names: dict[int, str] = {}
+            folder_ids = {f.folder_id for f in files if f.folder_id is not None}
+            if folder_ids:
+                folders = session.exec(
+                    select(ProjectFolder).where(ProjectFolder.id.in_(folder_ids))
+                ).all()
+                folder_names = {folder.id: folder.name for folder in folders}
+
+            return {
+                "ok": True,
+                "count": len(files),
+                "files": [
+                    {
+                        "id": f.id,
+                        "name": f.name,
+                        "folder": folder_names.get(f.folder_id, "") if f.folder_id else "",
+                        "summary": f.summary or "",
+                        "size_bytes": f.size_bytes,
+                    }
+                    for f in files
+                ],
+            }
+
+        # action == "read"
+        project_file: ProjectFile | None = None
+        if file_id is not None:
+            project_file = get_project_document_file_or_404(session, project_id, file_id)
+        elif file_name:
+            project_file = _find_markdown_file(session, project_id, file_name)
+
+        if project_file is None:
+            raise HTTPException(404, "Markdown document not found. Use action='list' to see available files.")
+
+        if project_file.file_type.lower() != "md":
+            raise HTTPException(400, "Only markdown documents are supported")
+
+        content = read_project_document_content(project_file, uploads_dir=UPLOADS_DIR)
+        truncated = len(content) > _READ_MAX_CHARS
+        if truncated:
+            content = content[:_READ_MAX_CHARS]
+
+        return {
+            "ok": True,
+            "id": project_file.id,
+            "name": project_file.name,
+            "size_bytes": project_file.size_bytes,
+            "truncated": truncated,
+            "content": content,
         }

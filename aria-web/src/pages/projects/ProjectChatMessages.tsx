@@ -34,15 +34,15 @@ const ChatStreamingMessage = memo<{
       <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20">
         <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
-      <div className="flex-1 flex flex-col items-start">
+      <div className="flex-1 min-w-0 flex flex-col items-stretch">
         <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">Aria</p>
-        <div className="max-w-[85%] text-[15px] leading-[1.8] text-gray-700">
-          <div className="md-root">
+        <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
+          <div className="md-root w-full">
             {renderedContent}
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
           </div>
           {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
-            <div className="mt-3 space-y-2 max-w-[40rem]">
+            <div className="mt-3 space-y-2 w-full max-w-2xl">
               {toolCalls.map((call, index) => (
                 <ProjectChatToolCallCard
                   key={`${call.tool_name}-${call.status}-${index}`}

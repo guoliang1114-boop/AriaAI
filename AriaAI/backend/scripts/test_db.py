@@ -4,7 +4,7 @@
 This file is intentionally not a unittest module. Run it directly when you need
 to verify the configured database connection:
 
-    python test_db.py
+    python scripts/test_db.py
 """
 
 from __future__ import annotations

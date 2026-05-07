@@ -30,14 +30,15 @@ from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
-PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document"]
+PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document", "read_project_markdown_document"]
 PROJECT_MARKDOWN_TOOL_PROMPT = """
 
-Project Markdown editing:
-- You may update project Markdown files only when the user explicitly asks you to create, append to, or update an MD document.
-- Use the `update_project_markdown_document` tool for those edits. The server will restrict the write to the current project.
-- Prefer a listed file id when targeting an existing Markdown file. If the target document is ambiguous, ask a short clarification before editing.
-- For replace mode, send the complete final Markdown document content, not a diff.
+Project Markdown document tools:
+- Use `read_project_markdown_document` with action='list' to discover which MD files exist in this project (returns id, name, folder, summary).
+- Use `read_project_markdown_document` with action='read' and a file_id or file_name to read a specific file's content before answering questions about it.
+- Use `update_project_markdown_document` to create, append to, or replace an MD file — only when the user explicitly asks for an edit.
+- Prefer using file_id (from a prior list call) when targeting a file. If the target is ambiguous, call list first, then read.
+- For replace mode, send the complete final Markdown content, not a diff.
 """.strip()
 PROJECT_FILE_QUERY_MARKERS = (
     "file",
