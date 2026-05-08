@@ -882,6 +882,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             tool_id = tool_data.get("id", "")
 
             if not tool_name or not isinstance(tool_input, dict):
+                tool_result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps({"error": "Invalid tool name or input"}, ensure_ascii=False),
+                    }
+                )
                 continue
             tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
             tool_input = _repair_digital_strategy_ppt_tool_input(
@@ -1092,6 +1099,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 yield _sse_event({"type": "text", "content": chunk})
 
             # Execute any tool_use blocks detected during P3 follow-up
+            p3_tool_result_blocks = []
             if p3_tool_use_blocks:
                 print(f"[P3] executing {len(p3_tool_use_blocks)} detected tool_use blocks", flush=True)
                 yield _sse_event({"type": "status", "stage": "tools", "message": "检测到后续工具调用，正在执行..."})
@@ -1100,6 +1108,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     tool_input = tool_data.get("input", {})
                     tool_id = tool_data.get("id", "")
                     if not tool_name or not isinstance(tool_input, dict):
+                        p3_tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": json.dumps({"error": "Invalid tool name or input"}, ensure_ascii=False),
+                            }
+                        )
                         continue
                     if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
                         tool_input = {**tool_input, "project_id": runtime.project_id}
@@ -1134,6 +1149,12 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             )
                             yield _sse_event({"type": "tool_result", "result": write_result})
                         except Exception as exc:
+                            write_result = {
+                                "type": "tool_result",
+                                "tool_name": tool_name,
+                                "status": "error",
+                                "error": str(exc),
+                            }
                             tool_call_events.append(
                                 {
                                     "tool_name": tool_name,
@@ -1143,6 +1164,14 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                     "error": str(exc),
                                 }
                             )
+                        output = write_result.get("output", write_result) if write_result else {"error": "No result"}
+                        p3_tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": json.dumps(output, ensure_ascii=False),
+                            }
+                        )
                     else:
                         # Other tools: simple execution
                         try:
@@ -1156,6 +1185,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                 }
                             )
                             yield _sse_event({"type": "tool_result", "result": result})
+                            p3_tool_result_blocks.append(
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_id,
+                                    "content": json.dumps(result.get("output", result), ensure_ascii=False),
+                                }
+                            )
                         except Exception as exc:
                             tool_call_events.append(
                                 {
@@ -1166,6 +1202,73 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                     "error": str(exc),
                                 }
                             )
+                            p3_tool_result_blocks.append(
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_id,
+                                    "content": json.dumps({"error": str(exc)}, ensure_ascii=False),
+                                }
+                            )
+
+                # Re-follow-up: send tool_results back to model so it can generate a proper final response
+                if p3_tool_result_blocks:
+                    p3_assistant_content = []
+                    if follow_up_text.strip():
+                        p3_assistant_content.append({"type": "text", "text": follow_up_text.strip()})
+                    for block in p3_tool_use_blocks:
+                        p3_assistant_content.append(
+                            {
+                                "type": "tool_use",
+                                "id": block["id"],
+                                "name": block["name"],
+                                "input": block.get("input", {}),
+                            }
+                        )
+
+                    p3_re_follow_messages = runtime.api_messages + [
+                        {
+                            "role": "assistant",
+                            "content": assistant_content,
+                            **({"reasoning_content": reasoning_content} if reasoning_content else {}),
+                        },
+                        {"role": "user", "content": tool_result_blocks},
+                        {"role": "assistant", "content": p3_assistant_content},
+                        {"role": "user", "content": p3_tool_result_blocks},
+                    ]
+
+                    print(f"[P3] re-follow-up after tool execution. messages={len(p3_re_follow_messages)}", flush=True)
+                    yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
+                    re_follow_text = ""
+                    async for item in _iter_with_heartbeat(
+                        runtime.llm.stream_response(
+                            p3_re_follow_messages,
+                            system=runtime.system,
+                            model=runtime.selected_model,
+                            tools=runtime.tools,
+                            max_tokens=runtime.max_tokens,
+                            temperature=runtime.temperature,
+                        ),
+                        stage="follow_up",
+                        message="工具结果已返回，模型正在整理最终答复...",
+                    ):
+                        if isinstance(item, dict):
+                            yield _sse_event(item)
+                            continue
+                        chunk = item
+                        chunk, was_truncated = _strip_truncation_marker(chunk)
+                        if was_truncated:
+                            yield _sse_event(
+                                {
+                                    "type": "status",
+                                    "stage": "continuing",
+                                    "message": "最终答复较长，正在尝试继续生成...",
+                                }
+                            )
+                            if not chunk:
+                                continue
+                        re_follow_text += chunk
+                        yield _sse_event({"type": "text", "content": chunk})
+                    follow_up_text = re_follow_text
 
             if p3_truncated and follow_up_text.strip():
                 p3_continuation_messages = continuation_messages + [
@@ -1196,7 +1299,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         if chunk:
                             follow_up_text += chunk
                             yield _sse_event({"type": "text", "content": chunk})
-                        follow_up_text += "\n\n（内容较长，已达到单次回复长度上限。你可以继续发送“继续”，我会从这里接着展开。）"
+                        # 截断提示只 yield 给前端，不保存到数据库
                         yield _sse_event(
                             {
                                 "type": "text",

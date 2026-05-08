@@ -251,8 +251,16 @@ async def _complete_sdk(
     
     try:
         response = await client.messages.create(**kwargs)
-        logger.info(f"[Claude API] SDK response: {len(response.content[0].text)} chars")
-        return response.content[0].text
+        if response.content:
+            first_block = response.content[0]
+            if first_block.type == "text":
+                logger.info(f"[Claude API] SDK response: {len(first_block.text)} chars")
+                return first_block.text
+            # Pure tool_call response with no text block
+            logger.info("[Claude API] SDK response: tool_use block (no text)")
+            return ""
+        logger.warning("[Claude API] SDK response: empty content")
+        return ""
     except Exception as e:
         logger.error(f"[Claude API] SDK complete error: {type(e).__name__}: {e}")
         raise

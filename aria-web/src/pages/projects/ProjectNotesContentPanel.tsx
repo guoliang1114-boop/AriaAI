@@ -74,7 +74,11 @@ export function ProjectNotesContentPanel({
 }: ProjectNotesContentPanelProps) {
   const showEdit = mode === "edit" || mode === "split";
   const showPreview = mode === "preview" || mode === "split";
-  const isMarkdown = selectedFile?.file_type?.toLowerCase() === "md";
+  const isMarkdown = (() => {
+    const type = (selectedFile?.file_type || "").toLowerCase();
+    const ext = selectedFile?.name?.split(".").pop()?.toLowerCase() || "";
+    return type === "md" || ext === "md" || type.includes("markdown");
+  })();
   console.log("[ProjectNotesContentPanel] render selectedFile=", selectedFile?.name, "isMarkdown=", isMarkdown, "contentLen=", content.length, "isLoadingDoc=", isLoadingDoc);
 
   if (!selectedFile) {

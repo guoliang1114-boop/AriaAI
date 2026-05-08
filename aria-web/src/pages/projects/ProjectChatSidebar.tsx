@@ -19,6 +19,7 @@ import {
   formatDatePartsKey,
   formatTimeOnly,
 } from "../../utils/timezone";
+import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { ProjectSpaceFileIcon } from "./ProjectNotesFolderTree";
 
@@ -42,22 +43,22 @@ function formatTime(dateStr: string, timeZone?: string) {
   );
 }
 
-function groupConversations(conversations: Conversation[]) {
+function groupConversations(conversations: Conversation[], timeZone?: string) {
   const now = new Date();
   const today: Conversation[] = [];
   const yesterdayItems: Conversation[] = [];
   const thisWeek: Conversation[] = [];
   const older: Conversation[] = [];
-  const todayKey = formatDatePartsKey(now);
+  const todayKey = formatDatePartsKey(now, timeZone);
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const yesterdayKey = formatDatePartsKey(yesterday);
+  const yesterdayKey = formatDatePartsKey(yesterday, timeZone);
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - 7);
-  const weekStartKey = formatDatePartsKey(weekStart);
+  const weekStartKey = formatDatePartsKey(weekStart, timeZone);
 
   for (const c of conversations) {
-    const itemKey = formatDatePartsKey(c.updated_at);
+    const itemKey = formatDatePartsKey(c.updated_at, timeZone);
     if (itemKey === todayKey) today.push(c);
     else if (itemKey === yesterdayKey) yesterdayItems.push(c);
     else if (itemKey >= weekStartKey) thisWeek.push(c);
@@ -114,6 +115,7 @@ export function ProjectChatSidebar({
   onOpenSpace,
 }: ProjectChatSidebarProps) {
   const { i18n } = useTranslation();
+  const { resolvedTimeZone } = useAppTimeZone();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const [search, setSearch] = useState("");
@@ -171,8 +173,8 @@ export function ProjectChatSidebar({
   }, [conversations, search]);
 
   const conversationGroups = useMemo(
-    () => groupConversations(filteredConversations),
-    [filteredConversations],
+    () => groupConversations(filteredConversations, resolvedTimeZone),
+    [filteredConversations, resolvedTimeZone],
   );
 
   const handleDelete = (
@@ -302,7 +304,7 @@ export function ProjectChatSidebar({
                               {conversation.title || copy.defaultNewChatTitle}
                             </p>
                             <p className="text-[11px] text-gray-400 mt-0.5">
-                              {formatTime(conversation.updated_at)}
+                              {formatTime(conversation.updated_at, resolvedTimeZone)}
                             </p>
                           </div>
                         </div>
@@ -383,7 +385,7 @@ export function ProjectChatSidebar({
                               </p>
                             )}
                             <p className="text-[11px] text-gray-400 mt-0.5">
-                              {formatTime(conversation.updated_at)}
+                              {formatTime(conversation.updated_at, resolvedTimeZone)}
                             </p>
                           </div>
                           {editingConvId !== conversation.id && (

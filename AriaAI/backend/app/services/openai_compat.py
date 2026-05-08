@@ -238,6 +238,11 @@ def _to_openai_messages(messages: list[dict], system: str = "") -> list[dict]:
             result.append({"role": role, "content": content})
             continue
 
+        # Fallback for None or unexpected content types
+        if content is None:
+            result.append({"role": role, "content": ""})
+            continue
+
         # content is a list of blocks
         if role == "user":
             tool_results = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"]

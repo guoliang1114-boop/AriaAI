@@ -62,6 +62,21 @@ PROJECT_FILE_QUERY_MARKERS = (
 )
 
 
+def _safe_project_file_path(uploads_dir: _Path, file_path: str | None) -> _Path | None:
+    """Validate and resolve a file path, preventing directory traversal attacks."""
+    if not file_path:
+        return None
+    try:
+        target = (uploads_dir / file_path).resolve()
+        base = uploads_dir.resolve()
+        # Ensure resolved path is within uploads_dir
+        if str(target).startswith(str(base) + _Path.sep) or str(target) == str(base):
+            return target
+    except (ValueError, RuntimeError, OSError):
+        pass
+    return None
+
+
 def _content_requests_file_details(content: str) -> bool:
     text = _normalize_client_match_text(content)
     return any(marker in text for marker in PROJECT_FILE_QUERY_MARKERS)
@@ -789,12 +804,13 @@ def build_project_context(
                 and f.file_type.lower() in ("pdf", "docx", "pptx", "xlsx", "xls", "txt", "md", "csv", "json")
                 and total_chars < MAX_FILE_CONTENT_CHARS
             ):
-                full_path = UPLOADS_DIR / f.path
-                text = extract_file_text(
-                    full_path,
-                    f.file_type,
-                    max_chars=min(MAX_SINGLE_FILE_CHARS, MAX_FILE_CONTENT_CHARS - total_chars)
-                )
+                full_path = _safe_project_file_path(UPLOADS_DIR, f.path)
+                if full_path:
+                    text = extract_file_text(
+                        full_path,
+                        f.file_type,
+                        max_chars=min(MAX_SINGLE_FILE_CHARS, MAX_FILE_CONTENT_CHARS - total_chars)
+                    )
                 if text and not text.startswith("["):
                     file_content_sections.append(f"### {f.name}\n{text}")
                     total_chars += len(text)
@@ -821,9 +837,10 @@ def build_project_context(
         for fid in file_ids:
             pf = session.get(ProjectFile, fid)
             if pf and pf.project_id == project.id:
-                full_path = UPLOADS_DIR / pf.path
-                text = extract_file_text(full_path, pf.file_type)
-                file_sections.append(f"### {pf.name}\n{text}")
+                full_path = _safe_project_file_path(UPLOADS_DIR, pf.path)
+                if full_path:
+                    text = extract_file_text(full_path, pf.file_type)
+                    file_sections.append(f"### {pf.name}\n{text}")
         if file_sections:
             attachment_block = "\n\n---\n\n".join(file_sections)
             project_context += "\n\n## Attached Files\n" + attachment_block
