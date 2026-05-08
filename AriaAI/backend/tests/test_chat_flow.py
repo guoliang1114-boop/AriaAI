@@ -4283,6 +4283,98 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ).all()
             self.assertEqual(len(assistant_messages), 0)
 
+    def test_stream_chat_events_detects_pseudo_tool_use_json_in_p3_follow_up(self):
+        """If Claude outputs tool_use JSON as plain text in P3 follow-up, we detect and execute it."""
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                # P1: read tool_use
+                ['{"type":"tool_use","id":"tool-read","name":"read_project_markdown_document","input":{"action":"read","file_id":1}}'],
+                # P3: text containing pseudo tool_use JSON (not real function calling)
+                ['I will update now. {"type":"tool_use","id":"tool-write","name":"update_project_markdown_document","input":{"mode":"replace","file_id":1,"content":"# Updated"}}'],
+                # P3 re-follow-up after tool execution
+                ['Done updating the file.'],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            project_id=1,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "read and update"}],
+            rag_sources=[],
+            tools=[{"name": "read_project_markdown_document"}, {"name": "update_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="read and update")
+
+        async def mock_execute(name, input_data):
+            if name == "read_project_markdown_document":
+                return {"type": "tool_result", "tool_name": name, "status": "success", "output": {"content": "# Old"}}
+            if name == "update_project_markdown_document":
+                return {"type": "tool_result", "tool_name": name, "status": "success", "output": {"ok": True, "action": "updated"}}
+            return {"type": "tool_result", "tool_name": name, "status": "success", "output": {}}
+
+        with patch("app.services.chat_streaming.registry.execute", new=AsyncMock(side_effect=mock_execute)):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        joined = "".join(events)
+        self.assertIn("Done updating the file.", joined)
+        self.assertEqual(llm.calls, 3)  # P1, P3, P3 re-follow-up
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            self.assertIn("Done updating the file.", assistant_messages[0].content)
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            tool_names = [tc["tool_name"] for tc in metadata["tool_calls"]]
+            self.assertIn("read_project_markdown_document", tool_names)
+            self.assertIn("update_project_markdown_document", tool_names)
+
+    def test_stream_chat_events_skips_invalid_tool_in_p2_without_breaking_pairing(self):
+        """Invalid tool in P2 must still emit a tool_result so tool_use/tool_result pairing is preserved."""
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                # P1: valid tool_use + invalid tool_use
+                [
+                    '{"type":"tool_use","id":"tool-1","name":"generate_docx","input":{"title":"OK"}}',
+                    '{"type":"tool_use","id":"tool-2","name":"","input":null}',
+                ],
+                # P3: follow-up
+                ["follow-up text"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "make doc"}],
+            rag_sources=[],
+            tools=[{"name": "generate_docx"}],
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="make doc")
+
+        with patch(
+            "app.services.chat_streaming.registry.execute",
+            new=AsyncMock(return_value={"type": "tool_result", "tool_name": "generate_docx", "status": "success", "output": {"file": "ok"}}),
+        ):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        # Should complete without API errors and persist message
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+
 
 class ClientMemoryRouterTestCase(unittest.TestCase):
     def setUp(self):

@@ -38,6 +38,27 @@ from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 
+
+def _try_extract_tool_use_json(text: str) -> dict | None:
+    """Try to extract a tool_use JSON block from text that may contain mixed content."""
+    idx = text.find('{"type"')
+    while idx != -1:
+        depth = 0
+        for i, ch in enumerate(text[idx:], start=idx):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        block = json.loads(text[idx:i + 1])
+                        if block.get("type") == "tool_use":
+                            return block
+                    except json.JSONDecodeError:
+                        break
+        idx = text.find('{"type"', idx + 1)
+    return None
+
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
 CHAT_HISTORY_WINDOW = 24
@@ -799,7 +820,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     block = json.loads(stripped)
                     if block.get("type") == "tool_use":
                         print(
-                            f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list(block.get('input', {}).keys())}",
+                            f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}",
                             flush=True,
                         )
                         if not first_model_event_recorded:
@@ -1072,16 +1093,20 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     continue
 
                 # Detect tool_use JSON blocks (Claude sometimes outputs these as plain text in follow-up)
-                if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
-                    try:
-                        block = json.loads(stripped)
-                        if block.get("type") == "tool_use":
-                            print(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}", flush=True)
-                            p3_tool_use_blocks.append(block)
-                            yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"模型已规划调用工具：{block.get('name')}"})
-                            continue
-                    except json.JSONDecodeError:
-                        pass
+                if '"type"' in stripped and '"tool_use"' in stripped:
+                    block = None
+                    if stripped.startswith("{") and stripped.endswith("}"):
+                        try:
+                            block = json.loads(stripped)
+                        except json.JSONDecodeError:
+                            block = None
+                    if block is None:
+                        block = _try_extract_tool_use_json(stripped)
+                    if block and block.get("type") == "tool_use":
+                        print(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}", flush=True)
+                        p3_tool_use_blocks.append(block)
+                        yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"模型已规划调用工具：{block.get('name')}"})
+                        continue
 
                 chunk, was_truncated = _strip_truncation_marker(chunk)
                 if was_truncated:

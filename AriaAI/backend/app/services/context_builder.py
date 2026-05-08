@@ -70,11 +70,10 @@ def _safe_project_file_path(uploads_dir: _Path, file_path: str | None) -> _Path 
         target = (uploads_dir / file_path).resolve()
         base = uploads_dir.resolve()
         # Ensure resolved path is within uploads_dir
-        if str(target).startswith(str(base) + _Path.sep) or str(target) == str(base):
-            return target
+        target.relative_to(base)
+        return target
     except (ValueError, RuntimeError, OSError):
-        pass
-    return None
+        return None
 
 
 def _content_requests_file_details(content: str) -> bool:

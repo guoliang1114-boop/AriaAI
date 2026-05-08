@@ -10,7 +10,7 @@ from unittest.mock import patch
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.db import Project
-from app.services.context_builder import build_chat_context
+from app.services.context_builder import build_chat_context, _safe_project_file_path
 from app.tools import registry
 from app.tools import project_markdown as project_markdown_tool
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
@@ -106,6 +106,27 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertIn("Initial", content)
         self.assertIn("Next update", content)
         self.assertTrue(project.memory_stale)
+
+
+class SafeProjectFilePathTestCase(unittest.TestCase):
+    def test_valid_path_resolves_correctly(self):
+        uploads = Path("/tmp/uploads")
+        result = _safe_project_file_path(uploads, "project/note.md")
+        self.assertEqual(result, (uploads / "project" / "note.md").resolve())
+
+    def test_directory_traversal_blocked(self):
+        uploads = Path("/tmp/uploads")
+        self.assertIsNone(_safe_project_file_path(uploads, "../../etc/passwd"))
+
+    def test_traversal_with_valid_prefix_blocked(self):
+        uploads = Path("/tmp/uploads")
+        self.assertIsNone(_safe_project_file_path(uploads, "project/../../../etc/passwd"))
+
+    def test_none_path_returns_none(self):
+        self.assertIsNone(_safe_project_file_path(Path("/tmp"), None))
+
+    def test_empty_path_returns_none(self):
+        self.assertIsNone(_safe_project_file_path(Path("/tmp"), ""))
 
 
 if __name__ == "__main__":
