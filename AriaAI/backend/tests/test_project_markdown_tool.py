@@ -53,7 +53,7 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
 
         self.assertTrue(context.tools)
         self.assertIn(PROJECT_MARKDOWN_TOOL_NAME, {tool["name"] for tool in context.tools})
-        self.assertIn("Project Markdown editing", context.skill_prompt)
+        self.assertIn("Project Markdown document tools", context.skill_prompt)
 
     def test_tool_creates_and_appends_markdown_document(self):
         project_id = self._create_project()
