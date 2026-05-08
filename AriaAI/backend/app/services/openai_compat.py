@@ -431,6 +431,7 @@ async def stream_response(
 
     client = _get_http_client()
     finish_reason = None
+    any_content_yielded = False
     
     try:
         async for line in _stream_with_retry(client, headers, payload):
@@ -457,6 +458,7 @@ async def stream_response(
             # Text content
             text = delta.get("content")
             if text:
+                any_content_yielded = True
                 yield text
 
             # Reasoning content (Kimi K2 thinking) — accumulate, don't stream to user
@@ -513,6 +515,10 @@ async def stream_response(
         if finish_reason == "length":
             logger.warning("[Kimi] Output truncated due to max_tokens")
             yield "\n\n[OUTPUT_TRUNCATED]"
+        elif finish_reason and finish_reason not in ("stop", "length", None):
+            logger.warning(f"[Kimi] Unexpected finish_reason: {finish_reason}")
+        if not any_content_yielded:
+            logger.warning(f"[Kimi] Stream ended with no content. finish_reason={finish_reason}, model={model}")
 
     except Exception as e:
         logger.error(f"[Kimi] stream error: {type(e).__name__}: {e}")
@@ -797,6 +803,7 @@ async def stream_response_deepseek(
     in_tool_call = False
     reasoning_buffer = ""
     finish_reason = None
+    any_content_yielded = False
 
     client = _get_http_client()
 
@@ -824,6 +831,7 @@ async def stream_response_deepseek(
 
             text = delta.get("content")
             if text:
+                any_content_yielded = True
                 yield text
 
             reasoning = delta.get("reasoning_content")
@@ -873,6 +881,10 @@ async def stream_response_deepseek(
         if finish_reason == "length":
             logger.warning("[DeepSeek] Output truncated due to max_tokens")
             yield "\n\n[OUTPUT_TRUNCATED]"
+        elif finish_reason and finish_reason not in ("stop", "length", None):
+            logger.warning(f"[DeepSeek] Unexpected finish_reason: {finish_reason}")
+        if not any_content_yielded:
+            logger.warning(f"[DeepSeek] Stream ended with no content. finish_reason={finish_reason}, model={model}")
 
     except Exception as e:
         logger.error(f"[DeepSeek] stream error: {type(e).__name__}: {e}")
@@ -1043,6 +1055,7 @@ async def stream_response_mimo(
     in_tool_call = False
     reasoning_buffer = ""
     finish_reason = None
+    any_content_yielded = False
 
     client = _get_http_client()
 
@@ -1070,6 +1083,7 @@ async def stream_response_mimo(
 
             text = delta.get("content")
             if text:
+                any_content_yielded = True
                 yield text
 
             reasoning = delta.get("reasoning_content")
@@ -1119,6 +1133,10 @@ async def stream_response_mimo(
         if finish_reason == "length":
             logger.warning("[MiMo] Output truncated due to max_tokens")
             yield "\n\n[OUTPUT_TRUNCATED]"
+        elif finish_reason and finish_reason not in ("stop", "length", None):
+            logger.warning(f"[MiMo] Unexpected finish_reason: {finish_reason}")
+        if not any_content_yielded:
+            logger.warning(f"[MiMo] Stream ended with no content. finish_reason={finish_reason}, model={model}")
 
     except Exception as e:
         logger.error(f"[MiMo] stream error: {type(e).__name__}: {e}")
@@ -1290,6 +1308,7 @@ async def stream_response_bigmodel(
 
     tool_call_buffers: dict[int, dict] = {}
     in_tool_call = False
+    any_content_yielded = False
 
     client = _get_http_client()
     finish_reason = None
@@ -1316,6 +1335,7 @@ async def stream_response_bigmodel(
 
             text = delta.get("content")
             if text:
+                any_content_yielded = True
                 yield text
 
             tool_call_deltas = delta.get("tool_calls") or []
@@ -1351,6 +1371,10 @@ async def stream_response_bigmodel(
         if finish_reason == "length":
             logger.warning("[BigModel] Output truncated due to max_tokens")
             yield "\n\n[OUTPUT_TRUNCATED]"
+        elif finish_reason and finish_reason not in ("stop", "length", None):
+            logger.warning(f"[BigModel] Unexpected finish_reason: {finish_reason}")
+        if not any_content_yielded:
+            logger.warning(f"[BigModel] Stream ended with no content. finish_reason={finish_reason}, model={model}")
 
     except Exception as e:
         logger.error(f"[BigModel] stream error: {type(e).__name__}: {e}")

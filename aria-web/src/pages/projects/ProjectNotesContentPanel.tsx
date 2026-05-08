@@ -75,6 +75,7 @@ export function ProjectNotesContentPanel({
   const showEdit = mode === "edit" || mode === "split";
   const showPreview = mode === "preview" || mode === "split";
   const isMarkdown = selectedFile?.file_type?.toLowerCase() === "md";
+  console.log("[ProjectNotesContentPanel] render selectedFile=", selectedFile?.name, "isMarkdown=", isMarkdown, "contentLen=", content.length, "isLoadingDoc=", isLoadingDoc);
 
   if (!selectedFile) {
     return (

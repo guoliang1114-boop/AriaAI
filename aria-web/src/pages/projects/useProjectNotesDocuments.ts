@@ -76,34 +76,50 @@ export function useProjectNotesDocuments({
     }
 
     if (!selectedFileId || !spaceFiles.some((file) => file.id === selectedFileId)) {
-      setSelectedFileId(spaceFiles[0].id);
+      // Prefer markdown files for auto-selection; fall back to first file overall
+      const firstMarkdown = markdownFiles[0];
+      setSelectedFileId(firstMarkdown ? firstMarkdown.id : spaceFiles[0].id);
     }
-  }, [spaceFiles, selectedFileId]);
+  }, [spaceFiles, selectedFileId, markdownFiles]);
 
   useEffect(() => {
+    console.log("[useProjectNotesDocuments] effect2 selectedFileId=", selectedFileId, "dirty=", dirty);
     if (!selectedFileId) {
+      console.log("[useProjectNotesDocuments] effect2: no selectedFileId, skip");
       return;
     }
 
     const selected = spaceFiles.find((file) => file.id === selectedFileId);
+    console.log("[useProjectNotesDocuments] effect2 selected=", selected?.name, "type=", selected?.file_type);
     if (selected?.file_type?.toLowerCase() !== "md") {
+      console.log("[useProjectNotesDocuments] effect2: not md, clear content");
       setContent("");
       setDirty(false);
       lastLoadedContentRef.current = "";
       return;
     }
 
+    // Don't overwrite unsaved edits when parent data refreshes in the background
+    if (dirty) {
+      console.log("[useProjectNotesDocuments] effect2: dirty=true, skip load");
+      return;
+    }
+
     let cancelled = false;
 
     const loadDocument = async () => {
+      console.log("[useProjectNotesDocuments] loadDocument start", selectedFileId);
       setIsLoadingDoc(true);
       try {
         const data = await api.get<ProjectDocumentDetail>(
           `/projects/${projectId}/documents/${selectedFileId}`,
         );
+        console.log("[useProjectNotesDocuments] loadDocument response", data);
         if (cancelled) {
+          console.log("[useProjectNotesDocuments] loadDocument cancelled after response");
           return;
         }
+        console.log("[useProjectNotesDocuments] loadDocument setContent length=", (data.content || "").length);
         setContent(data.content || "");
         setDirty(false);
         lastLoadedContentRef.current = data.content || "";
@@ -121,9 +137,10 @@ export function useProjectNotesDocuments({
     void loadDocument();
 
     return () => {
+      console.log("[useProjectNotesDocuments] effect2 cleanup");
       cancelled = true;
     };
-  }, [projectId, selectedFileId, spaceFiles]);
+  }, [projectId, selectedFileId]);
 
   const selectedFile =
     spaceFiles.find((file) => file.id === selectedFileId) || null;

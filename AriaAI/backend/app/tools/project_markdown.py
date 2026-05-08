@@ -55,7 +55,8 @@ def _init_default_folders(project_id: int, session: Session):
     name=PROJECT_MARKDOWN_TOOL_NAME,
     description=(
         "Create or update a Markdown document in the current project. "
-        "Use this only when the user explicitly asks to create, append to, or update a project MD file. "
+        "Call this tool whenever you need to save, modify, replace, rewrite, correct, or create any project Markdown documentation. "
+        "Do not wait for user confirmation — write the file immediately when you have the content ready. "
         "For replace mode, provide the full final Markdown content."
     ),
     input_schema={

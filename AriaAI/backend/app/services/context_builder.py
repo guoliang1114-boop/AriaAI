@@ -36,7 +36,12 @@ PROJECT_MARKDOWN_TOOL_PROMPT = """
 Project Markdown document tools:
 - Use `read_project_markdown_document` with action='list' to discover which MD files exist in this project (returns id, name, folder, summary).
 - Use `read_project_markdown_document` with action='read' and a file_id or file_name to read a specific file's content before answering questions about it.
-- Use `update_project_markdown_document` to create, append to, or replace an MD file — only when the user explicitly asks for an edit.
+- Use `update_project_markdown_document` to create, append to, or replace an MD file.
+- CRITICAL: When the user asks you to edit, update, rewrite, correct, create, modify, adjust, fix, or change a project document — OR when the user says they want to "矫正", "修改", "调整", "重写" a file — you MUST call `update_project_markdown_document` with mode='replace' and the complete new content.
+- DO NOT just describe the changes in your text reply. DO NOT say "I will update it" or "Now I will write" without actually calling the tool. The user cannot see your draft until you save it via the tool. You MUST invoke the tool IMMEDIATELY after reading the file if the user asked you to modify it.
+- ABSOLUTELY DO NOT output tool_use JSON as plain text in your response. If you need to call update_project_markdown_document, use the actual function calling API. Text that looks like {"type": "tool_use", ...} will NOT execute and the user will think you failed.
+- BREAK THE PATTERN: After receiving a tool_result, if the user's request still requires a write operation, you MUST call update_project_markdown_document in your follow-up response. The follow-up is NOT just for summaries — it can and SHOULD contain new tool calls when needed.
+- If the user's message contains both a read request and a write request (e.g. "我先读取，确认后再矫正"), you MUST perform BOTH in the SAME turn: first read the file, then immediately call update_project_markdown_document with the corrected content. Do NOT split this into multiple messages.
 - Prefer using file_id (from a prior list call) when targeting a file. If the target is ambiguous, call list first, then read.
 - For replace mode, send the complete final Markdown content, not a diff.
 """.strip()

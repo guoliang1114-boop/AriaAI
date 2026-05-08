@@ -288,7 +288,7 @@ def _tool_start_progress_payload(tool_name: str) -> dict | None:
     if tool_name in ("generate_ppt", "generate_ppt_from_skill"):
         return {"message": "Generating slides... (this may take 1-2 minutes)"}
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
-        return {"message": "Markdown 正文生成中，完成后会询问是否写入项目文件。"}
+        return {"message": "正在写入项目 Markdown 文件..."}
     if tool_name == READ_MARKDOWN_TOOL_NAME:
         return {"message": "正在读取项目文档…"}
     if tool_name == "generate_docx":
@@ -840,7 +840,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     continuation_messages,
                     system=runtime.system,
                     model=runtime.selected_model,
-                    tools=None,
+                    tools=runtime.tools,
                     max_tokens=runtime.max_tokens,
                     temperature=runtime.temperature,
                 ),
@@ -902,31 +902,55 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     else:
                         text_buffer = markdown_content
                         yield _sse_event({"type": "text", "content": markdown_content})
-                pending_markdown_saves.append(
-                    {
-                        "tool_use_id": tool_id,
-                        "project_id": runtime.project_id,
-                        "file_id": tool_input.get("file_id"),
-                        "file_name": tool_input.get("file_name"),
-                        "mode": tool_input.get("mode"),
-                        "content": markdown_content,
-                        "summary": tool_input.get("summary"),
-                        "folder_id": tool_input.get("folder_id"),
-                    }
-                )
-                tool_call_events.append(
-                    {
+                # Directly execute the write instead of pending for confirmation
+                write_result = None
+                try:
+                    write_result = await registry.execute(tool_name, tool_input)
+                    pending_markdown_saves.append(
+                        {
+                            "tool_use_id": tool_id,
+                            "project_id": runtime.project_id,
+                            "file_id": tool_input.get("file_id"),
+                            "file_name": tool_input.get("file_name"),
+                            "mode": tool_input.get("mode"),
+                            "content": markdown_content,
+                            "summary": tool_input.get("summary"),
+                            "folder_id": tool_input.get("folder_id"),
+                            "saved": True,
+                        }
+                    )
+                    tool_call_events.append(
+                        {
+                            "tool_name": tool_name,
+                            "status": "completed",
+                            "message": "已写入项目 Markdown 文件。",
+                            "summary": "已保存到项目 Markdown 文件",
+                        }
+                    )
+                    yield _sse_event({"type": "tool_result", "result": write_result})
+                except Exception as exc:
+                    write_result = {
+                        "type": "tool_result",
                         "tool_name": tool_name,
-                        "status": "completed",
-                        "message": "已生成 Markdown 正文，等待你确认是否写入文件。",
-                        "summary": "待确认写入项目 Markdown 文件",
+                        "status": "error",
+                        "error": str(exc),
                     }
-                )
-                yield _sse_event(
+                    tool_call_events.append(
+                        {
+                            "tool_name": tool_name,
+                            "status": "error",
+                            "message": f"写入失败: {exc}",
+                            "summary": "写入项目 Markdown 文件失败",
+                            "error": str(exc),
+                        }
+                    )
+                # CRITICAL FIX: Add tool result to tool_result_blocks so P3 follow-up works
+                output = write_result.get("output", write_result) if write_result else {"error": "No result"}
+                tool_result_blocks.append(
                     {
-                        "type": "status",
-                        "stage": "confirm_markdown_save",
-                        "message": "Markdown 正文已生成，请确认是否写入项目文件。",
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(output, ensure_ascii=False),
                     }
                 )
                 continue
@@ -1013,12 +1037,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             follow_up_started_at = time.perf_counter()
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
             p3_truncated = False
+            p3_tool_use_blocks = []
             async for item in _iter_with_heartbeat(
                 runtime.llm.stream_response(
                     continuation_messages,
                     system=runtime.system,
                     model=runtime.selected_model,
-                    tools=None,
+                    tools=runtime.tools,
                     max_tokens=runtime.max_tokens,
                     temperature=runtime.temperature,
                 ),
@@ -1029,6 +1054,28 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     yield _sse_event(item)
                     continue
                 chunk = item
+                stripped = chunk.strip()
+
+                # Detect [TOOL_START:...] markers from stream_response
+                if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
+                    tool_name = stripped[12:-1]
+                    progress_payload = _tool_start_progress_payload(tool_name)
+                    if progress_payload:
+                        yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **progress_payload})
+                    continue
+
+                # Detect tool_use JSON blocks (Claude sometimes outputs these as plain text in follow-up)
+                if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
+                    try:
+                        block = json.loads(stripped)
+                        if block.get("type") == "tool_use":
+                            print(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}", flush=True)
+                            p3_tool_use_blocks.append(block)
+                            yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"模型已规划调用工具：{block.get('name')}"})
+                            continue
+                    except json.JSONDecodeError:
+                        pass
+
                 chunk, was_truncated = _strip_truncation_marker(chunk)
                 if was_truncated:
                     p3_truncated = True
@@ -1043,6 +1090,83 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         continue
                 follow_up_text += chunk
                 yield _sse_event({"type": "text", "content": chunk})
+
+            # Execute any tool_use blocks detected during P3 follow-up
+            if p3_tool_use_blocks:
+                print(f"[P3] executing {len(p3_tool_use_blocks)} detected tool_use blocks", flush=True)
+                yield _sse_event({"type": "status", "stage": "tools", "message": "检测到后续工具调用，正在执行..."})
+                for tool_data in p3_tool_use_blocks:
+                    tool_name = tool_data.get("name", "")
+                    tool_input = tool_data.get("input", {})
+                    tool_id = tool_data.get("id", "")
+                    if not tool_name or not isinstance(tool_input, dict):
+                        continue
+                    if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
+                        tool_input = {**tool_input, "project_id": runtime.project_id}
+                    # Handle markdown write tool (most common P3 scenario)
+                    if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
+                        markdown_content = str(tool_input.get("content") or "").strip()
+                        if markdown_content and markdown_content not in follow_up_text:
+                            follow_up_text = f"{follow_up_text.rstrip()}\n\n{markdown_content}".strip()
+                        write_result = None
+                        try:
+                            write_result = await registry.execute(tool_name, tool_input)
+                            pending_markdown_saves.append(
+                                {
+                                    "tool_use_id": tool_id,
+                                    "project_id": runtime.project_id,
+                                    "file_id": tool_input.get("file_id"),
+                                    "file_name": tool_input.get("file_name"),
+                                    "mode": tool_input.get("mode"),
+                                    "content": markdown_content,
+                                    "summary": tool_input.get("summary"),
+                                    "folder_id": tool_input.get("folder_id"),
+                                    "saved": True,
+                                }
+                            )
+                            tool_call_events.append(
+                                {
+                                    "tool_name": tool_name,
+                                    "status": "completed",
+                                    "message": "已写入项目 Markdown 文件。",
+                                    "summary": "已保存到项目 Markdown 文件",
+                                }
+                            )
+                            yield _sse_event({"type": "tool_result", "result": write_result})
+                        except Exception as exc:
+                            tool_call_events.append(
+                                {
+                                    "tool_name": tool_name,
+                                    "status": "error",
+                                    "message": f"写入失败: {exc}",
+                                    "summary": "写入项目 Markdown 文件失败",
+                                    "error": str(exc),
+                                }
+                            )
+                    else:
+                        # Other tools: simple execution
+                        try:
+                            result = await registry.execute(tool_name, tool_input)
+                            tool_call_events.append(
+                                {
+                                    "tool_name": tool_name,
+                                    "status": "completed",
+                                    "message": f"工具 {tool_name} 执行完成。",
+                                    "summary": f"工具 {tool_name} 执行完成",
+                                }
+                            )
+                            yield _sse_event({"type": "tool_result", "result": result})
+                        except Exception as exc:
+                            tool_call_events.append(
+                                {
+                                    "tool_name": tool_name,
+                                    "status": "error",
+                                    "message": f"工具执行失败: {exc}",
+                                    "summary": f"工具 {tool_name} 执行失败",
+                                    "error": str(exc),
+                                }
+                            )
+
             if p3_truncated and follow_up_text.strip():
                 p3_continuation_messages = continuation_messages + [
                     {"role": "assistant", "content": follow_up_text.strip()},
@@ -1056,7 +1180,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         p3_continuation_messages,
                         system=runtime.system,
                         model=runtime.selected_model,
-                        tools=None,
+                        tools=runtime.tools,
                         max_tokens=runtime.max_tokens,
                         temperature=runtime.temperature,
                     ),
@@ -1136,35 +1260,44 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         elif artifact_notice and artifact_notice not in full_text:
             full_text = f"{full_text}\n\n{artifact_notice}".strip()
 
-        if full_text:
-            metadata = {}
-            if runtime.rag_sources:
-                metadata["references"] = runtime.rag_sources
-            if tool_call_events:
-                metadata["tool_calls"] = tool_call_events
-            if artifacts:
-                metadata["artifacts"] = artifacts
-            if pending_markdown_saves:
-                metadata["pending_markdown_saves"] = pending_markdown_saves
-            if req.project_id:
-                metadata["project_id"] = req.project_id
-            if runtime.skill_name:
-                metadata["skill_id"] = req.skill_id
-                metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
-            stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
-            stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
-            metadata["stage_timings"] = stage_timings
-            response_metadata = metadata
-            yield _sse_event({"type": "timing", "key": "save_ms", "duration_ms": stage_timings["save_ms"]})
-            yield _sse_event({"type": "timing", "key": "total_stream_ms", "duration_ms": stage_timings["total_stream_ms"]})
-
-            need_title = persist_assistant_message(
-                bind,
-                runtime.conv_id,
-                full_text,
-                req.content,
-                metadata or None,
+        if not full_text:
+            full_text = (
+                "抱歉，AI 服务暂时未能生成回复。可能原因包括：\n\n"
+                "1. API 服务当前繁忙或暂时不可用\n"
+                "2. 模型上下文过长，超出处理限制\n"
+                "3. API Key 配置异常或余额不足\n\n"
+                "建议稍后重试，或前往「设置」检查 API Key 配置。"
             )
+            print(f"[P4] WARNING: empty response detected, using fallback message", flush=True)
+
+        metadata = {}
+        if runtime.rag_sources:
+            metadata["references"] = runtime.rag_sources
+        if tool_call_events:
+            metadata["tool_calls"] = tool_call_events
+        if artifacts:
+            metadata["artifacts"] = artifacts
+        if pending_markdown_saves:
+            metadata["pending_markdown_saves"] = pending_markdown_saves
+        if req.project_id:
+            metadata["project_id"] = req.project_id
+        if runtime.skill_name:
+            metadata["skill_id"] = req.skill_id
+            metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
+        stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
+        stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
+        metadata["stage_timings"] = stage_timings
+        response_metadata = metadata
+        yield _sse_event({"type": "timing", "key": "save_ms", "duration_ms": stage_timings["save_ms"]})
+        yield _sse_event({"type": "timing", "key": "total_stream_ms", "duration_ms": stage_timings["total_stream_ms"]})
+
+        need_title = persist_assistant_message(
+            bind,
+            runtime.conv_id,
+            full_text,
+            req.content,
+            metadata or None,
+        )
 
     except Exception as exc:
         import traceback

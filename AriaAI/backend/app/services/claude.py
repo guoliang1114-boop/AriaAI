@@ -180,14 +180,20 @@ async def _stream_response_sdk(
         kwargs["tools"] = tools
     
     try:
+        any_content_yielded = False
         async with client.messages.stream(**kwargs) as stream:
             # Use event-based API to handle both text and tool_use
             async for event in stream:
                 event_type = event.type
                 
                 if event_type == "text":
-                    # Text delta event
+                    # Text delta event (emitted by SDK as a convenience alongside raw content_block_delta)
+                    any_content_yielded = True
                     yield event.text
+                elif event_type == "content_block_delta":
+                    # Raw content block delta — text is already handled by the "text" event above
+                    # input_json_delta is accumulated internally by the SDK and surfaced at content_block_stop
+                    pass
                 elif event_type == "content_block_start":
                     content_block = event.content_block
                     if content_block.type == "tool_use":
@@ -211,6 +217,10 @@ async def _stream_response_sdk(
             if final_message.stop_reason == "max_tokens":
                 logger.warning("[Claude API] SDK mode: Output truncated due to max_tokens limit")
                 yield "\n\n[OUTPUT_TRUNCATED]"  # 特殊标记给前端
+            elif final_message.stop_reason and final_message.stop_reason != "end_turn":
+                logger.warning(f"[Claude API] SDK mode: Unexpected stop_reason={final_message.stop_reason}")
+            if not any_content_yielded:
+                logger.warning(f"[Claude API] SDK mode: Stream ended with no content. stop_reason={final_message.stop_reason}, model={model}")
     except Exception as e:
         logger.error(f"[Claude API] SDK stream error: {type(e).__name__}: {e}")
         raise
@@ -298,6 +308,7 @@ async def _stream_response_http(
                 raise Exception(f"HTTP {response.status_code}: {body.decode()[:200]}")
             
             stop_reason = None
+            any_content_yielded = False
             # Per-block accumulation for tool_use
             tool_block_meta: dict = {}   # {"id": ..., "name": ...}
             tool_input_parts: list[str] = []
@@ -357,11 +368,12 @@ async def _stream_response_http(
                             if stop_reason == "max_tokens":
                                 logger.warning("[Claude API] Output truncated due to max_tokens limit")
                                 yield "\n\n[OUTPUT_TRUNCATED]"  # 特殊标记给前端
+                            elif stop_reason and stop_reason != "end_turn":
+                                logger.warning(f"[Claude API] Unexpected stop_reason={stop_reason}")
                     except json.JSONDecodeError:
                         continue
-    except Exception as e:
-        logger.error(f"[Claude API] HTTP stream error: {type(e).__name__}: {e}")
-        raise
+            if not any_content_yielded:
+                logger.warning(f"[Claude API] HTTP mode: Stream ended with no content. stop_reason={stop_reason}, model={model}")
     except Exception as e:
         logger.error(f"[Claude API] HTTP stream error: {type(e).__name__}: {e}")
         raise
