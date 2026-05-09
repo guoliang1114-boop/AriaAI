@@ -901,11 +901,14 @@ async def stream_response_deepseek(
                     "name": buf["name"],
                     "input": parsed_input,
                 })
-            if reasoning_buffer:
-                yield json.dumps({
-                    "type": "reasoning_content",
-                    "content": reasoning_buffer,
-                })
+
+        # Always yield reasoning_content if present so chat_streaming.py can capture it
+        # regardless of whether tool_calls were emitted (e.g. P3 follow-up may only have reasoning)
+        if reasoning_buffer:
+            yield json.dumps({
+                "type": "reasoning_content",
+                "content": reasoning_buffer,
+            })
 
         if finish_reason == "length":
             logger.warning("[DeepSeek] Output truncated due to max_tokens")

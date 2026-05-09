@@ -1066,6 +1066,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "工具结果已返回，正在生成最终答复..."})
             p3_truncated = False
             p3_tool_use_blocks = []
+            p3_reasoning_content = ""
             async for item in _iter_with_heartbeat(
                 runtime.llm.stream_response(
                     continuation_messages,
@@ -1107,6 +1108,16 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         p3_tool_use_blocks.append(block)
                         yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"模型已规划调用工具：{block.get('name')}"})
                         continue
+
+                # Detect reasoning_content JSON blocks from DeepSeek / Kimi
+                if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
+                    try:
+                        block = json.loads(stripped)
+                        if block.get("type") == "reasoning_content":
+                            p3_reasoning_content = block.get("content", "")
+                            continue
+                    except json.JSONDecodeError:
+                        pass
 
                 chunk, was_truncated = _strip_truncation_marker(chunk)
                 if was_truncated:
@@ -1257,7 +1268,11 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             **({"reasoning_content": reasoning_content} if reasoning_content else {}),
                         },
                         {"role": "user", "content": tool_result_blocks},
-                        {"role": "assistant", "content": p3_assistant_content},
+                        {
+                            "role": "assistant",
+                            "content": p3_assistant_content,
+                            **({"reasoning_content": p3_reasoning_content} if p3_reasoning_content else {}),
+                        },
                         {"role": "user", "content": p3_tool_result_blocks},
                     ]
 
@@ -1291,6 +1306,15 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             )
                             if not chunk:
                                 continue
+                        # Detect reasoning_content in re-follow-up stream
+                        stripped_chunk = chunk.strip()
+                        if stripped_chunk.startswith("{") and stripped_chunk.endswith("}") and '"type"' in stripped_chunk:
+                            try:
+                                block = json.loads(stripped_chunk)
+                                if block.get("type") == "reasoning_content":
+                                    continue
+                            except json.JSONDecodeError:
+                                pass
                         re_follow_text += chunk
                         yield _sse_event({"type": "text", "content": chunk})
                     follow_up_text = re_follow_text
@@ -1336,6 +1360,11 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         continue
                     follow_up_text += chunk
                     yield _sse_event({"type": "text", "content": chunk})
+            # Fallback: if P3 produced no text and no tool calls, emit a gentle prompt
+            if not follow_up_text.strip() and not p3_tool_use_blocks:
+                follow_up_text = "模型正在思考中，尚未生成最终答复。你可以尝试补充更具体的矫正要求，或稍后再试。"
+                yield _sse_event({"type": "text", "content": follow_up_text})
+
             print(f"[P3] done. follow_up_text_len={len(follow_up_text)}", flush=True)
             stage_timings["follow_up_ms"] = round((time.perf_counter() - follow_up_started_at) * 1000)
             yield _sse_event({"type": "timing", "key": "follow_up_ms", "duration_ms": stage_timings["follow_up_ms"]})
