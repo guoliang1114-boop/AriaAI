@@ -278,15 +278,18 @@ def _to_openai_messages(messages: list[dict], system: str = "") -> list[dict]:
                 ]
                 asst_msg: dict = {
                     "role": "assistant",
-                    "content": text_content or "",
+                    "content": text_content or None,
                     "tool_calls": tool_calls,
                 }
-                # Preserve reasoning_content required by Kimi K2 multi-turn tool calls
+                # Preserve reasoning_content required by Kimi K2 / DeepSeek multi-turn tool calls
                 if msg.get("reasoning_content"):
                     asst_msg["reasoning_content"] = msg["reasoning_content"]
                 result.append(asst_msg)
             else:
-                result.append({"role": "assistant", "content": text_content})
+                asst_msg = {"role": "assistant", "content": text_content}
+                if msg.get("reasoning_content"):
+                    asst_msg["reasoning_content"] = msg["reasoning_content"]
+                result.append(asst_msg)
 
     return result
 
@@ -716,6 +719,27 @@ For all other questions, follow your standard role below.
     return "\n".join(parts)
 
 
+def _ensure_deepseek_reasoning_content(messages: list[dict]) -> list[dict]:
+    """DeepSeek thinking mode requires ALL assistant messages to have reasoning_content.
+    
+    If any assistant message contains reasoning_content, ensure all assistant messages
+    have the field (empty string for historical ones that didn't originate from a
+    reasoning model response).
+    """
+    has_reasoning = any(
+        m.get("role") == "assistant" and m.get("reasoning_content") is not None
+        for m in messages
+    )
+    if not has_reasoning:
+        return messages
+    result = []
+    for m in messages:
+        if m.get("role") == "assistant" and "reasoning_content" not in m:
+            m = {**m, "reasoning_content": ""}
+        result.append(m)
+    return result
+
+
 # =============================================================================
 # DeepSeek Streaming
 # =============================================================================
@@ -784,7 +808,7 @@ async def stream_response_deepseek(
     if not api_key:
         raise ValueError("No DeepSeek API key configured. Visit Settings to add one.")
 
-    openai_messages = _to_openai_messages(messages, system)
+    openai_messages = _ensure_deepseek_reasoning_content(_to_openai_messages(messages, system))
     openai_tools = _to_openai_tools(tools) if tools else None
 
     payload: dict = {
@@ -886,7 +910,7 @@ async def stream_response_deepseek(
         if finish_reason == "length":
             logger.warning("[DeepSeek] Output truncated due to max_tokens")
             yield "\n\n[OUTPUT_TRUNCATED]"
-        elif finish_reason and finish_reason not in ("stop", "length", None):
+        elif finish_reason and finish_reason not in ("stop", "length", "tool_calls", None):
             logger.warning(f"[DeepSeek] Unexpected finish_reason: {finish_reason}")
         if not any_content_yielded:
             logger.warning(f"[DeepSeek] Stream ended with no content. finish_reason={finish_reason}, model={model}")
@@ -909,7 +933,7 @@ async def complete_deepseek(
     if not api_key:
         raise ValueError("No DeepSeek API key configured. Visit Settings to add one.")
 
-    openai_messages = _to_openai_messages(messages, system)
+    openai_messages = _ensure_deepseek_reasoning_content(_to_openai_messages(messages, system))
     openai_tools = _to_openai_tools(tools) if tools else None
 
     payload: dict = {
