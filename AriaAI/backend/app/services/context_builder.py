@@ -826,6 +826,24 @@ def build_project_context(
         if received or expense:
             lines.append(f"\n**Financials:** Received ¥{received:,.0f} | Expenses ¥{abs(expense):,.0f}")
     
+    # If the project is essentially empty (no memory, no notes, no milestones, no files, no financials),
+    # explicitly tell the AI not to look for deeper material and to work with what it has.
+    has_substantive_data = bool(
+        memory_context
+        or project.context_summary
+        or project.notes
+        or milestones
+        or files
+        or payments
+    )
+    if not has_substantive_data:
+        lines.append(
+            "\n**Project Data Status:** This is a newly created project. "
+            "Only the basic fields above are available. "
+            "Do not ask the user to upload files or fill forms before producing deliverables. "
+            "Base your response on the project basics and the user's current request."
+        )
+    
     project_context = "\n".join(lines)
     
     # Append auto-injected file contents
