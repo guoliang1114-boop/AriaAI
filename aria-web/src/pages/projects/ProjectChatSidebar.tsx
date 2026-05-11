@@ -82,6 +82,7 @@ type ProjectChatSidebarProps = {
   conversations: Conversation[];
   files?: ProjectFile[];
   folders?: ProjectFolder[];
+  selectedFileId?: number | null;
   isLoadingConversations: boolean;
   editingConvId: number | null;
   editTitle: string;
@@ -93,6 +94,7 @@ type ProjectChatSidebarProps = {
   onCancelRename: () => void;
   onDeleteConversation: (conversation: Conversation) => void;
   onOpenSpace: () => void;
+  onSelectFile?: (file: ProjectFile) => void;
 };
 
 export function ProjectChatSidebar({
@@ -102,6 +104,7 @@ export function ProjectChatSidebar({
   conversations,
   files = [],
   folders = [],
+  selectedFileId,
   isLoadingConversations,
   editingConvId,
   editTitle,
@@ -113,6 +116,7 @@ export function ProjectChatSidebar({
   onCancelRename,
   onDeleteConversation,
   onOpenSpace,
+  onSelectFile,
 }: ProjectChatSidebarProps) {
   const { i18n } = useTranslation();
   const { resolvedTimeZone } = useAppTimeZone();
@@ -451,14 +455,20 @@ export function ProjectChatSidebar({
                     {isFolderOpen ? (
                       <div className="ml-5 space-y-0.5 pb-1">
                         {folderFiles.map((file) => (
-                          <div
+                          <button
+                            type="button"
                             key={file.id}
                             title={file.name}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-600"
+                            onClick={() => onSelectFile?.(file)}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                              selectedFileId === file.id
+                                ? "bg-primary/10 text-primary"
+                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                            }`}
                           >
                             <ProjectSpaceFileIcon file={file} />
                             <span className="truncate">{file.name}</span>
-                          </div>
+                          </button>
                         ))}
                         {folderFiles.length === 0 ? (
                           <p className="px-2 py-1 text-xs text-gray-400">
@@ -489,14 +499,20 @@ export function ProjectChatSidebar({
                   {openFolders.uncategorized ? (
                     <div className="ml-5 space-y-0.5 pb-1">
                       {(groupedFiles.get("uncategorized") || []).map((file) => (
-                        <div
+                        <button
+                          type="button"
                           key={file.id}
                           title={file.name}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-600"
+                          onClick={() => onSelectFile?.(file)}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                            selectedFileId === file.id
+                              ? "bg-primary/10 text-primary"
+                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                          }`}
                         >
                           <ProjectSpaceFileIcon file={file} />
                           <span className="truncate">{file.name}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   ) : null}

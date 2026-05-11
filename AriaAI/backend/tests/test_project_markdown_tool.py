@@ -107,6 +107,77 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertIn("Next update", content)
         self.assertTrue(project.memory_stale)
 
+    def test_tool_accepts_common_llm_argument_aliases(self):
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            created = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "operation": "new",
+                        "file_name": "aliased.md",
+                        "markdown_content": "# Aliased\n\nCreated via alias fields.",
+                    },
+                )
+            )
+            self.assertEqual(created["status"], "success")
+            file_id = created["output"]["id"]
+
+            updated = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "action": "update",
+                        "file_id": file_id,
+                        "new_content": "# Aliased\n\nUpdated via alias fields.",
+                    },
+                )
+            )
+
+        self.assertEqual(updated["status"], "success")
+        with Session(self.engine) as session:
+            project_file = project_markdown_tool.get_project_document_file_or_404(
+                session,
+                project_id,
+                file_id,
+            )
+            content = project_markdown_tool.read_project_document_content(
+                project_file,
+                uploads_dir=self.uploads_dir,
+            )
+
+        self.assertIn("Updated via alias fields", content)
+
+    def test_tool_returns_clear_error_when_content_is_missing(self):
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            result = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "create",
+                        "file_name": "missing-content.md",
+                    },
+                )
+            )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Markdown content is required", result["error"])
+        self.assertNotIn("missing 2 required keyword-only arguments", result["error"])
+
 
 class SafeProjectFilePathTestCase(unittest.TestCase):
     def test_valid_path_resolves_correctly(self):

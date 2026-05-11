@@ -22,6 +22,52 @@ from app.tools import registry
 PROJECT_MARKDOWN_TOOL_NAME = "update_project_markdown_document"
 
 
+def _first_non_empty_string(*values: object) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def _normalize_markdown_update_input(
+    *,
+    mode: str | None,
+    content: str | None,
+    extra: dict,
+) -> tuple[str, str]:
+    normalized_mode = _first_non_empty_string(
+        mode,
+        extra.get("action"),
+        extra.get("operation"),
+        extra.get("update_mode"),
+    ).lower()
+    mode_aliases = {
+        "write": "replace",
+        "update": "replace",
+        "edit": "replace",
+        "rewrite": "replace",
+        "correct": "replace",
+        "modify": "replace",
+        "save": "replace",
+        "overwrite": "replace",
+        "add": "append",
+        "insert": "append",
+        "new": "create",
+    }
+    normalized_mode = mode_aliases.get(normalized_mode, normalized_mode)
+
+    normalized_content = _first_non_empty_string(
+        content,
+        extra.get("markdown"),
+        extra.get("markdown_content"),
+        extra.get("new_content"),
+        extra.get("updated_content"),
+        extra.get("body"),
+        extra.get("text"),
+    )
+    return normalized_mode, normalized_content
+
+
 def _find_markdown_file(session: Session, project_id: int, file_name: str | None) -> ProjectFile | None:
     if not file_name:
         return None
@@ -94,17 +140,19 @@ def _init_default_folders(project_id: int, session: Session):
 async def update_project_markdown_document(
     *,
     project_id: int,
-    mode: Literal["replace", "append", "create"],
-    content: str,
+    mode: Literal["replace", "append", "create"] | None = None,
+    content: str | None = None,
     file_id: int | None = None,
     file_name: str | None = None,
     summary: str | None = None,
     folder_id: int | None = None,
+    **extra,
 ) -> dict:
+    mode, content = _normalize_markdown_update_input(mode=mode, content=content, extra=extra)
     if not project_id:
         raise HTTPException(400, "Project id is required")
     if mode not in {"replace", "append", "create"}:
-        raise HTTPException(400, "Unsupported markdown update mode")
+        raise HTTPException(400, "Markdown update mode is required. Use mode='replace', 'append', or 'create'.")
     if not isinstance(content, str) or not content.strip():
         raise HTTPException(400, "Markdown content is required")
 

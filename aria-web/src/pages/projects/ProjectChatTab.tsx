@@ -16,7 +16,9 @@ import type {
   Skill,
 } from "../../types/api";
 import { downloadArtifact } from "./downloadArtifact";
+import { downloadProjectFile } from "./downloadProjectFile";
 import { ProjectChatDeleteDialog } from "./ProjectChatDeleteDialog";
+import { ProjectChatFilePreviewPanel } from "./ProjectChatFilePreviewPanel";
 import { ProjectChatMainPanel } from "./ProjectChatMainPanel";
 import { ProjectChatSaveModal } from "./ProjectChatSaveModal";
 import { ProjectChatSidebar } from "./ProjectChatSidebar";
@@ -41,6 +43,22 @@ type StakeholderCandidate = {
   relationship_status?: string;
   note?: string;
 };
+
+type ProjectDocumentDetail = {
+  id: number;
+  project_id: number;
+  folder_id?: number | null;
+  name: string;
+  content: string;
+  summary?: string;
+  uploaded_at: string;
+};
+
+function isMarkdownFile(file: ProjectFile | null) {
+  const type = (file?.file_type || "").toLowerCase();
+  const ext = file?.name?.split(".").pop()?.toLowerCase() || "";
+  return type === "md" || ext === "md" || type.includes("markdown");
+}
 
 export function ProjectChatTab({
   project,
@@ -90,11 +108,23 @@ export function ProjectChatTab({
   } | null>(null);
   const [isCapturingStakeholders, setIsCapturingStakeholders] = useState(false);
   const [isApplyingStakeholders, setIsApplyingStakeholders] = useState(false);
+  const [previewFile, setPreviewFile] = useState<ProjectFile | null>(null);
+  const [previewContent, setPreviewContent] = useState("");
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewWidth, setPreviewWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return 440;
+    }
+    const stored = Number(window.localStorage.getItem("aria-project-chat-preview-width"));
+    return Number.isFinite(stored) && stored >= 320 ? stored : 440;
+  });
+  const [isResizingPreview, setIsResizingPreview] = useState(false);
   const autoRefreshAttemptedRef = useRef("");
   const processedSkillRef = useRef<string | null>(null);
   const processedLaunchRef = useRef<string | null>(null);
   const preserveLaunchSkillRef = useRef(false);
   const skillArmedRef = useRef(false);
+  const resizeStartRef = useRef({ x: 0, width: 440 });
 
   const {
     conversations,
@@ -318,6 +348,19 @@ export function ProjectChatTab({
     }
   };
 
+  const handleDownloadProjectFile = async (file: ProjectFile) => {
+    try {
+      await downloadProjectFile({
+        fileId: file.id,
+        fileName: file.name,
+        projectId: String(project.id),
+      });
+    } catch (error) {
+      console.error("Failed to download project file:", error);
+      toast.error(isZh ? "文件下载失败" : "File download failed");
+    }
+  };
+
   const handleApplyStakeholders = async (message: Message) => {
     try {
       setIsCapturingStakeholders(true);
@@ -473,6 +516,83 @@ export function ProjectChatTab({
   }, [isFullscreen, onFullscreenChange]);
 
   useEffect(() => {
+    if (!previewFile) {
+      setPreviewContent("");
+      setIsLoadingPreview(false);
+      return;
+    }
+
+    if (!isMarkdownFile(previewFile)) {
+      setPreviewContent("");
+      setIsLoadingPreview(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadPreview = async () => {
+      setIsLoadingPreview(true);
+      try {
+        const data = await api.get<ProjectDocumentDetail>(
+          `/projects/${project.id}/documents/${previewFile.id}`,
+        );
+        if (!cancelled) {
+          setPreviewContent(data.content || "");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load project chat preview:", error);
+          setPreviewContent("");
+          toast.error(isZh ? "文件预览加载失败" : "Failed to load file preview");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPreview(false);
+        }
+      }
+    };
+
+    void loadPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [isZh, previewFile, project.id, toast]);
+
+  useEffect(() => {
+    if (!isResizingPreview) {
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const delta = resizeStartRef.current.x - event.clientX;
+      const maxWidth = Math.min(760, Math.max(360, window.innerWidth - 720));
+      const nextWidth = Math.min(maxWidth, Math.max(320, resizeStartRef.current.width + delta));
+      setPreviewWidth(nextWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingPreview(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizingPreview]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("aria-project-chat-preview-width", String(Math.round(previewWidth)));
+    }
+  }, [previewWidth]);
+
+  useEffect(() => {
     if (!isFullscreen) {
       return;
     }
@@ -559,16 +679,20 @@ export function ProjectChatTab({
         isFullscreen={isFullscreen}
         isLoadingConversations={isLoadingConversations}
         isOpen={panel.isSidebarOpen}
+        selectedFileId={previewFile?.id ?? null}
         onBeginRename={beginRenameConversation}
         onCancelRename={() => setEditingConvId(null)}
         onDeleteConversation={openDeleteConversationDialog}
         onRenameSubmit={renameConversation}
         onRenameTitleChange={setEditTitle}
         onOpenSpace={() => navigate(`/projects/${project.id}/space`)}
+        onSelectFile={(file) => setPreviewFile(file)}
         onSelectConversation={handleSelectConversation}
         onStartNewChat={handleStartNewChat}
       />
 
+      <div className="flex min-w-0 flex-1 bg-gray-50/70">
+        <div className="flex min-w-0 flex-1">
       <ProjectChatMainPanel
         activeConversation={activeConversation}
         choosePromptLabel={copy.choosePromptOrAsk}
@@ -623,6 +747,37 @@ export function ProjectChatTab({
         thinkingLabel={copy.thinking}
         title={activeConversation?.title || copy.projectAssistantTitle}
       />
+        </div>
+
+        {previewFile ? (
+          <>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onMouseDown={(event) => {
+                resizeStartRef.current = { x: event.clientX, width: previewWidth };
+                setIsResizingPreview(true);
+              }}
+              className={`group hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-x border-transparent transition-colors xl:flex ${
+                isResizingPreview ? "bg-primary/10" : "hover:bg-primary/5"
+              }`}
+            >
+              <div className="h-12 w-0.5 rounded-full bg-gray-200 transition-colors group-hover:bg-primary/50" />
+            </div>
+            <div className="hidden min-h-0 shrink-0 xl:block" style={{ width: previewWidth }}>
+              <ProjectChatFilePreviewPanel
+                content={previewContent}
+                file={previewFile}
+                isLoading={isLoadingPreview}
+                isZh={isZh}
+                onClose={() => setPreviewFile(null)}
+                onDownload={(file) => void handleDownloadProjectFile(file)}
+                onOpenSpace={() => navigate(`/projects/${project.id}/space`)}
+              />
+            </div>
+          </>
+        ) : null}
+      </div>
 
       <ProjectChatSaveModal
         files={files || []}
