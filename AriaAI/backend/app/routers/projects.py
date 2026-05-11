@@ -55,6 +55,7 @@ from app.services.project_core import (
 from app.services.project_contexts import (
     EDITABLE_MEMORY_SLOTS,
     PROJECT_MEMORY_SUMMARY_TYPES,
+    _default_project_memory,
     _get_existing_raw_memory,
     _normalize_editable_slot,
     build_project_context_data,
@@ -1347,6 +1348,9 @@ def list_projects(
 @router.post("", status_code=201)
 def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
     project = create_project_record(session, data.model_dump())
+    # Seed initial memory so AI has basic context immediately (no waiting for async rebuild)
+    seed_memory = _default_project_memory(project)
+    save_project_memory(session, project.id, seed_memory, trigger="project_created")
     _schedule_project_memory_rebuild(project.id, trigger="project_created")
     if scheduler_service.is_running():
         project.memory_rebuild_status = "queued"
@@ -1812,7 +1816,7 @@ def save_conversation_markdown(
             raise HTTPException(400, "Only markdown documents can be merged")
 
         full_path = UPLOADS_DIR / project_file.path
-        if not full_path.exists():
+        if not full_path.is_file():
             raise HTTPException(404, "File not found on disk")
 
         project_file.size_bytes = write_project_markdown_file(

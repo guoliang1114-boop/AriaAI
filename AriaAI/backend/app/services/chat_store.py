@@ -177,7 +177,7 @@ def persist_generated_artifacts(
             full_path = UPLOADS_DIR / Path(path)
             size_bytes = artifact.get("size_bytes")
             if not isinstance(size_bytes, int):
-                size_bytes = full_path.stat().st_size if full_path.exists() else 0
+                size_bytes = full_path.stat().st_size if full_path.is_file() else 0
 
             description = str(artifact.get("description") or "")
             mime_type = str(artifact.get("mime_type") or "")

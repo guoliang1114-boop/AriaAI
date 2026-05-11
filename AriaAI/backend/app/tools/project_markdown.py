@@ -180,7 +180,8 @@ _READ_MAX_CHARS = 12000
     description=(
         "List or read Markdown documents in the current project. "
         "Call with action='list' to see all available MD files (returns id, name, folder, summary). "
-        "Call with action='read' and a file_id or file_name to read the full content of a specific file."
+        "Call with action='read' and a file_id or file_name to read the full content of a specific file. "
+        "IMPORTANT: Read at most 2 files per user request. After reading the target file, proceed immediately to update_project_markdown_document. Do NOT continue reading more files."
     ),
     input_schema={
         "type": "object",

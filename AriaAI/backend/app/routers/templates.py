@@ -85,7 +85,7 @@ def delete_template(template_id: int, session: Session = Depends(get_session)):
     if not template:
         raise HTTPException(404, "Template not found")
     full_path = UPLOADS_DIR / template.path
-    if full_path.exists():
+    if full_path.is_file():
         full_path.unlink()
     session.delete(template)
     session.commit()

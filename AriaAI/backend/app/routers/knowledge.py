@@ -95,7 +95,7 @@ def delete_document(doc_id: int, session: Session = Depends(get_session)):
     for c in session.exec(select(DocumentChunk).where(DocumentChunk.document_id == doc_id)).all():
         session.delete(c)
     full_path = UPLOADS_DIR / doc.path
-    if full_path.exists():
+    if full_path.is_file():
         full_path.unlink()
     session.delete(doc)
     session.commit()

@@ -377,7 +377,7 @@ def _prepare_graphic_library_h5_slides(slides: list[dict[str, Any]]) -> list[dic
 
 
 def _data_uri_for_asset(path: Path) -> str:
-    if not path.exists():
+    if not path.is_file():
         return ""
     mime_type, _ = mimetypes.guess_type(path.name)
     mime_type = mime_type or "application/octet-stream"
@@ -659,6 +659,11 @@ def _build_graphic_library_h5_html(title: str, subtitle: str, slides: list[dict]
 def _build_graphic_library_h5_html_v2(title: str, subtitle: str, slides: list[dict]) -> str:
     skill_dir = SKILLS_DIR / "graphic-library-h5"
     template_map_path = skill_dir / "references" / "automation-template-map.json"
+    if not template_map_path.is_file():
+        raise FileNotFoundError(
+            f"graphic-library-h5 template map not found: {template_map_path}. "
+            "Ensure the skill directory and references/automation-template-map.json exist."
+        )
     template_map = json.loads(template_map_path.read_text(encoding="utf-8"))
     templates = {item["slide"]: item for item in template_map}
     source_media_dir = skill_dir / "assets" / "source-media"
@@ -4559,8 +4564,9 @@ async def generate_ppt(
             "error": "python-pptx not installed. Run: pip install python-pptx"
         }
 
-    using_template = bool(template_path and Path(template_path).exists())
-    template_name = Path(template_path).name.lower() if using_template else ""
+    template_path_obj = Path(template_path) if template_path else None
+    using_template = bool(template_path_obj and template_path_obj.is_file())
+    template_name = template_path_obj.name.lower() if using_template else ""
     is_graphic_library_template = template_name == "graphic library.pptx"
     if using_template:
         prs = Presentation(template_path)
@@ -4969,7 +4975,7 @@ async def generate_ppt_from_skill(
             for filename in ("KPMG-Template.pptx", "Template.pptx", "template.pptx", "Graphic library.pptx"):
                 candidate = SKILLS_DIR / template_skill_name / folder / filename
                 searched_paths.append(str(candidate))
-                if candidate.exists():
+                if candidate.is_file():
                     template_path = candidate
                     break
             if template_path:

@@ -41,7 +41,7 @@ def write_project_markdown_file(
     append: bool = False,
 ) -> int:
     full_path = uploads_dir / Path(project_file.path)
-    if not full_path.exists():
+    if not full_path.is_file():
         raise FileNotFoundError(full_path)
 
     next_content = content
@@ -104,7 +104,7 @@ def get_project_document_file_or_404(session: Session, project_id: int, file_id:
 
 def read_project_document_content(project_file: ProjectFile, *, uploads_dir: Path) -> str:
     full_path = uploads_dir / project_file.path
-    if not full_path.exists():
+    if not full_path.is_file():
         raise HTTPException(404, "File not found on disk")
     return full_path.read_text(encoding="utf-8", errors="replace")
 

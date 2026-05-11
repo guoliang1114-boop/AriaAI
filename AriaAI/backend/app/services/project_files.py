@@ -60,7 +60,7 @@ def get_project_file_or_404(session: Session, project_id: int, file_id: int) -> 
 
 def resolve_project_file_path(project_file: ProjectFile, uploads_dir: Path) -> Path:
     full_path = uploads_dir / project_file.path
-    if not full_path.exists():
+    if not full_path.is_file():
         raise HTTPException(404, "File not found on disk")
     return full_path
 
@@ -68,7 +68,7 @@ def resolve_project_file_path(project_file: ProjectFile, uploads_dir: Path) -> P
 def delete_project_file(session: Session, project_id: int, file_id: int, *, uploads_dir: Path) -> None:
     project_file = get_project_file_or_404(session, project_id, file_id)
     full_path = uploads_dir / project_file.path
-    if full_path.exists():
+    if full_path.is_file():
         full_path.unlink()
     session.delete(project_file)
     session.commit()

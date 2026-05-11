@@ -53,7 +53,7 @@ def download_by_path(path: str = Query(..., description="Relative path under upl
     if ".." in safe_path:
         raise HTTPException(400, "Invalid path")
     file_path = UPLOADS_DIR / path
-    if not file_path.exists():
+    if not file_path.is_file():
         raise HTTPException(404, "File not found")
 
     ext = file_path.suffix.lstrip(".")

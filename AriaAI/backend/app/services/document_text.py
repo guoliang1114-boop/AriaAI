@@ -40,7 +40,7 @@ def extract_text_from_file(
     unsupported_placeholder: str = "",
     error_prefix: str = "",
 ) -> str:
-    if not path.exists():
+    if not path.is_file():
         return "[File not found]"
 
     try:

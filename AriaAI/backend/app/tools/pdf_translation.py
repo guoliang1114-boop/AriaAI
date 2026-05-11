@@ -142,7 +142,7 @@ async def translate_document(
         }
 
     local_path = _resolve_path(file_path)
-    if not local_path.exists():
+    if not local_path.is_file():
         return {
             "success": False,
             "error": f"File not found: {local_path}",

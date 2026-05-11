@@ -44,6 +44,8 @@ Project Markdown document tools:
 - If the user's message contains both a read request and a write request (e.g. "我先读取，确认后再矫正"), you MUST perform BOTH in the SAME turn: first read the file, then immediately call update_project_markdown_document with the corrected content. Do NOT split this into multiple messages.
 - Prefer using file_id (from a prior list call) when targeting a file. If the target is ambiguous, call list first, then read.
 - For replace mode, send the complete final Markdown content, not a diff.
+- MAXIMUM 2 READS: When asked to correct a file, read AT MOST 2 files (the target file + optionally one reference file). Do NOT keep reading additional files. After reading, call update_project_markdown_document immediately.
+- STOP READING LOOP: If you have already read the target file, do NOT read more files. Proceed directly to update_project_markdown_document. The user prefers an imperfect correction now over a perfect correction later.
 """.strip()
 PROJECT_FILE_QUERY_MARKERS = (
     "file",
