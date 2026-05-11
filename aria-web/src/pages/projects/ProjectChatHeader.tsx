@@ -67,7 +67,7 @@ export function ProjectChatHeader({
           : "Memory ready";
 
   return (
-    <div className="border-b border-gray-100 bg-white p-4">
+    <div className="border-b border-gray-100 bg-white px-4 py-3">
       <div className={`flex ${isFullscreen ? "items-center justify-between gap-3" : "flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button
@@ -86,10 +86,10 @@ export function ProjectChatHeader({
             </div>
           ) : null}
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="truncate text-base font-semibold text-gray-900">{title}</h3>
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-[15px] font-semibold leading-5 text-gray-900">{title}</h3>
               <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
                   !hasMemory
                     ? "bg-gray-100 text-gray-500"
                     : memoryStale
@@ -101,7 +101,7 @@ export function ProjectChatHeader({
                 {memoryLabel}
               </span>
               {hasMemory && memoryUpdatedAt ? (
-                <span className="text-[11px] text-gray-400">
+                <span className="hidden shrink-0 text-[11px] text-gray-400 sm:inline">
                   {formatProjectMemoryUpdatedAtCompact(memoryUpdatedAt, isZh)}
                 </span>
               ) : null}
@@ -112,11 +112,11 @@ export function ProjectChatHeader({
           </div>
         </div>
 
-        <div className={`flex flex-wrap items-center gap-2 ${isFullscreen ? "" : "xl:justify-end"}`}>
+        <div className={`flex items-center gap-2 ${isFullscreen ? "shrink-0 flex-nowrap" : "flex-wrap xl:justify-end"}`}>
           <button
             type="button"
             onClick={onToggleFullscreen}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
           >
             {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             <span>{isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}</span>

@@ -54,17 +54,17 @@ export function ProjectChatFilePreviewPanel({
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-gray-200 bg-white">
-      <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
+      <div className="flex min-h-[64px] items-center justify-between gap-3 border-b border-gray-100 px-4 py-2.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-50">
               <Icon className={`h-4 w-4 ${kind.color}`} />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-gray-900">
+              <p className="truncate text-[13px] font-semibold leading-5 text-gray-900">
                 {file?.name || (isZh ? "空间预览" : "Space preview")}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-[11px] leading-4 text-gray-400">
                 {kind.canPreview ? (isZh ? "Markdown 预览" : "Markdown preview") : kind.label}
               </p>
             </div>
@@ -100,7 +100,7 @@ export function ProjectChatFilePreviewPanel({
         ) : kind.canPreview ? (
           <div className="px-5 py-4">
             {content.trim() ? (
-              <div className="md-root text-sm leading-7">
+              <div className="md-root project-chat-preview-md">
                 <MarkdownRenderer content={content} />
               </div>
             ) : (
@@ -113,13 +113,13 @@ export function ProjectChatFilePreviewPanel({
           <div className="px-5 py-5">
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
               <div className="flex items-start gap-3">
-                <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
                   <Icon className={`h-5 w-5 ${kind.color}`} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">{kind.label}</p>
-                  <h3 className="mt-1 break-words text-base font-semibold text-gray-950">{file.name}</h3>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-600">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">{kind.label}</p>
+                  <h3 className="mt-1 break-words text-[14px] font-semibold leading-5 text-gray-950">{file.name}</h3>
+                  <p className="mt-3 whitespace-pre-wrap text-[13px] leading-6 text-gray-600">
                     {file.summary ||
                       (isZh
                         ? "此格式暂不在对话区内直接预览。你可以查看摘要、下载原文件，或进入项目空间继续管理。"
@@ -137,7 +137,7 @@ export function ProjectChatFilePreviewPanel({
           <button
             type="button"
             onClick={() => onDownload(file)}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
             <Download className="h-4 w-4" />
             {isZh ? "下载" : "Download"}
@@ -145,7 +145,7 @@ export function ProjectChatFilePreviewPanel({
           <button
             type="button"
             onClick={onOpenSpace}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-primary/90"
           >
             <ExternalLink className="h-4 w-4" />
             {isZh ? "去空间" : "Open space"}

@@ -423,9 +423,9 @@ export function ProjectChatSidebar({
           </div>
         ) : (
           /* Project Space */
-          <div className="h-full overflow-y-auto p-2">
+          <div className="h-full overflow-y-auto px-3 py-3">
             <div
-              className="mb-2 flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-gray-500"
+              className="mb-3 flex w-full items-center justify-between rounded-lg px-1 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500"
             >
               <span>{isZh ? "项目空间" : "Project Space"}</span>
               <span className="text-[10px] font-medium tracking-normal text-gray-400">
@@ -442,7 +442,7 @@ export function ProjectChatSidebar({
                     <button
                       type="button"
                       onClick={() => toggleFolder(folder.id)}
-                      className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[13px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
                     >
                       {isFolderOpen ? (
                         <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
@@ -453,16 +453,16 @@ export function ProjectChatSidebar({
                       <span className="truncate">{folder.name}</span>
                     </button>
                     {isFolderOpen ? (
-                      <div className="ml-5 space-y-0.5 pb-1">
+                      <div className="ml-6 space-y-0.5 pb-1">
                         {folderFiles.map((file) => (
                           <button
                             type="button"
                             key={file.id}
                             title={file.name}
                             onClick={() => onSelectFile?.(file)}
-                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-5 transition-colors ${
                               selectedFileId === file.id
-                                ? "bg-primary/10 text-primary"
+                                ? "bg-primary/10 font-medium text-primary"
                                 : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                             }`}
                           >
@@ -486,7 +486,7 @@ export function ProjectChatSidebar({
                   <button
                     type="button"
                     onClick={() => toggleFolder("uncategorized")}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[13px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
                   >
                     {openFolders.uncategorized ? (
                       <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
@@ -497,16 +497,16 @@ export function ProjectChatSidebar({
                     <span>{isZh ? "未归类" : "Uncategorized"}</span>
                   </button>
                   {openFolders.uncategorized ? (
-                    <div className="ml-5 space-y-0.5 pb-1">
+                    <div className="ml-6 space-y-0.5 pb-1">
                       {(groupedFiles.get("uncategorized") || []).map((file) => (
                         <button
                           type="button"
                           key={file.id}
                           title={file.name}
                           onClick={() => onSelectFile?.(file)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-5 transition-colors ${
                             selectedFileId === file.id
-                              ? "bg-primary/10 text-primary"
+                              ? "bg-primary/10 font-medium text-primary"
                               : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                           }`}
                         >

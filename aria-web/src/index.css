@@ -646,6 +646,66 @@ body {
   overflow: hidden;
 }
 
+/* Compact document preview used inside the project chat right rail. */
+.project-chat-preview-md {
+  font-size: 0.8125rem;
+  line-height: 1.58;
+  color: #1f2937;
+}
+
+.project-chat-preview-md .md-heading {
+  margin-top: 1rem;
+  margin-bottom: 0.45rem;
+  font-family: inherit;
+  font-weight: 650;
+  color: #111827;
+}
+
+.project-chat-preview-md .md-h1 {
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
+.project-chat-preview-md .md-h2 {
+  font-size: 0.975rem;
+  line-height: 1.4;
+}
+
+.project-chat-preview-md .md-h3 {
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.project-chat-preview-md .md-h4 {
+  font-size: 0.85rem;
+}
+
+.project-chat-preview-md .md-paragraph {
+  margin-bottom: 0.55rem;
+}
+
+.project-chat-preview-md .md-list {
+  margin-bottom: 0.6rem;
+  padding-left: 1.1rem;
+}
+
+.project-chat-preview-md .md-list-item {
+  margin-bottom: 0.2rem;
+  padding-left: 0.1rem;
+}
+
+.project-chat-preview-md .md-blockquote {
+  margin: 0.65rem 0;
+  padding: 0.45rem 0.75rem;
+  border-left-width: 2px;
+  background: #f8fafc;
+  font-style: normal;
+}
+
+.project-chat-preview-md .md-hr {
+  margin: 0.9rem 0;
+}
+
 /* Dark mode adjustments for tables */
 @media (prefers-color-scheme: dark) {
   .md-root .md-table-wrapper {
