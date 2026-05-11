@@ -11,10 +11,13 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.models.db import (
     ClientRecord,
+    GeneratedFile,
+    KnowledgeDocument,
     Milestone,
     Project,
     ProjectFile,
     ProjectPayment,
+    ProjectTodo,
     Skill,
 )
 from app.services.document_text import extract_text_from_file
@@ -30,6 +33,9 @@ from app.services.tool_executor import format_tools_for_claude
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
+MAX_PROJECT_NOTES_CHARS = 6000
+MAX_PROJECT_TODOS = 12
+MAX_PROJECT_ARTIFACTS = 8
 PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document", "read_project_markdown_document"]
 PROJECT_MARKDOWN_TOOL_PROMPT = """
 
@@ -743,6 +749,7 @@ def build_project_context(
         "Use only the current project's context as the primary source of truth.",
         "Do not assume facts from other projects under the same client unless the user explicitly asks for cross-project comparison.",
         "If outside context is mentioned, label it as a hypothesis or reference rather than current-project fact.",
+        "Context layering: structured project memory is the durable synthesized memory; notes, todos, files, financials, and artifacts are raw operational signals; RAG excerpts are cited knowledge references. Do not merge these layers into new facts unless the user asks you to update memory or documents.",
         "",
         f"**Project Name:** {project.name}",
         f"**Client:** {project.client}",
@@ -770,7 +777,12 @@ def build_project_context(
     
     # Accumulated project notes
     if project.notes:
-        lines.append(f"\n**Project Notes:**\n{project.notes}")
+        notes = project.notes[:MAX_PROJECT_NOTES_CHARS]
+        lines.append(f"\n**Project Notes:**\n{notes}")
+
+    if project.md_notes:
+        md_notes = project.md_notes[:MAX_PROJECT_NOTES_CHARS]
+        lines.append(f"\n**Project Markdown Notes:**\n{md_notes}")
     
     # Milestones
     milestones = session.exec(
@@ -783,6 +795,19 @@ def build_project_context(
             due = f" (due: {m.due_date})" if m.due_date else ""
             priority = f" [{m.priority} priority]" if m.priority == "high" else ""
             lines.append(f"  {status_icon} {m.title}{priority}{due}")
+
+    todos = session.exec(
+        select(ProjectTodo)
+        .where(ProjectTodo.project_id == project.id)
+        .order_by(ProjectTodo.is_done, ProjectTodo.due_date, ProjectTodo.updated_at.desc())
+        .limit(MAX_PROJECT_TODOS)
+    ).all()
+    if todos:
+        lines.append("\n**Current Todos:**")
+        for todo in todos:
+            status_icon = "✓" if todo.is_done else "○"
+            due = f" (due: {todo.due_date})" if todo.due_date else ""
+            lines.append(f"  {status_icon} {todo.content}{due}")
     
     should_inject_file_text = bool(file_ids) or _content_requests_file_details(content)
 
@@ -825,6 +850,18 @@ def build_project_context(
         expense = sum(p.amount for p in payments if p.payment_type == "expense")
         if received or expense:
             lines.append(f"\n**Financials:** Received ¥{received:,.0f} | Expenses ¥{abs(expense):,.0f}")
+
+    artifacts = session.exec(
+        select(GeneratedFile)
+        .where(GeneratedFile.project_id == project.id)
+        .order_by(GeneratedFile.created_at.desc())
+        .limit(MAX_PROJECT_ARTIFACTS)
+    ).all()
+    if artifacts:
+        lines.append("\n**Recent Generated Artifacts:**")
+        for artifact in artifacts:
+            description = f" — {artifact.description[:120]}" if artifact.description else ""
+            lines.append(f"  - [{artifact.file_type.upper()}] {artifact.name}{description}")
     
     # If the project is essentially empty (no memory, no notes, no milestones, no files, no financials),
     # explicitly tell the AI not to look for deeper material and to work with what it has.
@@ -832,9 +869,12 @@ def build_project_context(
         memory_context
         or project.context_summary
         or project.notes
+        or project.md_notes
         or milestones
+        or todos
         or files
         or payments
+        or artifacts
     )
     if not has_substantive_data:
         lines.append(
@@ -880,13 +920,9 @@ def build_rag_context(
     
     Returns structured dict with both text for LLM and sources for citations.
     """
-    # Check if RAG should trigger
-    should_retrieve = bool(rag_doc_ids) or (auto_trigger and "#doc" in query)
-    
-    if not should_retrieve:
-        return {"text": "", "sources": []}
-    
-    # Perform structured retrieval
+    # Perform structured retrieval. In a project chat, the selected knowledge scope
+    # should behave like ambient workspace context: if scoped vectorized documents
+    # exist, retrieve from them without requiring the user to type #doc.
     client_id = None
     effective_project_id = None
     if not rag_doc_ids and knowledge_scope == "project" and project_id is not None:
@@ -902,6 +938,20 @@ def build_rag_context(
             else:
                 # Fall back to the current project instead of widening to global retrieval.
                 effective_project_id = project_id
+
+    should_retrieve = bool(rag_doc_ids) or (auto_trigger and "#doc" in query)
+    if not should_retrieve and auto_trigger and project_id is not None and knowledge_scope in {"project", "client"}:
+        scoped_docs_stmt = select(KnowledgeDocument.id).where(KnowledgeDocument.vector_status == "synced")
+        if effective_project_id is not None:
+            scoped_docs_stmt = scoped_docs_stmt.where(KnowledgeDocument.project_id == effective_project_id)
+        elif client_id is not None:
+            scoped_docs_stmt = scoped_docs_stmt.where(KnowledgeDocument.client_id == client_id)
+        else:
+            scoped_docs_stmt = scoped_docs_stmt.where(KnowledgeDocument.project_id == project_id)
+        should_retrieve = session.exec(scoped_docs_stmt.limit(1)).first() is not None
+
+    if not should_retrieve:
+        return {"text": "", "sources": []}
 
     ctx = retrieve_structured(
         query,

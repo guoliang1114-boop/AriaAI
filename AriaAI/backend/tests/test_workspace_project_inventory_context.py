@@ -5,16 +5,28 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import Project, ProjectFile
+from app.models.db import DocumentChunk, GeneratedFile, KnowledgeDocument, Project, ProjectFile, ProjectTodo
+from app.services import context_builder as context_builder_module
 from app.services.context_builder import (
     build_chat_context,
     build_project_context,
     is_client_project_portfolio_query,
     is_workspace_project_inventory_query,
 )
+
+
+class FakeRetrievalContext:
+    def __init__(self, text: str = "retrieved project knowledge"):
+        self._text = text
+        self.results = []
+        self.query = "fake query"
+
+    def to_text(self) -> str:
+        return self._text
 
 
 class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
@@ -126,6 +138,81 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("source.txt", context)
         self.assertIn("Useful source summary", context)
         self.assertNotIn("## Project File Contents", context)
+
+    def test_project_context_includes_notes_todos_and_recent_artifacts(self):
+        with Session(self.engine) as session:
+            project = Project(
+                name="Context Rich Project",
+                client="Client",
+                status="delivering",
+                md_notes="客户希望先完成沟通材料，再进入方案阶段。",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(ProjectTodo(project_id=project.id, content="整理客户沟通 PPT", due_date="2026-05-20"))
+            session.add(
+                GeneratedFile(
+                    conversation_id=1,
+                    project_id=project.id,
+                    name="沟通材料.md",
+                    file_type="md",
+                    path="generated/brief.md",
+                    description="初版客户沟通材料",
+                )
+            )
+            session.commit()
+
+            context = build_project_context(session, project.id, content="给我一个沟通PPT目录")
+
+        self.assertIn("**Project Markdown Notes:**", context)
+        self.assertIn("客户希望先完成沟通材料", context)
+        self.assertIn("**Current Todos:**", context)
+        self.assertIn("整理客户沟通 PPT", context)
+        self.assertIn("**Recent Generated Artifacts:**", context)
+        self.assertIn("沟通材料.md", context)
+
+    def test_project_scope_chat_auto_retrieves_synced_project_knowledge(self):
+        with Session(self.engine) as session:
+            project = Project(name="Knowledge Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            doc = KnowledgeDocument(
+                name="客户访谈纪要.md",
+                file_type="md",
+                path="knowledge/interview.md",
+                project_id=project.id,
+                vector_status="synced",
+            )
+            session.add(doc)
+            session.commit()
+            session.refresh(doc)
+            session.add(
+                DocumentChunk(
+                    document_id=doc.id,
+                    chunk_index=0,
+                    content="客户关注上线节奏和预算边界。",
+                    embedding_json="[0.1, 0.2]",
+                )
+            )
+            session.commit()
+
+            with patch.object(
+                context_builder_module,
+                "retrieve_structured",
+                return_value=FakeRetrievalContext("客户关注上线节奏和预算边界。"),
+            ) as mocked_retrieve:
+                chat_context = build_chat_context(
+                    session,
+                    project_id=project.id,
+                    knowledge_scope="project",
+                    content="给我一个沟通PPT目录",
+                )
+
+        self.assertIn("客户关注上线节奏", chat_context.rag_context)
+        mocked_retrieve.assert_called_once()
+        self.assertEqual(mocked_retrieve.call_args.kwargs["project_id"], project.id)
 
 
 if __name__ == "__main__":
