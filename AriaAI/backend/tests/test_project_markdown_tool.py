@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import Project
+from app.models.db import Project, ProjectFolder
 from app.services.context_builder import build_chat_context, _safe_project_file_path
 from app.tools import registry
 from app.tools import project_markdown as project_markdown_tool
@@ -106,6 +106,34 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertIn("Initial", content)
         self.assertIn("Next update", content)
         self.assertTrue(project.memory_stale)
+
+    def test_tool_auto_assigns_created_markdown_to_matching_project_folder(self):
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            created = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "create",
+                        "file_name": "初次沟通PPT目录方案建议.md",
+                        "content": "# PPT 目录方案建议\n\n## 报价和合作方案\n\n生成一版客户沟通材料。",
+                    },
+                )
+            )
+
+        self.assertEqual(created["status"], "success")
+        with Session(self.engine) as session:
+            folder = session.get(ProjectFolder, created["output"]["folder_id"])
+            folders = session.exec(select(ProjectFolder).where(ProjectFolder.project_id == project_id)).all()
+
+        self.assertEqual(folder.name, "方案和报价")
+        self.assertEqual(len(folders), 4)
 
     def test_tool_accepts_common_llm_argument_aliases(self):
         project_id = self._create_project()

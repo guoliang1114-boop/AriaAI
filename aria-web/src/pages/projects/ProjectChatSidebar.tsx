@@ -497,22 +497,25 @@ export function ProjectChatSidebar({
               })}
 
               {(groupedFiles.get("uncategorized") || []).length > 0 ? (
-                <div className="rounded-lg">
+                <div className="mt-2 rounded-lg border-t border-dashed border-gray-100 pt-2">
                   <button
                     type="button"
                     onClick={() => toggleFolder("uncategorized")}
-                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[13px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12px] font-medium leading-5 text-gray-500 hover:bg-gray-50"
                   >
                     {openFolders.uncategorized ? (
                       <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
                     ) : (
                       <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
                     )}
-                    <FolderOpen className="h-3.5 w-3.5 text-gray-400" />
-                    <span>{isZh ? "未归类" : "Uncategorized"}</span>
+                    <FolderKanban className="h-3.5 w-3.5 text-gray-400" />
+                    <span>{isZh ? "待归类" : "To classify"}</span>
+                    <span className="ml-auto text-[10px] text-gray-400">
+                      {(groupedFiles.get("uncategorized") || []).length}
+                    </span>
                   </button>
                   {openFolders.uncategorized ? (
-                    <div className="ml-6 space-y-0.5 pb-1">
+                    <div className="ml-6 space-y-0.5 pb-1 opacity-90">
                       {(groupedFiles.get("uncategorized") || []).map((file) => (
                         <button
                           type="button"

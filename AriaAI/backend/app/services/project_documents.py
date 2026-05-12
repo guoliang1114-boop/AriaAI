@@ -113,7 +113,7 @@ def resolve_project_folder(
     session: Session,
     project_id: int,
     *,
-    init_default_folders: Callable[[int, Session], list[ProjectFolder]],
+    init_default_folders: Callable[[Session, int], list[ProjectFolder]],
     preferred_folder_id: int | None = None,
 ) -> ProjectFolder | None:
     if preferred_folder_id is not None:
@@ -128,12 +128,68 @@ def resolve_project_folder(
         .order_by(ProjectFolder.sort_order, ProjectFolder.id)
     ).all()
     if not folders:
-        folders = init_default_folders(project_id, session)
+        folders = init_default_folders(session, project_id)
 
     for folder in folders:
         if folder.sort_order == 2:
             return folder
     return folders[0] if folders else None
+
+
+def _folder_signal_score(folder_name: str, text: str) -> int:
+    name = folder_name.lower()
+    score = 0
+    signal_groups = [
+        (("需求", "requirement", "brief", "背景", "痛点", "调研"), ("需求", "requirement")),
+        (("方案", "报价", "ppt", "presentation", "proposal", "quote", "建议", "目录"), ("方案", "报价", "proposal")),
+        (("交付", "计划", "会议", "纪要", "里程碑", "deliver", "meeting", "plan"), ("交付", "deliver")),
+        (("归档", "结项", "验收", "合同", "archive", "final"), ("归档", "archive")),
+    ]
+    for text_keywords, folder_keywords in signal_groups:
+        if any(keyword in name for keyword in folder_keywords):
+            score += sum(2 for keyword in text_keywords if keyword in text)
+    if folder_name and folder_name.lower() in text:
+        score += 5
+    return score
+
+
+def infer_project_folder(
+    session: Session,
+    project_id: int,
+    *,
+    init_default_folders: Callable[[Session, int], list[ProjectFolder]],
+    preferred_folder_id: int | None = None,
+    name: str = "",
+    content: str = "",
+    summary: str = "",
+) -> ProjectFolder | None:
+    if preferred_folder_id is not None:
+        return resolve_project_folder(
+            session,
+            project_id,
+            init_default_folders=init_default_folders,
+            preferred_folder_id=preferred_folder_id,
+        )
+
+    folders = session.exec(
+        select(ProjectFolder)
+        .where(ProjectFolder.project_id == project_id)
+        .order_by(ProjectFolder.sort_order, ProjectFolder.id)
+    ).all()
+    if not folders:
+        folders = init_default_folders(session, project_id)
+    if not folders:
+        return None
+
+    text = f"{name}\n{summary}\n{content[:4000]}".lower()
+    best_folder = max(folders, key=lambda folder: (_folder_signal_score(folder.name, text), -folder.sort_order))
+    if _folder_signal_score(best_folder.name, text) > 0:
+        return best_folder
+
+    for folder in folders:
+        if "交付" in folder.name or "deliver" in folder.name.lower():
+            return folder
+    return folders[0]
 
 
 def create_project_document_record(
@@ -143,24 +199,26 @@ def create_project_document_record(
     name: str,
     content: str,
     uploads_dir: Path,
-    init_default_folders: Callable[[int, Session], list[ProjectFolder]],
+    init_default_folders: Callable[[Session, int], list[ProjectFolder]],
     folder_id: int | None = None,
     summary: str = "Project note document",
+    auto_assign_folder: bool = False,
 ) -> ProjectFile:
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")
 
-    folder = (
-        resolve_project_folder(
+    folder = None
+    if folder_id is not None or auto_assign_folder:
+        folder = infer_project_folder(
             session,
             project_id,
             init_default_folders=init_default_folders,
             preferred_folder_id=folder_id,
+            name=name,
+            content=content,
+            summary=summary,
         )
-        if folder_id is not None
-        else None
-    )
     filename = sanitize_markdown_filename(name)
     if not filename.lower().endswith(".md"):
         filename = f"{filename}.md"
@@ -203,7 +261,7 @@ def update_project_document_record(
     file_id: int,
     *,
     uploads_dir: Path,
-    init_default_folders: Callable[[int, Session], list[ProjectFolder]],
+    init_default_folders: Callable[[Session, int], list[ProjectFolder]],
     content: str | None = None,
     name: str | None = None,
     folder_id: int | None = None,
@@ -244,4 +302,3 @@ def update_project_document_record(
         "folder_id": project_file.folder_id,
         "size_bytes": project_file.size_bytes,
     }
-

@@ -20,7 +20,7 @@ def list_project_folders(
         .order_by(ProjectFolder.sort_order)
     ).all()
     if not folders:
-        folders = init_default_folders(project_id, session)
+        folders = init_default_folders(session, project_id)
     return folders
 
 

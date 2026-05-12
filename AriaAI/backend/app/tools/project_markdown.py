@@ -93,7 +93,7 @@ def _bust_project_cache(project_id: int) -> None:
     projects_cache.delete_prefix("list:")
 
 
-def _init_default_folders(project_id: int, session: Session):
+def _init_default_folders(session: Session, project_id: int):
     return init_default_project_folders(session, project_id)
 
 
@@ -173,6 +173,7 @@ async def update_project_markdown_document(
                 init_default_folders=_init_default_folders,
                 folder_id=folder_id,
                 summary=summary or "Updated from project chat",
+                auto_assign_folder=True,
             )
             mark_project_memory_stale(session, project_id, trigger="markdown_tool_create")
             _bust_project_cache(project_id)
@@ -181,6 +182,7 @@ async def update_project_markdown_document(
                 "action": "created",
                 "id": created.id,
                 "name": created.name,
+                "folder_id": created.folder_id,
                 "size_bytes": created.size_bytes,
                 "message": f"Created {created.name}",
             }

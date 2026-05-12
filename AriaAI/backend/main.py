@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from app.config import (
     LOG_LEVEL, LOG_FORMAT, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS,
@@ -39,15 +40,25 @@ APP_VERSION = "0.0.2"
 
 def _backfill_folders():
     """Create default folders for all existing projects that have none."""
-    with Session(engine) as session:
-        all_projects = session.exec(select(Project)).all()
-        for project in all_projects:
-            has_folders = session.exec(
-                select(ProjectFolder).where(ProjectFolder.project_id == project.id)
-            ).first()
-            if not has_folders:
-                init_default_project_folders(session, project.id)
+    def run_once() -> None:
+        with Session(engine) as session:
+            project_ids = session.exec(select(Project.id)).all()
+            folder_project_ids = set(
+                session.exec(select(ProjectFolder.project_id).distinct()).all()
+            )
+            for project_id in project_ids:
+                if project_id not in folder_project_ids:
+                    init_default_project_folders(session, project_id)
 
+    try:
+        run_once()
+    except OperationalError:
+        logging.getLogger(__name__).warning(
+            "Database connection dropped during project folder backfill; retrying once.",
+            exc_info=True,
+        )
+        engine.dispose()
+        run_once()
 
 def _patch_templates():
     """Backfill user_template for existing skills that have none."""

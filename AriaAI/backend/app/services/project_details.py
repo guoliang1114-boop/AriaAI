@@ -15,7 +15,7 @@ def build_project_detail(
     session: Session,
     project_id: int,
     *,
-    init_default_folders: Callable[[int, Session], list[ProjectFolder]],
+    init_default_folders: Callable[[Session, int], list[ProjectFolder]],
 ) -> dict:
     project = session.get(Project, project_id)
     if not project:
