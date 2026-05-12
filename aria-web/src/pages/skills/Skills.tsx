@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
-  ArrowRight,
   BarChart3,
   BookOpen,
   Brain,
@@ -1087,7 +1086,7 @@ function buildInputHints(skill: Skill | null, isZh: boolean) {
   if (!skill) return [];
   const templateLines = skill.user_template
     .split(/\r?\n/)
-    .map((line) => line.replace(/[\[\]{}]/g, "").trim())
+    .map((line) => line.replace(/[[\]{}]/g, "").trim())
     .filter((line) => line.length > 0 && line.length < 120)
     .slice(0, 5);
 

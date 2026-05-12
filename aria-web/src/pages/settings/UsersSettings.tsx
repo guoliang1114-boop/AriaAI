@@ -9,7 +9,6 @@ import {
   Loader2, 
   AlertCircle, 
   Check,
-  MoreVertical,
   Lock,
   Edit3,
   X,

@@ -9,7 +9,6 @@ import {
   Sparkles,
   Loader2,
   Plus,
-  MessageSquare,
   Clock,
   ChevronUp,
   ArrowDown,
@@ -33,7 +32,6 @@ import {
   Mail,
   Zap,
   Download,
-  MoreVertical,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { exportConversationFile } from '../../api/chatExport'
@@ -45,7 +43,6 @@ import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '.
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
 import { formatDateOnly, formatDatePartsKey, formatTimeOnly } from '../../utils/timezone'
 
-const API_BASE_URL = getApiBaseUrl()
 const PAGE_SIZE = 20
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -1132,7 +1129,7 @@ export function Chat() {
       let currentConvId = conversation?.id
       if (!currentConvId) {
         // Auto-generate title from first message
-        const cleanContent = msgText.replace(/[#*`\[\]]/g, '').trim()
+        const cleanContent = msgText.replace(/[#*`[\]]/g, '').trim()
         const title = cleanContent
           ? cleanContent.slice(0, 15) + (cleanContent.length > 15 ? '...' : '')
           : t('chat.newChat', 'New Chat')
@@ -1341,9 +1338,9 @@ export function Chat() {
                 // First, try to rename the conversation with the first message
                 if (targetConvId && targetTitle) {
                   const cleanTitle = targetTitle
-                    .replace(/[#*`\[\]]/g, '')
+                    .replace(/[#*`[\]]/g, '')
                     .trim()
-                    .slice(0, 15) + (targetTitle.replace(/[#*`\[\]]/g, '').trim().length > 15 ? '...' : '')
+                    .slice(0, 15) + (targetTitle.replace(/[#*`[\]]/g, '').trim().length > 15 ? '...' : '')
 
                   await api.patch(`/chat/conversations/${targetConvId}`, { title: cleanTitle })
 
@@ -2360,7 +2357,9 @@ function MessageRow({ message }: { message: Message }) {
     artifacts = Array.isArray(meta.artifacts) ? meta.artifacts : []
     skillProgress = buildProgressFromMetadata(meta)
     stageTimings = stageTimingEntriesFromMeta(meta)
-  } catch (_) {}
+  } catch {
+    // Ignore invalid metadata payloads from older chat messages.
+  }
 
   return (
     <div className={`flex w-full items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -2453,10 +2452,11 @@ const ContextPill = forwardRef<HTMLDivElement, {
   open: boolean
   onToggle: () => void
   children?: React.ReactNode
-}>(({ icon, label, active, secondary, open: _open, onToggle, children }, ref) => (
+}>(({ icon, label, active, secondary, open, onToggle, children }, ref) => (
   <div className="relative" ref={ref}>
     <button
       onClick={onToggle}
+      aria-expanded={open}
       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] transition-colors ${
         active
           ? secondary

@@ -73,8 +73,8 @@ export function ServerSettings() {
       setServerUrl(resolvedUrl)
       setInitialServerUrl(resolvedUrl)
       await checkConnection(resolvedUrl)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load settings')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -108,7 +108,7 @@ export function ServerSettings() {
         setStatus('offline')
         setServerInfo(null)
       }
-    } catch (err: any) {
+    } catch {
       setStatus('offline')
       setServerInfo(null)
     } finally {

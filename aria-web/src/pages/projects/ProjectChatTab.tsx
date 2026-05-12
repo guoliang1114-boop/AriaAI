@@ -86,7 +86,7 @@ export function ProjectChatTab({
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [, setIsLoadingSkills] = useState(false);
   const [selectedSkillId, setSelectedSkillId] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
     if (typeof window === "undefined") {
@@ -729,7 +729,6 @@ export function ProjectChatTab({
             quickPrompts={quickPrompts}
             skills={skills}
             selectedSkillId={selectedSkillId}
-            isLoadingSkills={isLoadingSkills}
             startConversationLabel={copy.startConversation}
             streamingArtifacts={streamingArtifacts}
             streamingContent={streamingContent}

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import {
   Calendar,
   Check,
-  CheckCircle,
   ChevronRight,
   Copy,
   ExternalLink,

@@ -34,7 +34,7 @@ export function LanguageSettings() {
         // Apply loaded language immediately
         changeLanguage(settings.language)
       }
-    } catch (err: any) {
+    } catch {
       // Silent fail - use default or localStorage
       const savedLang = localStorage.getItem('language')
       if (savedLang) {

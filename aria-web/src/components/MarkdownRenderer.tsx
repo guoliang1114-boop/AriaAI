@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
 import type { ComponentPropsWithoutRef, ReactNode } from 'react'
+import { sanitizeMarkdownHref } from './markdownSecurity'
 
 interface MarkdownRendererProps {
   content: string
@@ -12,23 +13,6 @@ type CodeRendererProps = ComponentPropsWithoutRef<'code'> & {
   inline?: boolean
   node?: unknown
   children?: ReactNode
-}
-
-function sanitizeHref(href?: string | null) {
-  const trimmed = (href || '').trim()
-  if (!trimmed) return null
-  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed
-
-  try {
-    const parsed = new URL(trimmed, window.location.origin)
-    if (['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol)) {
-      return parsed.toString()
-    }
-  } catch {
-    return null
-  }
-
-  return null
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -137,7 +121,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
           return <td className="md-table-cell">{children}</td>
         },
         a({ children, href }) {
-          const safeHref = sanitizeHref(href)
+          const safeHref = sanitizeMarkdownHref(
+            href,
+            typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
+          )
           if (!safeHref) {
             return <span className="md-link text-slate-500 no-underline">{children}</span>
           }

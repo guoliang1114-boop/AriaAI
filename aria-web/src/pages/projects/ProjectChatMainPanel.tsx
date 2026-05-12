@@ -58,7 +58,6 @@ interface ProjectChatMainPanelProps {
   inputPlaceholder: string;
   skills: Skill[];
   selectedSkillId: number | null;
-  isLoadingSkills: boolean;
   onSkillChange: (value: number | null) => void;
 }
 
@@ -102,7 +101,6 @@ export function ProjectChatMainPanel({
   title,
   skills,
   selectedSkillId,
-  isLoadingSkills,
   onSkillChange,
   projectClientName,
 }: ProjectChatMainPanelProps) {

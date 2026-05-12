@@ -391,9 +391,6 @@ export function AISettings() {
     setMaxTokens((current) => Math.min(current, model.maxTokens))
   }
   
-  // Only test connection for supported providers
-  const isProviderSupported = (provider: string) => ['anthropic', 'moonshot', 'deepseek', 'bigmodel', 'mimo'].includes(provider)
-
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)
   }

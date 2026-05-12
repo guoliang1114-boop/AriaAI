@@ -297,7 +297,7 @@ export function getProjectMemoryQuickActions(isZh: boolean): ProjectMemoryQuickA
 }
 
 export function buildDefaultChatTitle(content: string, isZh: boolean) {
-  const clean = content.replace(/[#*`\[\]]/g, "").trim();
+  const clean = content.replace(/[#*`[\]]/g, "").trim();
   if (!clean) return getProjectChatCopy(isZh).defaultNewChatTitle;
   return clean.slice(0, 15) + (clean.length > 15 ? "..." : "");
 }
