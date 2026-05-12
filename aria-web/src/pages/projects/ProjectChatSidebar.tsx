@@ -2,10 +2,12 @@ import {
   ChevronDown,
   ChevronRight,
   Edit3,
+  Expand,
   FolderOpen,
   MessageSquare,
   Plus,
   Search,
+  Shrink,
   Trash2,
   X,
   FolderKanban,
@@ -93,8 +95,8 @@ type ProjectChatSidebarProps = {
   onRenameSubmit: (conversationId: number, title: string) => void;
   onCancelRename: () => void;
   onDeleteConversation: (conversation: Conversation) => void;
-  onOpenSpace: () => void;
   onSelectFile?: (file: ProjectFile) => void;
+  onToggleFullscreen?: () => void;
 };
 
 export function ProjectChatSidebar({
@@ -115,8 +117,8 @@ export function ProjectChatSidebar({
   onRenameSubmit,
   onCancelRename,
   onDeleteConversation,
-  onOpenSpace,
   onSelectFile,
+  onToggleFullscreen,
 }: ProjectChatSidebarProps) {
   const { i18n } = useTranslation();
   const { resolvedTimeZone } = useAppTimeZone();
@@ -199,13 +201,26 @@ export function ProjectChatSidebar({
     >
       {/* Header */}
       <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
-        <button
-          onClick={onStartNewChat}
-          className="w-full flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 active:scale-[0.98] transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          {copy.newChatButton}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onStartNewChat}
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {copy.newChatButton}
+          </button>
+          {onToggleFullscreen ? (
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              title={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
+              aria-label={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
+            >
+              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+            </button>
+          ) : null}
+        </div>
 
         {/* Tabs */}
         <div className="flex rounded-lg bg-gray-100 p-0.5">

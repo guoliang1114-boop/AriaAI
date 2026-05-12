@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, ChevronLeft, ChevronRight, Expand, Shrink } from "lucide-react";
+import { AlertTriangle, Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { getProjectChatCopy } from "./projectChatCopy";
@@ -19,11 +19,9 @@ type ProjectChatHeaderProps = {
   memoryStale: boolean;
   memoryUpdatedAt?: string | null;
   memoryVersion: number;
-  exportControl?: React.ReactNode;
   skillControl?: React.ReactNode;
   skillSaveControl?: React.ReactNode;
   onRebuildMemory: () => void;
-  onToggleFullscreen: () => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
 };
@@ -39,10 +37,8 @@ export function ProjectChatHeader({
   knowledgeScope,
   memoryStale,
   memoryUpdatedAt,
-  exportControl,
   skillControl,
   skillSaveControl,
-  onToggleFullscreen,
   onToggleSidebar,
   onKnowledgeScopeChange,
 }: ProjectChatHeaderProps) {
@@ -113,15 +109,6 @@ export function ProjectChatHeader({
         </div>
 
         <div className={`flex items-center gap-2 ${isFullscreen ? "shrink-0 flex-nowrap" : "flex-wrap xl:justify-end"}`}>
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-          >
-            {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-            <span>{isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}</span>
-          </button>
-
           {!isFullscreen ? (
             <div className="hidden items-center gap-2 lg:flex">
               {skillControl}
@@ -143,7 +130,6 @@ export function ProjectChatHeader({
 
           <div className={`${isFullscreen ? "" : "ml-auto xl:ml-0"} flex items-center gap-2`}>
             {!isFullscreen ? skillSaveControl : null}
-            {exportControl}
           </div>
         </div>
       </div>

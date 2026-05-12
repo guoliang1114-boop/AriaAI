@@ -1,4 +1,4 @@
-import { ArrowDown, BookOpen, ChevronDown, Clock3, Info, Radio, Wrench } from "lucide-react";
+import { BookOpen, ChevronDown, Clock3, Info, Wrench } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -11,13 +11,11 @@ import type {
   Skill,
   ToolCallEvent,
 } from "../../types/api";
-import { ProjectChatExportDropdown } from "./ProjectChatExportDropdown";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
-import { ProjectChatMemoryQuickBar } from "./ProjectChatMemoryQuickBar";
 import { ProjectChatMessages } from "./ProjectChatMessages";
 import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
-import { getProjectChatCopy, type ProjectMemoryQuickAction, type ProjectQuickPrompt } from "./projectChatCopy";
+import { getProjectChatCopy, type ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatMainPanelProps {
   activeConversation?: Conversation | null;
@@ -27,14 +25,11 @@ interface ProjectChatMainPanelProps {
   isLoadingMessages: boolean;
   highlightedMessageId?: number | null;
   isFullscreen: boolean;
-  isAutoFollow: boolean;
-  showScrollToBottom: boolean;
   isSidebarOpen: boolean;
   knowledgeScope: "project" | "client" | "global";
   memoryStatus: ProjectMemoryStatusResponse | null;
   isLoadingMemoryStatus: boolean;
   isRebuildingMemory: boolean;
-  memoryQuickActions: ProjectMemoryQuickAction[];
   projectMemory: ProjectMemory | null;
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
@@ -46,10 +41,7 @@ interface ProjectChatMainPanelProps {
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
-  onToggleFullscreen: () => void;
   onToggleSidebar: () => void;
-  onEnableAutoFollow: () => void;
-  onJumpToBottom: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
   projectClientName?: string;
@@ -80,14 +72,11 @@ export function ProjectChatMainPanel({
   isLoadingMessages,
   highlightedMessageId,
   isFullscreen,
-  isAutoFollow,
-  showScrollToBottom,
   isSidebarOpen,
   knowledgeScope,
   memoryStatus,
   isLoadingMemoryStatus,
   isRebuildingMemory,
-  memoryQuickActions,
   projectMemory,
   messages,
   messagesContainerRef,
@@ -100,10 +89,7 @@ export function ProjectChatMainPanel({
   onSaveMessage,
   onSend,
   onDownloadArtifact,
-  onToggleFullscreen,
   onToggleSidebar,
-  onEnableAutoFollow,
-  onJumpToBottom,
   quickPrompts,
   projectId,
   startConversationLabel,
@@ -168,7 +154,6 @@ export function ProjectChatMainPanel({
         memoryUpdatedAt={memoryStatus?.memory_updated_at}
         memoryVersion={memoryStatus?.memory_version ?? 0}
         onRebuildMemory={onRebuildMemory}
-        onToggleFullscreen={onToggleFullscreen}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
         skillSaveControl={
@@ -195,20 +180,6 @@ export function ProjectChatMainPanel({
             </div>
           ) : undefined
         }
-        exportControl={
-          activeConversation?.id ? (
-            <ProjectChatExportDropdown
-              conversationId={activeConversation.id}
-              conversationTitle={activeConversation.title}
-              onOpenSaveModal={onOpenConversationSaveModal}
-            />
-          ) : undefined
-        }
-      />
-
-      <ProjectChatMemoryQuickBar
-        actions={memoryQuickActions}
-        onSelect={onQuickPrompt}
       />
 
       {hasPinnedAnchors ? (
@@ -250,28 +221,6 @@ export function ProjectChatMainPanel({
           onSaveMessage={onSaveMessage}
         />
 
-        {showScrollToBottom && !isAutoFollow ? (
-          <div className="pointer-events-none sticky bottom-4 z-10 mx-auto flex max-w-5xl justify-end">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-gray-200 bg-white/95 p-1 shadow-lg backdrop-blur">
-              <button
-                type="button"
-                onClick={onEnableAutoFollow}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
-              >
-                <Radio className="h-3.5 w-3.5" />
-                <span>{copy.followToBottom}</span>
-              </button>
-              <button
-                type="button"
-                onClick={onJumpToBottom}
-                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90"
-              >
-                <ArrowDown className="h-3.5 w-3.5" />
-                <span>{copy.scrollToBottom}</span>
-              </button>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <ProjectChatInput

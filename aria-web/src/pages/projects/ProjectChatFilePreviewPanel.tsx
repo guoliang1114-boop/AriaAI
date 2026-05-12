@@ -1,6 +1,5 @@
 import {
   Download,
-  ExternalLink,
   File,
   FileSpreadsheet,
   FileText,
@@ -39,7 +38,6 @@ export function ProjectChatFilePreviewPanel({
   isZh,
   onClose,
   onDownload,
-  onOpenSpace,
 }: {
   content: string;
   file: ProjectFile | null;
@@ -47,7 +45,6 @@ export function ProjectChatFilePreviewPanel({
   isZh: boolean;
   onClose: () => void;
   onDownload: (file: ProjectFile) => void;
-  onOpenSpace: () => void;
 }) {
   const kind = getFileKind(file);
   const Icon = kind.icon;
@@ -70,14 +67,27 @@ export function ProjectChatFilePreviewPanel({
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-          aria-label={isZh ? "关闭预览" : "Close preview"}
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {file ? (
+            <button
+              type="button"
+              onClick={() => onDownload(file)}
+              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              title={isZh ? "下载" : "Download"}
+              aria-label={isZh ? "下载" : "Download"}
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            aria-label={isZh ? "关闭预览" : "Close preview"}
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -131,27 +141,6 @@ export function ProjectChatFilePreviewPanel({
           </div>
         )}
       </div>
-
-      {file ? (
-        <div className="flex items-center gap-2 border-t border-gray-100 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => onDownload(file)}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
-          >
-            <Download className="h-4 w-4" />
-            {isZh ? "下载" : "Download"}
-          </button>
-          <button
-            type="button"
-            onClick={onOpenSpace}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-primary/90"
-          >
-            <ExternalLink className="h-4 w-4" />
-            {isZh ? "去空间" : "Open space"}
-          </button>
-        </div>
-      ) : null}
     </aside>
   );
 }

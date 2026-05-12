@@ -28,7 +28,6 @@ import {
 } from "./ProjectChatSkillTemplateModal";
 import {
   getProjectChatCopy,
-  getProjectMemoryQuickActions,
   getProjectQuickPrompts,
 } from "./projectChatCopy";
 import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
@@ -81,7 +80,6 @@ export function ProjectChatTab({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const quickPrompts = getProjectQuickPrompts(isZh);
-  const memoryQuickActions = getProjectMemoryQuickActions(isZh);
   const toast = useToast();
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
   const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(null);
@@ -685,68 +683,62 @@ export function ProjectChatTab({
         onDeleteConversation={openDeleteConversationDialog}
         onRenameSubmit={renameConversation}
         onRenameTitleChange={setEditTitle}
-        onOpenSpace={() => navigate(`/projects/${project.id}/space`)}
         onSelectFile={(file) => setPreviewFile(file)}
         onSelectConversation={handleSelectConversation}
         onStartNewChat={handleStartNewChat}
+        onToggleFullscreen={() => setIsFullscreen((current) => !current)}
       />
 
       <div className="flex min-w-0 flex-1 bg-gray-50/70">
         <div className="flex min-w-0 flex-1">
-      <ProjectChatMainPanel
-        activeConversation={activeConversation}
-        choosePromptLabel={copy.choosePromptOrAsk}
-        handleScroll={panel.handleScroll}
-        inputPlaceholder={copy.inputPlaceholder}
-        inputValue={panel.inputValue}
-        isLoading={isLoading}
-        isFullscreen={isFullscreen}
-        isAutoFollow={panel.isAutoFollow}
-        highlightedMessageId={highlightedMessageId}
-        isLoadingMemoryStatus={isLoadingMemoryStatus}
-        isLoadingMessages={isLoadingMessages}
-        showScrollToBottom={panel.showScrollToBottom}
-        isRebuildingMemory={isRebuildingMemory}
-        isSidebarOpen={panel.isSidebarOpen}
-        knowledgeScope={panel.knowledgeScope}
-        memoryQuickActions={memoryQuickActions}
-        projectMemory={projectMemory}
-        memoryStatus={memoryStatus}
-        messages={messages}
-        messagesContainerRef={panel.messagesContainerRef}
-        onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
-        onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
-        onEnableAutoFollow={panel.enableAutoFollow}
-        onInputChange={panel.setInputValue}
-        onJumpToBottom={() => panel.scrollToBottom(true)}
-        onKnowledgeScopeChange={panel.setKnowledgeScope}
-        onOpenConversationSaveModal={panel.openConversationSaveModal}
-        onQuickPrompt={(content) => {
-          void handleSendMessage(content);
-        }}
-        onRebuildMemory={() => {
-          void handleRebuildMemory();
-        }}
-        onSaveMessage={panel.openSaveModal}
-        onSend={() => panel.handleSend(handleSendMessage)}
-        onSkillChange={handleSkillChange}
-        onToggleFullscreen={() => setIsFullscreen((current) => !current)}
-        onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
-        projectClientName={project.client}
-        projectId={project.id}
-        quickPrompts={quickPrompts}
-        skills={skills}
-        selectedSkillId={selectedSkillId}
-        isLoadingSkills={isLoadingSkills}
-        startConversationLabel={copy.startConversation}
-        streamingArtifacts={streamingArtifacts}
-        streamingContent={streamingContent}
-        streamingReferences={streamingReferences}
-        streamingToolCalls={streamingToolCalls}
-        subtitle={copy.projectAssistantSubtitle}
-        thinkingLabel={copy.thinking}
-        title={activeConversation?.title || copy.projectAssistantTitle}
-      />
+          <ProjectChatMainPanel
+            activeConversation={activeConversation}
+            choosePromptLabel={copy.choosePromptOrAsk}
+            handleScroll={panel.handleScroll}
+            inputPlaceholder={copy.inputPlaceholder}
+            inputValue={panel.inputValue}
+            isLoading={isLoading}
+            isFullscreen={isFullscreen}
+            highlightedMessageId={highlightedMessageId}
+            isLoadingMemoryStatus={isLoadingMemoryStatus}
+            isLoadingMessages={isLoadingMessages}
+            isRebuildingMemory={isRebuildingMemory}
+            isSidebarOpen={panel.isSidebarOpen}
+            knowledgeScope={panel.knowledgeScope}
+            projectMemory={projectMemory}
+            memoryStatus={memoryStatus}
+            messages={messages}
+            messagesContainerRef={panel.messagesContainerRef}
+            onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
+            onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
+            onInputChange={panel.setInputValue}
+            onKnowledgeScopeChange={panel.setKnowledgeScope}
+            onOpenConversationSaveModal={panel.openConversationSaveModal}
+            onQuickPrompt={(content) => {
+              void handleSendMessage(content);
+            }}
+            onRebuildMemory={() => {
+              void handleRebuildMemory();
+            }}
+            onSaveMessage={panel.openSaveModal}
+            onSend={() => panel.handleSend(handleSendMessage)}
+            onSkillChange={handleSkillChange}
+            onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
+            projectClientName={project.client}
+            projectId={project.id}
+            quickPrompts={quickPrompts}
+            skills={skills}
+            selectedSkillId={selectedSkillId}
+            isLoadingSkills={isLoadingSkills}
+            startConversationLabel={copy.startConversation}
+            streamingArtifacts={streamingArtifacts}
+            streamingContent={streamingContent}
+            streamingReferences={streamingReferences}
+            streamingToolCalls={streamingToolCalls}
+            subtitle={copy.projectAssistantSubtitle}
+            thinkingLabel={copy.thinking}
+            title={activeConversation?.title || copy.projectAssistantTitle}
+          />
         </div>
 
         {previewFile ? (
@@ -772,7 +764,6 @@ export function ProjectChatTab({
                 isZh={isZh}
                 onClose={() => setPreviewFile(null)}
                 onDownload={(file) => void handleDownloadProjectFile(file)}
-                onOpenSpace={() => navigate(`/projects/${project.id}/space`)}
               />
             </div>
           </>
