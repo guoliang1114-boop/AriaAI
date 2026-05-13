@@ -133,7 +133,7 @@ def _get_setting(key: str, default: str = "") -> str:
 
 
 def get_kimi_api_key() -> str | None:
-    """Retrieve Kimi API key: Keychain → SQLite → env var."""
+    """Retrieve Kimi API key: Keychain → Database → env var."""
     # 1. Try Keychain first
     try:
         import keyring
@@ -155,7 +155,7 @@ def get_kimi_api_key() -> str | None:
 
 
 def get_bigmodel_api_key() -> str | None:
-    """Retrieve BigModel (Zhipu AI) API key: Keychain → SQLite → env var."""
+    """Retrieve BigModel (Zhipu AI) API key: Keychain → Database → env var."""
     # 1. Try Keychain first
     try:
         import keyring
@@ -177,7 +177,7 @@ def get_bigmodel_api_key() -> str | None:
 
 
 def get_deepseek_api_key() -> str | None:
-    """Retrieve DeepSeek API key: Keychain -> SQLite -> env var."""
+    """Retrieve DeepSeek API key: Keychain -> Database -> env var."""
     try:
         import keyring
         from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_DEEPSEEK
@@ -196,7 +196,7 @@ def get_deepseek_api_key() -> str | None:
 
 
 def get_mimo_api_key() -> str | None:
-    """Retrieve Xiaomi MiMo API key: Keychain -> SQLite -> env var."""
+    """Retrieve Xiaomi MiMo API key: Keychain -> Database -> env var."""
     try:
         import keyring
         from app.config import KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO

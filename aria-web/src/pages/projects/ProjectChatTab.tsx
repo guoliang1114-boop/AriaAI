@@ -34,6 +34,10 @@ import { dispatchProjectMemoryStateUpdated } from "./useProjectDetailData";
 import { useProjectChatComposer } from "./useProjectChatComposer";
 import { useProjectChatConversations } from "./useProjectChatConversations";
 import { useProjectChatPanel } from "./useProjectChatPanel";
+import {
+  type ProjectFileUploadError,
+  uploadProjectFiles,
+} from "./uploadProjectFiles";
 
 type StakeholderCandidate = {
   name: string;
@@ -107,6 +111,7 @@ export function ProjectChatTab({
   const [isCapturingStakeholders, setIsCapturingStakeholders] = useState(false);
   const [isApplyingStakeholders, setIsApplyingStakeholders] = useState(false);
   const [previewFile, setPreviewFile] = useState<ProjectFile | null>(null);
+  const [isUploadingProjectFile, setIsUploadingProjectFile] = useState(false);
   const [previewContent, setPreviewContent] = useState("");
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewWidth, setPreviewWidth] = useState(() => {
@@ -356,6 +361,43 @@ export function ProjectChatTab({
     } catch (error) {
       console.error("Failed to download project file:", error);
       toast.error(isZh ? "文件下载失败" : "File download failed");
+    }
+  };
+
+  const handleUploadProjectFiles = async (
+    fileList: FileList,
+    folderId?: number | null,
+  ) => {
+    const selectedFiles = Array.from(fileList);
+    if (selectedFiles.length === 0 || isUploadingProjectFile) return;
+
+    setIsUploadingProjectFile(true);
+    try {
+      await uploadProjectFiles({
+        files: selectedFiles,
+        folderId,
+        projectId: String(project.id),
+      });
+      toast.success(
+        isZh
+          ? `已上传 ${selectedFiles.length} 个文件`
+          : `Uploaded ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""}`,
+      );
+      await onProjectUpdate();
+    } catch (error) {
+      const uploadError = error as ProjectFileUploadError;
+      console.error("Failed to upload project files:", error);
+      if (uploadError.reason === "too_large") {
+        toast.error(
+          isZh
+            ? `文件过大：${uploadError.fileName ?? ""} 超过 80MB`
+            : `File too large: ${uploadError.fileName ?? ""} exceeds 80MB`,
+        );
+      } else {
+        toast.error(isZh ? "上传失败" : "Upload failed");
+      }
+    } finally {
+      setIsUploadingProjectFile(false);
     }
   };
 
@@ -675,6 +717,7 @@ export function ProjectChatTab({
         files={files}
         folders={folders}
         isFullscreen={isFullscreen}
+        isUploadingFile={isUploadingProjectFile}
         isLoadingConversations={isLoadingConversations}
         isOpen={panel.isSidebarOpen}
         selectedFileId={previewFile?.id ?? null}
@@ -686,6 +729,9 @@ export function ProjectChatTab({
         onSelectFile={(file) => setPreviewFile(file)}
         onSelectConversation={handleSelectConversation}
         onStartNewChat={handleStartNewChat}
+        onUploadFiles={(fileList, folderId) => {
+          void handleUploadProjectFiles(fileList, folderId);
+        }}
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
       />
 

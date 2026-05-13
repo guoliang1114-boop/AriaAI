@@ -98,5 +98,69 @@ class ExtractTextFromMarkdownTestCase(unittest.TestCase):
             os.unlink(path)
 
 
+class ExtractTextFromDocxTestCase(unittest.TestCase):
+    def test_extracts_docx(self):
+        from docx import Document
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            path = Path(f.name)
+        try:
+            doc = Document()
+            doc.add_paragraph("First paragraph")
+            doc.add_paragraph("Second paragraph")
+            doc.save(str(path))
+            result = extract_text_from_file(path, 'docx')
+            self.assertIn('First paragraph', result)
+            self.assertIn('Second paragraph', result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractTextFromXlsxTestCase(unittest.TestCase):
+    def test_extracts_xlsx(self):
+        import openpyxl
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
+            path = Path(f.name)
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "TestData"
+            ws.append(["Name", "Age"])
+            ws.append(["Alice", 30])
+            wb.save(str(path))
+            wb.close()
+            result = extract_text_from_file(path, 'xlsx')
+            self.assertIn('TestData', result)
+            self.assertIn('Alice', result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractTextFromPptxTestCase(unittest.TestCase):
+    def test_extracts_pptx(self):
+        from pptx import Presentation
+        from pptx.util import Inches
+        with tempfile.NamedTemporaryFile(suffix='.pptx', delete=False) as f:
+            path = Path(f.name)
+        try:
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = "Slide Title"
+            prs.save(str(path))
+            result = extract_text_from_file(path, 'pptx')
+            self.assertIn('Slide Title', result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractTextErrorHandlingTestCase(unittest.TestCase):
+    def test_error_returns_empty_without_prefix(self):
+        result = extract_text_from_file(Path('/nonexistent/file.txt'), 'txt')
+        self.assertIn('not found', result.lower())
+
+    def test_error_returns_with_prefix(self):
+        result = extract_text_from_file(Path('/nonexistent/file.txt'), 'txt', error_prefix='ERR: ')
+        self.assertTrue('not found' in result.lower() or result.startswith('ERR'))
+
+
 if __name__ == "__main__":
     unittest.main()

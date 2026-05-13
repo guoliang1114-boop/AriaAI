@@ -13,17 +13,13 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models.db import ClientRecord
 from app.routers import clients as clients_router_module
 from app.services.client_contexts import parse_client_memory
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ClientMemoryJobsTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         def override_session():
@@ -38,7 +34,6 @@ class ClientMemoryJobsTestCase(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_missing_rebuild_job_is_restored_from_stale_client_status(self):
         with Session(self.engine) as session:

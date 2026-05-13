@@ -2,7 +2,6 @@
 import unittest
 
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqlmodel.pool import StaticPool
 
 from app.models.db import Setting
 from app.services.settings_helper import (
@@ -13,10 +12,13 @@ from app.services.settings_helper import (
     LLMSettings,
 )
 
+from tests.test_database import create_test_engine, drop_all_tables
+
 
 class GetSettingValueTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.add(Setting(key="max_tokens", value="4096"))
@@ -52,7 +54,8 @@ class GetSettingValueTestCase(unittest.TestCase):
 
 class GetFloatSettingTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.add(Setting(key="temperature", value="0.7"))
@@ -78,7 +81,8 @@ class GetFloatSettingTestCase(unittest.TestCase):
 
 class GetIntSettingTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.add(Setting(key="max_tokens", value="4096"))
@@ -104,7 +108,8 @@ class GetIntSettingTestCase(unittest.TestCase):
 
 class GetBoolSettingTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.add(Setting(key="flag_true", value="true"))
@@ -140,7 +145,8 @@ class GetBoolSettingTestCase(unittest.TestCase):
 
 class LLMSettingsTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.add(Setting(key="max_tokens", value="4096"))
@@ -175,7 +181,7 @@ class LLMSettingsTestCase(unittest.TestCase):
             self.assertAlmostEqual(LLMSettings(session).frequency_penalty, 0.2)
 
     def test_defaults_when_empty_db(self):
-        engine2 = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        engine2 = create_test_engine()
         SQLModel.metadata.create_all(engine2)
         with Session(engine2) as session:
             s = LLMSettings(session)

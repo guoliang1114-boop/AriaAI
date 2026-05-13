@@ -154,7 +154,7 @@ function inferFailureCategory(failure: FailureItem): Exclude<FailureCategory, 'a
   if (text.includes('budget') || text.includes('daily limit') || text.includes('quota')) return 'budget'
   if (text.includes('429') || text.includes('rate limit') || text.includes('too many requests')) return 'rate_limit'
   if (text.includes('timeout') || text.includes('timed out')) return 'timeout'
-  if (text.includes('database') || text.includes('sql') || text.includes('psycopg') || text.includes('sqlite')) return 'database'
+  if (text.includes('database') || text.includes('sql') || text.includes('psycopg')) return 'database'
   if (text.includes('not found') || text.includes('empty') || text.includes('no project') || text.includes('no client')) return 'data'
   if (text.includes('scheduler') || text.includes('job') || text.includes('queue')) return 'scheduler'
   if (text.includes('model') || text.includes('llm') || text.includes('claude') || text.includes('kimi') || text.includes('deepseek')) return 'llm'

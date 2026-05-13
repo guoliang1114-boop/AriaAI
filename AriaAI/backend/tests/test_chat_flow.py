@@ -64,6 +64,7 @@ from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
 from app.services.chat_streaming import ChatRuntime, _build_slides_from_strategy_text, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class SchedulerTimeTestCase(unittest.TestCase):
@@ -148,13 +149,8 @@ def collect_async_generator(async_gen):
 class ChatRouterTestCase(unittest.TestCase):
     def setUp(self):
         projects_cache.clear()
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         def override_session():
@@ -171,7 +167,6 @@ class ChatRouterTestCase(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_conversation_crud_and_markdown_export(self):
         create_resp = self.client.post(
@@ -292,9 +287,8 @@ class ProviderSelectionTestCase(unittest.TestCase):
         self.assertEqual(provider_selector_module.resolve_provider_from_model("mimo-v2.5-pro"), "mimo")
 
     def test_xiaomi_provider_alias_normalizes_to_mimo(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+        engine = create_test_engine()
+        drop_all_tables(engine)
         SQLModel.metadata.create_all(engine)
         try:
             with Session(engine) as session:
@@ -675,13 +669,8 @@ class ProjectServiceHelperTestCase(unittest.TestCase):
 
 class ProjectConversationArchiveTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         def override_session():
@@ -3076,18 +3065,12 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
 class ChatStreamingServiceTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def _create_conversation(self, title: str = "Existing Title") -> int:
         with Session(self.engine) as session:
@@ -4438,13 +4421,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
 class ClientMemoryRouterTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         def override_session():
@@ -4459,7 +4437,6 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_memory_operations_summary_aggregates_project_and_client_failures(self):
         with Session(self.engine) as session:
@@ -5132,18 +5109,12 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
 
 class BuiltinSkillsTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_builtin_digital_skills_are_seeded_idempotently(self):
         expected_digital_skills = {
@@ -5603,13 +5574,8 @@ class BuiltinSkillsTestCase(unittest.TestCase):
 
 class MessageRouterTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         def override_session():
@@ -5656,7 +5622,6 @@ class MessageRouterTestCase(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_admin_can_publish_and_user_can_mark_read(self):
         create_resp = self.client.post(

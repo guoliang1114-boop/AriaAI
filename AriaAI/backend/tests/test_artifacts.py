@@ -7,21 +7,18 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import GeneratedFile, User, Conversation
 from app.routers import artifacts as artifacts_module
 from app.routers.artifacts import router
 from app.database import get_session
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ArtifactsRouterTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         self.tmpdir = tempfile.mkdtemp()

@@ -13,7 +13,7 @@ if [ -f ".env" ]; then
 fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
-    export DATABASE_URL="sqlite:///./data/ariaai.db"
+    export DATABASE_URL="postgresql://postgres:password@localhost:5432/ariaai"
 fi
 
 is_windows_bash() {

@@ -2,7 +2,9 @@ import {
   BookOpen,
   FilePlus2,
   Loader2,
+  Upload,
 } from "lucide-react";
+import { useRef } from "react";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectNotesFolderTree } from "./ProjectNotesFolderTree";
 import { getProjectNotesCopy } from "./projectNotesCopy";
@@ -11,28 +13,39 @@ export function ProjectNotesSidebar({
   folderList,
   groupedFiles,
   isCreatingDoc,
+  isUploadingFile,
   isZh,
   fileCount,
   openFolders,
   projectName,
   selectedFileId,
   onCreateDocument,
+  onUploadFiles,
   onSelectFile,
   onToggleFolder,
 }: {
   folderList: ProjectFolder[];
   groupedFiles: Map<number | "uncategorized", ProjectFile[]>;
   isCreatingDoc: boolean;
+  isUploadingFile: boolean;
   isZh: boolean;
   fileCount: number;
   openFolders: Record<string, boolean>;
   projectName: string;
   selectedFileId: number | null;
   onCreateDocument: (folderId?: number | null) => void;
+  onUploadFiles: (files: FileList, folderId?: number | null) => void;
   onSelectFile: (fileId: number) => void;
   onToggleFolder: (key: string | number) => void;
 }) {
   const copy = getProjectNotesCopy(isZh);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetFolderIdRef = useRef<number | null>(folderList[0]?.id ?? null);
+
+  const openUploadPicker = (folderId?: number | null) => {
+    uploadTargetFolderIdRef.current = folderId ?? folderList[0]?.id ?? null;
+    fileInputRef.current?.click();
+  };
 
   return (
     <aside className="flex w-80 flex-col border-r border-gray-200 bg-gray-50/70">
@@ -61,6 +74,31 @@ export function ProjectNotesSidebar({
               <FilePlus2 className="h-4 w-4" />
             )}
           </button>
+          <button
+            onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
+            disabled={isUploadingFile}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+            title={isZh ? "上传文件" : "Upload file"}
+            type="button"
+          >
+            {isUploadingFile ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.currentTarget.files?.length) {
+                onUploadFiles(event.currentTarget.files, uploadTargetFolderIdRef.current);
+              }
+              event.currentTarget.value = "";
+            }}
+          />
         </div>
       </div>
 

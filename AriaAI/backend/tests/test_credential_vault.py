@@ -3,9 +3,9 @@ import unittest
 from typing import Optional
 from unittest.mock import MagicMock, patch
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqlmodel.pool import StaticPool
 
 from app.models.db import ExternalServiceCredential
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class CredentialVaultCryptoTestCase(unittest.TestCase):
@@ -55,11 +55,8 @@ class CredentialVaultCryptoTestCase(unittest.TestCase):
 
 class CredentialResolutionTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         import app.services.credential_vault as cv

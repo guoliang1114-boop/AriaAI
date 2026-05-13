@@ -2,40 +2,6 @@
 import unittest
 import os
 from unittest.mock import patch
-from pathlib import Path
-
-from app.config import _normalize_database_url
-
-
-class TestNormalizeDatabaseUrl(unittest.TestCase):
-    def test_relative_sqlite_url_is_resolved(self):
-        url = "sqlite:///./data/ariaai.db"
-        result = _normalize_database_url(url)
-        self.assertTrue(result.startswith("sqlite:///"))
-        self.assertIn("ariaai.db", result)
-        self.assertNotIn("./", result)
-
-    def test_absolute_sqlite_url_passes_through(self):
-        url = "sqlite:///tmp/test.db"
-        result = _normalize_database_url(url)
-        self.assertEqual(result, url)
-
-    def test_postgresql_url_passes_through(self):
-        url = "postgresql://user:pass@localhost/db"
-        result = _normalize_database_url(url)
-        self.assertEqual(result, url)
-
-    def test_empty_string_passes_through(self):
-        result = _normalize_database_url("")
-        self.assertEqual(result, "")
-
-    def test_relative_path_resolves_to_absolute(self):
-        url = "sqlite:///./data/test.db"
-        result = _normalize_database_url(url)
-        self.assertTrue(result.startswith("sqlite:///"))
-        # Should be an absolute path
-        path_part = result.replace("sqlite:///", "")
-        self.assertTrue(path_part.startswith("/") or len(path_part) > 2)
 
 
 class TestConfigDefaults(unittest.TestCase):
@@ -62,6 +28,13 @@ class TestConfigDefaults(unittest.TestCase):
         from app.config import DATABASE_URL
         self.assertIsInstance(DATABASE_URL, str)
         self.assertTrue(len(DATABASE_URL) > 0)
+
+    def test_database_url_uses_postgresql(self):
+        from app.config import DATABASE_URL
+        self.assertTrue(
+            DATABASE_URL.startswith("postgresql://"),
+            f"Expected DATABASE_URL to start with postgresql://, got: {DATABASE_URL}"
+        )
 
 
 if __name__ == "__main__":

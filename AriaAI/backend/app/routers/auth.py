@@ -23,7 +23,7 @@ def _fix_user_id_sequence(session: Session) -> None:
     
     This happens when:
     - Data was manually inserted with explicit IDs
-    - Database was migrated from SQLite
+    - Database sequence was manually reset or fell out of sync
     - Sequence was not updated after bulk operations
     """
     # Only run for PostgreSQL

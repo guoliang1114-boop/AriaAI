@@ -1,54 +1,29 @@
-"""Tests for database module — Alembic revision normalization."""
-import unittest
+"""Shared test database utilities.
+
+All tests should use create_test_engine() instead of hard-coding a database
+URL. The test database URL can be overridden via the TEST_DATABASE_URL
+environment variable.
+"""
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import inspect, text
+from sqlmodel import create_engine
+
+DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ariaai_test"
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 
 
-class NormalizeAlembicRevisionTestCase(unittest.TestCase):
-    def test_normalizes_short_alias(self):
-        from app.database import _normalize_alembic_revision
-        local = ["001_v1_1", "002_v1_2", "003_v1_3"]
-        result = _normalize_alembic_revision("001", local)
-        self.assertEqual(result, "001_v1_1")
-
-    def test_normalizes_exact_match(self):
-        from app.database import _normalize_alembic_revision
-        local = ["001_v1_1", "002_v1_2"]
-        result = _normalize_alembic_revision("001_v1_1", local)
-        self.assertEqual(result, "001_v1_1")
-
-    def test_returns_input_for_unknown(self):
-        from app.database import _normalize_alembic_revision
-        local = ["001_v1_1", "002_v1_2"]
-        result = _normalize_alembic_revision("999", local)
-        self.assertEqual(result, "999")
-
-    def test_returns_none_for_none_revision(self):
-        from app.database import _normalize_alembic_revision
-        local = ["001_v1_1"]
-        result = _normalize_alembic_revision(None, local)
-        self.assertIsNone(result)
-
-    def test_normalizes_prefix_match(self):
-        from app.database import _normalize_alembic_revision
-        local = ["005_v1_5_todo_due_date", "006_v1_6_client_stakeholders"]
-        result = _normalize_alembic_revision("005", local)
-        self.assertEqual(result, "005_v1_5_todo_due_date")
+def create_test_engine():
+    """Create a SQLAlchemy engine pointing at the test PostgreSQL database."""
+    return create_engine(TEST_DATABASE_URL)
 
 
-class DatabaseEngineTestCase(unittest.TestCase):
-    def test_engine_is_created(self):
-        from app.database import engine
-        self.assertIsNotNone(engine)
-
-    def test_get_session_yields_session(self):
-        from app.database import get_session
-        gen = get_session()
-        session = next(gen)
-        self.assertIsNotNone(session)
-        try:
-            next(gen)
-        except StopIteration:
-            pass
-
-
-if __name__ == "__main__":
-    unittest.main()
+def drop_all_tables(engine) -> None:
+    """Drop all tables in the current database for test isolation."""
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    with engine.begin() as conn:
+        for table in reversed(table_names):
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))

@@ -4,11 +4,11 @@ from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import ExternalService, ExternalServiceCredential
 from app.services.external_client import ExternalServiceClient, call_external_api
 import app.services.credential_vault as cv
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class AuthBuildersTestCase(unittest.TestCase):
@@ -80,11 +80,8 @@ class AuthBuildersTestCase(unittest.TestCase):
 
 class FactoryTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:

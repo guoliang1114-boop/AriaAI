@@ -58,8 +58,6 @@ aria-web/.npm-cache/
 # Backend data and uploads
 AriaAI/backend/data/
 AriaAI/backend/*.db
-AriaAI/backend/*.sqlite
-AriaAI/backend/*.sqlite3
 AriaAI/backend/uploads/
 AriaAI/backend/artifacts/
 AriaAI/backend/generated/

@@ -5,21 +5,18 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqlmodel.pool import StaticPool
 
 from app.models.db import User, Setting
 from app.routers import settings as settings_module
 from app.routers.settings import router
 from app.services.cache import TTLCache
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class SettingsRouterTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
@@ -53,6 +50,7 @@ class SettingsRouterTestCase(unittest.TestCase):
 
     def test_list_settings_empty_db(self):
         SQLModel.metadata.drop_all(self.engine)
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
         settings_module._settings_cache.clear()
         resp = self.client.get("/settings/")

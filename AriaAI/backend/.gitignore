@@ -1,10 +1,6 @@
 # Database files
 *.db
-*.sqlite
-*.sqlite3
 data/*.db
-data/*.sqlite
-data/*.sqlite3
 
 # Uploads and generated files
 data/uploads/

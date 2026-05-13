@@ -4,17 +4,18 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqlmodel.pool import StaticPool
 
 from app.models.db import User, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
 from app.routers import clients as clients_module
 from app.routers.clients import router
 from app.services.cache import clients_cache
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ClientsCrudTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
@@ -103,7 +104,8 @@ class ClientsCrudTestCase(unittest.TestCase):
 
 class ClientsStakeholderTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
@@ -184,7 +186,8 @@ class ClientsStakeholderTestCase(unittest.TestCase):
 
 class ClientsMemoryTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
@@ -241,7 +244,8 @@ class ClientsMemoryTestCase(unittest.TestCase):
 
 class ClientsDocumentsTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:

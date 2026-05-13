@@ -18,6 +18,8 @@ from app.services.context_builder import (
     is_workspace_project_inventory_query,
 )
 
+from tests.test_database import create_test_engine, drop_all_tables
+
 
 class FakeRetrievalContext:
     def __init__(self, text: str = "retrieved project knowledge"):
@@ -31,18 +33,12 @@ class FakeRetrievalContext:
 
 class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
     def setUp(self):
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
         self.engine.dispose()
-        Path(self.db_path).unlink(missing_ok=True)
 
     def test_chinese_all_projects_query_uses_full_workspace_inventory(self):
         with Session(self.engine) as session:

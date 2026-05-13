@@ -4,7 +4,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from app.services.parser import extract_text
+from app.services.parser import extract_text, _extract_docx, _extract_xlsx
 
 
 class ExtractTextTestCase(unittest.TestCase):
@@ -69,5 +69,104 @@ class ExtractTextTestCase(unittest.TestCase):
         try:
             result = extract_text(path)
             self.assertIn('Path object test', result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractDocxTestCase(unittest.TestCase):
+    def test_extract_docx(self):
+        from docx import Document
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            path = f.name
+        try:
+            doc = Document()
+            doc.add_paragraph("First paragraph")
+            doc.add_paragraph("Second paragraph")
+            doc.add_paragraph("")
+            doc.save(path)
+            result = _extract_docx(Path(path))
+            self.assertIn("First paragraph", result)
+            self.assertIn("Second paragraph", result)
+        finally:
+            os.unlink(path)
+
+    def test_extract_docx_via_extract_text(self):
+        from docx import Document
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            path = f.name
+        try:
+            doc = Document()
+            doc.add_paragraph("Hello docx")
+            doc.save(path)
+            result = extract_text(path)
+            self.assertIn("Hello docx", result)
+        finally:
+            os.unlink(path)
+
+    def test_extract_doc_suffix(self):
+        from docx import Document
+        with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as f:
+            path = f.name
+        try:
+            doc = Document()
+            doc.add_paragraph("Doc format test")
+            doc.save(path)
+            result = extract_text(path)
+            self.assertIn("Doc format test", result)
+        finally:
+            os.unlink(path)
+
+
+class ExtractXlsxTestCase(unittest.TestCase):
+    def test_extract_xlsx(self):
+        import openpyxl
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
+            path = f.name
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append(["Name", "Age"])
+            ws.append(["Alice", 30])
+            ws.append(["Bob", 25])
+            wb.save(path)
+            wb.close()
+            result = _extract_xlsx(Path(path))
+            self.assertIn("Name", result)
+            self.assertIn("Alice", result)
+            self.assertIn("30", result)
+        finally:
+            os.unlink(path)
+
+    def test_extract_xlsx_via_extract_text(self):
+        import openpyxl
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
+            path = f.name
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append(["Col1", "Col2"])
+            ws.append(["Val1", "Val2"])
+            wb.save(path)
+            wb.close()
+            result = extract_text(path)
+            self.assertIn("Val1", result)
+        finally:
+            os.unlink(path)
+
+    def test_xlsx_skips_empty_rows(self):
+        import openpyxl
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
+            path = f.name
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append(["A", "B"])
+            ws.append([None, None])
+            ws.append(["C", "D"])
+            wb.save(path)
+            wb.close()
+            result = _extract_xlsx(Path(path))
+            self.assertIn("A", result)
+            self.assertIn("C", result)
         finally:
             os.unlink(path)

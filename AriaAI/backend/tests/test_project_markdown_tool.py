@@ -14,6 +14,7 @@ from app.services.context_builder import build_chat_context, _safe_project_file_
 from app.tools import registry
 from app.tools import project_markdown as project_markdown_tool
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ProjectMarkdownToolTestCase(unittest.TestCase):
@@ -21,21 +22,12 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.uploads_dir = Path(self.temp_dir.name) / "uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.db_path = db_path
-        self.engine = create_engine(
-            f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
         self.engine.dispose()
-        try:
-            os.remove(self.db_path)
-        except FileNotFoundError:
-            pass
         self.temp_dir.cleanup()
 
     def _create_project(self) -> int:

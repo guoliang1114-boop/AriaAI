@@ -3,14 +3,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import Setting
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class GetProviderNameTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
@@ -74,7 +75,8 @@ class GetProviderNameTestCase(unittest.TestCase):
 
 class GetSelectedModelTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
@@ -116,6 +118,96 @@ class GetSelectedModelTestCase(unittest.TestCase):
             session.commit()
             result = get_selected_model(session, provider="claude")
             self.assertIsInstance(result, str)
+
+    def test_returns_default_when_no_setting(self):
+        from app.services.provider_selector import get_selected_model
+        with Session(self.engine) as session:
+            result = get_selected_model(session, provider="mimo")
+            self.assertIsInstance(result, str)
+
+
+class GetModelForProviderTestCase(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        SQLModel.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    def test_returns_current_model_when_provider_matches(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            session.add(Setting(key="selected_model", value="claude-sonnet-4-6"))
+            session.commit()
+            result = get_model_for_provider("claude", session)
+            self.assertEqual(result, "claude-sonnet-4-6")
+
+    def test_returns_default_when_provider_mismatch(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            session.add(Setting(key="selected_model", value="claude-sonnet-4-6"))
+            session.commit()
+            result = get_model_for_provider("kimi", session)
+            self.assertIsInstance(result, str)
+
+    def test_normalizes_anthropic(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            result = get_model_for_provider("anthropic", session)
+            self.assertIsInstance(result, str)
+
+    def test_normalizes_moonshot(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            result = get_model_for_provider("moonshot", session)
+            self.assertIsInstance(result, str)
+
+    def test_normalizes_xiaomi(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            result = get_model_for_provider("xiaomi", session)
+            self.assertIsInstance(result, str)
+
+    def test_none_provider(self):
+        from app.services.provider_selector import get_model_for_provider
+        with Session(self.engine) as session:
+            result = get_model_for_provider(None, session)
+            self.assertIsInstance(result, str)
+
+
+class GetProviderModuleTestCase(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        SQLModel.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    def test_returns_claude_module_by_default(self):
+        from app.services.provider_selector import get_provider_module
+        with Session(self.engine) as session:
+            mod = get_provider_module(session)
+            self.assertTrue(hasattr(mod, "stream_response") or hasattr(mod, "complete"))
+
+    def test_returns_kimi_module(self):
+        from app.services.provider_selector import get_provider_module
+        with Session(self.engine) as session:
+            session.add(Setting(key="llm_provider", value="kimi"))
+            session.commit()
+            mod = get_provider_module(session)
+            self.assertTrue(hasattr(mod, "stream_response") or hasattr(mod, "complete"))
+
+    def test_unknown_provider_raises(self):
+        from app.services.provider_selector import get_provider_module
+        with Session(self.engine) as session:
+            session.add(Setting(key="llm_provider", value="unknown_provider"))
+            session.commit()
+            with self.assertRaises(ValueError):
+                get_provider_module(session)
 
 
 if __name__ == "__main__":

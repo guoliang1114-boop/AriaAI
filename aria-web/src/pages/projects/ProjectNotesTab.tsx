@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useState } from "react";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { downloadProjectFile } from "./downloadProjectFile";
@@ -12,6 +13,10 @@ import { useProjectMemorySummary } from "./useProjectMemorySummary";
 import { useProjectNotesActions } from "./useProjectNotesActions";
 import { useProjectNotesDocuments } from "./useProjectNotesDocuments";
 import { useProjectNotesUI } from "./useProjectNotesUI";
+import {
+  type ProjectFileUploadError,
+  uploadProjectFiles,
+} from "./uploadProjectFiles";
 
 interface ProjectNotesTabProps {
   projectId: string;
@@ -34,6 +39,7 @@ export function ProjectNotesTab({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectNotesCopy(isZh);
   const toast = useToast();
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const stakeholderInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
     language: i18n.language,
@@ -123,6 +129,40 @@ export function ProjectNotesTab({
     }
   };
 
+  const handleUploadFiles = async (fileList: FileList, folderId?: number | null) => {
+    const selectedFiles = Array.from(fileList);
+    if (selectedFiles.length === 0 || isUploadingFile) return;
+
+    setIsUploadingFile(true);
+    try {
+      await uploadProjectFiles({
+        files: selectedFiles,
+        folderId,
+        projectId,
+      });
+      toast.success(
+        isZh
+          ? `已上传 ${selectedFiles.length} 个文件`
+          : `Uploaded ${selectedFiles.length} file${selectedFiles.length > 1 ? "s" : ""}`,
+      );
+      await onUpdate();
+    } catch (error) {
+      const uploadError = error as ProjectFileUploadError;
+      console.error("Failed to upload project files:", error);
+      if (uploadError.reason === "too_large") {
+        toast.error(
+          isZh
+            ? `文件过大：${uploadError.fileName ?? ""} 超过 80MB`
+            : `File too large: ${uploadError.fileName ?? ""} exceeds 80MB`,
+        );
+      } else {
+        toast.error(isZh ? "上传失败" : "Upload failed");
+      }
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
   return (
     <div className="h-full min-h-[calc(100vh-220px)] overflow-hidden rounded-2xl border border-gray-200 bg-white">
       <div className="flex h-full min-h-[calc(100vh-220px)]">
@@ -130,12 +170,16 @@ export function ProjectNotesTab({
           folderList={folderList}
           groupedFiles={groupedFiles}
           isCreatingDoc={isCreatingDoc}
+          isUploadingFile={isUploadingFile}
           isZh={isZh}
           fileCount={spaceFiles.length}
           openFolders={openFolders}
           projectName={projectName}
           selectedFileId={selectedFileId}
           onCreateDocument={openCreateDialog}
+          onUploadFiles={(fileList, folderId) => {
+            void handleUploadFiles(fileList, folderId);
+          }}
           onSelectFile={setSelectedFileId}
           onToggleFolder={toggleFolder}
         />

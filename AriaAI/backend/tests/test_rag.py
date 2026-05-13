@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 import json
 
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import DocumentChunk, KnowledgeDocument
 from app.services import rag as rag_module
 from sqlmodel import select
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ChunkTextTestCase(unittest.TestCase):
@@ -46,11 +46,8 @@ class CosineSimilarityTestCase(unittest.TestCase):
 
 class RetrieveStructuredTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
@@ -146,11 +143,8 @@ class RetrieveStructuredTestCase(unittest.TestCase):
 
 class RetrieveTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
@@ -201,11 +195,8 @@ class RetrievalContextTestCase(unittest.TestCase):
 
 class IndexDocumentTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):

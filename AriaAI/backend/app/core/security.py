@@ -1,4 +1,4 @@
-"""API key storage — uses macOS Keychain when available, falls back to SQLite then env var."""
+"""API key storage — uses macOS Keychain when available, falls back to database then env var."""
 import os
 from typing import Optional
 import keyring
@@ -45,7 +45,7 @@ def _db_set_api_key(api_key: str) -> None:
 
 
 def get_api_key() -> Optional[str]:
-    """Retrieve Claude API key: Keychain → SQLite → env var."""
+    """Retrieve Claude API key: Keychain → Database → env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_CLAUDE)
         if key:
@@ -89,7 +89,7 @@ def delete_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 def get_kimi_api_key() -> Optional[str]:
-    """Retrieve Kimi API key: Keychain → SQLite → env var."""
+    """Retrieve Kimi API key: Keychain → Database → env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_KIMI)
         if key:
@@ -153,7 +153,7 @@ def delete_kimi_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 def get_openai_api_key() -> Optional[str]:
-    """Retrieve OpenAI API key: Keychain → SQLite → env var."""
+    """Retrieve OpenAI API key: Keychain → Database → env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_OPENAI)
         if key:
@@ -217,7 +217,7 @@ def delete_openai_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 def get_deepseek_api_key() -> Optional[str]:
-    """Retrieve DeepSeek API key: Keychain → SQLite → env var."""
+    """Retrieve DeepSeek API key: Keychain → Database → env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_DEEPSEEK)
         if key:
@@ -281,7 +281,7 @@ def delete_deepseek_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 def get_bigmodel_api_key() -> Optional[str]:
-    """Retrieve BigModel API key: Keychain → SQLite → env var."""
+    """Retrieve BigModel API key: Keychain → Database → env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_BIGMODEL)
         if key:
@@ -345,7 +345,7 @@ def delete_bigmodel_api_key() -> None:
 # ---------------------------------------------------------------------------
 
 def get_mimo_api_key() -> Optional[str]:
-    """Retrieve Xiaomi MiMo API key: Keychain -> SQLite -> env var."""
+    """Retrieve Xiaomi MiMo API key: Keychain -> Database -> env var."""
     try:
         key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_MIMO)
         if key:

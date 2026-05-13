@@ -5,20 +5,17 @@ from unittest.mock import patch, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import ScheduledTask
 from app.routers import schedules as schedules_module
 from app.routers.schedules import router
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class SchedulesRouterTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         self.scheduler_mock = MagicMock()

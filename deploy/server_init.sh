@@ -16,7 +16,7 @@ DEPLOY_DIR="/www/wwwroot/ariaai"   # 宝塔网站目录（aria.d2cgo.co）
 API_PORT=8000
 ADMIN_EMAIL="${ADMIN_EMAIL:?Set ADMIN_EMAIL before running}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running}"
-DATABASE_URL="${DATABASE_URL:-sqlite:///./data/ariaai.db}"
+DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5432/ariaai}"
 
 echo ""
 echo "  AriaAI 宝塔初始化"

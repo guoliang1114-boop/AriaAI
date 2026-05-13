@@ -12,18 +12,12 @@ from app.config import DATABASE_URL
 
 engine_kwargs = {
     "echo": False,
+    "pool_size": 10,
+    "max_overflow": 10,
+    "pool_recycle": 300,
+    "pool_timeout": 60,
+    "pool_pre_ping": True,
 }
-
-if DATABASE_URL.startswith("sqlite"):
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
-else:
-    engine_kwargs.update(
-        pool_size=10,
-        max_overflow=10,
-        pool_recycle=300,
-        pool_timeout=60,
-        pool_pre_ping=True,
-    )
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 
@@ -96,8 +90,6 @@ def migrate_db():
         if column.default is not None and getattr(column.default, "is_scalar", False):
             value = column.default.arg
             if isinstance(value, bool):
-                if DATABASE_URL.startswith("sqlite"):
-                    return "1" if value else "0"
                 return "true" if value else "false"
             if isinstance(value, (int, float)):
                 return str(value)

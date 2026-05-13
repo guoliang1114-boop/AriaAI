@@ -31,15 +31,12 @@ def main() -> int:
 
     from app.config import DATABASE_URL
 
-    db_type = "SQLite" if DATABASE_URL.startswith("sqlite") else "PostgreSQL"
     print(f"Current database config: {DATABASE_URL}")
-    print(f"Database type: {db_type}")
     print()
 
     if not DATABASE_URL.startswith("postgresql"):
-        print("Using SQLite local database.")
-        print(f"Path: {DATABASE_URL}")
-        return 0
+        print("ERROR: Only PostgreSQL is supported. Please set DATABASE_URL to a valid PostgreSQL connection string.")
+        return 1
 
     try:
         import psycopg2

@@ -60,12 +60,12 @@ fi
 green "依赖检查完成"
 
 # ===========================================
-# 2. 配置本地 SQLite 数据库
+# 2. 准备数据目录
 # ===========================================
-yellow "[2/6] 配置本地 SQLite 数据库..."
+yellow "[2/6] 准备数据目录..."
 
 mkdir -p "$PROJECT_PATH/backend/data"
-green "本地数据库目录已准备: $PROJECT_PATH/backend/data"
+green "数据目录已准备: $PROJECT_PATH/backend/data"
 
 # ===========================================
 # 3. 配置后端
@@ -87,7 +87,7 @@ pip install -r requirements.txt -q
 # 创建生产环境配置文件
 cat > .env << EOF
 # 生产环境配置
-DATABASE_URL=sqlite:///./data/ariaai.db
+DATABASE_URL=postgresql://postgres:password@localhost:5432/ariaai
 JWT_SECRET=$(openssl rand -hex 32)
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASSWORD

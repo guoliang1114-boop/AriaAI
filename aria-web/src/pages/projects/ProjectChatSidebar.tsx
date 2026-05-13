@@ -4,15 +4,17 @@ import {
   Edit3,
   Expand,
   FolderOpen,
+  Loader2,
   MessageSquare,
   Plus,
   Search,
   Shrink,
   Trash2,
+  Upload,
   X,
   FolderKanban,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Conversation, ProjectFile, ProjectFolder } from "../../types/api";
@@ -85,6 +87,7 @@ type ProjectChatSidebarProps = {
   files?: ProjectFile[];
   folders?: ProjectFolder[];
   selectedFileId?: number | null;
+  isUploadingFile?: boolean;
   isLoadingConversations: boolean;
   editingConvId: number | null;
   editTitle: string;
@@ -96,6 +99,7 @@ type ProjectChatSidebarProps = {
   onCancelRename: () => void;
   onDeleteConversation: (conversation: Conversation) => void;
   onSelectFile?: (file: ProjectFile) => void;
+  onUploadFiles?: (files: FileList, folderId?: number | null) => void;
   onToggleFullscreen?: () => void;
 };
 
@@ -107,6 +111,7 @@ export function ProjectChatSidebar({
   files = [],
   folders = [],
   selectedFileId,
+  isUploadingFile = false,
   isLoadingConversations,
   editingConvId,
   editTitle,
@@ -118,6 +123,7 @@ export function ProjectChatSidebar({
   onCancelRename,
   onDeleteConversation,
   onSelectFile,
+  onUploadFiles,
   onToggleFullscreen,
 }: ProjectChatSidebarProps) {
   const { i18n } = useTranslation();
@@ -127,6 +133,8 @@ export function ProjectChatSidebar({
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "space">("chat");
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetFolderIdRef = useRef<number | null>(null);
 
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   const folderList = useMemo(
@@ -168,6 +176,11 @@ export function ProjectChatSidebar({
 
   const toggleFolder = (key: string | number) => {
     setOpenFolders((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  const openUploadPicker = (folderId?: number | null) => {
+    uploadTargetFolderIdRef.current = folderId ?? folderList[0]?.id ?? null;
+    uploadInputRef.current?.click();
   };
 
   const filteredConversations = useMemo(() => {
@@ -443,9 +456,40 @@ export function ProjectChatSidebar({
               className="mb-3 flex w-full items-center justify-between rounded-lg px-1 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500"
             >
               <span>{isZh ? "项目空间" : "Project Space"}</span>
-              <span className="text-[10px] font-medium tracking-normal text-gray-400">
-                {files.length}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-medium tracking-normal text-gray-400">
+                  {files.length}
+                </span>
+                {onUploadFiles ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
+                      disabled={isUploadingFile}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-primary disabled:opacity-50"
+                      title={isZh ? "上传文件" : "Upload file"}
+                    >
+                      {isUploadingFile ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        if (event.currentTarget.files?.length) {
+                          onUploadFiles(event.currentTarget.files, uploadTargetFolderIdRef.current);
+                        }
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-1">

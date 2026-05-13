@@ -71,7 +71,7 @@ AP/
 | Web client | React 19, TypeScript 5.9, Vite 8, React Router 7, i18next |
 | Backend | FastAPI, Uvicorn, Python 3.9–3.12 |
 | ORM | SQLModel |
-| Database | SQLite (local) |
+| Database | PostgreSQL |
 | LLM providers | Anthropic Claude, Kimi (OpenAI-compatible), BigModel (Zhipu AI) |
 | RAG | fastembed + cosine similarity (baseline) |
 | File generation | python-pptx, python-docx, openpyxl, reportlab |
@@ -166,7 +166,7 @@ All settings are read from `backend/.env` (or environment variables).
 Key variables:
 
 ```
-DATABASE_URL          # SQLite path; defaults to sqlite:///./data/ariaai.db
+DATABASE_URL          # PostgreSQL connection string; defaults to postgresql://postgres:password@localhost:5432/ariaai
 ADMIN_EMAIL / ADMIN_PASSWORD
 JWT_SECRET
 CORS_ORIGINS          # comma-separated allowed origins
@@ -306,7 +306,7 @@ docs: update architecture diagram for RAG changes
 ### What NOT to do
 
 - Do not hardcode API keys, URLs, or secrets. Always use `config.py` / `.env`.
-- Do not commit `backend/data/` (SQLite DB, uploads). It is gitignored.
+- Do not commit `backend/data/` (uploads). It is gitignored.
 - Do not modify `alembic/versions/` without running `alembic revision --autogenerate` first.
 - Do not add `console.log` or `print` debug statements to committed code.
 - Do not refactor code that is outside the scope of your current task.

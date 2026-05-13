@@ -25,16 +25,9 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # =============================================================================
 # Database Configuration
 # =============================================================================
-DEFAULT_DATABASE_URL = "sqlite:///./data/ariaai.db"
+DEFAULT_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ariaai"
 
-def _normalize_database_url(raw_url: str) -> str:
-    if not raw_url.startswith("sqlite:///./"):
-        return raw_url
-    relative_part = raw_url.removeprefix("sqlite:///./")
-    return f"sqlite:///{(BASE_DIR / relative_part).resolve().as_posix()}"
-
-
-DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
+DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 # =============================================================================
 # Security & Authentication

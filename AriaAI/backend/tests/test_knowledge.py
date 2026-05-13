@@ -5,21 +5,18 @@ from unittest.mock import patch, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import User, KnowledgeDocument, DocumentChunk
 from app.routers import knowledge as knowledge_module
 from app.routers.knowledge import router
 from app.services.time_utils import utc_now_naive
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class KnowledgeRouterTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         with Session(self.engine) as session:
@@ -106,6 +103,55 @@ class KnowledgeRouterTestCase(unittest.TestCase):
             mock_retrieve.return_value = mock_result
             resp = self.client.post("/knowledge/query", json={"query": "AI strategy"})
             self.assertIn(resp.status_code, [200, 422])
+
+    def test_list_documents_by_client_id(self):
+        resp = self.client.get("/knowledge/documents?client_id=999")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()), 0)
+
+    def test_upload_document(self):
+        import io
+        file_content = b"test file content"
+        resp = self.client.post(
+            "/knowledge/documents?category=test",
+            files={"file": ("test.txt", io.BytesIO(file_content), "text/plain")},
+        )
+        self.assertIn(resp.status_code, [200, 201])
+        data = resp.json()
+        self.assertEqual(data["name"], "test.txt")
+
+    def test_upload_document_with_project(self):
+        with Session(self.engine) as session:
+            from app.models.db import Project
+            project = Project(name="Test Project", client="Test Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
+        import io
+        resp = self.client.post(
+            f"/knowledge/documents?project_id={project_id}",
+            files={"file": ("test.txt", io.BytesIO(b"content"), "text/plain")},
+        )
+        self.assertIn(resp.status_code, [200, 201])
+
+    def test_upload_document_invalid_project(self):
+        import io
+        resp = self.client.post(
+            "/knowledge/documents?project_id=99999",
+            files={"file": ("test.txt", io.BytesIO(b"content"), "text/plain")},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_stats_endpoint_values(self):
+        resp = self.client.get("/knowledge/stats")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("document_count", data)
+        self.assertIn("total_vectors", data)
+        self.assertGreaterEqual(data["document_count"], 1)
+        self.assertGreaterEqual(data["total_vectors"], 1)
 
 
 if __name__ == "__main__":

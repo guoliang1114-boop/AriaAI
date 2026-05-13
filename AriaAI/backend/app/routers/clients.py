@@ -500,7 +500,7 @@ def _classify_memory_failure(stage: str, message: str) -> str:
         return "rate_limit"
     if "timeout" in text or "timed out" in text:
         return "timeout"
-    if "database" in text or "sql" in text or "psycopg" in text or "sqlite" in text:
+    if "database" in text or "sql" in text or "psycopg" in text:
         return "database"
     if "not found" in text or "no client" in text or "empty" in text:
         return "data"

@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 from app.models.db import ScheduledTask, Skill, Project
 from app.services import task_runner as tr_module
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class ComputeNextRunTestCase(unittest.TestCase):
@@ -22,11 +22,8 @@ class ComputeNextRunTestCase(unittest.TestCase):
 
 class RunTaskTestCase(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
 
         self.patchers = []
