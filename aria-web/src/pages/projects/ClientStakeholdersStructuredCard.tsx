@@ -1,5 +1,5 @@
-import { Brain, Check, Edit3, Loader2, Plus, Trash2, Users, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Brain, Check, Clock, Edit3, Loader2, Plus, Trash2, Users, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { ClientStakeholder } from "../../types/api";
 
@@ -67,6 +67,23 @@ export function ClientStakeholdersStructuredCard({
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [analyzingId, setAnalyzingId] = useState<number | null>(null);
+  const [historyId, setHistoryId] = useState<number | null>(null);
+  const [historyData, setHistoryData] = useState<Array<{field_name: string; old_value: string; new_value: string; trigger: string; changed_at: string}>>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const fetchHistory = useCallback(async (stakeholderId: number) => {
+    if (historyId === stakeholderId) { setHistoryId(null); return; }
+    setHistoryId(stakeholderId);
+    setLoadingHistory(true);
+    try {
+      const data = await api.get(`/clients/${clientId}/stakeholders/${stakeholderId}/history`);
+      setHistoryData(data as typeof historyData);
+    } catch {
+      setHistoryData([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [clientId, historyId]);
 
   const grouped = useMemo(() => {
     const byInfluence = new Map<string, number>();
@@ -260,6 +277,15 @@ export function ClientStakeholdersStructuredCard({
                         ) : null}
                         <button
                           type="button"
+                          onClick={() => void fetchHistory(stakeholder.id)}
+                          className={`rounded-lg p-1.5 transition hover:bg-white ${historyId === stakeholder.id ? 'text-primary bg-white' : 'text-gray-400 hover:text-primary'}`}
+                          aria-label={isZh ? "变更历史" : "Change history"}
+                          title={isZh ? "查看变更历史" : "View change history"}
+                        >
+                          <Clock className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => beginEdit(stakeholder)}
                           className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-emerald-600"
                           aria-label={isZh ? "编辑干系人" : "Edit stakeholder"}
@@ -292,6 +318,39 @@ export function ClientStakeholdersStructuredCard({
                         <Insight label={isZh ? "信任信号" : "Trust signals"} value={stakeholder.trust_signals} />
                       </div>
                     ) : null}
+                    {historyId === stakeholder.id && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                          {isZh ? "变更历史" : "Change History"}
+                        </div>
+                        {loadingHistory ? (
+                          <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {isZh ? "加载中..." : "Loading..."}
+                          </div>
+                        ) : historyData.length === 0 ? (
+                          <div className="py-2 text-xs text-gray-400">{isZh ? "暂无变更记录" : "No changes recorded yet"}</div>
+                        ) : (
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {historyData.map((h, i) => (
+                              <div key={i} className="flex gap-2 text-xs">
+                                <div className="flex-shrink-0 w-1 rounded-full bg-primary/20" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-gray-800">{h.field_name}</span>
+                                    <span className={`rounded px-1 py-0.5 text-[9px] ${h.trigger === 'ai_analyze' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                      {h.trigger === 'ai_analyze' ? 'AI' : h.trigger}
+                                    </span>
+                                    <span className="ml-auto text-gray-400 flex-shrink-0">{new Date(h.changed_at).toLocaleDateString()}</span>
+                                  </div>
+                                  {h.old_value && <div className="text-gray-400 line-clamp-1">{isZh ? "原" : "was"}: {h.old_value}</div>}
+                                  <div className="text-gray-700 line-clamp-1">{isZh ? "改为" : "now"}: {h.new_value}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </article>

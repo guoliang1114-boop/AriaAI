@@ -44,6 +44,7 @@ def create_project_upload(
         file_type=suffix.lstrip("."),
         path=str(dest_file.relative_to(uploads_dir)),
         size_bytes=dest_file.stat().st_size,
+        origin="uploaded",
     )
     session.add(project_file)
     session.commit()

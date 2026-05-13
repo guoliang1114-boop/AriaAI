@@ -47,6 +47,17 @@ class ClientStakeholder(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now_naive)
 
 
+class ClientStakeholderHistory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stakeholder_id: int = Field(foreign_key="clientstakeholder.id", index=True)
+    client_id: int = Field(foreign_key="clientrecord.id", index=True)
+    field_name: str
+    old_value: str = ""
+    new_value: str = ""
+    trigger: str = ""           # manual | ai_analyze | system
+    changed_at: datetime = Field(default_factory=utc_now_naive)
+
+
 # ── Projects ────────────────────────────────────────────────────────────────
 
 class Project(SQLModel, table=True):
@@ -165,11 +176,13 @@ class ProjectFile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     folder_id: Optional[int] = Field(default=None, foreign_key="projectfolder.id", index=True)
+    source_file_id: Optional[int] = Field(default=None, foreign_key="projectfile.id", index=True)
     name: str
     file_type: str                  # pdf | docx | xlsx | pptx | other
     path: str                       # relative to UPLOADS_DIR
     size_bytes: int = 0
     summary: str = ""               # AI-generated file summary (auto-generated on upload)
+    origin: str = "uploaded"        # uploaded | ai_generated | markdown_derivative | manual
     uploaded_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="files")

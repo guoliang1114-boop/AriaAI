@@ -2033,8 +2033,10 @@ async def upload_file(
         folder_id=folder_id,
     )
 
-    # Auto-generate file summary in the background
-    background_tasks.add_task(_auto_summarize_file, pf.id, str(dest_file), file_type)
+    # Auto-generate file summary and companion markdown in the background
+    background_tasks.add_task(
+        _auto_summarize_file, pf.id, str(dest_file), file_type, project_id, folder_id
+    )
 
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
@@ -2186,8 +2188,10 @@ async def ai_suggest_project(body: ProjectAISuggestQuery):
 
 # ── Background: auto-summarize uploaded file ──────────────────────────────────
 
-async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> None:
-    """Generate a 2-3 sentence summary for an uploaded project file and persist it."""
+async def _auto_summarize_file(
+    file_id: int, file_path: str, file_type: str, project_id: int, folder_id: int | None
+) -> None:
+    """Generate a 2-3 sentence summary for an uploaded file, then create a companion .md."""
     from app.database import engine
     from sqlmodel import Session as _Session
 
@@ -2199,6 +2203,28 @@ async def _auto_summarize_file(file_id: int, file_path: str, file_type: str) -> 
         complete=lambda messages, max_tokens: complete_with_selected_model(messages, max_tokens=max_tokens),
         session_factory=lambda: _Session(engine),
     )
+
+    # Create companion markdown for non-markdown files
+    if file_type.lower() not in ("md",):
+        try:
+            text = _extract_file_text(Path(file_path), file_type, 8000)
+            if text and not text.startswith("[") and len(text.strip()) > 50:
+                source_name = Path(file_path).stem
+                md_content = f"# {source_name}\n\n> Auto-extracted from `{Path(file_path).name}`\n\n{text}"
+                with _Session(engine) as md_session:
+                    create_markdown_project_file(
+                        md_session,
+                        project_id,
+                        name=f"{source_name}_extracted.md",
+                        content=md_content,
+                        uploads_dir=UPLOADS_DIR,
+                        folder_id=folder_id,
+                        summary=f"Auto-extracted content from {Path(file_path).name}",
+                        source_file_id=file_id,
+                        origin="markdown_derivative",
+                    )
+        except Exception:
+            pass
 
 
 # ── Generate project context summary ──────────────────────────────────────────

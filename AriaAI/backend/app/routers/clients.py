@@ -20,7 +20,7 @@ from app.config import (
     MEMORY_SUMMARY_WARM_RETRY_ATTEMPTS,
 )
 from app.database import engine, get_session
-from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, ClientStakeholder, KnowledgeDocument, Project
+from app.models.db import ClientMemorySnapshot, ClientMemorySummary, ClientRecord, ClientStakeholder, ClientStakeholderHistory, KnowledgeDocument, Project
 from app.services.cache import clients_cache
 from app.services.claude import complete
 from app.services import scheduler as scheduler_service
@@ -1097,10 +1097,30 @@ def update_client_stakeholder(
         values["name"] = values["name"].strip()
         if not values["name"]:
             raise HTTPException(status_code=400, detail="Stakeholder name is required")
+    tracked_fields = {
+        "role", "organization_level", "influence_type", "relationship_status",
+        "concerns", "sensitivities", "communication_preference", "contact",
+        "last_action", "personality_profile", "decision_style",
+        "communication_strategy", "trust_signals", "note",
+    }
+    changes = []
     for field, value in values.items():
+        old_val = str(getattr(stakeholder, field, "") or "")
+        new_val = str(value or "")
+        if field in tracked_fields and old_val != new_val:
+            changes.append(ClientStakeholderHistory(
+                stakeholder_id=stakeholder_id,
+                client_id=client_id,
+                field_name=field,
+                old_value=old_val[:2000],
+                new_value=new_val[:2000],
+                trigger="manual",
+            ))
         setattr(stakeholder, field, value)
     stakeholder.updated_at = utc_now_naive()
     session.add(stakeholder)
+    for change in changes:
+        session.add(change)
     session.commit()
     session.refresh(stakeholder)
     _mark_client_memory_stale(session, client_id, trigger="stakeholder_updated")
@@ -1206,6 +1226,16 @@ async def analyze_client_stakeholder(
     }.items():
         value = str(parsed.get(field) or "").strip()
         if value:
+            old_val = str(getattr(stakeholder, field, "") or "")
+            if old_val != value[:limit]:
+                session.add(ClientStakeholderHistory(
+                    stakeholder_id=stakeholder_id,
+                    client_id=client_id,
+                    field_name=field,
+                    old_value=old_val[:2000],
+                    new_value=value[:2000],
+                    trigger="ai_analyze",
+                ))
             setattr(stakeholder, field, value[:limit])
 
     stakeholder.updated_at = utc_now_naive()
@@ -1234,6 +1264,37 @@ def delete_client_stakeholder(
     _mark_client_memory_stale(session, client_id, trigger="stakeholder_deleted")
     clients_cache.delete(_CLIENTS_KEY)
     return None
+
+
+@router.get("/{client_id}/stakeholders/{stakeholder_id}/history")
+def get_stakeholder_history(
+    client_id: int,
+    stakeholder_id: int,
+    session: Session = Depends(get_session),
+):
+    client = session.get(ClientRecord, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    stakeholder = session.get(ClientStakeholder, stakeholder_id)
+    if not stakeholder or stakeholder.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Stakeholder not found")
+    history = session.exec(
+        select(ClientStakeholderHistory)
+        .where(ClientStakeholderHistory.stakeholder_id == stakeholder_id)
+        .order_by(ClientStakeholderHistory.changed_at.desc())
+        .limit(50)
+    ).all()
+    return [
+        {
+            "id": h.id,
+            "field_name": h.field_name,
+            "old_value": h.old_value,
+            "new_value": h.new_value,
+            "trigger": h.trigger,
+            "changed_at": h.changed_at.isoformat() if h.changed_at else None,
+        }
+        for h in history
+    ]
 
 
 @router.post("/{client_id}/documents/{doc_id}", status_code=200)

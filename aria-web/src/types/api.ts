@@ -505,6 +505,8 @@ export interface ProjectFile {
   summary?: string
   uploaded_at: string
   folder_id?: number | null
+  source_file_id?: number | null
+  origin?: string
 }
 
 export interface ProjectFolder {

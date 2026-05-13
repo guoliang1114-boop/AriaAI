@@ -136,6 +136,11 @@ export function ProjectNotesFolderTree({
                     >
                       <ProjectSpaceFileIcon file={file} />
                       <span className="truncate">{file.name}</span>
+                      {file.origin === "markdown_derivative" && (
+                        <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                          AI
+                        </span>
+                      )}
                     </button>
                   ))
                 ) : (
@@ -177,6 +182,11 @@ export function ProjectNotesFolderTree({
                 >
                   <ProjectSpaceFileIcon file={file} />
                   <span className="truncate">{file.name}</span>
+                  {file.origin === "markdown_derivative" && (
+                    <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                      AI
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

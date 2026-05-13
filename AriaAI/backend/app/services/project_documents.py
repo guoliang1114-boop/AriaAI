@@ -74,6 +74,8 @@ def create_markdown_project_file(
     uploads_dir: Path,
     folder_id: int | None = None,
     summary: str = "",
+    source_file_id: int | None = None,
+    origin: str = "manual",
 ) -> ProjectFile:
     safe_name = name if name.lower().endswith(".md") else f"{name}.md"
     dest_dir = project_documents_dir(project_id, uploads_dir)
@@ -88,6 +90,8 @@ def create_markdown_project_file(
         path=str(dest_file.relative_to(uploads_dir)),
         size_bytes=dest_file.stat().st_size,
         summary=summary,
+        source_file_id=source_file_id,
+        origin=origin,
     )
     session.add(project_file)
     session.commit()

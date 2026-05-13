@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Clock3,
   ExternalLink,
@@ -11,7 +12,9 @@ import {
   Play,
   RefreshCw,
   Search,
+  Square,
   Wallet,
+  X,
   XCircle,
 } from 'lucide-react'
 import { api } from '../../api/client'
@@ -255,6 +258,9 @@ export function MemoryOperationsSettings() {
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('all')
   const [showFailuresOnly, setShowFailuresOnly] = useState(false)
   const [selectedFailureKey, setSelectedFailureKey] = useState<string | null>(null)
+  const [selectedFailureKeys, setSelectedFailureKeys] = useState<Set<string>>(new Set())
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
+  const [isBatchRetrying, setIsBatchRetrying] = useState(false)
 
   const loadJobs = async (silent = false) => {
     try {
@@ -544,6 +550,75 @@ export function MemoryOperationsSettings() {
     } finally {
       setActionKey('')
     }
+  }
+
+  const toggleFailureSelection = (key: string) => {
+    setSelectedFailureKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleSelectAllVisible = () => {
+    const visibleKeys = filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).map(getFailureKey)
+    const allSelected = visibleKeys.every((k) => selectedFailureKeys.has(k))
+    if (allSelected) {
+      setSelectedFailureKeys(new Set())
+    } else {
+      setSelectedFailureKeys(new Set(visibleKeys))
+    }
+  }
+
+  const batchRetryFailures = async () => {
+    const toRetry = filteredFailures.filter((f) => selectedFailureKeys.has(getFailureKey(f)))
+    if (toRetry.length === 0) return
+
+    const highRisk = toRetry.filter((f) => ['database', 'data', 'unknown'].includes(inferFailureCategory(f)))
+    if (highRisk.length > 0) {
+      const confirmMsg = isZh
+        ? `包含 ${highRisk.length} 条高风险失败（database/data/unknown），确认重试？`
+        : `Including ${highRisk.length} high-risk failures (database/data/unknown). Confirm retry?`
+      if (!window.confirm(confirmMsg)) return
+    }
+
+    setIsBatchRetrying(true)
+    let successCount = 0
+    let failCount = 0
+    for (const failure of toRetry) {
+      try {
+        await api.post(
+          failure.scope === 'project'
+            ? `/projects/memory/jobs/${failure.project_id}/run-now`
+            : `/clients/memory/jobs/${failure.client_id}/run-now`,
+          {},
+          { timeout: 120000 },
+        )
+        successCount++
+      } catch {
+        failCount++
+      }
+    }
+    setIsBatchRetrying(false)
+    setSelectedFailureKeys(new Set())
+    if (successCount > 0) {
+      toast.success(isZh ? `已重试 ${successCount} 条` : `Retried ${successCount} jobs`)
+    }
+    if (failCount > 0) {
+      toast.error(isZh ? `${failCount} 条重试失败` : `${failCount} retries failed`)
+    }
+    await loadJobs(true)
+  }
+
+  const dismissSelectedFailures = () => {
+    setDismissedKeys((prev) => {
+      const next = new Set(prev)
+      for (const key of selectedFailureKeys) next.add(key)
+      return next
+    })
+    setSelectedFailureKeys(new Set())
+    toast.success(isZh ? '已忽略选中失败' : 'Dismissed selected failures')
   }
 
   const cancelJob = async (job: CombinedJob) => {
@@ -1102,15 +1177,55 @@ export function MemoryOperationsSettings() {
             </div>
           ) : null}
 
-          {filteredFailures.length > 0 ? (
+          {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length > 0 ? (
             <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
-                <AlertTriangle className="h-4 w-4" />
-                {isZh ? '最近失败记录' : 'Recent failures'}
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-on-surface">
+                  <AlertTriangle className="h-4 w-4" />
+                  {isZh ? '最近失败记录' : 'Recent failures'}
+                  <span className="text-xs font-normal text-on-surface-muted">
+                    ({filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length})
+                  </span>
+                </div>
+                <button
+                  onClick={toggleSelectAllVisible}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {selectedFailureKeys.size > 0
+                    ? (isZh ? '取消全选' : 'Deselect all')
+                    : (isZh ? '全选' : 'Select all')}
+                </button>
               </div>
+
+              {selectedFailureKeys.size > 0 && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2">
+                  <span className="text-xs text-primary font-medium">
+                    {isZh ? `已选 ${selectedFailureKeys.size} 条` : `${selectedFailureKeys.size} selected`}
+                  </span>
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => void batchRetryFailures()}
+                    disabled={isBatchRetrying}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {isBatchRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                    {isZh ? '批量重试' : 'Batch retry'}
+                  </button>
+                  <button
+                    onClick={dismissSelectedFailures}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {isZh ? '忽略' : 'Dismiss'}
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-3">
-                {filteredFailures.slice(0, 12).map((failure, index) => {
+                {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).slice(0, 12).map((failure, index) => {
                   const busyRetry = actionKey === `${failure.scope}-failure-${failure.failed_at}`
+                  const failureKey = getFailureKey(failure)
+                  const isSelected = selectedFailureKeys.has(failureKey)
                   const title =
                     failure.scope === 'project'
                       ? isZh
@@ -1120,55 +1235,69 @@ export function MemoryOperationsSettings() {
                         ? `客户 / ${failure.client_name}`
                         : `Client / ${failure.client_name}`
                   return (
-                    <div key={`${failure.scope}-${index}`} className="rounded-xl bg-surface-container-low p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-medium text-on-surface">{title}</div>
-                          <div className="mt-1 text-xs text-on-surface-muted">
-                            {isZh ? '阶段' : 'Stage'}: {failure.stage}
-                            {' / '}
-                            {getFailureCategoryLabel(inferFailureCategory(failure), isZh)}
-                            {' / '}
-                            {isZh ? '重试' : 'Retry'}: {failure.retry_count ?? 0}
-                          </div>
-                        </div>
-                        <div className="text-xs text-on-surface-muted">{formatDate(failure.failed_at, isZh)}</div>
-                      </div>
-                      <div className="mt-2 text-sm text-on-surface">{failure.message}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
+                    <div key={`${failure.scope}-${index}`} className={`rounded-xl bg-surface-container-low p-3 ${isSelected ? 'ring-2 ring-primary/30' : ''}`}>
+                      <div className="flex items-start gap-3">
                         <button
-                          onClick={() => void retryFailure(failure)}
-                          disabled={busyRetry}
-                          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-60 ${
-                            ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))
-                              ? 'border-amber-200 bg-amber-50 text-amber-800'
-                              : 'border-outline text-on-surface'
+                          onClick={() => toggleFailureSelection(failureKey)}
+                          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border transition-colors ${
+                            isSelected
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-gray-300 bg-white text-transparent hover:border-primary/50'
                           }`}
                         >
-                          {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                          {isZh ? '立即重试' : 'Retry now'}
+                          {isSelected ? <Check className="h-3 w-3" /> : <Square className="h-3 w-3" />}
                         </button>
-                        <button
-                          onClick={() => runSuggestedAction(failure)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          {getSuggestedActionLabel(inferFailureCategory(failure), isZh)}
-                        </button>
-                        <button
-                          onClick={() => setSelectedFailureKey(getFailureKey(failure))}
-                          className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {isZh ? '查看明细' : 'Details'}
-                        </button>
-                        <button
-                          onClick={() => openEntity(failure)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          {isZh ? '打开详情' : 'Open'}
-                        </button>
+                        <div className="flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium text-on-surface">{title}</div>
+                              <div className="mt-1 text-xs text-on-surface-muted">
+                                {isZh ? '阶段' : 'Stage'}: {failure.stage}
+                                {' / '}
+                                {getFailureCategoryLabel(inferFailureCategory(failure), isZh)}
+                                {' / '}
+                                {isZh ? '重试' : 'Retry'}: {failure.retry_count ?? 0}
+                              </div>
+                            </div>
+                            <div className="text-xs text-on-surface-muted">{formatDate(failure.failed_at, isZh)}</div>
+                          </div>
+                          <div className="mt-2 text-sm text-on-surface">{failure.message}</div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void retryFailure(failure)}
+                              disabled={busyRetry}
+                              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-60 ${
+                                ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))
+                                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                  : 'border-outline text-on-surface'
+                              }`}
+                            >
+                              {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                              {isZh ? '立即重试' : 'Retry now'}
+                            </button>
+                            <button
+                              onClick={() => runSuggestedAction(failure)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              {getSuggestedActionLabel(inferFailureCategory(failure), isZh)}
+                            </button>
+                            <button
+                              onClick={() => setSelectedFailureKey(failureKey)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                            >
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {isZh ? '查看明细' : 'Details'}
+                            </button>
+                            <button
+                              onClick={() => openEntity(failure)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              {isZh ? '打开详情' : 'Open'}
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )
