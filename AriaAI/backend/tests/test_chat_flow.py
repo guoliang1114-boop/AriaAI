@@ -4322,6 +4322,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
         joined = "".join(events)
         self.assertIn("Done updating the file.", joined)
+        self.assertNotIn('"type":"tool_use"', joined)
         self.assertEqual(llm.calls, 3)  # P1, P3, P3 re-follow-up
 
         with Session(self.engine) as session:
@@ -4334,6 +4335,65 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tool_names = [tc["tool_name"] for tc in metadata["tool_calls"]]
             self.assertIn("read_project_markdown_document", tool_names)
             self.assertIn("update_project_markdown_document", tool_names)
+            self.assertNotIn('"type":"tool_use"', assistant_messages[0].content)
+
+    def test_stream_chat_events_suppresses_mixed_p1_tool_use_json(self):
+        """If tool_use JSON leaks into P1 text, execute it without showing raw JSON to the user."""
+        conv_id = self._create_conversation()
+        create_tool_json = (
+            '{"type":"tool_use","id":"tool-write","name":"update_project_markdown_document",'
+            '"input":{"mode":"create","file_name":"first-meeting.md","content":"# First meeting"}}'
+        )
+        llm = FakeStreamingLLM(
+            [
+                [
+                    '文档状态：初稿，待第一次沟通后更新\n'
+                    '下一步行动：准备第一次沟通的详细内容和 PPT\n\n'
+                    '{"type":"tool_use","id":"tool-empty","name":"update_project_markdown_document","input":{}}'
+                    + create_tool_json
+                ],
+                ['已创建第一次沟通会详细内容文档。'],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            project_id=27,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "创建第一次沟通文档"}],
+            rag_sources=[],
+            tools=[{"name": "update_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="创建第一次沟通文档")
+
+        async def mock_execute(name, input_data):
+            return {
+                "type": "tool_result",
+                "tool_name": name,
+                "status": "success",
+                "output": {"ok": True, "action": "created", "id": 123, "name": input_data.get("file_name")},
+            }
+
+        with patch("app.services.chat_streaming.registry.execute", new=AsyncMock(side_effect=mock_execute)):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        joined = "".join(events)
+        self.assertIn("文档状态：初稿", joined)
+        self.assertIn("已创建第一次沟通会详细内容文档。", joined)
+        self.assertNotIn('{"type":"tool_use"', joined)
+        self.assertEqual(llm.calls, 2)
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            self.assertIn("文档状态：初稿", assistant_messages[0].content)
+            self.assertIn("已创建第一次沟通会详细内容文档。", assistant_messages[0].content)
+            self.assertNotIn('{"type":"tool_use"', assistant_messages[0].content)
 
     def test_stream_chat_events_skips_invalid_tool_in_p2_without_breaking_pairing(self):
         """Invalid tool in P2 must still emit a tool_result so tool_use/tool_result pairing is preserved."""

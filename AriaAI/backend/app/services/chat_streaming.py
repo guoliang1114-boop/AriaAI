@@ -59,6 +59,38 @@ def _try_extract_tool_use_json(text: str) -> dict | None:
         idx = text.find('{"type"', idx + 1)
     return None
 
+
+def _extract_tool_use_json_blocks(text: str) -> tuple[list[dict], str]:
+    """Extract all complete tool_use JSON objects and return the remaining display text."""
+    decoder = json.JSONDecoder()
+    blocks: list[dict] = []
+    spans: list[tuple[int, int]] = []
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            block, end = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            idx = text.find("{", idx + 1)
+            continue
+        absolute_end = idx + end
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            blocks.append(block)
+            spans.append((idx, absolute_end))
+            idx = text.find("{", absolute_end)
+        else:
+            idx = text.find("{", idx + 1)
+
+    if not spans:
+        return [], text
+
+    cleaned_parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        cleaned_parts.append(text[cursor:start])
+        cursor = end
+    cleaned_parts.append(text[cursor:])
+    return blocks, "".join(cleaned_parts)
+
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
 CHAT_HISTORY_WINDOW = 24
@@ -815,6 +847,26 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **progress_payload})
                 continue
 
+            mixed_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
+            if mixed_tool_blocks:
+                for block in mixed_tool_blocks:
+                    print(
+                        f"[P1] tool_use detected in mixed text: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}",
+                        flush=True,
+                    )
+                    tool_use_blocks.append(block)
+                    yield _sse_event(
+                        {
+                            "type": "status",
+                            "stage": "tool_planned",
+                            "message": f"模型已规划调用工具：{block.get('name')}",
+                        }
+                    )
+                if cleaned_chunk:
+                    text_buffer += cleaned_chunk
+                    yield _sse_event({"type": "text", "content": cleaned_chunk})
+                continue
+
             if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
                 try:
                     block = json.loads(stripped)
@@ -1094,20 +1146,16 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     continue
 
                 # Detect tool_use JSON blocks (Claude sometimes outputs these as plain text in follow-up)
-                if '"type"' in stripped and '"tool_use"' in stripped:
-                    block = None
-                    if stripped.startswith("{") and stripped.endswith("}"):
-                        try:
-                            block = json.loads(stripped)
-                        except json.JSONDecodeError:
-                            block = None
-                    if block is None:
-                        block = _try_extract_tool_use_json(stripped)
-                    if block and block.get("type") == "tool_use":
+                mixed_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
+                if mixed_tool_blocks:
+                    for block in mixed_tool_blocks:
                         print(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}", flush=True)
                         p3_tool_use_blocks.append(block)
                         yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"模型已规划调用工具：{block.get('name')}"})
-                        continue
+                    if cleaned_chunk:
+                        follow_up_text += cleaned_chunk
+                        yield _sse_event({"type": "text", "content": cleaned_chunk})
+                    continue
 
                 # Detect reasoning_content JSON blocks from DeepSeek / Kimi
                 if stripped.startswith("{") and stripped.endswith("}") and '"type"' in stripped:
@@ -1308,6 +1356,17 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                 continue
                         # Detect reasoning_content in re-follow-up stream
                         stripped_chunk = chunk.strip()
+                        leaked_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
+                        if leaked_tool_blocks:
+                            for block in leaked_tool_blocks:
+                                print(
+                                    f"[P3] suppressed leaked tool_use in re-follow-up: {block.get('name')}, id={block.get('id')}",
+                                    flush=True,
+                                )
+                            chunk = cleaned_chunk
+                            stripped_chunk = chunk.strip()
+                            if not chunk:
+                                continue
                         if stripped_chunk.startswith("{") and stripped_chunk.endswith("}") and '"type"' in stripped_chunk:
                             try:
                                 block = json.loads(stripped_chunk)
@@ -1372,6 +1431,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         full_text = text_buffer.strip()
         if follow_up_text.strip():
             full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
+        leaked_tool_blocks, cleaned_full_text = _extract_tool_use_json_blocks(full_text)
+        if leaked_tool_blocks:
+            print(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text", flush=True)
+            full_text = cleaned_full_text.strip()
 
         if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, artifacts):
             ppt_title, ppt_slides = _build_slides_from_strategy_text(full_text)

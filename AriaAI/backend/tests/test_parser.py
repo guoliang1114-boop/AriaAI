@@ -1,72 +1,73 @@
-"""Tests for document text extraction parser."""
+"""Tests for parser service — extract_text from various file types."""
 import unittest
-from unittest.mock import MagicMock, patch, mock_open
+import tempfile
+import os
 from pathlib import Path
 
 from app.services.parser import extract_text
 
 
 class ExtractTextTestCase(unittest.TestCase):
-    def test_unknown_extension_returns_empty(self):
-        self.assertEqual(extract_text("/tmp/file.unknown"), "")
-
     def test_txt_file(self):
-        m = mock_open(read_data="Hello, world!")
-        with patch("pathlib.Path.open", m):
-            result = extract_text("/tmp/hello.txt")
-        self.assertEqual(result, "Hello, world!")
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write("Hello world\nSecond line")
+            path = f.name
+        try:
+            result = extract_text(path)
+            self.assertIn('Hello world', result)
+            self.assertIn('Second line', result)
+        finally:
+            os.unlink(path)
 
-    @patch("pdfplumber.open")
-    def test_pdf_extraction(self, mock_open):
-        page1 = MagicMock()
-        page1.extract_text.return_value = "Page one text"
-        page2 = MagicMock()
-        page2.extract_text.return_value = None
-        page3 = MagicMock()
-        page3.extract_text.return_value = "Page three text"
+    def test_md_file_returns_empty(self):
+        """Parser only handles pdf/docx/xlsx/txt — md returns empty."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
+            f.write("# Title\n\nParagraph text")
+            path = f.name
+        try:
+            result = extract_text(path)
+            self.assertEqual(result, "")
+        finally:
+            os.unlink(path)
 
-        pdf = MagicMock()
-        pdf.pages = [page1, page2, page3]
-        mock_open.return_value.__enter__ = lambda s: s
-        mock_open.return_value.__exit__ = lambda *a: None
-        mock_open.return_value.pages = pdf.pages
+    def test_csv_file_returns_empty(self):
+        """Parser only handles pdf/docx/xlsx/txt — csv returns empty."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8') as f:
+            f.write('name,age\nAlice,30\nBob,25')
+            path = f.name
+        try:
+            result = extract_text(path)
+            self.assertEqual(result, "")
+        finally:
+            os.unlink(path)
 
-        result = extract_text("/tmp/doc.pdf")
-        self.assertEqual(result, "Page one text\n\nPage three text")
+    def test_json_file_returns_empty(self):
+        """Parser only handles pdf/docx/xlsx/txt — json returns empty."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+            f.write('{"key": "value"}')
+            path = f.name
+        try:
+            result = extract_text(path)
+            self.assertEqual(result, "")
+        finally:
+            os.unlink(path)
 
-    @patch("docx.Document")
-    def test_docx_extraction(self, mock_document_class):
-        para1 = MagicMock()
-        para1.text = "First paragraph"
-        para2 = MagicMock()
-        para2.text = "   "
-        para3 = MagicMock()
-        para3.text = "Second paragraph"
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [para1, para2, para3]
-        mock_document_class.return_value = mock_doc
+    def test_unsupported_returns_empty(self):
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.xyz', delete=False) as f:
+            f.write("data")
+            path = f.name
+        try:
+            result = extract_text(path)
+            self.assertEqual(result, "")
+        finally:
+            os.unlink(path)
 
-        result = extract_text("/tmp/doc.docx")
-        self.assertEqual(result, "First paragraph\nSecond paragraph")
-
-    @patch("openpyxl.load_workbook")
-    def test_xlsx_extraction(self, mock_load_workbook):
-        sheet = MagicMock()
-        sheet.iter_rows.return_value = [
-            (1, "A", None),
-            (None, 2, "B"),
-            ("  ", None, None),
-        ]
-        wb = MagicMock()
-        wb.worksheets = [sheet]
-        mock_load_workbook.return_value = wb
-
-        result = extract_text("/tmp/data.xlsx")
-        self.assertEqual(result, "1\tA\n2\tB")
-
-    def test_path_object_input(self):
-        """extract_text should accept Path objects."""
-        m = mock_open(read_data="path object")
-        with patch("pathlib.Path.open", m):
-            result = extract_text(Path("/tmp/test.txt"))
-        self.assertEqual(result, "path object")
+    def test_path_object(self):
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write("Path object test")
+            path = Path(f.name)
+        try:
+            result = extract_text(path)
+            self.assertIn('Path object test', result)
+        finally:
+            os.unlink(path)

@@ -32,12 +32,14 @@ describe('chatExport', () => {
   })
 
   it('markdown format produces .md extension', () => {
-    const ext = 'markdown' === 'markdown' ? 'md' : 'pdf'
+    const format = 'markdown'
+    const ext = format === 'markdown' ? 'md' : 'pdf'
     expect(ext).toBe('md')
   })
 
   it('pdf format produces .pdf extension', () => {
-    const ext = 'pdf' === 'markdown' ? 'md' : 'pdf'
+    const format = 'pdf'
+    const ext = format === 'markdown' ? 'md' : 'pdf'
     expect(ext).toBe('pdf')
   })
 
