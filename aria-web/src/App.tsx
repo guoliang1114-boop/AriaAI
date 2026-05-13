@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './pages/Login'
 import {
   loadWelcome,
@@ -85,7 +86,11 @@ function RouteFallback() {
 }
 
 function LazyPage({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+    </ErrorBoundary>
+  )
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -394,9 +399,11 @@ function AppRoutes() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 

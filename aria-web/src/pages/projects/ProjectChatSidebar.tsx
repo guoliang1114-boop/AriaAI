@@ -212,21 +212,51 @@ export function ProjectChatSidebar({
     <div
       className={`${isOpen ? (isFullscreen ? "w-72" : "w-64") : "w-0"} min-h-0 border-r border-gray-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
+      {onUploadFiles ? (
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            if (event.currentTarget.files?.length) {
+              onUploadFiles(event.currentTarget.files, uploadTargetFolderIdRef.current);
+            }
+            event.currentTarget.value = "";
+          }}
+        />
+      ) : null}
       {/* Header */}
       <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <button
             onClick={onStartNewChat}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <MessageSquare className="h-3.5 w-3.5" />
             {copy.newChatButton}
           </button>
+          {onUploadFiles ? (
+            <button
+              type="button"
+              onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
+              disabled={isUploadingFile}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-primary disabled:opacity-50"
+              title={isZh ? "上传文件" : "Upload file"}
+              aria-label={isZh ? "上传文件" : "Upload file"}
+            >
+              {isUploadingFile ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : null}
           {onToggleFullscreen ? (
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
               title={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
               aria-label={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
             >
@@ -460,35 +490,6 @@ export function ProjectChatSidebar({
                 <span className="text-[10px] font-medium tracking-normal text-gray-400">
                   {files.length}
                 </span>
-                {onUploadFiles ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
-                      disabled={isUploadingFile}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-primary disabled:opacity-50"
-                      title={isZh ? "上传文件" : "Upload file"}
-                    >
-                      {isUploadingFile ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Upload className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                    <input
-                      ref={uploadInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        if (event.currentTarget.files?.length) {
-                          onUploadFiles(event.currentTarget.files, uploadTargetFolderIdRef.current);
-                        }
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </>
-                ) : null}
               </div>
             </div>
 

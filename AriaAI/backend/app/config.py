@@ -117,9 +117,16 @@ MIMO_TOKEN_PLAN_BASE_URL = (
 # =============================================================================
 # CORS Configuration
 # =============================================================================
-# Development: allow all origins
-# Production: configure specific origins via env var
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+# Production: configure specific origins via CORS_ORIGINS env var (comma-separated)
+# Development: set CORS_ORIGINS=http://localhost:5173 or use CORS_ORIGINS=*
+# WARNING: CORS_ORIGINS=* with credentials=true is insecure; always set explicit origins in production
+CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "")
+if CORS_ORIGINS_RAW:
+    CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
+else:
+    # Default to localhost for development; production MUST set CORS_ORIGINS explicitly
+    CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
+
 CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
 
 # =============================================================================

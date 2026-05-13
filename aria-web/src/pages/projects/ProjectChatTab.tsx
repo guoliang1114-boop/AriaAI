@@ -164,6 +164,7 @@ export function ProjectChatTab({
   const panel = useProjectChatPanel();
   const launchSkillParam = searchParams.get("skill");
   const launchPrompt = searchParams.get("q");
+  const briefingLaunch = searchParams.get("briefing");
   const sourceConversationParam = searchParams.get("conversation");
   const sourceMessageParam = searchParams.get("message");
   const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
@@ -284,6 +285,23 @@ export function ProjectChatTab({
     }
     setSearchParams({}, { replace: true });
   }, [isLoadingConversations, launchPrompt, launchSkillParam, panel, setSearchParams, startNewChat]);
+
+  useEffect(() => {
+    if (!briefingLaunch || isLoadingConversations) return;
+    const storedPrompt = sessionStorage.getItem("briefing_prompt");
+    const autoSend = sessionStorage.getItem("briefing_auto_send");
+    if (!storedPrompt) return;
+    sessionStorage.removeItem("briefing_prompt");
+    sessionStorage.removeItem("briefing_auto_send");
+    setSearchParams({}, { replace: true });
+    startNewChat();
+    panel.setKnowledgeScope("project");
+    if (autoSend === "1") {
+      void sendMessage(storedPrompt);
+    } else {
+      panel.setInputValue(storedPrompt);
+    }
+  }, [briefingLaunch, isLoadingConversations, panel, sendMessage, setSearchParams, startNewChat]);
 
   useEffect(() => {
     if (!sourceConversationParam || isLoadingConversations) {

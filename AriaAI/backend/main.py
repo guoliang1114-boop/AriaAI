@@ -223,10 +223,7 @@ async def auth_middleware(request: Request, call_next):
                         _cache_token(token, user.id)
         
         if not user:
-            # Allow if no users have been created yet (first-run before seed completes)
-            any_user = session.exec(select(User)).first()
-            if any_user:
-                return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+            return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     return await call_next(request)
 
 app.include_router(auth_router.router)

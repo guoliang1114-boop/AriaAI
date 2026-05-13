@@ -211,8 +211,9 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
       refinedBriefing?.content ? `AI 精炼版\n${refinedBriefing.content}` : "",
       "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。",
     ].filter(Boolean).join("\n\n");
-    const params = new URLSearchParams({ q: prompt });
-    navigate(`/projects/${projectId}/chat?${params.toString()}`);
+    sessionStorage.setItem("briefing_prompt", prompt);
+    sessionStorage.setItem("briefing_auto_send", "1");
+    navigate(`/projects/${projectId}/chat?briefing=1`);
   };
   const openCommunicationSource = (source: ProjectMeetingBriefing["signals"]["communication_sources"][number]) => {
     if (source.target === "chat") {

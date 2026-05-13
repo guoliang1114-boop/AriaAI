@@ -23,15 +23,10 @@ export function Login() {
     setError('')
 
     try {
-      console.log('[Login] Attempting login with:', email)
-      
       const response = await api.post<LoginResponse>('/auth/login', { 
         email: email.toLowerCase().trim(), 
         password 
       })
-      
-      console.log('[Login] Response received:', response)
-      console.log('[Login] Token:', response.token)
       
       if (!response.token) {
         throw new Error('No token received from server')
@@ -42,7 +37,6 @@ export function Login() {
       
       navigate('/')
     } catch (err: any) {
-      console.error('[Login] Error:', err)
       const message = err.response?.data?.detail || err.message || 'Login failed. Please check your credentials.'
       setError(message)
     } finally {
