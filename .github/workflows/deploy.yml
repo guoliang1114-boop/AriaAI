@@ -41,12 +41,24 @@ jobs:
           npm ci
           npm run build
 
+      - name: Frontend Lint
+        run: |
+          cd aria-web
+          npm run lint -- --max-warnings=200 || true
+
       - name: Prepare Backend
         run: |
           cd AriaAI/backend
           python -m pip install --upgrade pip
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
+
+      - name: Backend Smoke Check
+        run: |
+          cd AriaAI/backend
+          python -m py_compile main.py
+          python -m py_compile app/config.py
+          python -m py_compile app/models/db.py
 
       - name: Deploy to Server
         uses: appleboy/scp-action@v0.1.7
@@ -85,6 +97,7 @@ jobs:
             python scripts/migration_governance.py check
 
             # Reload backend after code and schema changes.
+            mkdir -p /www/wwwroot/AriaAI/logs
             if pm2 describe ariaai-backend >/dev/null 2>&1; then
               pm2 reload ariaai-backend --update-env
             else

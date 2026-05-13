@@ -241,15 +241,12 @@ export function ProjectChatSidebar({
               type="button"
               onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
               disabled={isUploadingFile}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-primary disabled:opacity-50"
-              title={isZh ? "上传文件" : "Upload file"}
-              aria-label={isZh ? "上传文件" : "Upload file"}
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50"
             >
               {isUploadingFile ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Upload className="h-3.5 w-3.5" />
-              )}
+              ) : null}
+              {isZh ? "上传文档" : "Upload"}
             </button>
           ) : null}
           {onToggleFullscreen ? (
