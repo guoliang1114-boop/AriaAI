@@ -11,7 +11,7 @@ export default defineConfig({
     pool: 'forks',
     coverage: {
       provider: 'v8',
-      include: ['src/utils/**', 'src/config/**', 'src/api/**', 'src/contexts/**', 'src/components/**'],
+      include: ['src/utils/**', 'src/config/**', 'src/api/**', 'src/contexts/**', 'src/components/**', 'src/pages/**', 'src/hooks/**'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
     },
   },

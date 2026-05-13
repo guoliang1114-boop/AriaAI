@@ -7,10 +7,11 @@ export function sanitizeMarkdownHref(
   const trimmed = (href || "").trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("/") || trimmed.startsWith("#")) return trimmed;
+  if (trimmed.startsWith("mailto:") || trimmed.startsWith("tel:")) return trimmed;
 
   try {
     const parsed = new URL(trimmed, origin);
-    if (["http:", "https:", "mailto:", "tel:"].includes(parsed.protocol)) {
+    if (["http:", "https:"].includes(parsed.protocol)) {
       return parsed.toString();
     }
   } catch {

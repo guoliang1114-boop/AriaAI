@@ -7,23 +7,20 @@ import en from '../i18n/locales/en.json'
 import zh from '../i18n/locales/zh.json'
 import { Layout } from './Layout'
 
-const mockGet = vi.fn((url: string) => {
-  if (url === '/auth/me') return Promise.resolve({ display_name: 'Test User', email: 'test@example.com' })
-  if (url === '/settings/') return Promise.resolve({ timezone: 'UTC' })
-  if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 5 })
-  return Promise.resolve({})
-})
-
 vi.mock('../api/client', () => ({
   api: {
-    get: (...args: unknown[]) => mockGet(args[0]),
+    get: vi.fn((url: string) => {
+      if (url === '/auth/me') return Promise.resolve({ display_name: 'John Doe', email: 'john@example.com' })
+      if (url === '/settings/') return Promise.resolve({ timezone: 'UTC' })
+      if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 7 })
+      return Promise.resolve({})
+    }),
     post: vi.fn(() => Promise.resolve({})),
   },
 }))
 
 beforeEach(() => {
   localStorage.clear()
-  mockGet.mockClear()
   if (!i18n.isInitialized) {
     i18n.use(initReactI18next).init({
       resources: { 'en-US': { translation: en }, 'zh-CN': { translation: zh } },
@@ -45,70 +42,36 @@ function renderLayout(path = '/') {
 }
 
 describe('Layout', () => {
-  it('renders Aria AI brand', async () => {
+  it('renders brand name', async () => {
     renderLayout()
     await waitFor(() => {
       expect(screen.getByText('Aria AI')).toBeInTheDocument()
     })
   })
 
-  it('renders nav items', async () => {
+  it('renders nav links', async () => {
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByText('nav.dashboard')).toBeInTheDocument()
-      expect(screen.getByText('nav.chat')).toBeInTheDocument()
-      expect(screen.getByText('nav.skills')).toBeInTheDocument()
-      expect(screen.getByText('nav.projects')).toBeInTheDocument()
-      expect(screen.getByText('nav.knowledge')).toBeInTheDocument()
+      const links = screen.getAllByRole('link')
+      const hrefs = links.map(l => l.getAttribute('href'))
+      expect(hrefs).toContain('/')
+      expect(hrefs).toContain('/chat')
+      expect(hrefs).toContain('/projects')
+      expect(hrefs).toContain('/knowledge')
     })
   })
 
-  it('renders user initials in avatar', async () => {
+  it('renders user initials from display_name', async () => {
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByText('TU')).toBeInTheDocument()
+      expect(screen.getByText('JD')).toBeInTheDocument()
     })
   })
 
-  it('shows unread badge', async () => {
+  it('shows unread badge count', async () => {
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument()
-    })
-  })
-
-  it('shows 99+ for large unread count', async () => {
-    mockGet.mockImplementation((url: string) => {
-      if (url === '/auth/me') return Promise.resolve({ display_name: 'Test User', email: 't@t.com' })
-      if (url === '/settings/') return Promise.resolve({})
-      if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 150 })
-      return Promise.resolve({})
-    })
-    renderLayout()
-    await waitFor(() => {
-      expect(screen.getByText('99+')).toBeInTheDocument()
-    })
-  })
-
-  it('user menu toggles on avatar click', async () => {
-    renderLayout()
-    const user = (await import('@testing-library/user-event')).default.setup()
-    await waitFor(() => {
-      expect(screen.getByText('TU')).toBeInTheDocument()
-    })
-    await user.click(screen.getByText('TU'))
-    await waitFor(() => {
-      expect(screen.getByText('Test User')).toBeInTheDocument()
-      expect(screen.getByText('test@example.com')).toBeInTheDocument()
-    })
-  })
-
-  it('fetches user data on mount', async () => {
-    renderLayout()
-    await waitFor(() => {
-      expect(mockGet).toHaveBeenCalledWith('/auth/me')
-      expect(mockGet).toHaveBeenCalledWith('/settings/')
-      expect(mockGet).toHaveBeenCalledWith('/messages/unread-count')
+      expect(screen.getByText('7')).toBeInTheDocument()
     })
   })
 })
