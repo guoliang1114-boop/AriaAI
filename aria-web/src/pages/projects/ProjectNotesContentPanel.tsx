@@ -151,7 +151,7 @@ export function ProjectNotesContentPanel({
             value={content}
             onChange={(event) => updateContent(event.target.value)}
             placeholder={copy.editPlaceholder}
-            className="h-full min-h-[calc(100vh-340px)] w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-4 font-mono text-sm leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="h-full min-h-[calc(100vh-15rem)] w-full resize-none rounded-lg border border-gray-200 bg-white px-4 py-4 font-mono text-sm leading-7 text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
             spellCheck={false}
           />
         </div>
@@ -159,7 +159,7 @@ export function ProjectNotesContentPanel({
 
       {showPreview && (
         <div className={`${mode === "split" ? "w-1/2" : "w-full"} min-w-0`}>
-          <div className="h-full min-h-[calc(100vh-340px)] overflow-auto rounded-xl border border-gray-200 bg-gray-50 px-5 py-4">
+          <div className="h-full min-h-[calc(100vh-15rem)] overflow-auto rounded-lg border border-gray-200 bg-gray-50 px-5 py-4">
             {content.trim() ? (
               <div className="md-root">
                 <MarkdownRenderer content={content} />

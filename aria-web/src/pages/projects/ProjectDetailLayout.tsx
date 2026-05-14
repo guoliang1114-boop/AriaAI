@@ -41,7 +41,7 @@ export function ProjectDetailLayout({
           project={project}
           onBack={onBack}
           projectId={projectId}
-          compact={activeTabId === "chat"}
+          compact
         />
       ) : null}
 
@@ -56,7 +56,7 @@ export function ProjectDetailLayout({
       />
 
       <div
-        className={`mx-auto min-h-[calc(100vh-180px)] max-w-full px-6 py-6 ${isPersistentTab ? "hidden" : ""}`}
+        className={`mx-auto min-h-[calc(100vh-3.5rem)] max-w-full px-4 py-4 ${isPersistentTab ? "hidden" : ""}`}
       >
         {children}
       </div>

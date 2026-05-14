@@ -451,4 +451,5 @@ router.include_router(_projects_briefing.router)
 # ── Re-exports for test compatibility ────────────────────────────────────────
 from app.config import UPLOADS_DIR  # noqa: F401
 from app.services import scheduler as scheduler_service  # noqa: F401
+from app.services.project_llm import complete_with_selected_model, stream_with_selected_model  # noqa: F401
 from app.routers.projects_deps import _auto_summarize_file  # noqa: F401
