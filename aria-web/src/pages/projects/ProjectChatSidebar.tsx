@@ -133,6 +133,7 @@ export function ProjectChatSidebar({
   const [search, setSearch] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "space">("chat");
+  const [showUploadFolderSelect, setShowUploadFolderSelect] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetFolderIdRef = useRef<number | null>(null);
 
@@ -237,17 +238,54 @@ export function ProjectChatSidebar({
             {copy.newChatButton}
           </button>
           {onUploadFiles ? (
-            <button
-              type="button"
-              onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
-              disabled={isUploadingFile}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
-            >
-              {isUploadingFile ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <div className="relative flex min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (folderList.length <= 1) {
+                    openUploadPicker(folderList[0]?.id ?? null);
+                  } else {
+                    setShowUploadFolderSelect((v) => !v);
+                  }
+                }}
+                disabled={isUploadingFile}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
+              >
+                {isUploadingFile ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {isZh ? "上传文档" : "Upload"}
+              </button>
+              {showUploadFolderSelect && folderList.length > 1 ? (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  <p className="px-3 py-1.5 text-[11px] font-medium text-gray-400">
+                    {isZh ? "选择上传目录" : "Select folder"}
+                  </p>
+                  {folderList.map((folder) => (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => {
+                        setShowUploadFolderSelect(false);
+                        openUploadPicker(folder.id);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-50"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+                      {folder.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadFolderSelect(false)}
+                    className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-left text-xs text-gray-400 transition-colors hover:bg-gray-50"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {isZh ? "取消" : "Cancel"}
+                  </button>
+                </div>
               ) : null}
-              {isZh ? "上传文档" : "Upload"}
-            </button>
+            </div>
           ) : null}
           {onToggleFullscreen ? (
             <button
