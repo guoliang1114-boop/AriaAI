@@ -937,7 +937,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 ensure_ascii=False,
             )
 
-        with patch("app.services.project_llm.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+        with patch("app.routers.projects_memory.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
             rebuild_resp = self.client.post(
                 "/projects/memory/rebuild-batch",
                 json={"project_ids": project_ids, "stale_only": True},
@@ -996,7 +996,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 ensure_ascii=False,
             )
 
-        with patch("app.services.project_llm.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+        with patch("app.routers.projects_memory.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
             rebuild_resp = self.client.post(
                 "/projects/memory/rebuild-batch",
                 json={"project_ids": project_ids, "stale_only": False},
@@ -1771,7 +1771,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.services.project_llm.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
+        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
             resp = self.client.post(f"/projects/{project_id}/generate-context")
 
         self.assertEqual(resp.status_code, 200)
@@ -1812,7 +1812,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.services.project_llm.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
+        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
             resp = self.client.post(
                 f"/projects/{project_id}/generate-context",
                 json={"language": "zh-CN"},
@@ -1851,7 +1851,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.services.project_llm.stream_with_selected_model", side_effect=fake_stream):
+        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -1900,7 +1900,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -1945,7 +1945,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
             resp = self.client.get(
                 f"/projects/{project_id}/memory/summaries/delivery",
                 params={"language": "zh-CN"},
@@ -2003,7 +2003,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2074,7 +2074,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2121,7 +2121,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -2181,7 +2181,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 "/projects/memory/warm-summaries-batch",
                 json={
@@ -2321,7 +2321,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
 
         mock_complete = AsyncMock(return_value="30 秒判断：主打上线范围和采购风险。\n会后行动：发送清单。")
-        with patch("app.services.project_llm.complete_with_selected_model", mock_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", mock_complete):
             first = self.client.post(
                 f"/projects/{project_id}/briefing/refine",
                 json={"meeting_type": "risk", "language": "zh"},
@@ -2465,7 +2465,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             ),
         ]
 
-        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=fake_jobs):
+        with patch("app.services.scheduler.get_jobs", return_value=fake_jobs):
             resp = self.client.get("/projects/memory/jobs")
 
         self.assertEqual(resp.status_code, 200)
@@ -2494,7 +2494,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             ),
         ]
 
-        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=fake_jobs):
+        with patch("app.services.scheduler.get_jobs", return_value=fake_jobs):
             resp = self.client.get("/projects/memory/jobs")
 
         self.assertEqual(resp.status_code, 200)
@@ -2545,9 +2545,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             id=f"project_memory_rebuild_{project_id}",
             next_run_time=utc_now_naive(),
         )
-        with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[fake_job]), patch.object(
-            projects_router_module.scheduler_service,
-            "get_job_metadata",
+        with patch("app.services.scheduler.get_jobs", return_value=[fake_job]), patch(
+            "app.services.scheduler.get_job_metadata",
             return_value={"retry_count": 1, "max_retries": 3, "trigger": "project_updated"},
         ):
             resp = self.client.get("/projects/memory/jobs")
@@ -2569,9 +2568,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
     def test_memory_jobs_cancel_removes_rebuild_and_summary_jobs(self):
         removed: list[str] = []
 
-        with patch.object(
-            projects_router_module.scheduler_service,
-            "remove_job",
+        with patch(
+            "app.services.scheduler.remove_job",
             side_effect=lambda job_id: removed.append(job_id),
         ):
             resp = self.client.post("/projects/memory/jobs/42/cancel")
@@ -2607,7 +2605,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             projects_router_module,
             "_warm_project_memory_summary_caches",
             new=AsyncMock(return_value=["overview"]),
-        ), patch.object(projects_router_module.scheduler_service, "remove_job"):
+        ), patch("app.services.scheduler.remove_job"):
             resp = self.client.post(f"/projects/memory/jobs/{project_id}/run-now")
 
         self.assertEqual(resp.status_code, 200)
@@ -2641,7 +2639,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.services.project_llm.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(f"/projects/{project_id}/memory/rebuild")
 
         self.assertEqual(resp.status_code, 200)
@@ -4510,7 +4508,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
         app.dependency_overrides[memory_operations_router_module.get_session] = override_session
         client = TestClient(app)
         try:
-            with patch.object(projects_router_module.scheduler_service, "get_jobs", return_value=[]):
+            with patch("app.services.scheduler.get_jobs", return_value=[]):
                 resp = client.get("/memory/operations/summary")
         finally:
             client.close()

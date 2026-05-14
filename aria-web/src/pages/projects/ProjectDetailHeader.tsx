@@ -2,25 +2,8 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 import { ArrowLeft, Circle } from "lucide-react";
 import type { Project } from "../../types/api";
+import { resolveProjectStage } from "../../types/enums";
 import { PROJECT_DETAIL_TABS } from "./projectDetailTabs";
-
-const fallbackStatusTone = "bg-slate-100 text-slate-600 ring-slate-200";
-
-const statusTone: Partial<Record<Project["status"], string>> = {
-  lead: "bg-sky-50 text-sky-700 ring-sky-200",
-  opportunity: "bg-amber-50 text-amber-700 ring-amber-200",
-  won: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  delivering: "bg-blue-50 text-blue-700 ring-blue-200",
-  archived: "bg-slate-100 text-slate-600 ring-slate-200",
-};
-
-const statusText: Partial<Record<Project["status"], { zh: string; en: string }>> = {
-  lead: { zh: "线索", en: "Lead" },
-  opportunity: { zh: "机会", en: "Opportunity" },
-  won: { zh: "已赢单", en: "Won" },
-  delivering: { zh: "交付中", en: "Delivering" },
-  archived: { zh: "已归档", en: "Archived" },
-};
 
 export function ProjectDetailHeader({
   project,
@@ -36,9 +19,9 @@ export function ProjectDetailHeader({
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const rawStatus = String(project.status || "").trim();
-  const statusMeta = statusText[project.status];
-  const statusLabel = statusMeta ? (isZh ? statusMeta.zh : statusMeta.en) : rawStatus || (isZh ? "未知状态" : "Unknown");
-  const statusClassName = statusTone[project.status] ?? fallbackStatusTone;
+  const stage = resolveProjectStage(rawStatus);
+  const statusLabel = rawStatus ? (isZh ? stage.labelZh : stage.label) : (isZh ? "未知状态" : "Unknown");
+  const statusClassName = `${stage.bgColor} ${stage.color} ${stage.borderColor}`;
   const visibleTabs = PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav);
   const renderTabLabel = (tabId: (typeof visibleTabs)[number]["id"], labelKey: string) =>
     tabId === "memory"
@@ -61,23 +44,24 @@ export function ProjectDetailHeader({
             <ArrowLeft className="h-4 w-4" />
           </button>
 
-          <div className="min-w-0 flex-shrink-0 basis-[260px]">
+          <div className="min-w-0 flex-shrink-0 basis-[360px]">
             <div className="truncate text-[11px] text-slate-500">
               {project.client || t("nav.projects")}
             </div>
-            <div className="truncate text-sm font-semibold text-slate-950">
-              {project.name}
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate text-sm font-semibold text-slate-950">
+                {project.name}
+              </div>
+              <span
+                className={`hidden flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold md:inline-flex ${statusClassName}`}
+              >
+                <Circle className="h-1.5 w-1.5 fill-current" />
+                {statusLabel}
+              </span>
             </div>
           </div>
 
-          <span
-            className={`hidden flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1 ring-inset sm:inline-flex ${statusClassName}`}
-          >
-            <Circle className="h-2 w-2 fill-current" />
-            {statusLabel}
-          </span>
-
-          <nav className="ml-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
             {visibleTabs.map((tab) => (
               <NavLink
                 key={tab.id}
@@ -131,7 +115,7 @@ export function ProjectDetailHeader({
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ring-inset ${statusClassName}`}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${statusClassName}`}
             >
               <Circle className="h-2 w-2 fill-current" />
               {statusLabel}
