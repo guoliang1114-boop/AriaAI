@@ -41,6 +41,7 @@ export function ProjectDetailLayout({
           project={project}
           onBack={onBack}
           projectId={projectId}
+          compact={activeTabId === "chat"}
         />
       ) : null}
 

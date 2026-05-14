@@ -210,7 +210,7 @@ export function ProjectChatSidebar({
 
   return (
     <div
-      className={`${isOpen ? (isFullscreen ? "w-72" : "w-60") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
+      className={`${isOpen ? (isFullscreen ? "w-72" : "w-56") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
       {onUploadFiles ? (
         <input

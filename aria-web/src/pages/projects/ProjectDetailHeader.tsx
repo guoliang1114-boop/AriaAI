@@ -26,10 +26,12 @@ export function ProjectDetailHeader({
   project,
   onBack,
   projectId,
+  compact = false,
 }: {
   project: Project;
   onBack: () => void;
   projectId: string;
+  compact?: boolean;
 }) {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
@@ -37,6 +39,67 @@ export function ProjectDetailHeader({
   const statusMeta = statusText[project.status];
   const statusLabel = statusMeta ? (isZh ? statusMeta.zh : statusMeta.en) : rawStatus || (isZh ? "未知状态" : "Unknown");
   const statusClassName = statusTone[project.status] ?? fallbackStatusTone;
+  const visibleTabs = PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav);
+  const renderTabLabel = (tabId: (typeof visibleTabs)[number]["id"], labelKey: string) =>
+    tabId === "memory"
+      ? isZh ? "项目记忆" : "Memory"
+      : tabId === "stakeholders"
+        ? isZh ? "干系人" : "Stakeholders"
+        : tabId === "briefing"
+          ? isZh ? "会前简报" : "Briefing"
+          : t(labelKey);
+
+  if (compact) {
+    return (
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
+        <div className="flex h-14 min-w-0 items-center gap-3 px-4 sm:px-6">
+          <button
+            onClick={onBack}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-primary/30 hover:text-primary"
+            title={t("nav.projects")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+
+          <div className="min-w-0 flex-shrink-0 basis-[260px]">
+            <div className="truncate text-[11px] text-slate-500">
+              {project.client || t("nav.projects")}
+            </div>
+            <div className="truncate text-sm font-semibold text-slate-950">
+              {project.name}
+            </div>
+          </div>
+
+          <span
+            className={`hidden flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1 ring-inset sm:inline-flex ${statusClassName}`}
+          >
+            <Circle className="h-2 w-2 fill-current" />
+            {statusLabel}
+          </span>
+
+          <nav className="ml-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            {visibleTabs.map((tab) => (
+              <NavLink
+                key={tab.id}
+                to={tab.getPath(projectId)}
+                end={tab.path === ""}
+                className={({ isActive }) =>
+                  `flex h-14 flex-shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "border-primary text-primary"
+                      : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
+                  }`
+                }
+              >
+                <tab.icon className="h-4 w-4" />
+                {renderTabLabel(tab.id, tab.labelKey)}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
@@ -84,7 +147,7 @@ export function ProjectDetailHeader({
 
       <div className="mx-auto max-w-full border-t border-slate-100 px-2 sm:px-6">
         <nav className="flex items-center gap-1 overflow-x-auto">
-          {PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav).map((tab) => (
+          {visibleTabs.map((tab) => (
             <NavLink
               key={tab.id}
               to={tab.getPath(projectId)}
@@ -98,13 +161,7 @@ export function ProjectDetailHeader({
               }
             >
               <tab.icon className="h-4 w-4" />
-              {tab.id === "memory"
-                ? isZh ? "项目记忆" : "Memory"
-                : tab.id === "stakeholders"
-                  ? isZh ? "干系人" : "Stakeholders"
-                  : tab.id === "briefing"
-                    ? isZh ? "会前简报" : "Briefing"
-                    : t(tab.labelKey)}
+              {renderTabLabel(tab.id, tab.labelKey)}
             </NavLink>
           ))}
         </nav>
