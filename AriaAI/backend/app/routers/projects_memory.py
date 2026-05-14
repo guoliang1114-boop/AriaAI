@@ -37,7 +37,7 @@ from app.services.project_contexts import (
     stream_llm_text_chunks,
 )
 from app.services.project_core import get_project_or_404
-from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
+from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.time_utils import utc_now_naive
 from app.routers.projects_deps import get_current_user

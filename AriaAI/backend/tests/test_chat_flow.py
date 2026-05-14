@@ -48,6 +48,8 @@ from app.routers import clients as clients_router_module
 from app.routers import memory_operations as memory_operations_router_module
 from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
+from app.routers import projects_memory as projects_memory_module
+from app.routers import projects_deps as projects_deps_module
 from app.routers import skills as skills_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
@@ -62,6 +64,19 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
+from contextlib import ExitStack, contextmanager
+
+@contextmanager
+def patch_project_llm(complete=None, stream=None):
+    """Patch complete_with_selected_model and/or stream_with_selected_model across ALL project router modules."""
+    with ExitStack() as stack:
+        if complete is not None:
+            for mod in (projects_router_module, projects_memory_module, projects_deps_module):
+                stack.enter_context(patch.object(mod, "complete_with_selected_model", complete))
+        if stream is not None:
+            for mod in (projects_router_module, projects_memory_module, projects_deps_module):
+                stack.enter_context(patch.object(mod, "stream_with_selected_model", stream))
+        yield
 from app.services.chat_streaming import ChatRuntime, _build_slides_from_strategy_text, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
 from tests.test_database import create_test_engine, drop_all_tables
@@ -818,9 +833,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertEqual(new_folder.name, "02_需求与方案")
 
     def test_ai_suggest_project_parses_fenced_json_response(self):
-        with patch.object(
-            projects_router_module,
-            "complete_with_selected_model",
+        with patch(
+            "app.routers.projects_deps.complete_with_selected_model",
             new=AsyncMock(
                 return_value="""```json
 [
@@ -857,9 +871,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertFalse(status_before.json()["has_memory"])
         self.assertTrue(status_before.json()["memory_stale"])
 
-        with patch.object(
-            projects_router_module,
-            "complete_with_selected_model",
+        with patch(
+            "app.routers.projects_deps.complete_with_selected_model",
             new=AsyncMock(
                 return_value=json.dumps(
                     {
@@ -937,7 +950,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 ensure_ascii=False,
             )
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             rebuild_resp = self.client.post(
                 "/projects/memory/rebuild-batch",
                 json={"project_ids": project_ids, "stale_only": True},
@@ -996,7 +1009,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 ensure_ascii=False,
             )
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", new=AsyncMock(side_effect=fake_complete)):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             rebuild_resp = self.client.post(
                 "/projects/memory/rebuild-batch",
                 json={"project_ids": project_ids, "stale_only": False},
@@ -1771,7 +1784,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
+        with patch_project_llm(stream=fake_stream), patch("app.database.engine", self.engine):
             resp = self.client.post(f"/projects/{project_id}/generate-context")
 
         self.assertEqual(resp.status_code, 200)
@@ -1812,7 +1825,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream), patch("app.database.engine", self.engine):
+        with patch_project_llm(stream=fake_stream), patch("app.database.engine", self.engine):
             resp = self.client.post(
                 f"/projects/{project_id}/generate-context",
                 json={"language": "zh-CN"},
@@ -1851,7 +1864,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_memory.stream_with_selected_model", side_effect=fake_stream):
+        with patch_project_llm(stream=fake_stream):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -1900,7 +1913,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+        with patch_project_llm(complete=AsyncMock(side_effect=AssertionError("should not call llm"))):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -1945,7 +1958,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=AssertionError("should not call llm")):
+        with patch_project_llm(complete=AsyncMock(side_effect=AssertionError("should not call llm"))):
             resp = self.client.get(
                 f"/projects/{project_id}/memory/summaries/delivery",
                 params={"language": "zh-CN"},
@@ -2003,7 +2016,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2074,7 +2087,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2121,7 +2134,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -2181,7 +2194,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(
                 "/projects/memory/warm-summaries-batch",
                 json={
@@ -2321,7 +2334,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
 
         mock_complete = AsyncMock(return_value="30 秒判断：主打上线范围和采购风险。\n会后行动：发送清单。")
-        with patch("app.routers.projects_memory.complete_with_selected_model", mock_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", mock_complete):
             first = self.client.post(
                 f"/projects/{project_id}/briefing/refine",
                 json={"meeting_type": "risk", "language": "zh"},
@@ -2601,9 +2614,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch.object(
-            projects_router_module,
-            "_warm_project_memory_summary_caches",
+        with patch(
+            "app.routers.projects_deps._warm_project_memory_summary_caches",
             new=AsyncMock(return_value=["overview"]),
         ), patch("app.services.scheduler.remove_job"):
             resp = self.client.post(f"/projects/memory/jobs/{project_id}/run-now")
@@ -2639,7 +2651,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_memory.complete_with_selected_model", side_effect=fake_complete):
+        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
             resp = self.client.post(f"/projects/{project_id}/memory/rebuild")
 
         self.assertEqual(resp.status_code, 200)
@@ -2704,9 +2716,8 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             client_id = client.id
             project_id = project.id
 
-        with patch.object(
-            projects_router_module,
-            "complete_with_selected_model",
+        with patch(
+            "app.routers.projects_deps.complete_with_selected_model",
             new=AsyncMock(
                 return_value=json.dumps(
                     {
@@ -3290,7 +3301,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3322,7 +3333,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3360,7 +3371,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 "#doc summarize this",
             )
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=fake_result,
@@ -3508,7 +3519,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3538,7 +3549,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3711,7 +3722,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(primary_project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=FakeRetrievalContext(""),
@@ -3741,7 +3752,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3784,7 +3795,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=FakeRetrievalContext(""),
@@ -3821,7 +3832,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(sibling_file)
 
-            with patch.object(
+            with patch(
                 context_builder_module,
                 "extract_file_text",
                 return_value="Sibling confidential file",
@@ -4850,7 +4861,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []
 
-        with patch.object(
+        with patch(
             clients_router_module.scheduler_service,
             "remove_job",
             side_effect=lambda job_id: removed.append(job_id),

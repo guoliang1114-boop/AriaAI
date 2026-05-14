@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Target, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type { ProjectDetail, ProjectMeetingBriefing, ProjectMeetingBriefingRefineResponse } from "../../types/api";
+import { resolveProjectStage } from "../../types/enums";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { formatDateOnly, formatDateTime as formatWithTimeZone } from "../../utils/timezone";
 
@@ -74,13 +75,13 @@ function BriefingSection({
 }) {
   const toneClass =
     tone === "warning"
-      ? "border-amber-200 bg-amber-50 text-amber-950"
+      ? "border-amber-200 bg-amber-50/70 text-amber-950"
       : tone === "success"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-        : "border-gray-200 bg-white text-gray-900";
+        ? "border-emerald-200 bg-emerald-50/70 text-emerald-950"
+        : "border-slate-200 bg-white text-slate-900";
 
   return (
-    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+    <div className={`rounded-lg border p-4 ${toneClass}`}>
       <div className="text-sm font-semibold">{title}</div>
       {items.length > 0 ? (
         <ul className="mt-3 space-y-2 text-sm leading-6">
@@ -96,6 +97,21 @@ function BriefingSection({
       )}
     </div>
   );
+}
+
+function CompactSignalList({
+  emptyText,
+  items,
+  renderItem,
+}: {
+  emptyText: string;
+  items: Array<unknown>;
+  renderItem: (item: unknown, index: number) => ReactNode;
+}) {
+  if (!items.length) {
+    return <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">{emptyText}</div>;
+  }
+  return <div className="space-y-2">{items.map(renderItem)}</div>;
 }
 
 function formatDate(value?: string | null, isZh = true) {
@@ -160,6 +176,8 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   }, [meetingTemplateId]);
 
   const project = briefing?.project ?? projectDetail.project;
+  const stage = resolveProjectStage(project.status);
+  const StageIcon = stage.icon;
   const generatedAt = briefing?.generated_at
     ? formatWithTimeZone(briefing.generated_at, isZh ? "zh-CN" : "en-US", undefined, resolvedTimeZone)
     : "";
@@ -239,325 +257,304 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-              {isZh ? "会议前 30 秒" : "30-second pre-meeting"}
+    <div className="space-y-4">
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span>{isZh ? "会前简报" : "Meeting briefing"}</span>
+              <span>/</span>
+              <span>{isZh ? selectedTemplate.zhLabel : selectedTemplate.enLabel}</span>
+              {generatedAt ? (
+                <>
+                  <span>/</span>
+                  <span>{generatedAt}</span>
+                </>
+              ) : null}
             </div>
-            <h2 className="mt-2 text-2xl font-semibold text-gray-950">
-              {isZh ? "会前简报" : "Meeting Briefing"}
+            <h2 className="mt-1 truncate text-lg font-semibold text-slate-950">
+              {isZh ? "会议作战卡" : "Meeting battle card"}
             </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-              {isZh
-                ? "基于项目记忆、客户记忆、结构化干系人、待办和里程碑生成，不额外调用模型，适合会议前快速扫一眼。"
-                : "Assembled from project memory, client memory, structured stakeholders, todos, and milestones without an extra model call."}
-            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadBriefing()}
-            disabled={isLoading}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {isZh ? "刷新简报" : "Refresh"}
-          </button>
-          <button
-            type="button"
-            onClick={openChatWithBriefing}
-            disabled={!briefing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-          >
-            <MessageSquare className="h-4 w-4" />
-            {isZh ? "带着简报开启对话" : "Open chat with briefing"}
-          </button>
-        </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl bg-gray-50 p-4">
-            <div className="text-xs text-gray-500">{isZh ? "项目" : "Project"}</div>
-            <div className="mt-1 truncate text-sm font-semibold text-gray-900">{project.name}</div>
-          </div>
-          <div className="rounded-2xl bg-gray-50 p-4">
-            <div className="text-xs text-gray-500">{isZh ? "客户" : "Client"}</div>
-            <div className="mt-1 truncate text-sm font-semibold text-gray-900">{project.client || "-"}</div>
-          </div>
-          <div className="rounded-2xl bg-gray-50 p-4">
-            <div className="text-xs text-gray-500">{isZh ? "阶段" : "Stage"}</div>
-            <div className="mt-1 text-sm font-semibold text-gray-900">{project.status}</div>
-          </div>
-          <div className="rounded-2xl bg-gray-50 p-4">
-            <div className="text-xs text-gray-500">{isZh ? "生成时间" : "Generated"}</div>
-            <div className="mt-1 truncate text-sm font-semibold text-gray-900">{generatedAt || "-"}</div>
-          </div>
-        </div>
-
-        {error ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div>
-        ) : null}
-      </div>
-
-      <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-gray-950">{isZh ? "选择会议类型" : "Choose meeting type"}</div>
-            <p className="mt-1 text-sm text-gray-500">
-              {isZh ? "不同会议会改变带入 Chat 的输出要求。" : "Meeting type changes the prompt sent into chat."}
-            </p>
-          </div>
-          <div className="text-xs text-gray-400">{isZh ? "不会额外调用模型" : "No extra model call"}</div>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          {MEETING_TEMPLATES.map((template) => {
-            const active = template.id === meetingTemplateId;
-            return (
-              <button
-                key={template.id}
-                type="button"
-                onClick={() => setMeetingTemplateId(template.id)}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  active
-                    ? "border-primary bg-primary/5 text-primary shadow-sm"
-                    : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300 hover:bg-white"
-                }`}
-              >
-                <div className="text-sm font-semibold">{isZh ? template.zhLabel : template.enLabel}</div>
-                <div className={`mt-2 text-xs leading-5 ${active ? "text-primary/80" : "text-gray-500"}`}>
-                  {isZh ? template.zhDescription : template.enDescription}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
-              <Sparkles className="h-4 w-4 text-emerald-600" />
-              {isZh ? "AI 精炼版会前简报" : "AI-refined meeting briefing"}
-            </div>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-900/75">
-              {isZh
-                ? "确定性简报不调用模型；如果你需要更像“会前作战卡”的表达，可以手动生成一次 AI 精炼版。相同输入会优先使用缓存，降低 Kimi 限流风险。"
-                : "The deterministic briefing does not call the model. Generate this optional battle-card style summary manually; identical inputs reuse cache to reduce rate-limit pressure."}
-            </p>
-          </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void loadBriefing()}
+              disabled={isLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {isZh ? "刷新" : "Refresh"}
+            </button>
             <button
               type="button"
               onClick={() => void refineBriefing(false)}
               disabled={isRefining || !briefing}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
             >
               {isRefining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {refinedBriefing ? (isZh ? "读取/更新精炼版" : "Load refined") : isZh ? "生成 AI 精炼版" : "Generate refined"}
+              {refinedBriefing ? (isZh ? "读取精炼" : "Load refined") : isZh ? "AI 精炼" : "AI refine"}
             </button>
-            {refinedBriefing ? (
-              <button
-                type="button"
-                onClick={() => void refineBriefing(true)}
-                disabled={isRefining}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {isZh ? "重新精炼" : "Regenerate"}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={openChatWithBriefing}
+              disabled={!briefing}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+            >
+              <MessageSquare className="h-4 w-4" />
+              {isZh ? "带入对话" : "Open chat"}
+            </button>
           </div>
         </div>
-
-        {refineError ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{refineError}</div>
+        {error ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</div>
         ) : null}
+      </div>
 
-        {refinedBriefing ? (
-          <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/80 p-4">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-emerald-700">
-              <span className="rounded-full bg-emerald-100 px-2 py-1">
-                {refinedBriefing.cached ? (isZh ? "缓存命中" : "Cache hit") : isZh ? "刚刚生成" : "Generated"}
-              </span>
-              {refinedGeneratedAt ? <span>{refinedGeneratedAt}</span> : null}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
+        <main className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-950">{isZh ? "先看这四件事" : "Start with these four"}</div>
+                <p className="mt-1 text-sm text-slate-500">
+                  {isZh ? "直接用于会前 30 秒扫读。" : "Designed for a 30-second pre-meeting scan."}
+                </p>
+              </div>
+              {(briefing?.project.memory_stale || briefing?.client.memory_stale) ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {isZh ? "记忆可能过期" : "Memory stale"}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {isZh ? "记忆可用" : "Memory ready"}
+                </span>
+              )}
             </div>
-            <div className="whitespace-pre-wrap text-sm leading-7 text-gray-800">{refinedBriefing.content}</div>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-emerald-200 bg-white/60 p-4 text-sm text-emerald-900/70">
-            {isZh
-              ? "还没有生成 AI 精炼版。日常快速扫读可以直接看下面的确定性简报；重要会议前再点一次生成即可。"
-              : "No AI-refined version yet. Use the deterministic briefing below for quick review, then generate this before important meetings."}
-          </div>
-        )}
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <BriefingSection
-          title={isZh ? "这次建议说什么" : "What to say"}
-          items={briefing?.meeting_card.say ?? []}
-          emptyText={isZh ? "暂无明确建议，可先刷新项目记忆。" : "No clear talking points yet. Refresh project memory first."}
-          tone="success"
-        />
-        <BriefingSection
-          title={isZh ? "这次尽量避开什么" : "What to avoid"}
-          items={briefing?.meeting_card.avoid ?? []}
-          emptyText={isZh ? "暂无敏感点或风险禁区。" : "No sensitivities or avoid-list items yet."}
-          tone="warning"
-        />
-        <BriefingSection
-          title={isZh ? "需要确认的问题" : "What to confirm"}
-          items={briefing?.meeting_card.confirm ?? []}
-          emptyText={isZh ? "暂无开放问题。" : "No open questions yet."}
-        />
-        <BriefingSection
-          title={isZh ? "历史经验提醒" : "Lessons from history"}
-          items={briefing?.meeting_card.experience ?? []}
-          emptyText={isZh ? "暂无客户历史经验沉淀。" : "No client lessons captured yet."}
-        />
-      </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <BriefingSection
+                title={isZh ? "建议说什么" : "Say"}
+                items={briefing?.meeting_card.say ?? []}
+                emptyText={isZh ? "暂无明确建议，可先刷新项目记忆。" : "No clear talking points yet."}
+                tone="success"
+              />
+              <BriefingSection
+                title={isZh ? "尽量避开什么" : "Avoid"}
+                items={briefing?.meeting_card.avoid ?? []}
+                emptyText={isZh ? "暂无敏感点或风险禁区。" : "No sensitivities captured yet."}
+                tone="warning"
+              />
+              <BriefingSection
+                title={isZh ? "需要确认的问题" : "Confirm"}
+                items={briefing?.meeting_card.confirm ?? []}
+                emptyText={isZh ? "暂无开放问题。" : "No open questions yet."}
+              />
+              <BriefingSection
+                title={isZh ? "历史经验提醒" : "Lessons"}
+                items={briefing?.meeting_card.experience ?? []}
+                emptyText={isZh ? "暂无客户历史经验沉淀。" : "No client lessons captured yet."}
+              />
+            </div>
+          </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-900">
-            <Users className="h-4 w-4 text-primary" />
-            {isZh ? "关键客户侧干系人" : "Key client stakeholders"}
-          </div>
-          {briefing?.stakeholders.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {briefing.stakeholders.map((stakeholder, index) => (
-                <div key={`${stakeholder.name}-${index}`} className="rounded-2xl bg-gray-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-gray-950">{stakeholder.name || (isZh ? "未命名" : "Unnamed")}</div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        {[stakeholder.role, stakeholder.influence_type, stakeholder.relationship_status].filter(Boolean).join(" / ") || "-"}
-                      </div>
-                    </div>
-                    {stakeholder.relationship_status ? (
-                      <span className="rounded-full bg-white px-2 py-1 text-xs text-gray-600">{stakeholder.relationship_status}</span>
-                    ) : null}
-                  </div>
-                  {stakeholder.concerns ? <p className="mt-3 text-sm leading-6 text-gray-700">{stakeholder.concerns}</p> : null}
-                  {stakeholder.last_action ? <p className="mt-2 text-xs text-gray-500">{stakeholder.last_action}</p> : null}
+          {refineError ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{refineError}</div>
+          ) : null}
+
+          {refinedBriefing ? (
+            <section className="rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                  <Sparkles className="h-4 w-4 text-emerald-600" />
+                  {isZh ? "AI 精炼版" : "AI refined"}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-500">
-              {isZh ? "暂无结构化干系人。建议先在干系人页补齐关键客户联系人。" : "No structured stakeholders yet. Add key client contacts on the Stakeholders page."}
-            </div>
-          )}
-        </div>
+                <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
+                  {refinedBriefing.cached ? (isZh ? "缓存命中" : "Cache hit") : isZh ? "刚刚生成" : "Generated"}
+                </span>
+                {refinedGeneratedAt ? <span className="text-xs text-slate-400">{refinedGeneratedAt}</span> : null}
+                <button
+                  type="button"
+                  onClick={() => void refineBriefing(true)}
+                  disabled={isRefining}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {isZh ? "重新精炼" : "Regenerate"}
+                </button>
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{refinedBriefing.content}</div>
+            </section>
+          ) : null}
 
-        <div className="space-y-4">
-          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Users className="h-4 w-4 text-primary" />
+              {isZh ? "关键干系人" : "Key stakeholders"}
+            </div>
+            {briefing?.stakeholders.length ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {briefing.stakeholders.map((stakeholder, index) => (
+                  <div key={`${stakeholder.name}-${index}`} className="rounded-lg bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-slate-950">{stakeholder.name || (isZh ? "未命名" : "Unnamed")}</div>
+                        <div className="mt-1 truncate text-xs text-slate-500">
+                          {[stakeholder.role, stakeholder.influence_type, stakeholder.relationship_status].filter(Boolean).join(" / ") || "-"}
+                        </div>
+                      </div>
+                      {stakeholder.relationship_status ? (
+                        <span className="shrink-0 rounded-md bg-white px-2 py-1 text-xs text-slate-600">{stakeholder.relationship_status}</span>
+                      ) : null}
+                    </div>
+                    {stakeholder.concerns ? <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-700">{stakeholder.concerns}</p> : null}
+                    {stakeholder.last_action ? <p className="mt-2 text-xs text-slate-500">{stakeholder.last_action}</p> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">
+                {isZh ? "暂无结构化干系人。建议先在干系人页补齐关键客户联系人。" : "No structured stakeholders yet."}
+              </div>
+            )}
+          </section>
+        </main>
+
+        <aside className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Target className="h-4 w-4 text-primary" />
+              {isZh ? "会议类型" : "Meeting type"}
+            </div>
+            <div className="grid gap-2">
+              {MEETING_TEMPLATES.map((template) => {
+                const active = template.id === meetingTemplateId;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => setMeetingTemplateId(template.id)}
+                    className={`rounded-md border px-3 py-2 text-left transition ${
+                      active
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="text-sm font-semibold">{isZh ? template.zhLabel : template.enLabel}</div>
+                    <div className={`mt-1 text-xs leading-5 ${active ? "text-primary/80" : "text-slate-500"}`}>
+                      {isZh ? template.zhDescription : template.enDescription}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              {isZh ? "项目上下文" : "Project context"}
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">{isZh ? "项目" : "Project"}</span>
+                <span className="truncate font-medium text-slate-900">{project.name}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">{isZh ? "客户" : "Client"}</span>
+                <span className="truncate font-medium text-slate-900">{project.client || "-"}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">{isZh ? "阶段" : "Stage"}</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${stage.bgColor} ${stage.color} ${stage.borderColor}`}>
+                  <StageIcon className="h-3 w-3" />
+                  {isZh ? stage.labelZh : stage.label}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <Clock3 className="h-4 w-4 text-primary" />
               {isZh ? "近期节奏" : "Near-term cadence"}
             </div>
-            <div className="space-y-3">
-              {(briefing?.signals.upcoming_milestones ?? []).map((item) => (
-                <div key={`milestone-${item.id}`} className="rounded-2xl bg-gray-50 p-3 text-sm">
-                  <div className="font-medium text-gray-900">{item.title}</div>
-                  <div className="mt-1 text-xs text-gray-500">{formatDate(item.due_date, isZh)} · {item.priority}</div>
-                </div>
-              ))}
-              {(briefing?.signals.pending_todos ?? []).map((item) => (
-                <div key={`todo-${item.id}`} className="rounded-2xl bg-gray-50 p-3 text-sm">
-                  <div className="font-medium text-gray-900">{item.content}</div>
-                  <div className="mt-1 text-xs text-gray-500">{formatDate(item.due_date, isZh)}</div>
-                </div>
-              ))}
-              {!briefing?.signals.upcoming_milestones.length && !briefing?.signals.pending_todos.length ? (
-                <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-500">
-                  {isZh ? "暂无近期里程碑或待办。" : "No near-term milestones or todos."}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              {isZh ? "最近沟通来源" : "Recent communication sources"}
-            </div>
-            <div className="space-y-3">
-              {(briefing?.signals.communication_sources ?? []).map((item, index) => (
-                <div key={`source-${item.type}-${index}`} className="rounded-2xl bg-gray-50 p-3 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-gray-900">{item.label}</div>
-                      {item.created_at ? (
-                        <div className="mt-1 text-xs text-gray-400">{formatDateTime(item.created_at, isZh, resolvedTimeZone)}</div>
-                      ) : null}
+            <CompactSignalList
+              emptyText={isZh ? "暂无近期里程碑或待办。" : "No near-term milestones or todos."}
+              items={[...(briefing?.signals.upcoming_milestones ?? []), ...(briefing?.signals.pending_todos ?? [])]}
+              renderItem={(item, index) => {
+                const entry = item as { id: number; title?: string; content?: string; due_date?: string | null; priority?: string };
+                return (
+                  <div key={`cadence-${entry.id}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                    <div className="font-medium text-slate-900">{entry.title || entry.content}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {formatDate(entry.due_date, isZh)}{entry.priority ? ` / ${entry.priority}` : ""}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-full bg-white px-2 py-1 text-xs text-gray-500">
-                        {item.type === "chat" ? item.role || "chat" : isZh ? "笔记" : "note"}
+                  </div>
+                );
+              }}
+            />
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              {isZh ? "证据来源" : "Evidence"}
+            </div>
+            <CompactSignalList
+              emptyText={isZh ? "暂无项目笔记或最近对话片段。" : "No project notes or recent chat snippets yet."}
+              items={briefing?.signals.communication_sources ?? []}
+              renderItem={(item, index) => {
+                const source = item as ProjectMeetingBriefing["signals"]["communication_sources"][number];
+                return (
+                  <div key={`source-${source.type}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-900">{source.label}</div>
+                        {source.created_at ? (
+                          <div className="mt-1 text-xs text-slate-400">{formatDateTime(source.created_at, isZh, resolvedTimeZone)}</div>
+                        ) : null}
                       </div>
                       <button
                         type="button"
-                        onClick={() => openCommunicationSource(item)}
-                        className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+                        onClick={() => openCommunicationSource(source)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
                       >
                         <ExternalLink className="h-3 w-3" />
                         {isZh ? "打开" : "Open"}
                       </button>
                     </div>
+                    <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{source.excerpt}</div>
                   </div>
-                  <div className="mt-2 line-clamp-3 text-xs leading-5 text-gray-500">{item.excerpt}</div>
-                </div>
-              ))}
-              {!briefing?.signals.communication_sources.length ? (
-                <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-500">
-                  {isZh ? "暂无项目笔记或最近对话片段。" : "No project notes or recent chat snippets yet."}
-                </div>
-              ) : null}
-            </div>
-          </div>
+                );
+              }}
+            />
+          </section>
 
-          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <FileText className="h-4 w-4 text-primary" />
               {isZh ? "最近资料" : "Recent documents"}
             </div>
-            <div className="space-y-3">
-              {(briefing?.signals.recent_documents ?? []).map((item) => (
-                <div key={`doc-${item.id}`} className="rounded-2xl bg-gray-50 p-3 text-sm">
-                  <div className="font-medium text-gray-900">{item.name}</div>
-                  {item.summary ? <div className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{item.summary}</div> : null}
-                </div>
-              ))}
-              {!briefing?.signals.recent_documents.length ? (
-                <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-500">
-                  {isZh ? "暂无最近资料。" : "No recent documents."}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+            <CompactSignalList
+              emptyText={isZh ? "暂无最近资料。" : "No recent documents."}
+              items={briefing?.signals.recent_documents ?? []}
+              renderItem={(item) => {
+                const doc = item as ProjectMeetingBriefing["signals"]["recent_documents"][number];
+                return (
+                  <div key={`doc-${doc.id}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                    <div className="font-medium text-slate-900">{doc.name}</div>
+                    {doc.summary ? <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{doc.summary}</div> : null}
+                  </div>
+                );
+              }}
+            />
+          </section>
+        </aside>
       </div>
-
-      {(briefing?.project.memory_stale || briefing?.client.memory_stale) ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <div>
-            <div className="font-semibold">{isZh ? "记忆可能不是最新" : "Memory may be stale"}</div>
-            <div className="mt-1">
-              {isZh
-                ? "当前简报仍可参考，但建议在重要会议前刷新项目记忆或客户记忆。"
-                : "This briefing is still useful, but refresh project or client memory before important meetings."}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <CheckCircle2 className="h-4 w-4" />
-          {isZh ? "项目和客户记忆当前没有标记为过期。" : "Project and client memory are not marked stale."}
-        </div>
-      )}
     </div>
   );
 }

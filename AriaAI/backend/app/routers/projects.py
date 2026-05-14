@@ -56,7 +56,7 @@ from app.services.project_milestones import (
     update_project_milestone,
 )
 from app.services.project_notes import build_project_note_polish_messages, save_project_notes
-from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
+from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model
 from app.services.project_todos import (
     create_project_todo,
     delete_project_todo,
@@ -451,5 +451,5 @@ router.include_router(_projects_briefing.router)
 # ── Re-exports for test compatibility ────────────────────────────────────────
 from app.config import UPLOADS_DIR  # noqa: F401
 from app.services import scheduler as scheduler_service  # noqa: F401
-from app.services.project_llm import complete_with_selected_model, stream_with_selected_model  # noqa: F401
+from app.routers.projects_deps import complete_with_selected_model, stream_with_selected_model  # noqa: F401
 from app.routers.projects_deps import _auto_summarize_file  # noqa: F401
