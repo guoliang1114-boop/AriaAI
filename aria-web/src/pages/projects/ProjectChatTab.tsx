@@ -725,7 +725,7 @@ export function ProjectChatTab({
       className={
         isFullscreen
           ? "flex h-screen w-screen min-h-0 overflow-hidden border-0 bg-white shadow-none"
-          : "flex h-full min-h-0 overflow-hidden rounded-xl border border-gray-200 bg-white"
+          : "flex h-full min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
       }
     >
       <ProjectChatSidebar
@@ -754,7 +754,7 @@ export function ProjectChatTab({
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
       />
 
-      <div className="flex min-w-0 flex-1 bg-gray-50/70">
+      <div className="flex min-w-0 flex-1 bg-slate-50">
         <div className="flex min-w-0 flex-1">
           <ProjectChatMainPanel
             activeConversation={activeConversation}

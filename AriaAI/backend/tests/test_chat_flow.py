@@ -705,10 +705,15 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_patch = patch.object(projects_router_module, "UPLOADS_DIR", self.uploads_dir)
         self.uploads_patch.start()
+        from app.routers import projects_deps as _deps
+        self._deps = _deps
+        self.deps_uploads_patch = patch.object(_deps, "UPLOADS_DIR", self.uploads_dir)
+        self.deps_uploads_patch.start()
 
     def tearDown(self):
         self.client.close()
         self.uploads_patch.stop()
+        self.deps_uploads_patch.stop()
         projects_cache.clear()
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()

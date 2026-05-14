@@ -30,7 +30,7 @@ const ChatStreamingMessage = memo<{
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl items-start gap-3.5">
+    <div className="mx-auto flex max-w-4xl items-start gap-3.5">
       <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20">
         <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
@@ -42,7 +42,7 @@ const ChatStreamingMessage = memo<{
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
           </div>
           {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
-            <div className="mt-3 space-y-2 w-full max-w-2xl">
+            <div className="mt-3 space-y-2 w-full max-w-3xl">
               {toolCalls.map((call, index) => (
                 <ProjectChatToolCallCard
                   key={`${call.tool_name}-${call.status}-${index}`}
@@ -127,7 +127,7 @@ export function ProjectChatMessages({
   return (
     <>
       {isLoadingMessages && (
-        <div className="mx-auto max-w-5xl space-y-4 animate-pulse">
+        <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
           <div className="flex gap-3">
             <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
             <div className="flex-1 space-y-2">
@@ -147,7 +147,7 @@ export function ProjectChatMessages({
 
       {messages.length === 0 && !streamingContent && !isLoading && !isLoadingMessages && (
         <div className="absolute inset-0 flex items-center justify-center px-4 py-10">
-          <div className="w-full max-w-5xl">
+          <div className="w-full max-w-4xl">
             <ProjectChatEmptyState
               choosePromptLabel={choosePromptLabel}
               onQuickPrompt={onQuickPrompt}

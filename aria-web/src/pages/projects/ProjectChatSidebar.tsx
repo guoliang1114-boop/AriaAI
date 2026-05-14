@@ -210,7 +210,7 @@ export function ProjectChatSidebar({
 
   return (
     <div
-      className={`${isOpen ? (isFullscreen ? "w-72" : "w-64") : "w-0"} min-h-0 border-r border-gray-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
+      className={`${isOpen ? (isFullscreen ? "w-72" : "w-60") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
       {onUploadFiles ? (
         <input
@@ -231,7 +231,7 @@ export function ProjectChatSidebar({
         <div className="flex items-center gap-2">
           <button
             onClick={onStartNewChat}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98] whitespace-nowrap"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98] whitespace-nowrap"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             {copy.newChatButton}
@@ -241,7 +241,7 @@ export function ProjectChatSidebar({
               type="button"
               onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
               disabled={isUploadingFile}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
             >
               {isUploadingFile ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -253,7 +253,7 @@ export function ProjectChatSidebar({
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
               title={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
               aria-label={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
             >
@@ -263,7 +263,7 @@ export function ProjectChatSidebar({
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-lg bg-gray-100 p-0.5">
+        <div className="flex rounded-md bg-gray-100 p-0.5">
           <button
             onClick={() => setActiveTab("chat")}
             className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium transition-all ${

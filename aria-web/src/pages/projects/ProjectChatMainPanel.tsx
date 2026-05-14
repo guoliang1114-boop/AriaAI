@@ -183,8 +183,8 @@ export function ProjectChatMainPanel({
       />
 
       {hasPinnedAnchors ? (
-        <div className="border-b border-gray-100 bg-white/80 px-4 py-3">
-          <div className="mx-auto max-w-5xl">
+        <div className="border-b border-gray-100 bg-white/80 px-4 py-2">
+          <div className="mx-auto max-w-4xl">
             <ProjectAnchorsCard
               compact
               clientName={projectClientName}
@@ -199,7 +199,7 @@ export function ProjectChatMainPanel({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="relative flex-1 min-h-0 overflow-y-auto p-4 space-y-4"
+        className="relative flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-4"
       >
         <ProjectChatMessages
           messages={messages}
@@ -228,7 +228,7 @@ export function ProjectChatMainPanel({
         isLoading={isLoading}
         isFullscreen={isFullscreen}
         contextControls={
-          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-1.5">
+          <div className="mx-auto mb-2 flex max-w-4xl items-center gap-1.5">
             <ContextPill
               ref={skillDropdownRef}
               icon={<Wrench className="h-3 w-3" />}
@@ -333,7 +333,7 @@ function ProjectSkillReferencePanel({
           : "Project context";
 
   return (
-    <div className="mx-auto mb-3 max-w-5xl overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/60">
+    <div className="mx-auto mb-3 max-w-4xl overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/60">
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200/80 px-3 py-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
           <Info className="h-4 w-4 text-emerald-700" />

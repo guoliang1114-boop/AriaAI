@@ -104,7 +104,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     return (
       <div
         id={`message-${msg.id}`}
-        className={`mx-auto flex max-w-5xl items-start gap-3.5 transition ${
+        className={`mx-auto flex max-w-4xl items-start gap-3.5 transition ${
           highlight ? "rounded-2xl p-2 bg-amber-100/80 ring-2 ring-amber-300" : ""
         } group ${isUser ? "flex-row-reverse" : ""}`}
       >
@@ -142,7 +142,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
           </div>
 
           {!isUser && (references.length > 0 || toolCalls.length > 0 || artifacts.length > 0) && (
-            <div className="mt-3 space-y-2 w-full max-w-2xl">
+            <div className="mt-3 space-y-2 w-full max-w-3xl">
               {toolCalls.map((call, index) => (
                 <ProjectChatToolCallCard
                   key={`${call.tool_name}-${call.status}-${index}`}
@@ -180,7 +180,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
           )}
 
           {!isUser && pendingMarkdownSaves.some((item, index) => item && !item.saved && !savedMarkdownIndexes.has(index)) ? (
-            <div className="mt-3 w-full max-w-2xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="mt-3 w-full max-w-3xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-amber-900">

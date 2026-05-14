@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Up
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
-from app.config import UPLOADS_DIR
+from app.routers.projects_deps import UPLOADS_DIR
 from app.routers.projects_deps import get_session
 from app.models.db import Conversation, Message, Project, ProjectFile
 from app.routers.projects_deps import (

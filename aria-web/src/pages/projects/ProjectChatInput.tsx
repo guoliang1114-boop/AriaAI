@@ -15,7 +15,6 @@ type ProjectChatInputProps = {
 export function ProjectChatInput({
   value,
   isLoading,
-  isFullscreen = false,
   contextControls,
   selectedSkillPanel,
   placeholder,
@@ -24,12 +23,12 @@ export function ProjectChatInput({
   onStop,
 }: ProjectChatInputProps) {
   return (
-    <div className="relative flex-shrink-0 border-t border-gray-100 bg-[#f5f6f8] px-4 pb-5 pt-3">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-10 -translate-y-full bg-gradient-to-b from-transparent to-[#f5f6f8]" />
-      <div className={`mx-auto ${isFullscreen ? "max-w-5xl" : "max-w-4xl"}`}>
+    <div className="relative flex-shrink-0 border-t border-gray-100 bg-slate-50 px-4 pb-4 pt-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-10 -translate-y-full bg-gradient-to-b from-transparent to-slate-50" />
+      <div className="mx-auto max-w-4xl">
         {contextControls}
         {selectedSkillPanel}
-        <div className="flex items-end gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] transition-all duration-200 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] focus-within:ring-primary/20">
+        <div className="flex items-end gap-3 rounded-xl bg-white px-4 py-3 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] transition-all duration-200 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] focus-within:ring-primary/20">
           <div className="relative flex-1">
             <textarea
               value={value}
