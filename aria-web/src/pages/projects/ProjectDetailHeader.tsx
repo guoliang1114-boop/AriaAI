@@ -4,7 +4,9 @@ import { ArrowLeft, Circle } from "lucide-react";
 import type { Project } from "../../types/api";
 import { PROJECT_DETAIL_TABS } from "./projectDetailTabs";
 
-const statusTone: Record<Project["status"], string> = {
+const fallbackStatusTone = "bg-slate-100 text-slate-600 ring-slate-200";
+
+const statusTone: Partial<Record<Project["status"], string>> = {
   lead: "bg-sky-50 text-sky-700 ring-sky-200",
   opportunity: "bg-amber-50 text-amber-700 ring-amber-200",
   won: "bg-emerald-50 text-emerald-700 ring-emerald-200",
@@ -12,7 +14,7 @@ const statusTone: Record<Project["status"], string> = {
   archived: "bg-slate-100 text-slate-600 ring-slate-200",
 };
 
-const statusText: Record<Project["status"], { zh: string; en: string }> = {
+const statusText: Partial<Record<Project["status"], { zh: string; en: string }>> = {
   lead: { zh: "线索", en: "Lead" },
   opportunity: { zh: "机会", en: "Opportunity" },
   won: { zh: "已赢单", en: "Won" },
@@ -31,7 +33,10 @@ export function ProjectDetailHeader({
 }) {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const statusLabel = isZh ? statusText[project.status].zh : statusText[project.status].en;
+  const rawStatus = String(project.status || "").trim();
+  const statusMeta = statusText[project.status];
+  const statusLabel = statusMeta ? (isZh ? statusMeta.zh : statusMeta.en) : rawStatus || (isZh ? "未知状态" : "Unknown");
+  const statusClassName = statusTone[project.status] ?? fallbackStatusTone;
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
@@ -63,7 +68,7 @@ export function ProjectDetailHeader({
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ring-inset ${statusTone[project.status]}`}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ring-inset ${statusClassName}`}
             >
               <Circle className="h-2 w-2 fill-current" />
               {statusLabel}
