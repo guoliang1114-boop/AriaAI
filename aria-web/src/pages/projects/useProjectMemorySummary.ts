@@ -31,6 +31,22 @@ const memorySummaryGenerationRequests = new Map<
   }>
 >();
 
+function sanitizeMemorySummaryContent(value: string) {
+  let next = value.trim();
+  const reasoningMarker = /\{\s*"type"\s*:\s*"reasoning_content"\s*,\s*"content"\s*:/i.exec(next);
+
+  if (reasoningMarker) {
+    const beforeMarker = next.slice(0, reasoningMarker.index);
+    const danglingFence = /```(?:json)?\s*$/i.exec(beforeMarker);
+    const cutIndex = danglingFence
+      ? reasoningMarker.index - danglingFence[0].length
+      : reasoningMarker.index;
+    next = next.slice(0, cutIndex).trim();
+  }
+
+  return next;
+}
+
 function normalizeSummaryLanguage(language: string) {
   return normalizeProjectSummaryLanguage(language);
 }
@@ -68,7 +84,7 @@ function cacheSummaryMap(options: {
   summaries: ProjectMemorySummaryMap;
 }) {
   for (const [summaryType, content] of Object.entries(options.summaries)) {
-    const trimmed = content?.trim() || "";
+    const trimmed = sanitizeMemorySummaryContent(content || "");
     const cacheKey = buildSummaryCacheKey({
       language: options.language,
       memoryVersion: options.memoryVersion,
@@ -124,7 +140,7 @@ async function streamMemorySummary(options: {
         const data = (await response.json()) as ProjectMemorySummariesResponse;
         const summaries: ProjectMemorySummaryMap = {};
         for (const [summaryType, summary] of Object.entries(data.summaries)) {
-          summaries[summaryType as ProjectMemorySummaryType] = summary?.content?.trim() || "";
+          summaries[summaryType as ProjectMemorySummaryType] = sanitizeMemorySummaryContent(summary?.content || "");
         }
 
         const nextMemoryVersion = data.source_memory_version || options.memoryVersion;
@@ -152,7 +168,7 @@ async function streamMemorySummary(options: {
     }
 
     const data = await generationRequest;
-    const content = data.summaries[options.summaryType]?.trim() || "";
+    const content = sanitizeMemorySummaryContent(data.summaries[options.summaryType] || "");
     options.onChunk(content);
     return content;
   }
@@ -204,9 +220,9 @@ async function streamMemorySummary(options: {
 
       if (data.type === "text" && data.content) {
         content += data.content;
-        options.onChunk(content);
+        options.onChunk(sanitizeMemorySummaryContent(content));
       } else if (data.type === "done") {
-        content = (data.content || content).trim();
+        content = sanitizeMemorySummaryContent(data.content || content);
         options.onChunk(content);
       } else if (data.type === "error") {
         throw new Error(data.message || options.errorMessage);
@@ -214,7 +230,7 @@ async function streamMemorySummary(options: {
     }
   }
 
-  return content.trim();
+  return sanitizeMemorySummaryContent(content);
 }
 
 async function loadCachedMemorySummary(options: {
@@ -240,7 +256,7 @@ async function loadCachedMemorySummary(options: {
 
   const data = (await response.json()) as ProjectMemorySummaryResponse;
   return {
-    content: data.content?.trim() || "",
+    content: sanitizeMemorySummaryContent(data.content || ""),
     found: true,
   };
 }
@@ -268,7 +284,8 @@ export function useProjectMemorySummary({
   const refresh = async (forceRefresh = false) => {
     if (!forceRefresh) {
       if (memorySummaryCache.has(cacheKey)) {
-        const cached = memorySummaryCache.get(cacheKey) || "";
+        const cached = sanitizeMemorySummaryContent(memorySummaryCache.get(cacheKey) || "");
+        memorySummaryCache.set(cacheKey, cached);
         setError("");
         setContent(cached);
         setGenerated(generatedSummaryKeys.has(cacheKey));
@@ -292,11 +309,12 @@ export function useProjectMemorySummary({
         refreshScope,
         summaryType,
       });
+      const sanitizedContent = sanitizeMemorySummaryContent(nextContent);
       generatedSummaryKeys.add(cacheKey);
-      memorySummaryCache.set(cacheKey, nextContent);
-      setContent(nextContent);
+      memorySummaryCache.set(cacheKey, sanitizedContent);
+      setContent(sanitizedContent);
       setGenerated(true);
-      return nextContent;
+      return sanitizedContent;
     } catch (nextError) {
       console.error("Failed to load project memory summary:", nextError);
       setError(
@@ -311,7 +329,9 @@ export function useProjectMemorySummary({
     if (!enabled) return;
     const cached = memorySummaryCache.get(cacheKey);
     if (memorySummaryCache.has(cacheKey)) {
-      setContent(cached || "");
+      const sanitizedCached = sanitizeMemorySummaryContent(cached || "");
+      memorySummaryCache.set(cacheKey, sanitizedCached);
+      setContent(sanitizedCached);
       setError("");
       setGenerated(generatedSummaryKeys.has(cacheKey));
       setLoading(false);
@@ -327,9 +347,10 @@ export function useProjectMemorySummary({
     void loadCachedMemorySummary({ language, projectId, summaryType })
       .then((cachedSummary) => {
         if (cancelled || !cachedSummary.found) return;
+        const sanitizedContent = sanitizeMemorySummaryContent(cachedSummary.content);
         generatedSummaryKeys.add(cacheKey);
-        memorySummaryCache.set(cacheKey, cachedSummary.content);
-        setContent(cachedSummary.content);
+        memorySummaryCache.set(cacheKey, sanitizedContent);
+        setContent(sanitizedContent);
         setError("");
         setGenerated(true);
         setLoading(false);
@@ -359,7 +380,7 @@ export function useProjectMemorySummary({
         summaries: detail.summaries,
       });
       if (!(summaryType in detail.summaries)) return;
-      const nextContent = detail.summaries[summaryType]?.trim() || "";
+      const nextContent = sanitizeMemorySummaryContent(detail.summaries[summaryType] || "");
       generatedSummaryKeys.add(cacheKey);
       setContent(nextContent);
       setError("");

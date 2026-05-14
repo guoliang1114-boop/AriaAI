@@ -1,7 +1,8 @@
-import type { ProjectFile } from "../../types/api";
+import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { ProjectNotesAIModal } from "./ProjectNotesAIModal";
 import { ProjectNotesDeleteDialog } from "./ProjectNotesDeleteDialog";
 import { ProjectNotesDocumentDialog } from "./ProjectNotesDocumentDialog";
+import { ProjectNotesMoveDialog } from "./ProjectNotesMoveDialog";
 
 interface ProjectNotesDialogsProps {
   aiDraft: string;
@@ -9,20 +10,27 @@ interface ProjectNotesDialogsProps {
   aiResult: string;
   documentDialogMode: "create" | "rename";
   documentName: string;
+  folderList: ProjectFolder[];
   isCreatingDoc: boolean;
   isDeletingDoc: boolean;
+  isMovingDoc: boolean;
   isOpenAIModal: boolean;
   isOpenDeleteDialog: boolean;
   isOpenDocumentDialog: boolean;
+  isOpenMoveDialog: boolean;
   isRenamingDoc: boolean;
   isZh: boolean;
+  moveTargetFolderId: number | null;
   onApplyAIResult: (mode: "replace" | "append") => void;
   onChangeAIDraft: (value: string) => void;
   onChangeDocumentName: (value: string) => void;
+  onChangeMoveTargetFolder: (folderId: number | null) => void;
   onCloseAIModal: () => void;
   onCloseDeleteDialog: () => void;
   onCloseDocumentDialog: () => void;
+  onCloseMoveDialog: () => void;
   onConfirmDelete: () => void;
+  onConfirmMove: () => void;
   onGenerateAI: () => void;
   onSubmitDocumentDialog: () => void;
   selectedFile: ProjectFile | null;
@@ -34,20 +42,27 @@ export function ProjectNotesDialogs({
   aiResult,
   documentDialogMode,
   documentName,
+  folderList,
   isCreatingDoc,
   isDeletingDoc,
+  isMovingDoc,
   isOpenAIModal,
   isOpenDeleteDialog,
   isOpenDocumentDialog,
+  isOpenMoveDialog,
   isRenamingDoc,
   isZh,
+  moveTargetFolderId,
   onApplyAIResult,
   onChangeAIDraft,
   onChangeDocumentName,
+  onChangeMoveTargetFolder,
   onCloseAIModal,
   onCloseDeleteDialog,
   onCloseDocumentDialog,
+  onCloseMoveDialog,
   onConfirmDelete,
+  onConfirmMove,
   onGenerateAI,
   onSubmitDocumentDialog,
   selectedFile,
@@ -72,6 +87,18 @@ export function ProjectNotesDialogs({
         isZh={isZh}
         onClose={onCloseDeleteDialog}
         onConfirm={onConfirmDelete}
+      />
+
+      <ProjectNotesMoveDialog
+        file={selectedFile}
+        folderList={folderList}
+        isMoving={isMovingDoc}
+        isOpen={isOpenMoveDialog}
+        isZh={isZh}
+        targetFolderId={moveTargetFolderId}
+        onChangeTargetFolder={onChangeMoveTargetFolder}
+        onClose={onCloseMoveDialog}
+        onConfirm={onConfirmMove}
       />
 
       <ProjectNotesAIModal

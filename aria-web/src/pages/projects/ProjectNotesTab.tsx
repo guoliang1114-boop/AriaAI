@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
+import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type { ProjectFile, ProjectFolder } from "../../types/api";
 import { downloadProjectFile } from "./downloadProjectFile";
@@ -40,6 +41,9 @@ export function ProjectNotesTab({
   const copy = getProjectNotesCopy(isZh);
   const toast = useToast();
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [isMovingDoc, setIsMovingDoc] = useState(false);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<number | null>(null);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
   const stakeholderInsight = useProjectMemorySummary({
     errorMessage: isZh ? "生成干系人摘要失败，请稍后重试" : "Failed to generate stakeholder summary",
     language: i18n.language,
@@ -163,6 +167,36 @@ export function ProjectNotesTab({
     }
   };
 
+  const openMoveDialog = () => {
+    if (!selectedFile) return;
+    setMoveTargetFolderId(selectedFile.folder_id ?? null);
+    setShowMoveDialog(true);
+  };
+
+  const handleMoveDocument = async () => {
+    if (!selectedFile) return;
+    const nextFolderId = moveTargetFolderId ?? null;
+    if ((selectedFile.folder_id ?? null) === nextFolderId) {
+      setShowMoveDialog(false);
+      return;
+    }
+
+    setIsMovingDoc(true);
+    try {
+      await api.patch<ProjectFile>(`/projects/${projectId}/documents/${selectedFile.id}`, {
+        folder_id: nextFolderId,
+      });
+      toast.success(copy.documentMoved);
+      setShowMoveDialog(false);
+      await onUpdate();
+    } catch (error) {
+      console.error("Failed to move project document:", error);
+      toast.error(copy.documentMoveFailed);
+    } finally {
+      setIsMovingDoc(false);
+    }
+  };
+
   return (
     <div className="h-full min-h-[calc(100vh-7.5rem)] overflow-hidden rounded-lg border border-gray-200 bg-white">
       <div className="flex h-full min-h-[calc(100vh-7.5rem)]">
@@ -215,6 +249,10 @@ export function ProjectNotesTab({
               selectedFile={selectedFile}
               showMoreMenu={showMoreMenu}
               onOpenAIModal={openAIModal}
+              onOpenMove={() => {
+                setShowMoreMenu(false);
+                openMoveDialog();
+              }}
               onOpenRename={() => {
                 setShowMoreMenu(false);
                 openRenameDialog();
@@ -251,20 +289,27 @@ export function ProjectNotesTab({
         aiResult={aiResult}
         documentDialogMode={documentDialogMode}
         documentName={documentName}
+        folderList={folderList}
         isCreatingDoc={isCreatingDoc}
         isDeletingDoc={isDeletingDoc}
+        isMovingDoc={isMovingDoc}
         isOpenAIModal={showAIModal}
         isOpenDeleteDialog={showDeleteDialog}
         isOpenDocumentDialog={showDocumentDialog}
+        isOpenMoveDialog={showMoveDialog}
         isRenamingDoc={isRenamingDoc}
         isZh={isZh}
+        moveTargetFolderId={moveTargetFolderId}
         onApplyAIResult={applyAIResult}
         onChangeAIDraft={setAiDraft}
         onChangeDocumentName={setDocumentName}
+        onChangeMoveTargetFolder={setMoveTargetFolderId}
         onCloseAIModal={closeAIModal}
         onCloseDeleteDialog={() => setShowDeleteDialog(false)}
         onCloseDocumentDialog={closeDocumentDialog}
+        onCloseMoveDialog={() => setShowMoveDialog(false)}
         onConfirmDelete={() => void handleDeleteDocument()}
+        onConfirmMove={() => void handleMoveDocument()}
         onGenerateAI={() => void handleAIGenerate()}
         onSubmitDocumentDialog={() => void submitDocumentDialog()}
         selectedFile={selectedFile}

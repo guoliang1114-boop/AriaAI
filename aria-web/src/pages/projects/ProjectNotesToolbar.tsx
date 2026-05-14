@@ -1,6 +1,7 @@
 import {
   Eye,
   Download,
+  FolderInput,
   Loader2,
   MoreVertical,
   Pencil,
@@ -21,6 +22,7 @@ export function ProjectNotesToolbar({
   selectedFile,
   showMoreMenu,
   onOpenAIModal,
+  onOpenMove,
   onOpenRename,
   onRequestDelete,
   onDownloadFile,
@@ -37,6 +39,7 @@ export function ProjectNotesToolbar({
   selectedFile: ProjectFile | null;
   showMoreMenu: boolean;
   onOpenAIModal: () => void;
+  onOpenMove: () => void;
   onOpenRename: () => void;
   onRequestDelete: () => void;
   onDownloadFile: () => void;
@@ -140,7 +143,14 @@ export function ProjectNotesToolbar({
         </button>
 
         {showMoreMenu && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-40 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+            <button
+              onClick={onOpenMove}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <FolderInput className="h-4 w-4 text-gray-400" />
+              {copy.moveDocument}
+            </button>
             <button
               onClick={onOpenRename}
               disabled={isRenamingDoc || !isMarkdown}

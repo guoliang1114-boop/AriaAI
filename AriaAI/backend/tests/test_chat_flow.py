@@ -76,7 +76,7 @@ def patch_project_llm(complete=None, stream=None):
         if stream is not None:
             for mod in (projects_router_module, projects_memory_module, projects_deps_module):
                 stack.enter_context(patch.object(mod, "stream_with_selected_model", stream))
-        yield
+        yield complete if complete is not None else stream
 from app.services.chat_streaming import ChatRuntime, _build_slides_from_strategy_text, _route_ppt_tool_for_skill, stream_chat_events
 from app.services.time_utils import utc_now_naive
 from tests.test_database import create_test_engine, drop_all_tables
@@ -833,9 +833,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertEqual(new_folder.name, "02_需求与方案")
 
     def test_ai_suggest_project_parses_fenced_json_response(self):
-        with patch(
-            "app.routers.projects_deps.complete_with_selected_model",
-            new=AsyncMock(
+        with patch_project_llm(complete=AsyncMock(
                 return_value="""```json
 [
   {"name": "China Market Entry Strategy", "description": "Assess demand, competitors, and go-to-market priorities."}
@@ -871,9 +869,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertFalse(status_before.json()["has_memory"])
         self.assertTrue(status_before.json()["memory_stale"])
 
-        with patch(
-            "app.routers.projects_deps.complete_with_selected_model",
-            new=AsyncMock(
+        with patch_project_llm(complete=AsyncMock(
                 return_value=json.dumps(
                     {
                         "project_brief": "Alpha project brief",
@@ -2016,7 +2012,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2087,7 +2083,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summaries/generate",
                 json={"language": "en-US", "force_refresh": True},
@@ -2134,7 +2130,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             resp = self.client.post(
                 f"/projects/{project_id}/memory/summarize",
                 json={
@@ -2194,7 +2190,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.refresh(project)
             project_id = project.id
 
-        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             resp = self.client.post(
                 "/projects/memory/warm-summaries-batch",
                 json={
@@ -2334,7 +2330,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             project_id = project.id
 
         mock_complete = AsyncMock(return_value="30 秒判断：主打上线范围和采购风险。\n会后行动：发送清单。")
-        with patch("app.routers.projects_deps.complete_with_selected_model", mock_complete):
+        with patch_project_llm(complete=mock_complete):
             first = self.client.post(
                 f"/projects/{project_id}/briefing/refine",
                 json={"meeting_type": "risk", "language": "zh"},
@@ -2651,7 +2647,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             project_id = project.id
 
-        with patch("app.routers.projects_deps.complete_with_selected_model", side_effect=fake_complete):
+        with patch_project_llm(complete=AsyncMock(side_effect=fake_complete)):
             resp = self.client.post(f"/projects/{project_id}/memory/rebuild")
 
         self.assertEqual(resp.status_code, 200)
@@ -2716,9 +2712,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             client_id = client.id
             project_id = project.id
 
-        with patch(
-            "app.routers.projects_deps.complete_with_selected_model",
-            new=AsyncMock(
+        with patch_project_llm(complete=AsyncMock(
                 return_value=json.dumps(
                     {
                         "client_profile": "Strategic account with a finance modernization agenda",
