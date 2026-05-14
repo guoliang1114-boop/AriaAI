@@ -695,8 +695,10 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(projects_router_module.router)
-        app.dependency_overrides[projects_router_module.get_session] = override_session
-        app.dependency_overrides[projects_router_module.get_current_user] = override_current_user
+        from app.database import get_session as _gs
+        from app.routers.auth import get_current_user as _gcu
+        app.dependency_overrides[_gs] = override_session
+        app.dependency_overrides[_gcu] = override_current_user
         self.client = TestClient(app)
 
         self.uploads_dir = Path(os.getcwd()) / "test_tmp_uploads"
@@ -1046,7 +1048,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     s.add(pf)
                     s.commit()
 
-        with patch("app.routers.projects_deps.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
+        with patch("app.routers.projects.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
             asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md", pid, None))
 
         with Session(self.engine) as session:

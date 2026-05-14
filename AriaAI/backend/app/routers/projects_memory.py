@@ -15,7 +15,8 @@ from app.config import (
     MEMORY_SUMMARY_WARM_INTERVAL_SECONDS,
     PROJECT_MEMORY_REBUILD_RETRY_ATTEMPTS,
 )
-from app.database import engine, get_session
+from app.routers.projects_deps import get_session
+from app.database import engine
 from app.models.db import Project, ProjectMemorySnapshot, ProjectMemorySummary
 from app.services import scheduler as scheduler_service
 from app.services.project_contexts import (
@@ -39,7 +40,7 @@ from app.services.project_core import get_project_or_404
 from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.memory_snapshots import build_memory_snapshot_diff, parse_snapshot_memory
 from app.services.time_utils import utc_now_naive
-from app.routers.auth import get_current_user
+from app.routers.projects_deps import get_current_user
 from app.routers.projects_deps import (
     _get_project_memory_lock,
     _get_project_summary_lock,
@@ -72,7 +73,7 @@ from app.routers.projects_deps import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(tags=["projects"])
 
 
 # ── Generate project context summary ──────────────────────────────────────────

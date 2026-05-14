@@ -61,6 +61,13 @@ describe('Layout', () => {
     })
   })
 
+  it('hides primary navigation on project detail routes', async () => {
+    renderLayout('/projects/27')
+    await waitFor(() => {
+      expect(screen.queryByText('Aria AI')).not.toBeInTheDocument()
+    })
+  })
+
   it('renders user initials from display_name', async () => {
     renderLayout()
     await waitFor(() => {

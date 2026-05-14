@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
-from app.database import get_session
+from app.routers.projects_deps import get_session
 from app.models.db import Conversation, Message, Project, ProjectFile
 from app.routers.projects_deps import (
     _bust_project,
@@ -57,11 +57,11 @@ from app.services.project_folders import (
 )
 from app.services.time_utils import utc_now_naive
 from app.tools.project_markdown import update_project_markdown_document
-from app.routers.auth import get_current_user
+from app.routers.projects_deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(tags=["projects"])
 
 
 # ── Files ─────────────────────────────────────────────────────────────────────

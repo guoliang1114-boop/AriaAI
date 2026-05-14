@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.database import get_session
+from app.routers.projects_deps import get_session
 from app.models.db import ClientStakeholder, ClientRecord, Project
 from app.routers.projects_deps import (
     _build_project_briefing,
@@ -50,7 +50,7 @@ from app.services.project_llm import complete_with_selected_model
 from app.services.cache import clients_cache, projects_cache
 from app.services.time_utils import utc_now_naive
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(tags=["projects"])
 
 logger = logging.getLogger(__name__)
 
