@@ -182,6 +182,7 @@ class LLMSettingsTestCase(unittest.TestCase):
 
     def test_defaults_when_empty_db(self):
         engine2 = create_test_engine()
+        drop_all_tables(engine2)
         SQLModel.metadata.create_all(engine2)
         with Session(engine2) as session:
             s = LLMSettings(session)

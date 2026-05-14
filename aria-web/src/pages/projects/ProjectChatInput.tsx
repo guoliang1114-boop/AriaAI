@@ -1,4 +1,4 @@
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, Square } from "lucide-react";
 
 type ProjectChatInputProps = {
   value: string;
@@ -9,6 +9,7 @@ type ProjectChatInputProps = {
   placeholder: string;
   onChange: (value: string) => void;
   onSend: () => void;
+  onStop?: () => void;
 };
 
 export function ProjectChatInput({
@@ -20,6 +21,7 @@ export function ProjectChatInput({
   placeholder,
   onChange,
   onSend,
+  onStop,
 }: ProjectChatInputProps) {
   return (
     <div className="relative flex-shrink-0 border-t border-gray-100 bg-[#f5f6f8] px-4 pb-5 pt-3">
@@ -50,13 +52,22 @@ export function ProjectChatInput({
               }}
             />
           </div>
-          <button
-            onClick={onSend}
-            disabled={!value.trim() || isLoading}
-            className="mb-0.5 flex-shrink-0 rounded-xl bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
-          >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </button>
+          {isLoading ? (
+            <button
+              onClick={onStop}
+              className="mb-0.5 flex-shrink-0 rounded-xl bg-red-500 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={onSend}
+              disabled={!value.trim()}
+              className="mb-0.5 flex-shrink-0 rounded-xl bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

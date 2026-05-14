@@ -3378,3 +3378,15 @@ def list_my_todos(
 ):
     """Return pending todos assigned to the current user across all projects."""
     return list_user_pending_todos(session, current_user.id)
+
+
+# ── Include sub-routers for backward compatibility ───────────────────────────
+# This ensures `from app.routers import projects; app.include_router(projects.router)`
+# still registers ALL project endpoints (memory, files, briefing).
+from app.routers import projects_memory as _projects_memory
+from app.routers import projects_files as _projects_files
+from app.routers import projects_briefing as _projects_briefing
+
+router.include_router(_projects_memory.router)
+router.include_router(_projects_files.router)
+router.include_router(_projects_briefing.router)

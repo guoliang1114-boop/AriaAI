@@ -178,6 +178,7 @@ export function ProjectChatTab({
     streamingToolCalls,
     resetStreamingContent,
     sendMessage,
+    stopGeneration,
   } = useProjectChatComposer({
     projectId: project.id,
     activeConvId,
@@ -786,6 +787,7 @@ export function ProjectChatTab({
             }}
             onSaveMessage={panel.openSaveModal}
             onSend={() => panel.handleSend(handleSendMessage)}
+            onStop={stopGeneration}
             onSkillChange={handleSkillChange}
             onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
             projectClientName={project.client}

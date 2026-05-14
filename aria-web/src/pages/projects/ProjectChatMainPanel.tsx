@@ -40,6 +40,7 @@ interface ProjectChatMainPanelProps {
   onRebuildMemory: () => void;
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
+  onStop?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -87,6 +88,7 @@ export function ProjectChatMainPanel({
   onRebuildMemory,
   onSaveMessage,
   onSend,
+  onStop,
   onDownloadArtifact,
   onToggleSidebar,
   quickPrompts,
@@ -298,6 +300,7 @@ export function ProjectChatMainPanel({
         placeholder={inputPlaceholder}
         onChange={onInputChange}
         onSend={onSend}
+        onStop={onStop}
       />
     </div>
   );

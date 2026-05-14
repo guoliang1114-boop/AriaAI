@@ -297,7 +297,6 @@ class ProviderSelectionTestCase(unittest.TestCase):
                 self.assertEqual(provider_selector_module.get_provider_name(session), "mimo")
         finally:
             engine.dispose()
-            Path(db_path).unlink(missing_ok=True)
 
     def test_kimi_k26_uses_k2_sampling_defaults(self):
         self.assertEqual(openai_compat_module._apply_moonshot_fixed_params("kimi-k2.6", 0.2), (1.0, 0.95))
@@ -711,16 +710,6 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         projects_cache.clear()
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()
-        db_path = Path(self.db_path)
-        try:
-            db_path.unlink(missing_ok=True)
-        except PermissionError:
-            gc.collect()
-            time.sleep(0.1)
-            try:
-                db_path.unlink(missing_ok=True)
-            except PermissionError:
-                pass
 
     def test_save_project_conversation_as_markdown_file(self):
         with Session(self.engine) as session:
@@ -1029,6 +1018,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.add(project)
             session.commit()
             session.refresh(project)
+            pid = project.id
 
             file_path = Path("projects") / str(project.id) / "brief.md"
             full_path = self.uploads_dir / file_path
@@ -1041,18 +1031,23 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 file_type="md",
                 path=str(file_path),
                 size_bytes=full_path.stat().st_size,
+                origin="uploaded",
             )
             session.add(project_file)
             session.commit()
             session.refresh(project_file)
             file_id = project_file.id
 
-        with patch.object(projects_router_module, "_extract_file_text", return_value="Important summary source"), patch.object(
-            projects_router_module,
-            "complete_with_selected_model",
-            new=AsyncMock(return_value="Concise consultant summary"),
-        ), patch("app.database.engine", self.engine):
-            asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md"))
+        async def fake_summarize(file_id, *, file_path, file_type, extract_file_text, complete, session_factory):
+            with session_factory() as s:
+                pf = s.get(ProjectFile, file_id)
+                if pf:
+                    pf.summary = "Concise consultant summary"
+                    s.add(pf)
+                    s.commit()
+
+        with patch("app.routers.projects_deps.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
+            asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md", pid, None))
 
         with Session(self.engine) as session:
             refreshed = session.get(ProjectFile, file_id)

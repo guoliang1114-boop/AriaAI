@@ -5,7 +5,7 @@ import json
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import DocumentChunk, KnowledgeDocument
+from app.models.db import ClientRecord, DocumentChunk, KnowledgeDocument, Project
 from app.services import rag as rag_module
 from sqlmodel import select
 from tests.test_database import create_test_engine, drop_all_tables
@@ -102,6 +102,9 @@ class RetrieveStructuredTestCase(unittest.TestCase):
     def test_retrieve_by_project_id(self, mock_embed):
         mock_embed.return_value = [[1.0, 0.0, 0.0]]
         with Session(self.engine) as session:
+            proj = Project(id=42, name="Test Project", client="Test Client")
+            session.add(proj)
+            session.commit()
             doc = KnowledgeDocument(name="proj.pdf", file_type="pdf", path="p.pdf", project_id=42)
             session.add(doc)
             session.commit()
@@ -123,6 +126,9 @@ class RetrieveStructuredTestCase(unittest.TestCase):
     def test_retrieve_by_client_id(self, mock_embed):
         mock_embed.return_value = [[1.0, 0.0, 0.0]]
         with Session(self.engine) as session:
+            client = ClientRecord(id=7, name="Test Client")
+            session.add(client)
+            session.commit()
             doc = KnowledgeDocument(name="client.pdf", file_type="pdf", path="c.pdf", client_id=7)
             session.add(doc)
             session.commit()

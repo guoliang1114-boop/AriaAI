@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useRef,
   useState,
   type Dispatch,
   type MutableRefObject,
@@ -106,6 +107,7 @@ export function useProjectChatComposer({
   const [streamingReferences, setStreamingReferences] = useState<Reference[]>([]);
   const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallEvent[]>([]);
   const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const resetStreamingContent = useCallback(() => {
     setStreamingContent("");
@@ -144,6 +146,7 @@ export function useProjectChatComposer({
     setTimeout(() => scrollToBottom(true), 0);
 
     try {
+      abortControllerRef.current = new AbortController();
       const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
         method: "POST",
         headers: {
@@ -158,6 +161,7 @@ export function useProjectChatComposer({
           force_skill: !!skillId,
           knowledge_scope: knowledgeScope,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) throw new Error("Failed to send message");
@@ -174,6 +178,7 @@ export function useProjectChatComposer({
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (abortControllerRef.current?.signal.aborted) break;
         buffer += decoder.decode(value, { stream: true });
 
         const events = buffer.split("\n\n");
@@ -286,6 +291,12 @@ export function useProjectChatComposer({
       await fetchConversations();
       return true;
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setStreamingContent("");
+        setStreamingToolCalls([]);
+        await fetchMessages(conversationId);
+        return false;
+      }
       console.error("Failed to send message:", error);
       setStreamingContent("");
       setStreamingToolCalls([]);
@@ -293,6 +304,7 @@ export function useProjectChatComposer({
       await fetchMessages(conversationId);
       return false;
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
     }
   }, [
@@ -311,6 +323,10 @@ export function useProjectChatComposer({
     setMessages,
   ]);
 
+  const stopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
   return {
     isLoading,
     streamingArtifacts,
@@ -319,5 +335,6 @@ export function useProjectChatComposer({
     streamingToolCalls,
     resetStreamingContent,
     sendMessage,
+    stopGeneration,
   };
 }

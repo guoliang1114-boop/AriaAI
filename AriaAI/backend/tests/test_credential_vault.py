@@ -4,7 +4,7 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import ExternalServiceCredential
+from app.models.db import ExternalService, ExternalServiceCredential, User
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -67,6 +67,17 @@ class CredentialResolutionTestCase(unittest.TestCase):
         self.engine.dispose()
 
     def _seed_credential(self, session: Session, service_id: int, scope: str, user_id: Optional[int] = None, value: str = "secret"):
+        existing = session.get(ExternalService, service_id)
+        if not existing:
+            svc = ExternalService(id=service_id, slug=f"svc-{service_id}", name=f"service-{service_id}", base_url="https://api.example.com")
+            session.add(svc)
+            session.commit()
+        if user_id is not None:
+            existing_user = session.get(User, user_id)
+            if not existing_user:
+                user = User(id=user_id, email=f"user{user_id}@test.com", display_name=f"User {user_id}", password_hash="hashed")
+                session.add(user)
+                session.commit()
         token = self.cv.encrypt_dict({"token": value})
         cred = ExternalServiceCredential(
             service_id=service_id,
@@ -128,6 +139,9 @@ class CredentialResolutionTestCase(unittest.TestCase):
 
     def test_get_bearer_token_api_key_fallback(self):
         with Session(self.engine) as session:
+            svc = ExternalService(id=2, slug="svc-2", name="service-2", base_url="https://api.example.com")
+            session.add(svc)
+            session.commit()
             token = self.cv.encrypt_dict({"api_key": "ak-fallback"})
             cred = ExternalServiceCredential(
                 service_id=2, scope="system", encrypted_value=token, is_active=True,

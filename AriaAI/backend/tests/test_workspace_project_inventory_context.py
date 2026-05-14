@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models.db import DocumentChunk, GeneratedFile, KnowledgeDocument, Project, ProjectFile, ProjectTodo
+from app.models.db import Conversation, DocumentChunk, GeneratedFile, KnowledgeDocument, Project, ProjectFile, ProjectTodo
 from app.services import context_builder as context_builder_module
 from app.services.context_builder import (
     build_chat_context,
@@ -147,9 +147,13 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
             session.add(ProjectTodo(project_id=project.id, content="整理客户沟通 PPT", due_date="2026-05-20"))
+            conv = Conversation(title="Test Conv")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
             session.add(
                 GeneratedFile(
-                    conversation_id=1,
+                    conversation_id=conv.id,
                     project_id=project.id,
                     name="沟通材料.md",
                     file_type="md",
