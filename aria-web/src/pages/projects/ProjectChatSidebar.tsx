@@ -231,7 +231,7 @@ export function ProjectChatSidebar({
         <div className="flex items-center gap-2">
           <button
             onClick={onStartNewChat}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-primary/90 active:scale-[0.98] whitespace-nowrap"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             {copy.newChatButton}
@@ -241,7 +241,7 @@ export function ProjectChatSidebar({
               type="button"
               onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
               disabled={isUploadingFile}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50 whitespace-nowrap"
             >
               {isUploadingFile ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
