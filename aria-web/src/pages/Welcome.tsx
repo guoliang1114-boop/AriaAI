@@ -24,6 +24,7 @@ import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
 import { ServiceErrorState } from '../components/ServiceErrorState'
 import type { Conversation, MyProjectTodo, Project, SkillSummary, SystemMessage, User } from '../types/api'
+import { resolveProjectStage } from '../types/enums'
 import { formatDateOnly, getResolvedAppTimeZone } from '../utils/timezone'
 
 interface ErrorResponsePayload {
@@ -45,7 +46,7 @@ interface DashboardProjectSummary {
   id: number
   name: string
   client: string
-  status: Project['status']
+  status: Project['status'] | string
   contract_amount?: number
   updated_at: string
   memory_stale?: boolean
@@ -97,15 +98,9 @@ function formatRelativeTime(value?: string | null, isZh = true) {
   return formatDateOnly(value, { day: 'numeric', month: 'short' }, getResolvedAppTimeZone())
 }
 
-function getStageLabel(status: Project['status'], isZh: boolean) {
-  const labels: Record<Project['status'], { zh: string; en: string }> = {
-    archived: { en: 'Archived', zh: '已归档' },
-    delivering: { en: 'Delivering', zh: '交付中' },
-    lead: { en: 'Lead', zh: '线索阶段' },
-    opportunity: { en: 'Opportunity', zh: '商机阶段' },
-    won: { en: 'Won', zh: '已签约' },
-  }
-  return isZh ? labels[status].zh : labels[status].en
+function getStageLabel(status: string, isZh: boolean) {
+  const stage = resolveProjectStage(status)
+  return isZh ? stage.labelZh : stage.label
 }
 
 function getActionTone(tone: PriorityAction['tone']) {
