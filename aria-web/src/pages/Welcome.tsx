@@ -275,6 +275,7 @@ export function Welcome() {
       })
       .slice(0, 6)
   }, [activeProjects])
+  const spotlightProject = projectQueue[0] || null
   const homeAnnouncement = useMemo(
     () => messages.find((message) => !message.is_read && message.is_published) || null,
     [messages],
@@ -494,6 +495,18 @@ export function Welcome() {
                     </div>
                   ))}
                 </div>
+                {spotlightProject ? (
+                  <button
+                    onClick={() => navigate(`/projects/${spotlightProject.id}`)}
+                    className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-2 text-left transition hover:bg-white/15"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[11px] text-slate-400">{isZh ? '建议打开' : 'Suggested'}</span>
+                      <span className="mt-0.5 block truncate text-sm font-semibold text-white">{spotlightProject.name}</span>
+                    </span>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-sky-200" />
+                  </button>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => void loadData()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">

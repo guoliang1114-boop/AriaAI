@@ -1590,7 +1590,7 @@ export function Chat() {
               </div>
             ) : !conversationId && !sidebarSearch ? (
               <div className="pt-1">
-                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-primary/10 mb-1">
+                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-primary/10 mb-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] truncate text-primary font-medium">{t('chat.newConversation')}</p>
@@ -1654,6 +1654,22 @@ export function Chat() {
               </div>
             )}
           </div>
+          <div className="border-t border-slate-100 px-3 py-3">
+            <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-1.5 text-center">
+              <div className="rounded-lg bg-white px-2 py-1.5">
+                <div className="text-[11px] font-semibold text-slate-800">{conversations.length}</div>
+                <div className="text-[10px] text-slate-400">{t('chat.title')}</div>
+              </div>
+              <div className="rounded-lg bg-white px-2 py-1.5">
+                <div className="text-[11px] font-semibold text-slate-800">{projects.length}</div>
+                <div className="text-[10px] text-slate-400">Projects</div>
+              </div>
+              <div className="rounded-lg bg-white px-2 py-1.5">
+                <div className="text-[11px] font-semibold text-slate-800">{skills.length}</div>
+                <div className="text-[10px] text-slate-400">Skills</div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1677,9 +1693,18 @@ export function Chat() {
                   {selectedProjectData ? selectedProjectData.name : selectedSkillData!.name}
                 </span>
               )}
-              <h1 className="text-[15px] font-semibold text-slate-900 truncate">
-                {conversation?.title || t('chat.newConversation')}
-              </h1>
+              <div className="min-w-0">
+                <h1 className="text-[15px] font-semibold text-slate-900 truncate">
+                  {conversation?.title || t('chat.newConversation')}
+                </h1>
+                <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                  {selectedProjectData
+                    ? `Project · ${selectedProjectData.name}`
+                    : selectedSkillData
+                    ? `Skill · ${selectedSkillData.name}`
+                    : 'Aria workspace chat'}
+                </p>
+              </div>
             </div>
             
             {/* Export dropdown */}
@@ -1724,14 +1749,28 @@ export function Chat() {
 
             ) : messages.length === 0 && !streamingContent ? (
               /* ── Empty state ── */
-              <div className="flex flex-col items-center py-14 animate-fade-in">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center mb-4 shadow-lg shadow-primary/20">
-                  <Sparkles className="w-6 h-6 text-white" />
+              <div className="flex flex-col items-center py-12 animate-fade-in">
+                <div className="mb-6 w-full max-w-3xl rounded-3xl border border-white/80 bg-white/85 p-6 text-center shadow-[0_22px_70px_-48px_rgba(15,23,42,0.45)] backdrop-blur">
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
+                  <p className="mx-auto max-w-sm text-sm text-slate-500 leading-relaxed">
+                    选择项目、套用 Skill，或者直接描述你的目标。我会帮你把下一步推进清楚。
+                  </p>
+                  <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
+                    {[
+                      { label: '1', title: '选项目', desc: selectedProjectData?.name || '绑定上下文' },
+                      { label: '2', title: '选 Skill', desc: selectedSkillData?.name || '套用工作流' },
+                      { label: '3', title: '发消息', desc: '生成材料与建议' },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">
+                        <div className="text-[11px] font-semibold text-primary">{item.label}. {item.title}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-500">{item.desc}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
-                <p className="text-sm text-slate-500 max-w-sm text-center mb-8 leading-relaxed">
-                  你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
-                </p>
                 <div className="w-full max-w-3xl grid gap-3 sm:grid-cols-2">
                   {getPromptCards().map(card => {
                     const Icon = card.icon
