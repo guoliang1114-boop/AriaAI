@@ -50,6 +50,7 @@ from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
 from app.routers import projects_memory as projects_memory_module
 from app.routers import projects_deps as projects_deps_module
+from app.routers import projects_files as projects_files_module
 from app.routers import skills as skills_router_module
 from app.services.cache import projects_cache
 from app.services import chat_exports as chat_exports_module
@@ -718,17 +719,16 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         self.uploads_dir = Path(os.getcwd()) / "test_tmp_uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.uploads_patch = patch.object(projects_router_module, "UPLOADS_DIR", self.uploads_dir)
-        self.uploads_patch.start()
-        from app.routers import projects_deps as _deps
-        self._deps = _deps
-        self.deps_uploads_patch = patch.object(_deps, "UPLOADS_DIR", self.uploads_dir)
-        self.deps_uploads_patch.start()
+        self._upload_patches = []
+        for mod in (projects_router_module, projects_deps_module, projects_files_module):
+            p = patch.object(mod, "UPLOADS_DIR", self.uploads_dir)
+            p.start()
+            self._upload_patches.append(p)
 
     def tearDown(self):
         self.client.close()
-        self.uploads_patch.stop()
-        self.deps_uploads_patch.stop()
+        for p in self._upload_patches:
+            p.stop()
         projects_cache.clear()
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()
@@ -3295,7 +3295,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3327,7 +3327,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3365,7 +3365,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 "#doc summarize this",
             )
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=fake_result,
@@ -3513,7 +3513,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3543,7 +3543,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3716,7 +3716,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(primary_project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=FakeRetrievalContext(""),
@@ -3746,7 +3746,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=rag_module.RetrievalContext([], "#doc summarize this"),
@@ -3789,7 +3789,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(project)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "retrieve_structured",
                 return_value=FakeRetrievalContext(""),
@@ -3826,7 +3826,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             session.commit()
             session.refresh(sibling_file)
 
-            with patch(
+            with patch.object(
                 context_builder_module,
                 "extract_file_text",
                 return_value="Sibling confidential file",
@@ -4855,7 +4855,7 @@ class ClientMemoryRouterTestCase(unittest.TestCase):
     def test_cancel_client_memory_jobs_removes_rebuild_job(self):
         removed: list[str] = []
 
-        with patch(
+        with patch.object(
             clients_router_module.scheduler_service,
             "remove_job",
             side_effect=lambda job_id: removed.append(job_id),
