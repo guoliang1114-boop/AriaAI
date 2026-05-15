@@ -17,7 +17,7 @@ import {
   Square,
   Copy,
   Check,
-  PanelLeftClose,
+  ChevronLeft,
   PanelLeftOpen,
   X,
   TriangleAlert,
@@ -1545,7 +1545,7 @@ export function Chat() {
             title={t('chat.collapseSidebar')}
             aria-label={t('chat.collapseSidebar')}
           >
-            <PanelLeftClose className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4" />
             <span className="pointer-events-none absolute right-10 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/collapse:opacity-100">
               {t('chat.collapseSidebar')}
             </span>
