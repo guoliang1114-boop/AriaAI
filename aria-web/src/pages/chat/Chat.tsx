@@ -1537,25 +1537,28 @@ export function Chat() {
 
       {/* ── Sidebar ── */}
       {sidebarOpen && (
-        <div className="w-72 border-r border-slate-200 flex flex-col bg-white flex-shrink-0">
+        <div className="group/sidebar relative w-72 border-r border-slate-200 flex flex-col bg-white flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="group/collapse pointer-events-none absolute -right-3 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-0 shadow-lg shadow-slate-200/70 transition-all duration-200 hover:border-primary/30 hover:text-primary group-hover/sidebar:pointer-events-auto group-hover/sidebar:opacity-100"
+            title={t('chat.collapseSidebar')}
+            aria-label={t('chat.collapseSidebar')}
+          >
+            <PanelLeftClose className="w-4 h-4" />
+            <span className="pointer-events-none absolute right-10 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/collapse:opacity-100">
+              {t('chat.collapseSidebar')}
+            </span>
+          </button>
           {/* Sidebar header */}
           <div className="px-3 pt-3 pb-3 flex flex-col gap-2 border-b border-slate-100">
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={createNewConversation}
-                className="flex-1 bg-primary text-white rounded-md font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                {t('chat.newChat')}
-              </button>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-md hover:bg-slate-100 text-slate-400 transition-colors"
-                title={t('chat.collapseSidebar')}
-              >
-                <PanelLeftClose className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              onClick={createNewConversation}
+              className="w-full bg-primary text-white rounded-md font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {t('chat.newChat')}
+            </button>
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
@@ -1654,22 +1657,6 @@ export function Chat() {
               </div>
             )}
           </div>
-          <div className="border-t border-slate-100 px-3 py-3">
-            <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-slate-50 p-1.5 text-center">
-              <div className="rounded-lg bg-white px-2 py-1.5">
-                <div className="text-[11px] font-semibold text-slate-800">{conversations.length}</div>
-                <div className="text-[10px] text-slate-400">{t('chat.title')}</div>
-              </div>
-              <div className="rounded-lg bg-white px-2 py-1.5">
-                <div className="text-[11px] font-semibold text-slate-800">{projects.length}</div>
-                <div className="text-[10px] text-slate-400">Projects</div>
-              </div>
-              <div className="rounded-lg bg-white px-2 py-1.5">
-                <div className="text-[11px] font-semibold text-slate-800">{skills.length}</div>
-                <div className="text-[10px] text-slate-400">Skills</div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1749,36 +1736,26 @@ export function Chat() {
 
             ) : messages.length === 0 && !streamingContent ? (
               /* ── Empty state ── */
-              <div className="flex flex-col items-center py-12 animate-fade-in">
-                <div className="mb-6 w-full max-w-3xl rounded-3xl border border-white/80 bg-white/85 p-6 text-center shadow-[0_22px_70px_-48px_rgba(15,23,42,0.45)] backdrop-blur">
-                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">
+              <div className="flex flex-col items-center py-16 animate-fade-in">
+                <div className="relative mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">
+                  <div className="absolute inset-0 rounded-2xl ring-1 ring-white/30" />
+                  <div className="absolute -inset-3 rounded-full bg-primary/10 blur-xl" />
+                  <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl">
                     <Sparkles className="w-6 h-6 text-white" />
                   </div>
-                  <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
-                  <p className="mx-auto max-w-sm text-sm text-slate-500 leading-relaxed">
-                    选择项目、套用 Skill，或者直接描述你的目标。我会帮你把下一步推进清楚。
-                  </p>
-                  <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
-                    {[
-                      { label: '1', title: '选项目', desc: selectedProjectData?.name || '绑定上下文' },
-                      { label: '2', title: '选 Skill', desc: selectedSkillData?.name || '套用工作流' },
-                      { label: '3', title: '发消息', desc: '生成材料与建议' },
-                    ].map((item) => (
-                      <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">
-                        <div className="text-[11px] font-semibold text-primary">{item.label}. {item.title}</div>
-                        <div className="mt-0.5 truncate text-xs text-slate-500">{item.desc}</div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
-                <div className="w-full max-w-3xl grid gap-3 sm:grid-cols-2">
+                <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
+                <p className="max-w-sm text-center text-sm leading-6 text-slate-500 mb-9">
+                  你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
+                </p>
+                <div className="w-full max-w-2xl grid gap-3 sm:grid-cols-2">
                   {getPromptCards().map(card => {
                     const Icon = card.icon
                     return (
                       <button key={card.label} onClick={() => fillSuggestion(card.prompt)}
-                        className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98] ${card.bg}`}
+                        className={`group flex items-start gap-3 rounded-xl border p-4 text-left shadow-sm shadow-slate-200/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/60 active:scale-[0.98] ${card.bg}`}
                       >
-                        <div className="w-8 h-8 rounded-md bg-white/80 flex items-center justify-center flex-shrink-0 shadow-sm">
+                        <div className="w-8 h-8 rounded-lg bg-white/85 flex items-center justify-center flex-shrink-0 shadow-sm transition-transform group-hover:scale-105">
                           <Icon className={`w-3.5 h-3.5 ${card.color}`} />
                         </div>
                         <div>
