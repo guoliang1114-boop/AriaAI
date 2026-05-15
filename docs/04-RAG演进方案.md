@@ -1,92 +1,58 @@
 # AriaAI RAG 演进方案
 
-> 更新日期：2026-04-14
-> 说明：结合当前 `rag.py`、`context_builder.py` 与知识库链路重写。
+> 更新日期：2026-05-15
+> 说明：RAG 现状诊断 + 演进路径。
 
 ---
 
-## 1. 当前结论
-
-RAG 现在已经不是“把检索结果硬塞进 prompt”的原始形态，而是开始具备结构化引用和统一上下文装配能力；但它仍属于可用的 baseline，而不是成熟的知识检索系统。
-
-当前已经具备：
-
-- 文档上传、解析、切块、embedding
-- `vector_status` 状态流转
-- 结构化引用结果
-- `context_builder.py` 统一注入聊天上下文
-
----
-
-## 2. 当前实现链路
+## 1. 当前实现
 
 ```text
-上传文档
--> 解析文本
--> 切块
--> embedding
--> 存入 DocumentChunk
--> retrieve_structured(query)
--> 返回 text + structured results
--> context_builder 注入聊天上下文
--> 聊天链路把 references 回给前端
+上传文档 → 解析文本 → 切块 → embedding → DocumentChunk
+→ retrieve_structured(query) → 结构化引用
+→ context_builder 注入聊天上下文 → 前端展示 citation
 ```
 
-关键文件：
+关键文件：`rag.py`、`context_builder.py`、`knowledge.py`、`chat_streaming.py`
 
-- `AriaAI/backend/app/services/rag.py`
-- `AriaAI/backend/app/services/context_builder.py`
-- `AriaAI/backend/app/routers/knowledge.py`
-- `AriaAI/backend/app/services/chat_streaming.py`
+## 2. 当前状态
 
----
+| 维度 | 状态 |
+|------|------|
+| 文档上传/解析/切块 | ✅ 可用 |
+| embedding 存储 | JSON 字段（非 pgvector） |
+| 检索方式 | 全量 chunk 加载到内存做余弦相似度 |
+| 结构化引用 | ✅ 已支持 |
+| 聊天上下文整合 | ✅ context_builder 统一注入 |
+| metadata filter | 有限 |
+| rerank | 未引入 |
+| 检索评估体系 | 无 |
 
-## 3. 当前优点
+## 3. 已知风险
 
-- 已支持结构化引用结果
-- 已与聊天上下文构建链路整合
-- 已具备面向前端展示 citation 的基础
+**全量 chunk 加载到内存做余弦相似度** — 知识库增长后会 OOM。当前规模（几十个文档）可撑，但不是长期方案。
 
----
+## 4. 演进路径
 
-## 4. 当前限制
+### Phase 1：做稳（已完成）
 
-- embedding 仍保存在 JSON 字段中
-- 检索仍偏简单 top-k
-- metadata filter 能力有限
-- rerank 尚未引入
-- 缺少更明确的检索评估体系
+- ✅ 知识库状态流转
+- ✅ 项目/客户/全局知识优先级
+- ✅ 前端引用展示
 
----
+### Phase 2：提升质量（未启动）
 
-## 5. 演进建议
+- 引入 metadata filter（按项目/客户/文档类型过滤）
+- 引入 rerank（cross-encoder 重排）
+- 引入 query rewrite（查询改写）
 
-### Phase 1：把现有链路做稳
+### Phase 3：提升规模（未启动）
 
-- 补知识库状态流转与检索回归测试
-- 明确项目 / 客户 / 全局知识的优先级
-- 强化前端引用展示
-
-### Phase 2：提升检索质量
-
-- 引入 metadata filter
-- 引入 rerank
-- 引入 query rewrite
-
-### Phase 3：提升规模与可维护性
-
-- 引入更清晰的向量索引方案
-- 评估独立向量库或更专业的检索层
+- 引入 pgvector 替代内存计算
 - 建立检索评估与对比机制
 
----
+## 5. 当前判断
 
-## 6. 与产品主线的关系
+> docs 11：当前知识库规模小，Python 内存计算还能撑，且这不是北极星场景的瓶颈。**本月不做 pgvector。**
 
-RAG 的核心价值不是“能搜到”，而是：
-
-- 让项目内对话更懂上下文
-- 让生成与导出更有依据
-- 让客户和项目知识能够复用
-
-因此，RAG 演进应优先服务项目工作流，而不是脱离主产品单独追求复杂检索技术。
+RAG 演进应优先服务项目工作流，不脱离主产品单独追求复杂检索技术。
