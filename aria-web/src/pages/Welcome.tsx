@@ -63,7 +63,7 @@ type PriorityAction = {
   icon: typeof AlertCircle
 }
 
-const panelClass = 'rounded-lg border border-slate-200 bg-white shadow-sm'
+const panelClass = 'rounded-2xl border border-white/70 bg-white/90 shadow-[0_18px_50px_-36px_rgba(15,23,42,0.35)] backdrop-blur'
 
 function readCachedUser() {
   try {
@@ -125,10 +125,10 @@ function HomeAnnouncementCard({
   onRead: () => void
 }) {
   return (
-    <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-slate-900">
+    <section className="rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 via-white to-sky-50 p-4 text-slate-900 shadow-[0_16px_44px_-34px_rgba(5,150,105,0.45)]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20">
             <BellRing className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -139,12 +139,12 @@ function HomeAnnouncementCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {message.link ? (
-            <button onClick={onOpen} className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+            <button onClick={onOpen} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
               {isZh ? '查看' : 'Open'}
               <ArrowRight className="h-4 w-4" />
             </button>
           ) : null}
-          <button onClick={onRead} className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">
+          <button onClick={onRead} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">
             <CheckCircle2 className="h-4 w-4" />
             {isZh ? '知道了' : 'Got it'}
           </button>
@@ -156,7 +156,7 @@ function HomeAnnouncementCard({
 
 function EmptyBlock({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-500">
       {children}
     </div>
   )
@@ -428,8 +428,8 @@ export function Welcome() {
   return (
     <>
       <PageTitle title={t('dashboard.title')} />
-      <div className="h-full overflow-auto bg-slate-50">
-        <div className="mx-auto flex max-w-[1680px] flex-col gap-4 px-6 py-5">
+      <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.16),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.12),_transparent_26%),linear-gradient(to_bottom,_#f8fafc,_#ffffff)]">
+        <div className="mx-auto flex max-w-[1680px] flex-col gap-5 px-6 py-6">
           {homeAnnouncement ? (
             <HomeAnnouncementCard
               isZh={isZh}
@@ -442,51 +442,66 @@ export function Welcome() {
             />
           ) : null}
 
-          <header className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+          <header className="relative overflow-hidden rounded-3xl border border-white/70 bg-white/85 px-6 py-6 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur xl:flex xl:items-center xl:justify-between">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-emerald-400 to-sky-400" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
                 <span>{greeting}</span>
                 <span>/</span>
                 <span>{user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}</span>
               </div>
-              <div className="mt-1 flex flex-wrap items-end gap-3">
-                <h1 className="text-2xl font-semibold tracking-normal text-slate-950">{isZh ? '今日工作台' : 'Today workspace'}</h1>
-                <span className="pb-0.5 text-sm text-slate-500">
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                <h1 className="text-3xl font-semibold tracking-normal text-slate-950">{isZh ? '今日工作台' : 'Today workspace'}</h1>
+                <span className="pb-1 text-sm text-slate-500">
                   {isZh ? '先处理阻塞，再推进项目，然后补齐记忆。' : 'Clear blockers, move projects, then refresh memory.'}
                 </span>
               </div>
+              <div className="mt-5 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3">
+                  <div className="text-xs text-slate-400">{isZh ? '今天要盯住' : 'Watch today'}</div>
+                  <div className="mt-1 font-semibold text-slate-900">{overdueTodos.length + dueSoonTodos.length} {isZh ? '个待办信号' : 'todo signals'}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3">
+                  <div className="text-xs text-slate-400">{isZh ? '可推进项目' : 'Movable projects'}</div>
+                  <div className="mt-1 font-semibold text-slate-900">{activeProjects.length} {isZh ? '个活跃项目' : 'active projects'}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3">
+                  <div className="text-xs text-slate-400">{isZh ? '知识健康' : 'Knowledge health'}</div>
+                  <div className="mt-1 font-semibold text-slate-900">{memoryHealth.projectNeedWork + memoryHealth.clientNeedWork} {isZh ? '项待处理' : 'items to review'}</div>
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => void loadData()} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            <div className="mt-5 flex flex-wrap items-center gap-2 xl:mt-0">
+              <button onClick={() => void loadData()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
                 <RefreshCw className="h-4 w-4" />
                 {isZh ? '刷新' : 'Refresh'}
               </button>
-              <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
                 <Plus className="h-4 w-4" />
                 {isZh ? '新建项目' : 'New project'}
               </button>
-              <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90">
+              <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/20 hover:bg-primary/90">
                 <MessageSquare className="h-4 w-4" />
                 {isZh ? '开始新对话' : 'Start chat'}
               </button>
             </div>
           </header>
 
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {[
-              { icon: FolderKanban, label: isZh ? '活跃项目' : 'Active projects', sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total`, value: activeProjects.length },
-              { icon: ListTodo, label: isZh ? '待办压力' : 'Todo pressure', sub: isZh ? `${overdueTodos.length} 逾期 / ${dueSoonTodos.length} 临期` : `${overdueTodos.length} overdue / ${dueSoonTodos.length} soon`, value: myTodos.length },
-              { icon: Brain, label: isZh ? '记忆待处理' : 'Memory review', sub: isZh ? `${memoryHealth.projectNeedWork} 项目 / ${secondaryLoading ? '...' : memoryHealth.clientNeedWork} 客户` : `${memoryHealth.projectNeedWork} projects / ${secondaryLoading ? '...' : memoryHealth.clientNeedWork} clients`, value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
-              { icon: Wallet, label: isZh ? '未归档合同额' : 'Open contract value', sub: isZh ? `${activeClients.length} 个活跃客户` : `${activeClients.length} active clients`, value: formatCurrency(contractValue, isZh) },
+              { icon: FolderKanban, label: isZh ? '活跃项目' : 'Active projects', sub: isZh ? `总计 ${projects.length} 个项目` : `${projects.length} total`, tint: 'from-blue-50 to-white', value: activeProjects.length },
+              { icon: ListTodo, label: isZh ? '待办压力' : 'Todo pressure', sub: isZh ? `${overdueTodos.length} 逾期 / ${dueSoonTodos.length} 临期` : `${overdueTodos.length} overdue / ${dueSoonTodos.length} soon`, tint: 'from-amber-50 to-white', value: myTodos.length },
+              { icon: Brain, label: isZh ? '记忆待处理' : 'Memory review', sub: isZh ? `${memoryHealth.projectNeedWork} 项目 / ${secondaryLoading ? '...' : memoryHealth.clientNeedWork} 客户` : `${memoryHealth.projectNeedWork} projects / ${secondaryLoading ? '...' : memoryHealth.clientNeedWork} clients`, tint: 'from-indigo-50 to-white', value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
+              { icon: Wallet, label: isZh ? '未归档合同额' : 'Open contract value', sub: isZh ? `${activeClients.length} 个活跃客户` : `${activeClients.length} active clients`, tint: 'from-emerald-50 to-white', value: formatCurrency(contractValue, isZh) },
             ].map((item) => (
-              <div key={item.label} className={panelClass}>
-                <div className="flex items-start justify-between gap-3 p-4">
+              <div key={item.label} className={`rounded-2xl border border-white/70 bg-gradient-to-br ${item.tint} p-5 shadow-[0_18px_45px_-36px_rgba(15,23,42,0.35)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_52px_-36px_rgba(15,23,42,0.42)]`}>
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-slate-500">{item.label}</div>
                     <div className="mt-2 text-2xl font-semibold text-slate-950">{item.value}</div>
                     <div className="mt-1 text-xs text-slate-500">{item.sub}</div>
                   </div>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-primary">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
                     <item.icon className="h-4 w-4" />
                   </div>
                 </div>
@@ -494,8 +509,8 @@ export function Welcome() {
             ))}
           </section>
 
-          <main className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="flex min-w-0 flex-col gap-4">
+          <main className="grid min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="flex min-w-0 flex-col gap-5">
               <section className={panelClass}>
                 <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
                   <div>
@@ -511,9 +526,9 @@ export function Welcome() {
                 </div>
                 <div className="grid gap-3 p-4 md:grid-cols-2">
                   {priorityActions.length ? priorityActions.map((action) => (
-                    <button key={action.key} onClick={() => navigate(action.path)} className={`group rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${getActionTone(action.tone)}`}>
+                    <button key={action.key} onClick={() => navigate(action.path)} className={`group rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${getActionTone(action.tone)}`}>
                       <div className="flex items-start gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/75">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/75 shadow-sm">
                           <action.icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -549,8 +564,8 @@ export function Welcome() {
                   {projectQueue.length ? projectQueue.map((project) => {
                     const needsMemory = project.memory_stale || (project.memory_version || 0) === 0
                     return (
-                      <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)} className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                      <button key={project.id} onClick={() => navigate(`/projects/${project.id}`)} className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50/80">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                           <FolderKanban className="h-5 w-5" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -578,14 +593,14 @@ export function Welcome() {
               </section>
             </div>
 
-            <aside className="flex min-w-0 flex-col gap-4">
+            <aside className="flex min-w-0 flex-col gap-5">
               <section className={panelClass}>
                 <div className="border-b border-slate-100 px-4 py-3">
                   <h2 className="font-semibold text-slate-950">{isZh ? '我的待办' : 'My todos'}</h2>
                 </div>
                 <div className="space-y-2 p-3">
                   {myTodos.slice(0, 5).map((todo) => (
-                    <button key={todo.id} onClick={() => navigate(`/projects/${todo.project_id}/todos`)} className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left hover:bg-slate-50">
+                    <button key={todo.id} onClick={() => navigate(`/projects/${todo.project_id}/todos`)} className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left hover:bg-slate-50">
                       <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0 flex-1">
                         <span className="line-clamp-2 text-sm font-medium text-slate-800">{todo.content}</span>
@@ -608,7 +623,7 @@ export function Welcome() {
                     { icon: Brain, label: isZh ? '项目记忆' : 'Project memory', path: '/settings/memory', value: memoryHealth.projectNeedWork },
                     { icon: Users, label: isZh ? '客户记忆' : 'Client memory', path: '/settings/client-memory', value: secondaryLoading ? '...' : memoryHealth.clientNeedWork },
                   ].map((item) => (
-                    <button key={item.label} onClick={() => navigate(item.path)} className="rounded-md border border-slate-200 px-3 py-3 text-left hover:bg-slate-50">
+                    <button key={item.label} onClick={() => navigate(item.path)} className="rounded-xl border border-slate-200 bg-white/70 px-3 py-3 text-left hover:bg-slate-50">
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <span>{item.label}</span>
                         <item.icon className="h-3.5 w-3.5 text-primary" />
@@ -627,7 +642,7 @@ export function Welcome() {
                   {secondaryLoading ? (
                     <EmptyBlock>{isZh ? '正在加载对话' : 'Loading chats'}</EmptyBlock>
                   ) : recentConversations.length ? recentConversations.map((conversation) => (
-                    <button key={conversation.id} onClick={() => navigate(conversation.project_id ? `/projects/${conversation.project_id}/chat` : '/chat')} className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-slate-50">
+                    <button key={conversation.id} onClick={() => navigate(conversation.project_id ? `/projects/${conversation.project_id}/chat` : '/chat')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-slate-50">
                       <MessageSquare className="h-4 w-4 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-slate-800">{conversation.title || (isZh ? '未命名对话' : 'Untitled chat')}</span>
@@ -651,7 +666,7 @@ export function Welcome() {
                     { icon: Sparkles, label: isZh ? '技能' : 'Skills', path: '/skills' },
                     { icon: MessageSquare, label: isZh ? '对话' : 'Chat', path: '/chat' },
                   ].map((item) => (
-                    <button key={item.label} onClick={() => navigate(item.path)} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <button key={item.label} onClick={() => navigate(item.path)} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                       <item.icon className="h-4 w-4 text-primary" />
                       {item.label}
                     </button>
