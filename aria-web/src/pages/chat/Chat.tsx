@@ -270,7 +270,7 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
 
 function ChatStatusPill({ message }: { message?: string | null }) {
   return (
-    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white/90 px-3 py-2 text-sm text-gray-600 shadow-sm">
+    <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
       <Loader2 className="h-4 w-4 animate-spin text-primary" />
       <span>{message || '正在与模型建立连接...'}</span>
     </div>
@@ -309,7 +309,7 @@ function ProgressCard({
   }
 
   return (
-    <div className="mt-3 mb-3 w-full rounded-2xl border border-primary/10 bg-gradient-to-br from-white to-primary/[0.03] p-3.5 shadow-sm">
+    <div className="mt-3 mb-3 w-full rounded-lg border border-primary/10 bg-white p-3.5 shadow-sm">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <p className="text-xs font-semibold text-gray-700">{title}</p>
@@ -339,7 +339,7 @@ function ProgressCard({
           const isDone = step.status === 'done'
           const expanded = expandedKeys.includes(step.key)
           return (
-            <div key={step.key} className={`rounded-xl px-2.5 py-2 transition-colors ${
+            <div key={step.key} className={`rounded-lg px-2.5 py-2 transition-colors ${
               isActive ? 'bg-primary/[0.06]' : isDone ? 'bg-emerald-50/60' : 'bg-gray-50/70'
             }`}>
               <button type="button" onClick={() => toggleStep(step.key)} className="flex w-full items-start gap-2.5 text-left">
@@ -371,7 +371,7 @@ function ProgressCard({
                 <ChevronDown className={`w-3.5 h-3.5 mt-1 text-gray-300 transition-transform ${expanded ? 'rotate-180' : ''}`} />
               </button>
               {expanded && (
-                <div className="ml-7 mt-2 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
+                <div className="ml-7 mt-2 rounded-lg border border-white/70 bg-white/70 px-3 py-2">
                   {step.logs.length ? (
                     <div className="space-y-1.5">
                       {step.logs.map((log, logIndex) => (
@@ -406,7 +406,7 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
   }
 
   return (
-    <div className="mt-3 w-full rounded-2xl border border-gray-100 bg-white/80 p-3.5">
+    <div className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3.5">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -424,7 +424,7 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
         </span>
       </button>
       {expanded && (
-        <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/70 px-3 py-2">
+        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
           <div className="md-root text-sm text-gray-600">
             <MarkdownRenderer content={content} />
           </div>
@@ -450,9 +450,9 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   }
 
   return (
-    <div className="mt-3 w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3">
+    <div className="mt-3 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
+        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-white text-emerald-600 shadow-sm">
           <FileText className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -468,7 +468,7 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
           type="button"
           onClick={handleDownload}
           disabled={downloading}
-          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
         >
           {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
           下载
@@ -1532,25 +1532,25 @@ export function Chat() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex bg-[#f5f6f8]">
+    <div className="h-full flex bg-slate-50">
       <PageTitle title={t('chat.title')} />
 
       {/* ── Sidebar ── */}
       {sidebarOpen && (
-        <div className="w-64 border-r border-gray-100 flex flex-col bg-white flex-shrink-0 shadow-sm">
+        <div className="w-72 border-r border-slate-200 flex flex-col bg-white flex-shrink-0">
           {/* Sidebar header */}
-          <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
+          <div className="px-3 pt-3 pb-3 flex flex-col gap-2 border-b border-slate-100">
             <div className="flex items-center gap-1.5">
               <button
                 onClick={createNewConversation}
-                className="flex-1 bg-primary text-white rounded-xl font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
+                className="flex-1 bg-primary text-white rounded-md font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
               >
                 <Plus className="w-3.5 h-3.5" />
                 {t('chat.newChat')}
               </button>
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 transition-colors"
+                className="p-2 rounded-md hover:bg-slate-100 text-slate-400 transition-colors"
                 title={t('chat.collapseSidebar')}
               >
                 <PanelLeftClose className="w-4 h-4" />
@@ -1564,7 +1564,7 @@ export function Chat() {
                 value={sidebarSearch}
                 onChange={e => setSidebarSearch(e.target.value)}
                 placeholder={t('chat.searchConversations')}
-                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 rounded-lg text-[12px] text-gray-700 placeholder:text-gray-400 outline-none border border-gray-100 focus:border-primary/30 transition-colors"
+                className="w-full pl-8 pr-3 py-2 bg-slate-50 rounded-md text-[12px] text-slate-700 placeholder:text-slate-400 outline-none border border-slate-200 focus:border-primary/40 focus:bg-white transition-colors"
               />
               {sidebarSearch && (
                 <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
@@ -1575,7 +1575,7 @@ export function Chat() {
           </div>
 
           {/* Conversation list */}
-          <div className="flex-1 overflow-auto px-2 pb-2">
+          <div className="flex-1 overflow-auto px-2 py-2">
             {isLoadingConversations ? (
               <div className="space-y-0.5 pt-1">
                 {[...Array(6)].map((_, i) => (
@@ -1590,7 +1590,7 @@ export function Chat() {
               </div>
             ) : !conversationId && !sidebarSearch ? (
               <div className="pt-1">
-                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-primary/8 mb-0.5">
+                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-primary/10 mb-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] truncate text-primary font-medium">{t('chat.newConversation')}</p>
@@ -1598,15 +1598,15 @@ export function Chat() {
                 </div>
                 {conversationGroups.map(group => (
                   <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{group.label}</p>
+                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
-                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-colors hover:bg-gray-50"
+                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-colors hover:bg-slate-50"
                       >
                         <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] truncate text-gray-700">{conv.title || t('chat.newConversation')}</p>
-                          <p className="text-[11px] text-gray-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                          <p className="text-[13px] truncate text-slate-700">{conv.title || t('chat.newConversation')}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
                         </div>
                       </Link>
                     ))}
@@ -1619,15 +1619,15 @@ export function Chat() {
               <div className="pt-1">
                 {conversationGroups.map(group => (
                   <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{group.label}</p>
+                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
-                        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden ${
+                        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-200 overflow-hidden ${
                           deletingId === conv.id
                             ? 'opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none'
                             : conversationId === String(conv.id)
-                            ? 'bg-primary/8'
-                            : 'hover:bg-gray-50'
+                            ? 'bg-primary/10'
+                            : 'hover:bg-slate-50'
                         }`}
                       >
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
@@ -1635,11 +1635,11 @@ export function Chat() {
                         }`} />
                         <div className="flex-1 min-w-0">
                           <p className={`text-[13px] truncate transition-colors ${
-                            conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-gray-700'
+                            conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-slate-700'
                           }`}>
                             {conv.title || t('chat.newConversation')}
                           </p>
-                          <p className="text-[11px] text-gray-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
                         </div>
                         <button
                           onClick={e => deleteConversation(e, conv.id)}
@@ -1661,11 +1661,11 @@ export function Chat() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Header */}
-        <div className="bg-white/80 backdrop-blur-sm border-b border-gray-100 px-5 py-3 flex-shrink-0">
+        <div className="bg-white border-b border-slate-200 px-5 py-3 flex-shrink-0">
           <div className="flex items-center gap-3">
             {!sidebarOpen && (
               <button onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+                className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 transition-colors"
                 title={t('chat.openSidebar')}
               >
                 <PanelLeftOpen className="w-4 h-4" />
@@ -1677,7 +1677,7 @@ export function Chat() {
                   {selectedProjectData ? selectedProjectData.name : selectedSkillData!.name}
                 </span>
               )}
-              <h1 className="text-[15px] font-semibold text-gray-800 truncate">
+              <h1 className="text-[15px] font-semibold text-slate-900 truncate">
                 {conversation?.title || t('chat.newConversation')}
               </h1>
             </div>
@@ -1693,8 +1693,8 @@ export function Chat() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-8 relative">
-          <div className={`mx-auto px-8 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
+        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-8 relative bg-slate-50">
+          <div className={`mx-auto px-6 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
 
             {/* Load more */}
             {loadingMore && (
@@ -1724,22 +1724,22 @@ export function Chat() {
 
             ) : messages.length === 0 && !streamingContent ? (
               /* ── Empty state ── */
-              <div className="flex flex-col items-center py-16 animate-fade-in">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center mb-4 shadow-lg shadow-primary/25">
+              <div className="flex flex-col items-center py-14 animate-fade-in">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center mb-4 shadow-lg shadow-primary/20">
                   <Sparkles className="w-6 h-6 text-white" />
                 </div>
-                <h2 className="text-xl font-semibold text-gray-800 mb-1.5">你好，我是 Aria</h2>
-                <p className="text-sm text-gray-400 max-w-xs text-center mb-10 leading-relaxed">
+                <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
+                <p className="text-sm text-slate-500 max-w-sm text-center mb-8 leading-relaxed">
                   你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
                 </p>
-                <div className="w-full max-w-2xl grid grid-cols-2 gap-2.5">
+                <div className="w-full max-w-3xl grid gap-3 sm:grid-cols-2">
                   {getPromptCards().map(card => {
                     const Icon = card.icon
                     return (
                       <button key={card.label} onClick={() => fillSuggestion(card.prompt)}
-                        className={`flex items-start gap-3 p-4 rounded-2xl border text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98] ${card.bg}`}
+                        className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.98] ${card.bg}`}
                       >
-                        <div className="w-7 h-7 rounded-xl bg-white/80 flex items-center justify-center flex-shrink-0 shadow-sm">
+                        <div className="w-8 h-8 rounded-md bg-white/80 flex items-center justify-center flex-shrink-0 shadow-sm">
                           <Icon className={`w-3.5 h-3.5 ${card.color}`} />
                         </div>
                         <div>
@@ -1753,7 +1753,7 @@ export function Chat() {
               </div>
 
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-7">
                 {messages.map(msg => (
                   <MessageRow key={msg.id} message={msg} />
                 ))}
@@ -1837,9 +1837,9 @@ export function Chat() {
         </div>
 
         {/* ── Input area ── */}
-        <div className="relative flex-shrink-0 px-6 pb-5 pt-3 bg-[#f5f6f8]">
+        <div className="relative flex-shrink-0 border-t border-slate-200 bg-white px-6 pb-5 pt-3">
           {/* Gradient fade — blends messages area into footer */}
-          <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-[#f5f6f8] -translate-y-full pointer-events-none" />
+          <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-white -translate-y-full pointer-events-none" />
           <div className={`mx-auto ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
             {/* Context pills */}
             <div className="flex items-center gap-1 mb-2 flex-wrap">
@@ -1938,8 +1938,8 @@ export function Chat() {
             {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
 
             {/* Textarea + actions */}
-            <div className="flex items-end gap-3 bg-white rounded-2xl px-4 py-3 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] focus-within:ring-primary/20 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] transition-all duration-200">
-              <button className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-300 hover:text-gray-500 flex-shrink-0 mb-0.5">
+            <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-200">
+              <button className="p-1.5 rounded-md hover:bg-slate-100 transition-colors text-slate-300 hover:text-slate-500 flex-shrink-0 mb-0.5">
                 <Paperclip className="w-4 h-4" />
               </button>
               <textarea
@@ -1950,18 +1950,18 @@ export function Chat() {
                 placeholder={t('chat.placeholder')}
                 disabled={sending}
                 rows={1}
-                className="flex-1 bg-transparent text-[15px] text-gray-700 placeholder:text-gray-300 outline-none py-1.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
+                className="flex-1 bg-transparent text-[15px] text-slate-800 placeholder:text-slate-300 outline-none py-1.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
                 style={{ minHeight: '36px', maxHeight: '180px' }}
               />
               {sending ? (
                 <button onClick={handleStop} title={t('chat.stopGeneration')}
-                  className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors flex-shrink-0 mb-0.5"
+                  className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors flex-shrink-0 mb-0.5"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
                 </button>
               ) : (
                 <button onClick={handleSend} disabled={!input.trim()}
-                  className="p-2 rounded-xl bg-gradient-to-br from-primary to-indigo-500 text-white hover:opacity-90 active:scale-95 transition-all disabled:opacity-25 flex-shrink-0 mb-0.5 shadow-sm shadow-primary/20"
+                  className="p-2 rounded-lg bg-primary text-white hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-25 flex-shrink-0 mb-0.5 shadow-sm shadow-primary/20"
                 >
                   <Send className="w-3.5 h-3.5" />
                 </button>
@@ -2364,13 +2364,13 @@ function MessageRow({ message }: { message: Message }) {
   return (
     <div className={`flex w-full items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
-      <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+      <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${
         isUser
-          ? 'bg-gray-200'
-          : 'bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20'
+          ? 'bg-slate-200'
+          : 'bg-primary shadow-sm shadow-primary/20'
       }`}>
         {isUser ? (
-          <span className="text-[10px] font-semibold text-gray-500">{t('chat.you')}</span>
+          <span className="text-[10px] font-semibold text-slate-500">{t('chat.you')}</span>
         ) : (
           <Sparkles className="w-3.5 h-3.5 text-white" />
         )}
@@ -2379,14 +2379,14 @@ function MessageRow({ message }: { message: Message }) {
       {/* Content + actions */}
       <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-stretch'}`}>
         {/* Role label */}
-        <p className="text-[11px] font-medium text-gray-300 mb-1.5 px-0.5">
+        <p className="text-[11px] font-medium text-slate-400 mb-1.5 px-0.5">
           {isUser ? t('chat.you') : 'Aria'}
         </p>
 
         <div className={`${
           isUser
-            ? 'max-w-[85%] px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]'
-            : 'w-full max-w-none text-[15px] leading-[1.8] text-gray-700'
+            ? 'max-w-[85%] px-4 py-2.5 bg-slate-900 text-white rounded-xl rounded-tr-sm text-[15px] leading-[1.7] shadow-sm'
+            : 'w-full max-w-none text-[15px] leading-[1.8] text-slate-700'
         }`}>
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
@@ -2405,7 +2405,7 @@ function MessageRow({ message }: { message: Message }) {
         {!isUser && references.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {references.map((ref, i) => (
-              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200">
+              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white text-[11px] text-slate-500 border border-slate-200">
                 {ref.type === 'skill' && <Wrench className="w-3 h-3" />}
                 {ref.type === 'doc' && <BookOpen className="w-3 h-3" />}
                 {ref.type === 'file' && <FileIcon className="w-3 h-3" />}
@@ -2433,7 +2433,7 @@ function MessageRow({ message }: { message: Message }) {
           </div>
         )}
         <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
-          <span className="text-[11px] text-gray-300 px-0.5">{formatTime(message.created_at)}</span>
+          <span className="text-[11px] text-slate-300 px-0.5">{formatTime(message.created_at)}</span>
           <CopyButton text={message.content} />
         </div>
       </div>
