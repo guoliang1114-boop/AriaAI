@@ -442,7 +442,7 @@ export function Welcome() {
             />
           ) : null}
 
-          <header className="relative overflow-hidden rounded-3xl border border-white/70 bg-white/85 px-6 py-6 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur xl:flex xl:items-center xl:justify-between">
+          <header className="relative overflow-hidden rounded-3xl border border-white/70 bg-white/85 px-6 py-6 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur xl:grid xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-stretch xl:gap-6">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-emerald-400 to-sky-400" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -471,19 +471,44 @@ export function Welcome() {
                 </div>
               </div>
             </div>
-            <div className="mt-5 flex flex-wrap items-center gap-2 xl:mt-0">
-              <button onClick={() => void loadData()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
-                <RefreshCw className="h-4 w-4" />
-                {isZh ? '刷新' : 'Refresh'}
-              </button>
-              <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
-                <Plus className="h-4 w-4" />
-                {isZh ? '新建项目' : 'New project'}
-              </button>
-              <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/20 hover:bg-primary/90">
-                <MessageSquare className="h-4 w-4" />
-                {isZh ? '开始新对话' : 'Start chat'}
-              </button>
+            <div className="mt-5 flex flex-col justify-between gap-3 xl:mt-0">
+              <div className="rounded-3xl bg-slate-950 px-5 py-4 text-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.75)]">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-slate-400">{isZh ? '今日节奏' : 'Today rhythm'}</div>
+                    <div className="mt-1 text-lg font-semibold">{isZh ? '先收口，再推进' : 'Close gaps, then move'}</div>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10">
+                    <Sparkles className="h-5 w-5 text-sky-200" />
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { label: isZh ? '阻塞' : 'Blocked', value: overdueTodos.length },
+                    { label: isZh ? '推进' : 'Move', value: dueSoonTodos.length + activeProjects.length },
+                    { label: isZh ? '补齐' : 'Refresh', value: memoryHealth.projectNeedWork + memoryHealth.clientNeedWork },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl bg-white/10 px-3 py-2">
+                      <div className="text-lg font-semibold">{item.value}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-400">{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={() => void loadData()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
+                  <RefreshCw className="h-4 w-4" />
+                  {isZh ? '刷新' : 'Refresh'}
+                </button>
+                <button onClick={() => navigate('/projects/new')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white">
+                  <Plus className="h-4 w-4" />
+                  {isZh ? '新建项目' : 'New project'}
+                </button>
+                <button onClick={() => navigate('/chat')} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/20 hover:bg-primary/90">
+                  <MessageSquare className="h-4 w-4" />
+                  {isZh ? '开始新对话' : 'Start chat'}
+                </button>
+              </div>
             </div>
           </header>
 
