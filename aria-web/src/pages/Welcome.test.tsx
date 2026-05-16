@@ -68,7 +68,7 @@ describe('Welcome', () => {
 
     render(<Welcome />)
     await waitFor(() => {
-      expect(screen.getByText('今日工作台')).toBeInTheDocument()
+      expect(screen.getByText('今天的客户关系，AriaAI 已经为你整理好。')).toBeInTheDocument()
     })
   })
 
@@ -87,7 +87,7 @@ describe('Welcome', () => {
 
     render(<Welcome />)
     await waitFor(() => {
-      expect(screen.getByText('张三')).toBeInTheDocument()
+      expect(screen.getByText(/张三/)).toBeInTheDocument()
     })
   })
 
@@ -104,7 +104,7 @@ describe('Welcome', () => {
 
     render(<Welcome />)
     await waitFor(() => {
-      expect(screen.getByText('欢迎回来')).toBeInTheDocument()
+      expect(screen.getByText(/欢迎回来/)).toBeInTheDocument()
     })
   })
 
@@ -138,8 +138,8 @@ describe('Welcome', () => {
     })
 
     render(<Welcome />)
-    await waitFor(() => screen.getByText('开始新对话'))
-    fireEvent.click(screen.getByText('开始新对话'))
+    await waitFor(() => screen.getByText('新建对话'))
+    fireEvent.click(screen.getByText('新建对话'))
     expect(mockNavigate).toHaveBeenCalledWith('/chat')
   })
 
@@ -189,12 +189,12 @@ describe('Welcome', () => {
 
     render(<Welcome />)
     await waitFor(() => {
-      expect(screen.getByText('逾期任务')).toBeInTheDocument()
-      expect(screen.getByText('临期任务')).toBeInTheDocument()
+      expect(screen.getAllByText('逾期任务').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('临期任务').length).toBeGreaterThanOrEqual(1)
     })
   })
 
-  it('shows active project count badge', async () => {
+  it('shows active project in judgement queue', async () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/projects/meta/dashboard-summary') {
         return Promise.resolve([
@@ -212,8 +212,8 @@ describe('Welcome', () => {
 
     render(<Welcome />)
     await waitFor(() => {
-      const matches = screen.getAllByText(/活跃项目/)
-      expect(matches.length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByText('判断队列')).toBeInTheDocument()
+      expect(screen.getByText('项目A')).toBeInTheDocument()
     })
   })
 })
