@@ -394,7 +394,7 @@ export function Welcome() {
     <>
       <PageTitle title={t('dashboard.title')} />
       <div className="h-full overflow-auto bg-[#f8fafc]">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-8 py-6">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
           {homeAnnouncement ? (
             <HomeAnnouncementCard
               isZh={isZh}
@@ -407,16 +407,16 @@ export function Welcome() {
             />
           ) : null}
 
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h1 className="text-[22px] font-semibold tracking-normal text-slate-950">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-[20px] font-semibold tracking-normal text-slate-950 sm:text-[22px]">
                 {greeting}，{user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
               </h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm leading-6 text-slate-500">
                 {isZh ? '今天的客户关系，AriaAI 已经为你整理好。' : 'AriaAI has organized today’s client relationship work.'}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <button
                 type="button"
                 onClick={() => navigate('/chat')}
@@ -427,14 +427,14 @@ export function Welcome() {
               </button>
               <button
                 onClick={() => void loadData()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:h-9"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${secondaryLoading ? 'animate-spin' : ''}`} />
                 {isZh ? '刷新' : 'Refresh'}
               </button>
               <button
                 onClick={() => navigate('/chat')}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-semibold text-white shadow-sm shadow-primary/20 transition hover:bg-primary/90 sm:h-9"
               >
                 <MessageSquare className="h-3.5 w-3.5" />
                 {isZh ? '新建对话' : 'New chat'}
@@ -451,11 +451,11 @@ export function Welcome() {
           />
 
           <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Activity className="h-4 w-4 text-slate-700" />
                 <h2 className="text-base font-semibold text-slate-950">{isZh ? '客户脉搏' : 'Client pulse'}</h2>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs leading-5 text-slate-500">
                   {isZh ? `· 你正在跟进的 ${activeClients.length} 位客户的关系状态` : `· ${activeClients.length} active client relationships`}
                 </span>
               </div>
@@ -469,7 +469,7 @@ export function Welcome() {
                 <button
                   key={client.id}
                   onClick={() => navigate(`/clients/${client.id}`)}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/70"
+                  className="rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/70 sm:p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -498,7 +498,7 @@ export function Welcome() {
 
           <main className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <section className={panelClass}>
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5 sm:px-5 sm:py-4">
                 <div className="flex items-center gap-2">
                   <Brain className="h-4 w-4 text-slate-700" />
                   <h2 className="font-semibold text-slate-950">{isZh ? '判断队列' : 'Judgement queue'}</h2>
@@ -512,12 +512,12 @@ export function Welcome() {
                   <button
                     key={item.key}
                     onClick={() => navigate(item.path)}
-                    className="flex w-full items-center gap-4 px-5 py-3.5 text-left transition hover:bg-slate-50"
+                    className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition hover:bg-slate-50 sm:items-center sm:gap-4 sm:px-5"
                   >
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${item.tone === 'rose' ? 'bg-rose-500' : item.tone === 'amber' ? 'bg-amber-500' : 'bg-primary'}`} />
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full sm:mt-0 ${item.tone === 'rose' ? 'bg-rose-500' : item.tone === 'amber' ? 'bg-amber-500' : 'bg-primary'}`} />
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="line-clamp-1 text-sm font-semibold text-slate-900">{item.title}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="line-clamp-2 text-sm font-semibold text-slate-900 sm:line-clamp-1">{item.title}</span>
                         <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{item.label}</span>
                       </span>
                       <span className="mt-1 block truncate text-xs text-slate-500">{item.meta}</span>
@@ -540,7 +540,7 @@ export function Welcome() {
                 </div>
                 <div className="space-y-1 p-3">
                   {stakeholderWatch.length ? stakeholderWatch.map((client) => (
-                    <button key={client.id} onClick={() => navigate(`/clients/${client.id}`)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-slate-50">
+                    <button key={client.id} onClick={() => navigate(`/clients/${client.id}`)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-slate-50">
                       <Users className="h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-slate-800">{client.name}</span>
@@ -563,7 +563,7 @@ export function Welcome() {
                   {secondaryLoading ? (
                     <EmptyBlock>{isZh ? '正在加载对话' : 'Loading chats'}</EmptyBlock>
                   ) : recentConversations.length ? recentConversations.map((conversation) => (
-                    <button key={conversation.id} onClick={() => navigate(conversation.project_id ? `/projects/${conversation.project_id}/chat` : '/chat')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-slate-50">
+                    <button key={conversation.id} onClick={() => navigate(conversation.project_id ? `/projects/${conversation.project_id}/chat` : '/chat')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-slate-50">
                       <MessageSquare className="h-4 w-4 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-slate-800">{conversation.title || (isZh ? '未命名对话' : 'Untitled chat')}</span>
@@ -587,7 +587,7 @@ export function Welcome() {
                     { icon: ListTodo, label: isZh ? '待办' : 'Todos', path: '/projects' },
                     { icon: Sparkles, label: isZh ? '技能' : 'Skills', path: '/skills' },
                   ].map((item) => (
-                    <button key={item.label} onClick={() => navigate(item.path)} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <button key={item.label} onClick={() => navigate(item.path)} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:justify-start">
                       <item.icon className="h-4 w-4 text-primary" />
                       {item.label}
                     </button>

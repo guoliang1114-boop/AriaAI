@@ -227,7 +227,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
               key={item.key}
               type="button"
               onClick={() => navigate(item.linkPath)}
-              className={`flex w-full items-center gap-4 px-5 py-2.5 text-left transition hover:bg-slate-50 ${
+              className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50 sm:items-center sm:gap-4 sm:px-5 sm:py-2.5 ${
                 idx < items.length - 1 ? 'border-b border-slate-100' : ''
               }`}
             >
@@ -251,7 +251,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
                 ) : null}
               </div>
               <span
-                className={`shrink-0 text-xs font-medium ${
+                className={`mt-0.5 shrink-0 text-xs font-medium sm:mt-0 ${
                   item.actionStrong ? 'text-primary' : tone === 'green' ? 'text-slate-500' : 'text-primary/80'
                 }`}
               >
@@ -266,24 +266,24 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <header className="flex items-center justify-between gap-3 px-5 py-4">
+      <header className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
           <Sparkles className="h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0">
-            <div className="truncate text-base font-bold text-slate-900">
+            <div className="text-base font-bold text-slate-900 sm:truncate">
               {isZh ? '今天的客户关系简报' : 'Your client relationship brief'}
             </div>
-            <div className="mt-0.5 truncate text-xs text-slate-500">
+            <div className="mt-0.5 text-xs text-slate-500 sm:truncate">
               {isZh
                 ? `AriaAI 综合 ${totalAvailable} 条客户信号 · ${loading ? '生成中…' : '刚刚更新'}`
                 : `AriaAI summarized ${totalAvailable} signals · ${loading ? 'generating…' : 'just updated'}`}
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:items-center">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 sm:py-1.5"
           >
             <ListFilter className="h-3 w-3" />
             {isZh ? '全部客户' : 'All clients'}
@@ -291,7 +291,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 sm:py-1.5"
           >
             <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
             {isZh ? '重新生成' : 'Refresh'}
@@ -301,7 +301,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
       <div className="border-t border-slate-100" />
 
       {brief.totalSignals === 0 ? (
-        <div className="px-5 py-10 text-center text-sm text-slate-500">
+        <div className="px-4 py-10 text-center text-sm text-slate-500 sm:px-5">
           {isZh
             ? '今天没有需要处理的客户信号。AriaAI 会在出现新动态时第一时间提示你。'
             : 'No client signals today. AriaAI will surface new activity here.'}
@@ -313,7 +313,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
           {renderSection(isZh ? '安静观察' : 'Quiet watch', 'green', brief.quietWatch)}
 
           {remaining > 0 ? (
-            <footer className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+            <footer className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="text-xs text-slate-500">
                 {isZh
                   ? `已显示 ${shown} 条 · 余下 ${remaining} 条信号已折叠`
