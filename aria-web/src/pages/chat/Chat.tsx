@@ -615,7 +615,10 @@ export function Chat() {
   const [liveStageTimings, setLiveStageTimings] = useState<StageTimingEntry[]>([])
   const [skillRunActive, setSkillRunActive] = useState(false)
   const [streamArtifacts, setStreamArtifacts] = useState<GeneratedArtifact[]>([])
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.matchMedia('(min-width: 768px)').matches
+  })
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -681,6 +684,15 @@ export function Chat() {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => { fetchInitialData() }, [])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 768px)')
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      setSidebarOpen(event.matches)
+    }
+    mediaQuery.addEventListener('change', handleViewportChange)
+    return () => mediaQuery.removeEventListener('change', handleViewportChange)
+  }, [])
 
   // ── Recover streaming state on mount ───────────────────────────────────────
   useEffect(() => {
@@ -1010,7 +1022,9 @@ export function Chat() {
   }
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior })
+    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior })
+    }
   }
 
   // ── Conversation actions ──────────────────────────────────────────────────
@@ -1532,16 +1546,23 @@ export function Chat() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex bg-slate-50">
+    <div className="relative h-full overflow-hidden bg-slate-50 md:flex">
       <PageTitle title={t('chat.title')} />
 
       {/* ── Sidebar ── */}
       {sidebarOpen && (
-        <div className="group/sidebar relative w-72 border-r border-slate-200 flex flex-col bg-white flex-shrink-0">
+        <>
+        <button
+          type="button"
+          aria-label={t('chat.collapseSidebar')}
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-900/20 backdrop-blur-[1px] md:hidden"
+        />
+        <div className="group/sidebar fixed inset-y-0 left-0 z-40 flex w-[86vw] max-w-80 flex-col border-r border-slate-200 bg-white shadow-2xl shadow-slate-900/15 md:relative md:z-auto md:w-72 md:max-w-none md:flex-shrink-0 md:shadow-none">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="group/collapse pointer-events-none absolute -right-3 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-0 shadow-lg shadow-slate-200/70 transition-all duration-200 hover:border-primary/30 hover:text-primary group-hover/sidebar:pointer-events-auto group-hover/sidebar:opacity-100"
+            className="group/collapse pointer-events-auto absolute -right-3 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-100 shadow-lg shadow-slate-200/70 transition-all duration-200 hover:border-primary/30 hover:text-primary md:pointer-events-none md:opacity-0 md:group-hover/sidebar:pointer-events-auto md:group-hover/sidebar:opacity-100"
             title={t('chat.collapseSidebar')}
             aria-label={t('chat.collapseSidebar')}
           >
@@ -1604,6 +1625,7 @@ export function Chat() {
                     <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
+                        onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
                         className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-colors hover:bg-slate-50"
                       >
                         <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
@@ -1625,6 +1647,7 @@ export function Chat() {
                     <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
+                        onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
                         className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-200 overflow-hidden ${
                           deletingId === conv.id
                             ? 'opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none'
@@ -1658,25 +1681,24 @@ export function Chat() {
             )}
           </div>
         </div>
+        </>
       )}
 
       {/* ── Main area ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
 
         {/* Header */}
-        <div className="bg-white border-b border-slate-200 px-5 py-3 flex-shrink-0">
+        <div className="bg-white border-b border-slate-200 px-3 py-3 flex-shrink-0 sm:px-5">
           <div className="flex items-center gap-3">
-            {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 transition-colors"
-                title={t('chat.openSidebar')}
-              >
-                <PanelLeftOpen className="w-4 h-4" />
-              </button>
-            )}
+            <button onClick={() => setSidebarOpen(true)}
+              className={`p-1.5 rounded-md hover:bg-slate-100 text-slate-400 transition-colors ${sidebarOpen ? 'md:hidden' : ''}`}
+              title={t('chat.openSidebar')}
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
             <div className="flex-1 min-w-0 flex items-center gap-2.5">
               {(selectedProjectData || selectedSkillData) && (
-                <span className="px-2 py-0.5 rounded-md bg-primary/8 text-xs font-medium text-primary flex-shrink-0">
+                <span className="hidden px-2 py-0.5 rounded-md bg-primary/8 text-xs font-medium text-primary flex-shrink-0 sm:inline-flex">
                   {selectedProjectData ? selectedProjectData.name : selectedSkillData!.name}
                 </span>
               )}
@@ -1684,7 +1706,7 @@ export function Chat() {
                 <h1 className="text-[15px] font-semibold text-slate-900 truncate">
                   {conversation?.title || t('chat.newConversation')}
                 </h1>
-                <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                <p className="mt-0.5 hidden truncate text-[11px] text-slate-400 sm:block">
                   {selectedProjectData
                     ? `Project · ${selectedProjectData.name}`
                     : selectedSkillData
@@ -1705,8 +1727,8 @@ export function Chat() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-8 relative bg-slate-50">
-          <div className={`mx-auto px-6 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
+        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-4 relative bg-slate-50 sm:py-8">
+          <div className={`mx-auto px-3 sm:px-6 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
 
             {/* Load more */}
             {loadingMore && (
@@ -1736,7 +1758,7 @@ export function Chat() {
 
             ) : messages.length === 0 && !streamingContent ? (
               /* ── Empty state ── */
-              <div className="flex flex-col items-center py-16 animate-fade-in">
+              <div className="flex flex-col items-center py-10 animate-fade-in sm:py-16">
                 <div className="relative mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">
                   <div className="absolute inset-0 rounded-2xl ring-1 ring-white/30" />
                   <div className="absolute -inset-3 rounded-full bg-primary/10 blur-xl" />
@@ -1745,15 +1767,15 @@ export function Chat() {
                   </div>
                 </div>
                 <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
-                <p className="max-w-sm text-center text-sm leading-6 text-slate-500 mb-9">
+                <p className="max-w-sm text-center text-sm leading-6 text-slate-500 mb-6 sm:mb-9">
                   你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
                 </p>
-                <div className="w-full max-w-2xl grid gap-3 sm:grid-cols-2">
+                <div className="w-full max-w-2xl grid gap-2.5 sm:grid-cols-2 sm:gap-3">
                   {getPromptCards().map(card => {
                     const Icon = card.icon
                     return (
                       <button key={card.label} onClick={() => fillSuggestion(card.prompt)}
-                        className={`group flex items-start gap-3 rounded-xl border p-4 text-left shadow-sm shadow-slate-200/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/60 active:scale-[0.98] ${card.bg}`}
+                        className={`group flex items-start gap-3 rounded-xl border p-3.5 text-left shadow-sm shadow-slate-200/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/60 active:scale-[0.98] sm:p-4 ${card.bg}`}
                       >
                         <div className="w-8 h-8 rounded-lg bg-white/85 flex items-center justify-center flex-shrink-0 shadow-sm transition-transform group-hover:scale-105">
                           <Icon className={`w-3.5 h-3.5 ${card.color}`} />
@@ -1769,14 +1791,14 @@ export function Chat() {
               </div>
 
             ) : (
-              <div className="space-y-7">
+              <div className="space-y-5 sm:space-y-7">
                 {messages.map(msg => (
                   <MessageRow key={msg.id} message={msg} />
                 ))}
 
                 {/* Streaming / thinking */}
                 {(isThinking || streamingContent) && (
-                  <div className="flex w-full items-start gap-3.5 animate-fade-in">
+                  <div className="flex w-full items-start gap-2.5 animate-fade-in sm:gap-3.5">
                     <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm shadow-primary/20">
                       <Sparkles className="w-3.5 h-3.5 text-white" />
                     </div>
@@ -1853,12 +1875,12 @@ export function Chat() {
         </div>
 
         {/* ── Input area ── */}
-        <div className="relative flex-shrink-0 border-t border-slate-200 bg-white px-6 pb-5 pt-3">
+        <div className="relative flex-shrink-0 border-t border-slate-200 bg-white px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5">
           {/* Gradient fade — blends messages area into footer */}
           <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-white -translate-y-full pointer-events-none" />
           <div className={`mx-auto ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
             {/* Context pills */}
-            <div className="flex items-center gap-1 mb-2 flex-wrap">
+            <div className="flex items-center gap-1 mb-2 flex-nowrap overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
               <ContextPill
                 ref={projectDropdownRef}
                 icon={<FolderKanban className="w-3 h-3" />}
@@ -1954,8 +1976,8 @@ export function Chat() {
             {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
 
             {/* Textarea + actions */}
-            <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-200">
-              <button className="p-1.5 rounded-md hover:bg-slate-100 transition-colors text-slate-300 hover:text-slate-500 flex-shrink-0 mb-0.5">
+            <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-200 sm:gap-3 sm:px-4 sm:py-3">
+              <button className="p-1.5 rounded-md hover:bg-slate-100 transition-colors text-slate-300 hover:text-slate-500 flex-shrink-0 mb-0.5 hidden sm:block">
                 <Paperclip className="w-4 h-4" />
               </button>
               <textarea
@@ -1966,7 +1988,7 @@ export function Chat() {
                 placeholder={t('chat.placeholder')}
                 disabled={sending}
                 rows={1}
-                className="flex-1 bg-transparent text-[15px] text-slate-800 placeholder:text-slate-300 outline-none py-1.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
+                className="min-w-0 flex-1 bg-transparent text-[15px] text-slate-800 placeholder:text-slate-300 outline-none py-1.5 resize-none overflow-hidden disabled:opacity-50 leading-relaxed"
                 style={{ minHeight: '36px', maxHeight: '180px' }}
               />
               {sending ? (
@@ -1983,7 +2005,7 @@ export function Chat() {
                 </button>
               )}
             </div>
-            <p className="text-[11px] text-gray-300 mt-2 text-center tracking-wide">
+            <p className="hidden text-[11px] text-gray-300 mt-2 text-center tracking-wide sm:block">
               {t('chat.shiftEnter')} · {t('chat.enterToSend')}
             </p>
           </div>
@@ -2469,11 +2491,11 @@ const ContextPill = forwardRef<HTMLDivElement, {
   onToggle: () => void
   children?: React.ReactNode
 }>(({ icon, label, active, secondary, open, onToggle, children }, ref) => (
-  <div className="relative" ref={ref}>
+  <div className="relative shrink-0" ref={ref}>
     <button
       onClick={onToggle}
       aria-expanded={open}
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] transition-colors ${
+      className={`flex max-w-[70vw] items-center gap-1.5 truncate px-2.5 py-1 rounded-lg text-[12px] transition-colors sm:max-w-none ${
         active
           ? secondary
             ? 'bg-gray-100/80 text-gray-600'
@@ -2492,7 +2514,7 @@ ContextPill.displayName = 'ContextPill'
 // ─── Dropdown primitives ─────────────────────────────────────────────────────
 function DropdownMenu({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className={`absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 py-1.5 z-50 ${wide ? 'w-80' : 'w-60'}`}>
+    <div className={`absolute bottom-full left-0 z-50 mb-2 max-w-[calc(100vw-1.5rem)] rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg ${wide ? 'w-[calc(100vw-1.5rem)] sm:w-80' : 'w-60'}`}>
       {children}
     </div>
   )
