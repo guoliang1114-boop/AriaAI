@@ -100,7 +100,7 @@ export function Layout() {
     <div className="flex h-full flex-col bg-surface">
       {isProjectDetailRoute ? null : (
         <header className="glass sticky top-0 z-50 border-b border-outline/10">
-          <div className="flex h-14 items-center justify-between px-6">
+          <div className="flex h-14 items-center justify-between px-4 sm:px-6">
             <div className="flex items-center gap-6">
               <NavLink to="/" className="flex flex-shrink-0 items-center gap-2">
                 <span className="font-manrope text-lg font-bold text-primary">Aria AI</span>
@@ -193,6 +193,34 @@ export function Layout() {
               </div>
             </div>
           </div>
+          <nav className="flex gap-1 overflow-x-auto border-t border-outline/10 px-3 py-2 md:hidden">
+            {navItems.map((item) => {
+              const isActive =
+                location.pathname === item.path ||
+                (item.path !== '/' && location.pathname.startsWith(item.path))
+              const preloadRoute = () => {
+                const loader = primaryRouteLoaders[item.path]
+                if (loader) void loader()
+              }
+
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  onMouseEnter={preloadRoute}
+                  onFocus={preloadRoute}
+                  className={`flex min-w-fit items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-secondary-container/60 text-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
+                  }`}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </NavLink>
+              )
+            })}
+          </nav>
         </header>
       )}
 
