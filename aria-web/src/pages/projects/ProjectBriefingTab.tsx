@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Target, Users } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Users } from "lucide-react";
 import { api } from "../../api/client";
 import type { ProjectDetail, ProjectMeetingBriefing, ProjectMeetingBriefingRefineResponse } from "../../types/api";
 import { resolveProjectStage } from "../../types/enums";
@@ -12,55 +12,6 @@ interface ProjectBriefingTabProps {
   projectDetail: ProjectDetail;
   projectId: string;
 }
-
-type MeetingTemplateId = "status" | "executive" | "risk" | "commercial";
-
-const MEETING_TEMPLATES: Array<{
-  id: MeetingTemplateId;
-  zhLabel: string;
-  enLabel: string;
-  zhDescription: string;
-  enDescription: string;
-  zhPrompt: string;
-  enPrompt: string;
-}> = [
-  {
-    id: "status",
-    zhLabel: "项目例会",
-    enLabel: "Status meeting",
-    zhDescription: "同步进展、问题和会后行动",
-    enDescription: "Align progress, issues, and follow-up actions",
-    zhPrompt: "请按项目例会场景输出：进展同步、风险说明、待确认问题、会后行动清单。",
-    enPrompt: "For a status meeting, output progress updates, risks, questions to confirm, and follow-up actions.",
-  },
-  {
-    id: "executive",
-    zhLabel: "高层汇报",
-    enLabel: "Executive briefing",
-    zhDescription: "强调价值、决策和向上汇报口径",
-    enDescription: "Emphasize value, decisions, and executive framing",
-    zhPrompt: "请按高层汇报场景输出：开场价值陈述、关键决策点、量化收益表达、需要领导拍板的事项。",
-    enPrompt: "For an executive briefing, output value framing, decision points, quantified benefits, and leadership asks.",
-  },
-  {
-    id: "risk",
-    zhLabel: "风险沟通",
-    enLabel: "Risk alignment",
-    zhDescription: "控制敏感点，推动阻塞事项",
-    enDescription: "Handle sensitivities and unblock risks",
-    zhPrompt: "请按风险沟通场景输出：风险分级、敏感表达方式、需要客户确认的边界、降风险行动。",
-    enPrompt: "For risk alignment, output risk levels, careful wording, boundaries to confirm, and de-risking actions.",
-  },
-  {
-    id: "commercial",
-    zhLabel: "商务推进",
-    enLabel: "Commercial push",
-    zhDescription: "推进预算、采购、续约或回款",
-    enDescription: "Move budget, procurement, renewal, or collection forward",
-    zhPrompt: "请按商务推进场景输出：商务目标、采购/预算阻塞点、不同干系人的沟通重点、下一步推进路径。",
-    enPrompt: "For a commercial discussion, output commercial goals, procurement or budget blockers, stakeholder messaging, and next steps.",
-  },
-];
 
 function BriefingSection({
   title,
@@ -145,7 +96,6 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const [briefing, setBriefing] = useState<ProjectMeetingBriefing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [meetingTemplateId, setMeetingTemplateId] = useState<MeetingTemplateId>("status");
   const [refinedBriefing, setRefinedBriefing] = useState<ProjectMeetingBriefingRefineResponse | null>(null);
   const [isRefining, setIsRefining] = useState(false);
   const [refineError, setRefineError] = useState("");
@@ -170,18 +120,12 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
     void loadBriefing();
   }, [projectId]);
 
-  useEffect(() => {
-    setRefinedBriefing(null);
-    setRefineError("");
-  }, [meetingTemplateId]);
-
   const project = briefing?.project ?? projectDetail.project;
   const stage = resolveProjectStage(project.status);
   const StageIcon = stage.icon;
   const generatedAt = briefing?.generated_at
     ? formatWithTimeZone(briefing.generated_at, isZh ? "zh-CN" : "en-US", undefined, resolvedTimeZone)
     : "";
-  const selectedTemplate = MEETING_TEMPLATES.find((template) => template.id === meetingTemplateId) ?? MEETING_TEMPLATES[0];
   const refinedGeneratedAt = refinedBriefing?.generated_at
     ? formatWithTimeZone(refinedBriefing.generated_at, isZh ? "zh-CN" : "en-US", undefined, resolvedTimeZone)
     : "";
@@ -192,7 +136,7 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
       const data = await api.post<ProjectMeetingBriefingRefineResponse>(
         `/projects/${projectId}/briefing/refine`,
         {
-          meeting_type: meetingTemplateId,
+          meeting_type: "status",
           language: isZh ? "zh" : "en",
           force_refresh: forceRefresh,
         },
@@ -213,9 +157,8 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
   const openChatWithBriefing = () => {
     if (!briefing) return;
     const prompt = [
-      `请基于这张会前简报，帮我准备一份面向客户会议的沟通话术和会议推进计划。`,
-      `会议类型：${isZh ? selectedTemplate.zhLabel : selectedTemplate.enLabel}`,
-      isZh ? selectedTemplate.zhPrompt : selectedTemplate.enPrompt,
+      "请基于这张会前简报，帮我准备一份面向客户会议的沟通话术和会议推进计划。",
+      "默认场景：项目例会，重点是同步进展、识别风险、确认问题和明确会后行动。",
       `项目：${briefing.project.name}`,
       `客户：${briefing.project.client}`,
       formatPromptSection("建议说什么", briefing.meeting_card.say),
@@ -258,13 +201,11 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-emerald-50 px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span>{isZh ? "会前简报" : "Meeting briefing"}</span>
-              <span>/</span>
-              <span>{isZh ? selectedTemplate.zhLabel : selectedTemplate.enLabel}</span>
               {generatedAt ? (
                 <>
                   <span>/</span>
@@ -272,12 +213,15 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                 </>
               ) : null}
             </div>
-            <h2 className="mt-1 truncate text-lg font-semibold text-slate-950">
-              {isZh ? "会议作战卡" : "Meeting battle card"}
+            <h2 className="mt-1 truncate text-xl font-semibold text-slate-950">
+              {isZh ? "30 秒会前卡" : "30-second meeting card"}
             </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isZh ? "默认聚焦项目例会：先看要说什么，再确认风险和下一步。" : "Focused on status meetings: talking points, risks, and next steps first."}
+            </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <button
               type="button"
               onClick={() => void loadBriefing()}
@@ -291,35 +235,35 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
               type="button"
               onClick={() => void refineBriefing(false)}
               disabled={isRefining || !briefing}
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-60"
             >
               {isRefining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {refinedBriefing ? (isZh ? "读取精炼" : "Load refined") : isZh ? "AI 精炼" : "AI refine"}
+              {refinedBriefing ? (isZh ? "更新话术" : "Update script") : isZh ? "生成话术" : "Draft script"}
             </button>
             <button
               type="button"
               onClick={openChatWithBriefing}
               disabled={!briefing}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              className="col-span-2 inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60 sm:col-span-1"
             >
               <MessageSquare className="h-4 w-4" />
-              {isZh ? "带入对话" : "Open chat"}
+              {isZh ? "去对话准备" : "Prepare in chat"}
             </button>
           </div>
         </div>
         {error ? (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</div>
+          <div className="m-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</div>
         ) : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
         <main className="space-y-4">
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-slate-950">{isZh ? "先看这四件事" : "Start with these four"}</div>
+                <div className="text-sm font-semibold text-slate-950">{isZh ? "打开就看这四件事" : "Start with these four"}</div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {isZh ? "直接用于会前 30 秒扫读。" : "Designed for a 30-second pre-meeting scan."}
+                  {isZh ? "不再选择会议类型，先把最重要的沟通动作摆在前面。" : "No meeting-type setup. The key meeting moves stay upfront."}
                 </p>
               </div>
               {(briefing?.project.memory_stale || briefing?.client.memory_stale) ? (
@@ -366,13 +310,13 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
           ) : null}
 
           {refinedBriefing ? (
-            <section className="rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
+            <section className="rounded-lg border border-primary/20 bg-white p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                  <Sparkles className="h-4 w-4 text-emerald-600" />
-                  {isZh ? "AI 精炼版" : "AI refined"}
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  {isZh ? "可直接使用的话术" : "Ready-to-use script"}
                 </div>
-                <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
                   {refinedBriefing.cached ? (isZh ? "缓存命中" : "Cache hit") : isZh ? "刚刚生成" : "Generated"}
                 </span>
                 {refinedGeneratedAt ? <span className="text-xs text-slate-400">{refinedGeneratedAt}</span> : null}
@@ -380,10 +324,10 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                   type="button"
                   onClick={() => void refineBriefing(true)}
                   disabled={isRefining}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  {isZh ? "重新精炼" : "Regenerate"}
+                  {isZh ? "重新生成" : "Regenerate"}
                 </button>
               </div>
               <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{refinedBriefing.content}</div>
@@ -424,35 +368,6 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
         </main>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Target className="h-4 w-4 text-primary" />
-              {isZh ? "会议类型" : "Meeting type"}
-            </div>
-            <div className="grid gap-2">
-              {MEETING_TEMPLATES.map((template) => {
-                const active = template.id === meetingTemplateId;
-                return (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => setMeetingTemplateId(template.id)}
-                    className={`rounded-md border px-3 py-2 text-left transition ${
-                      active
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="text-sm font-semibold">{isZh ? template.zhLabel : template.enLabel}</div>
-                    <div className={`mt-1 text-xs leading-5 ${active ? "text-primary/80" : "text-slate-500"}`}>
-                      {isZh ? template.zhDescription : template.enDescription}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <CalendarDays className="h-4 w-4 text-primary" />
@@ -501,8 +416,8 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              {isZh ? "证据来源" : "Evidence"}
+              <FileText className="h-4 w-4 text-primary" />
+              {isZh ? "资料依据" : "Evidence"}
             </div>
             <CompactSignalList
               emptyText={isZh ? "暂无项目笔记或最近对话片段。" : "No project notes or recent chat snippets yet."}
@@ -532,26 +447,19 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                 );
               }}
             />
-          </section>
-
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <FileText className="h-4 w-4 text-primary" />
-              {isZh ? "最近资料" : "Recent documents"}
-            </div>
-            <CompactSignalList
-              emptyText={isZh ? "暂无最近资料。" : "No recent documents."}
-              items={briefing?.signals.recent_documents ?? []}
-              renderItem={(item) => {
-                const doc = item as ProjectMeetingBriefing["signals"]["recent_documents"][number];
-                return (
-                  <div key={`doc-${doc.id}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                    <div className="font-medium text-slate-900">{doc.name}</div>
-                    {doc.summary ? <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{doc.summary}</div> : null}
-                  </div>
-                );
-              }}
-            />
+            {briefing?.signals.recent_documents.length ? (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-2 text-xs font-medium text-slate-500">{isZh ? "最近资料" : "Recent documents"}</div>
+                <div className="space-y-2">
+                  {briefing.signals.recent_documents.slice(0, 3).map((doc) => (
+                    <div key={`doc-${doc.id}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                      <div className="font-medium text-slate-900">{doc.name}</div>
+                      {doc.summary ? <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{doc.summary}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         </aside>
       </div>

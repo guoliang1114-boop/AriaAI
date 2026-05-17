@@ -47,6 +47,66 @@ type StakeholderCandidate = {
   note?: string;
 };
 
+const NON_PERSON_STAKEHOLDER_TERMS = [
+  "数据",
+  "安全",
+  "系统",
+  "方案",
+  "报价",
+  "合同",
+  "需求",
+  "交付",
+  "品牌",
+  "渠道",
+  "战略",
+  "高管",
+  "管理",
+  "产品",
+  "技术",
+  "财务",
+  "采购",
+  "法务",
+  "商务",
+  "运维",
+  "市场",
+  "销售",
+  "部门",
+  "业务",
+  "项目",
+  "客户",
+  "公司",
+];
+
+const ROLE_ONLY_STAKEHOLDER_NAMES = new Set([
+  "采购负责人",
+  "财务负责人",
+  "法务负责人",
+  "安全负责人",
+  "业务负责人",
+  "技术负责人",
+  "项目负责人",
+  "产品经理",
+  "品牌负责人",
+  "渠道负责人",
+  "战略部",
+  "高管层",
+  "管理层",
+]);
+
+function isDisplayableStakeholderCandidate(candidate: StakeholderCandidate) {
+  const name = candidate.name.trim();
+  const role = candidate.role.trim();
+  if (!name || ROLE_ONLY_STAKEHOLDER_NAMES.has(name)) return false;
+  if (/^[\u4e00-\u9fa5]{2,6}$/.test(name) && NON_PERSON_STAKEHOLDER_TERMS.some((term) => name.includes(term))) {
+    return false;
+  }
+  return Boolean(role);
+}
+
+function filterDisplayableStakeholders(candidates: StakeholderCandidate[]) {
+  return candidates.filter(isDisplayableStakeholderCandidate);
+}
+
 type ProjectDocumentDetail = {
   id: number;
   project_id: number;
@@ -212,9 +272,10 @@ export function ProjectChatTab({
               `/projects/${project.id}/stakeholder-candidates`,
               { text: lastAssistant.content },
             );
-            if (result.candidates.length > 0) {
+            const displayableCandidates = filterDisplayableStakeholders(result.candidates);
+            if (displayableCandidates.length > 0) {
               setAutoStakeholderBanner({
-                candidates: result.candidates,
+                candidates: displayableCandidates,
                 clientName: result.client_name,
                 sourceText: lastAssistant.content,
               });
@@ -482,9 +543,10 @@ export function ProjectChatTab({
         `/projects/${project.id}/stakeholder-candidates`,
         { text: message.content },
       );
-      if (result.candidates.length > 0) {
+      const displayableCandidates = filterDisplayableStakeholders(result.candidates);
+      if (displayableCandidates.length > 0) {
         setStakeholderCapture({
-          candidates: result.candidates,
+          candidates: displayableCandidates,
           clientName: result.client_name,
           message,
         });
@@ -936,8 +998,8 @@ export function ProjectChatTab({
                 </div>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
                   {isZh
-                    ? `将下面候选加入「${stakeholderCapture.clientName}」的结构化客户干系人。确认后会标记客户记忆待刷新。`
-                    : `Add these candidates into ${stakeholderCapture.clientName}'s structured stakeholders. Client memory will be marked stale.`}
+                    ? `只把明确的人名和职务加入「${stakeholderCapture.clientName}」客户卡片；部门、议题和材料名已经过滤。确认后会标记客户记忆待刷新。`
+                    : `Only clear people with roles will be added to ${stakeholderCapture.clientName}'s client card. Departments, topics, and document terms are filtered out.`}
                 </p>
               </div>
               <button
@@ -1002,17 +1064,34 @@ export function ProjectChatTab({
       ) : null}
 
       {autoStakeholderBanner ? (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 max-w-xl rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
+        <div className="fixed bottom-6 left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
           <div className="flex items-start gap-3">
-            <Users className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+              <Users className="h-4 w-4" />
+            </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-800">
+              <p className="text-sm font-medium text-gray-900">
                 {isZh
-                  ? <>检测到干系人：<span className="font-medium">{autoStakeholderBanner.candidates.map((c) => `${c.name}（${c.role}）`).join("、")}</span>，要不要加到客户卡片？</>
-                  : <>Detected stakeholders: <span className="font-medium">{autoStakeholderBanner.candidates.map((c) => `${c.name} (${c.role})`).join(", ")}</span>. Add to client card?</>
+                  ? "发现可能的客户联系人"
+                  : "Possible client contacts found"
                 }
               </p>
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {autoStakeholderBanner.candidates.map((candidate) => (
+                  <span
+                    key={`${candidate.name}-${candidate.role}`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                  >
+                    <span className="truncate">{candidate.name}</span>
+                    <span className="text-slate-400">/</span>
+                    <span className="truncate text-slate-500">{candidate.role}</span>
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                {isZh ? "只会加入明确的人名和职务；部门、议题和材料名会自动忽略。" : "Only clear people with roles are added; departments, topics, and document terms are ignored."}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => void handleQuickApplyStakeholders()}
