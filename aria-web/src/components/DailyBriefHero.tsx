@@ -265,7 +265,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-2xl border border-blue-100/80 bg-gradient-to-br from-white via-blue-50/45 to-emerald-50/35 shadow-[0_18px_52px_-42px_rgba(37,99,235,0.35)]">
       <header className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
           <Sparkles className="h-4 w-4 shrink-0 text-primary" />
@@ -298,7 +298,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
           </button>
         </div>
       </header>
-      <div className="border-t border-slate-100" />
+      <div className="border-t border-blue-100/70" />
 
       {brief.totalSignals === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500 sm:px-5">

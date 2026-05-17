@@ -52,7 +52,7 @@ interface DashboardProjectSummary {
   memory_version?: number
 }
 
-const panelClass = 'rounded-2xl border border-white/70 bg-white/90 shadow-[0_18px_50px_-36px_rgba(15,23,42,0.35)] backdrop-blur'
+const panelClass = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_18px_48px_-38px_rgba(15,23,42,0.28)] backdrop-blur'
 
 function readCachedUser() {
   try {
@@ -253,11 +253,23 @@ export function Welcome() {
   )
   const activeClients = useMemo(() => clients.filter((client) => client.project_names.length > 0), [clients])
   const clientPulse = useMemo(() => {
-    const toneClasses = [
-      'bg-emerald-50 text-emerald-700 border-emerald-100',
-      'bg-amber-50 text-amber-700 border-amber-100',
-      'bg-indigo-50 text-indigo-700 border-indigo-100',
-      'bg-rose-50 text-rose-700 border-rose-100',
+    const tones = [
+      {
+        badge: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        card: 'border-emerald-100 bg-gradient-to-br from-white to-emerald-50/65',
+      },
+      {
+        badge: 'bg-amber-50 text-amber-700 border-amber-100',
+        card: 'border-amber-100 bg-gradient-to-br from-white to-amber-50/65',
+      },
+      {
+        badge: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+        card: 'border-indigo-100 bg-gradient-to-br from-white to-indigo-50/65',
+      },
+      {
+        badge: 'bg-sky-50 text-sky-700 border-sky-100',
+        card: 'border-sky-100 bg-gradient-to-br from-white to-sky-50/65',
+      },
     ]
 
     return [...activeClients]
@@ -269,7 +281,7 @@ export function Welcome() {
       .slice(0, 4)
       .map((client, index) => ({
         client,
-        toneClass: toneClasses[index] || toneClasses[0],
+        tone: tones[index] || tones[0],
         status: client.client_memory_stale || (client.client_memory_version ?? 0) === 0
           ? isZh ? '待更新' : 'Needs refresh'
           : isZh ? '稳定' : 'Healthy',
@@ -393,8 +405,8 @@ export function Welcome() {
   return (
     <>
       <PageTitle title={t('dashboard.title')} />
-      <div className="h-full overflow-auto bg-[#f8fafc]">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+      <div className="h-full overflow-auto bg-[linear-gradient(180deg,#f5f9ff_0%,#f8fafc_46%,#f3fbf7_100%)]">
+        <div className="flex w-full flex-col gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 lg:px-8 lg:py-6 2xl:px-10">
           {homeAnnouncement ? (
             <HomeAnnouncementCard
               isZh={isZh}
@@ -407,7 +419,7 @@ export function Welcome() {
             />
           ) : null}
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-4 shadow-[0_18px_48px_-42px_rgba(37,99,235,0.35)] backdrop-blur sm:px-5 lg:flex lg:items-center lg:justify-between">
             <div className="min-w-0">
               <h1 className="truncate text-[20px] font-semibold tracking-normal text-slate-950 sm:text-[22px]">
                 {greeting}，{user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
@@ -416,7 +428,7 @@ export function Welcome() {
                 {isZh ? '今天的客户关系，AriaAI 已经为你整理好。' : 'AriaAI has organized today’s client relationship work.'}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:mt-0">
               <button
                 type="button"
                 onClick={() => navigate('/chat')}
@@ -465,11 +477,11 @@ export function Welcome() {
               </button>
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {clientPulse.length ? clientPulse.map(({ client, toneClass, status }) => (
+              {clientPulse.length ? clientPulse.map(({ client, tone, status }) => (
                 <button
                   key={client.id}
                   onClick={() => navigate(`/clients/${client.id}`)}
-                  className="rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/70 sm:p-4"
+                  className={`rounded-2xl border p-3.5 text-left shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/70 sm:p-4 ${tone.card}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -478,7 +490,7 @@ export function Welcome() {
                         {client.industry || (isZh ? '行业未填' : 'No industry')} · {client.project_names.length} {isZh ? '个项目' : 'projects'}
                       </div>
                     </div>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${toneClass}`}>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone.badge}`}>
                       {status}
                     </span>
                   </div>
@@ -496,7 +508,7 @@ export function Welcome() {
             </div>
           </section>
 
-          <main className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <main className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
             <section className={panelClass}>
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5 sm:px-5 sm:py-4">
                 <div className="flex items-center gap-2">
