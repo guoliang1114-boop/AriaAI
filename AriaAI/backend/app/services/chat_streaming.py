@@ -36,6 +36,13 @@ from app.services.provider_selector import (
     resolve_provider_from_model,
 )
 from app.services.settings_helper import get_float_setting, get_int_setting
+from app.services.task_orchestrator import (
+    create_task_run,
+    detect_project_task_type,
+    serialize_task_run,
+    stream_execute_task_run_in_session,
+    task_run_chat_summary,
+)
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
@@ -418,6 +425,94 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
     tool_call_events = []
     artifacts = []
     pending_markdown_saves = []
+
+    durable_task_type = detect_project_task_type(req.content) if req.project_id else None
+    if durable_task_type:
+        try:
+            yield _sse_event(
+                {
+                    "type": "status",
+                    "stage": "planning",
+                    "message": "已识别为可恢复项目任务，正在创建任务运行记录...",
+                }
+            )
+            with Session(bind) as task_session:
+                task = create_task_run(
+                    task_session,
+                    project_id=req.project_id,
+                    task_type=durable_task_type,
+                    goal=req.content,
+                    input_data={"title": req.content[:80], "source": "project_chat"},
+                    conversation_id=runtime.conv_id,
+                )
+                task_payload = serialize_task_run(task_session, task, include_events=True)
+                yield _sse_event({"type": "task_run", "task": task_payload})
+                yield _sse_event(
+                    {
+                        "type": "status",
+                        "stage": "tools",
+                        "message": "任务已创建，正在按步骤执行。刷新页面后仍可在项目任务记录中查看。",
+                    }
+                )
+                async for task_event in stream_execute_task_run_in_session(task_session, task.id):
+                    event_message = task_event.get("message") or "任务状态已更新。"
+                    yield _sse_event(
+                        {
+                            "type": "status",
+                            "stage": "tools",
+                            "message": event_message,
+                            "task_event": task_event.get("event_type"),
+                        }
+                    )
+                    yield _sse_event({"type": "task_run", "task": task_event.get("task")})
+                task_session.refresh(task)
+                task_payload = serialize_task_run(task_session, task, include_events=True)
+
+            full_text = task_run_chat_summary(task_payload)
+            metadata = {
+                "project_id": req.project_id,
+                "task_run": task_payload,
+                "task_run_id": task_payload.get("id"),
+                "task_type": durable_task_type,
+                "stage_timings": {
+                    **stage_timings,
+                    "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
+                },
+            }
+            artifacts = []
+            for artifact in task_payload.get("artifacts") or []:
+                artifact_meta = artifact.get("metadata") or {}
+                if artifact_meta:
+                    artifacts.append(
+                        {
+                            "id": artifact.get("project_file_id"),
+                            "name": artifact.get("name"),
+                            "file_type": artifact.get("file_type"),
+                            "path": artifact.get("path"),
+                            "description": artifact_meta.get("summary") or "",
+                        }
+                    )
+            if artifacts:
+                metadata["artifacts"] = artifacts
+            yield _sse_event({"type": "text", "content": full_text})
+            yield _sse_event({"type": "task_run", "task": task_payload})
+            yield _sse_event({"type": "timing", "key": "total_stream_ms", "duration_ms": metadata["stage_timings"]["total_stream_ms"]})
+            need_title = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
+            yield _sse_event({"type": "done", **metadata})
+            if need_title and full_text:
+                schedule_title_generation(
+                    conv_id=runtime.conv_id,
+                    user_content=req.content,
+                    bind=bind,
+                    complete_fn=runtime.llm.complete,
+                )
+            return
+        except Exception as exc:
+            import traceback
+
+            print(f"[durable_task_stream error] {exc}\n{traceback.format_exc()}", flush=True)
+            yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+            return
 
     try:
         text_buffer = ""

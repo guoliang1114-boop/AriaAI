@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,8 @@ from app.tools.office_documents import write_project_office_document
 
 TASK_STATUS_TERMINAL = {"completed", "failed", "canceled"}
 SUPPORTED_TASK_TYPES = {"generate_client_ppt"}
+_PPT_INTENT_TERMS = ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍")
+_CREATE_INTENT_TERMS = ("准备", "生成", "创建", "做", "制作", "输出", "给客户", "介绍", "proposal", "prepare", "create", "generate", "make")
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,18 @@ GENERATE_CLIENT_PPT_STEPS = [
     StepSpec("create_deck", "生成并保存 PPT", "write_project_office_document"),
     StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
 ]
+
+
+def detect_project_task_type(content: str) -> str | None:
+    """Detect requests that should run as durable project tasks instead of a single chat turn."""
+    normalized = (content or "").strip().lower()
+    if not normalized:
+        return None
+    wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
+    wants_create = any(term in normalized for term in _CREATE_INTENT_TERMS)
+    if wants_ppt and wants_create:
+        return "generate_client_ppt"
+    return None
 
 
 def _json_dumps(value: Any) -> str:
@@ -163,6 +178,78 @@ def serialize_task_run(session: Session, task: TaskRun, *, include_events: bool 
         ).all()
         payload["events"] = [_serialize_event(event) for event in events]
     return payload
+
+
+def task_run_chat_summary(payload: dict[str, Any]) -> str:
+    status_label = {
+        "pending": "等待中",
+        "running": "执行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "canceled": "已取消",
+    }.get(str(payload.get("status")), str(payload.get("status") or "未知"))
+    lines = [
+        f"已创建可恢复任务：{payload.get('goal') or payload.get('task_type')}",
+        f"任务 ID：{payload.get('id')}",
+        f"当前状态：{status_label}",
+        "",
+        "编排日志：",
+    ]
+    step_status = {
+        "pending": "等待",
+        "running": "执行中",
+        "completed": "完成",
+        "failed": "失败",
+        "skipped": "跳过",
+    }
+    for index, step in enumerate(payload.get("steps") or [], start=1):
+        status = step_status.get(str(step.get("status")), str(step.get("status") or "-"))
+        line = f"{index}. {step.get('title') or step.get('key')}：{status}"
+        if step.get("error_message"):
+            line += f"（{step.get('error_message')}）"
+        elif step.get("status") == "completed":
+            output = step.get("output") or {}
+            if step.get("key") == "collect_context":
+                project = output.get("project") or {}
+                line += f"。已读取项目「{project.get('name') or '-'}」和客户「{project.get('client') or '-'}」上下文。"
+            elif step.get("key") == "draft_slide_spec":
+                line += f"。已生成 {len(output.get('slides') or [])} 页 PPT 结构。"
+            elif step.get("key") == "create_deck":
+                line += f"。已保存文件「{output.get('name') or output.get('file_name') or '-'}」。"
+        lines.append(line)
+
+    artifacts = payload.get("artifacts") or []
+    if artifacts:
+        lines.extend(["", "生成物："])
+        for artifact in artifacts:
+            lines.append(f"- {artifact.get('name')}（{str(artifact.get('file_type') or '').upper()}）已保存到项目空间")
+    elif payload.get("status") == "failed":
+        lines.extend(["", "你可以稍后从失败步骤重试，前面已完成的步骤不会丢失。"])
+    return "\n".join(lines)
+
+
+def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, output: dict | None = None) -> str:
+    if event_type == "task_started":
+        return "编排器已启动：将按步骤执行，并记录每一步状态。"
+    if event_type == "task_completed":
+        return "编排器已完成：结果和生成物已保存。"
+    if not step:
+        return "任务状态已更新。"
+    prefix = f"第 {step.get('sort_order')} 步：{step.get('title') or step.get('key')}"
+    if event_type == "step_started":
+        return f"{prefix}，开始执行。"
+    if event_type == "step_completed":
+        if step.get("key") == "collect_context":
+            project = (output or {}).get("project") or {}
+            return f"{prefix}，完成。已读取项目「{project.get('name') or '-'}」和客户「{project.get('client') or '-'}」资料。"
+        if step.get("key") == "draft_slide_spec":
+            return f"{prefix}，完成。已形成 {len((output or {}).get('slides') or [])} 页 PPT 结构。"
+        if step.get("key") == "create_deck":
+            return f"{prefix}，完成。PPT 文件「{(output or {}).get('name') or (output or {}).get('file_name') or '-'}」已保存到项目空间。"
+        return f"{prefix}，完成。"
+    if event_type == "step_failed":
+        return f"{prefix}，失败：{step.get('error_message') or '未知错误'}。前面已完成步骤会保留，可从这里重试。"
+    return f"{prefix}，状态更新为 {step.get('status')}。"
 
 
 def create_task_run(
@@ -407,10 +494,20 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
 
 
 async def execute_task_run_in_session(session: Session, task_id: int) -> None:
+    async for _ in stream_execute_task_run_in_session(session, task_id):
+        pass
+
+
+async def stream_execute_task_run_in_session(session: Session, task_id: int) -> AsyncIterator[dict[str, Any]]:
     task = session.get(TaskRun, task_id)
     if task is None or task.status in TASK_STATUS_TERMINAL:
         return
     _record_event(session, task, event_type="task_started", message="任务开始执行")
+    yield {
+        "event_type": "task_started",
+        "message": task_step_log_message("task_started"),
+        "task": serialize_task_run(session, task, include_events=True),
+    }
     steps = session.exec(
         select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)
     ).all()
@@ -418,12 +515,30 @@ async def execute_task_run_in_session(session: Session, task_id: int) -> None:
         if step.status == "completed":
             continue
         _start_step(session, task, step)
+        yield {
+            "event_type": "step_started",
+            "step": _serialize_step(step),
+            "message": task_step_log_message("step_started", _serialize_step(step)),
+            "task": serialize_task_run(session, task, include_events=True),
+        }
         try:
             output = await _execute_step(session, task, step)
         except Exception as exc:
             _fail_step(session, task, step, exc)
+            yield {
+                "event_type": "step_failed",
+                "step": _serialize_step(step),
+                "message": task_step_log_message("step_failed", _serialize_step(step)),
+                "task": serialize_task_run(session, task, include_events=True),
+            }
             return
         _complete_step(session, task, step, output)
+        yield {
+            "event_type": "step_completed",
+            "step": _serialize_step(step),
+            "message": task_step_log_message("step_completed", _serialize_step(step), output),
+            "task": serialize_task_run(session, task, include_events=True),
+        }
 
     now = utc_now_naive()
     final_output = _previous_step_output(session, task.id, "summarize_result")
@@ -437,6 +552,11 @@ async def execute_task_run_in_session(session: Session, task_id: int) -> None:
     session.add(task)
     session.commit()
     _record_event(session, task, event_type="task_completed", message="任务已完成", payload=final_output)
+    yield {
+        "event_type": "task_completed",
+        "message": task_step_log_message("task_completed"),
+        "task": serialize_task_run(session, task, include_events=True),
+    }
 
 
 async def execute_task_run(task_id: int) -> None:

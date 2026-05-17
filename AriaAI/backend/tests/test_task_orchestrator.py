@@ -8,8 +8,10 @@ from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.services import task_orchestrator
 from app.services.task_orchestrator import (
     create_task_run,
+    detect_project_task_type,
     execute_task_run_in_session,
     serialize_task_run,
+    task_run_chat_summary,
 )
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -48,6 +50,32 @@ def test_create_task_run_persists_ordered_steps():
         assert payload["events"][0]["event_type"] == "task_created"
     finally:
         engine.dispose()
+
+
+def test_detect_project_task_type_routes_ppt_creation_requests():
+    assert detect_project_task_type("给客户准备一个 PPT 介绍") == "generate_client_ppt"
+    assert detect_project_task_type("please create a powerpoint deck for the client") == "generate_client_ppt"
+    assert detect_project_task_type("这个项目风险是什么") is None
+
+
+def test_task_run_chat_summary_mentions_steps_and_retry_hint():
+    payload = {
+        "id": 7,
+        "goal": "给客户准备 PPT",
+        "status": "failed",
+        "steps": [
+            {"title": "收集项目上下文", "status": "completed"},
+            {"title": "生成并保存 PPT", "status": "failed", "error_message": "template unavailable"},
+        ],
+        "artifacts": [],
+    }
+
+    summary = task_run_chat_summary(payload)
+
+    assert "任务 ID：7" in summary
+    assert "收集项目上下文：完成" in summary
+    assert "生成并保存 PPT：失败" in summary
+    assert "失败步骤重试" in summary
 
 
 def test_execute_task_run_completes_and_records_artifact(monkeypatch):
