@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import Skill
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
+from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
@@ -20,6 +21,13 @@ DIGITAL_STRATEGY_TOOL_NAMES = ["generate_ppt_from_skill"]
 PRESENTATION_BUILDER_SKILL_NAME = "顾问式PPT生成"
 PRESENTATION_BUILDER_PROMPT_MARKER = "presentation-builder workflow"
 PRESENTATION_BUILDER_TOOL_NAMES = ["generate_ppt_from_skill"]
+OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME = "Office 文档读写助手"
+OFFICE_DOCUMENT_ASSISTANT_PROMPT_MARKER = "office-document-assistant v2"
+OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES = [
+    "read_project_file",
+    "write_project_office_document",
+    "manage_project_folders",
+]
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 
 _skills_cache = TTLCache()
@@ -625,6 +633,32 @@ GSTACK_PRO_SKILLS = [
         "tools": ["assess", "benchmark", "roadmap"],
     },
     {
+        "name": OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME,
+        "category": "提案与项目交付",
+        "description": "读取项目空间里的 Word、Excel、PPT、PDF，并生成基础 Office/PDF 交付文件。",
+        "system_prompt": (
+            "你是 Office/PDF 文档助手，遵循 office-document-assistant v2。\n\n"
+            "目标：帮助用户读取项目文件，并生成可在项目空间继续使用的 DOCX、XLSX、PPTX 或 PDF。\n\n"
+            "规则：\n"
+            "1. 需要查看项目文件时，先调用 read_project_file action='list'；确定目标后再用 action='read' 读取。\n"
+            "2. 支持读取 PDF、DOCX、PPTX、XLSX/XLS、MD、TXT、CSV、JSON；只依据读取到的内容回答。\n"
+            "3. 需要写文件时，调用 write_project_office_document，并默认保存到当前项目空间的相应文件夹。\n"
+            "4. 如需维护空间目录，调用 manage_project_folders 列出、创建、重命名文件夹，或把文件移动到正确文件夹。\n"
+            "5. 写 DOCX 使用 sections；写 XLSX 使用 sheets；写 PPTX 使用 slides；写 PDF 使用 title + content。\n"
+            "6. 文件名要清楚，summary 不超过 30 个中文字符。\n"
+            "7. 完成后只用一两句话说明文件名、格式、所在文件夹和结果，不输出工具 JSON。"
+        ),
+        "user_template": (
+            "请处理项目空间文档：\n\n"
+            "任务：\n"
+            "目标文件（可选）：\n"
+            "输出格式（回复 / DOCX / XLSX / PPTX / PDF）：\n"
+            "要求："
+        ),
+        "estimated_time": "~5 min",
+        "tools": OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES,
+    },
+    {
         "name": PRESENTATION_BUILDER_SKILL_NAME,
         "category": "提案与项目交付",
         "description": "基础顾问式 PPT 生成 Skill，支持战略汇报、客户提案、项目进展三类常用 preset，并可复用 digital-strategy 基础模板。",
@@ -1165,10 +1199,12 @@ def ensure_builtin_pro_skills(session: Session) -> int:
     prompt_markers = {
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_PROMPT_MARKER,
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
+        OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_PROMPT_MARKER,
     }
     template_tool_names = {
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_TOOL_NAMES,
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
+        OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES,
     }
 
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
