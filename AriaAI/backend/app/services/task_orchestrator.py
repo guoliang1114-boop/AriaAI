@@ -23,9 +23,20 @@ from app.services.time_utils import utc_now_naive
 from app.tools.office_documents import write_project_office_document
 
 TASK_STATUS_TERMINAL = {"completed", "failed", "canceled"}
-SUPPORTED_TASK_TYPES = {"generate_client_ppt"}
+SUPPORTED_TASK_TYPES = {
+    "generate_client_ppt",
+    "generate_project_excel",
+    "generate_project_docx",
+    "generate_project_pdf",
+}
 _PPT_INTENT_TERMS = ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍")
-_CREATE_INTENT_TERMS = ("准备", "生成", "创建", "做", "制作", "输出", "给客户", "介绍", "proposal", "prepare", "create", "generate", "make")
+_EXCEL_INTENT_TERMS = ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "清单", "台账")
+_DOCX_INTENT_TERMS = ("word", "docx", "文档", "报告", "方案", "材料")
+_PDF_INTENT_TERMS = ("pdf",)
+_CREATE_INTENT_TERMS = (
+    "准备", "生成", "创建", "制作", "输出", "导出", "整理成", "形成", "写一份", "做一份",
+    "proposal", "prepare", "create", "generate", "make", "export", "draft",
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,13 @@ GENERATE_CLIENT_PPT_STEPS = [
     StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
 ]
 
+GENERATE_PROJECT_DOCUMENT_STEPS = [
+    StepSpec("collect_context", "收集项目上下文", "collect_project_context"),
+    StepSpec("draft_document_spec", "生成交付物结构", "build_document_spec"),
+    StepSpec("create_document", "生成并保存文件", "write_project_office_document"),
+    StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
+]
+
 
 def detect_project_task_type(content: str) -> str | None:
     """Detect requests that should run as durable project tasks instead of a single chat turn."""
@@ -50,9 +68,18 @@ def detect_project_task_type(content: str) -> str | None:
     if not normalized:
         return None
     wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
+    wants_excel = any(term in normalized for term in _EXCEL_INTENT_TERMS)
+    wants_pdf = any(term in normalized for term in _PDF_INTENT_TERMS)
+    wants_docx = any(term in normalized for term in _DOCX_INTENT_TERMS)
     wants_create = any(term in normalized for term in _CREATE_INTENT_TERMS)
     if wants_ppt and wants_create:
         return "generate_client_ppt"
+    if wants_excel and wants_create:
+        return "generate_project_excel"
+    if wants_pdf and wants_create:
+        return "generate_project_pdf"
+    if wants_docx and wants_create:
+        return "generate_project_docx"
     return None
 
 
@@ -221,6 +248,10 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
                 line += f"。已生成 {len(output.get('slides') or [])} 页 PPT 结构。"
             elif step.get("key") == "create_deck":
                 line += f"。已保存文件「{output.get('name') or output.get('file_name') or '-'}」。"
+            elif step.get("key") == "draft_document_spec":
+                line += f"。已生成 {str(output.get('file_type') or '').upper()} 交付物结构。"
+            elif step.get("key") == "create_document":
+                line += f"。已保存文件「{output.get('name') or output.get('file_name') or '-'}」。"
         lines.append(line)
 
     artifacts = payload.get("artifacts") or []
@@ -251,6 +282,10 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
             return f"{prefix}，完成。已形成 {len((output or {}).get('slides') or [])} 页 PPT 结构。"
         if step.get("key") == "create_deck":
             return f"{prefix}，完成。PPT 文件「{(output or {}).get('name') or (output or {}).get('file_name') or '-'}」已保存到项目空间。"
+        if step.get("key") == "draft_document_spec":
+            return f"{prefix}，完成。已形成 {str((output or {}).get('file_type') or '').upper()} 文件结构。"
+        if step.get("key") == "create_document":
+            return f"{prefix}，完成。文件「{(output or {}).get('name') or (output or {}).get('file_name') or '-'}」已保存到项目空间。"
         return f"{prefix}，完成。"
     if event_type == "step_failed":
         return f"{prefix}，失败：{step.get('error_message') or '未知错误'}。前面已完成步骤会保留，可从这里重试。"
@@ -285,7 +320,7 @@ def create_task_run(
     session.commit()
     session.refresh(task)
 
-    steps = GENERATE_CLIENT_PPT_STEPS if task_type == "generate_client_ppt" else []
+    steps = GENERATE_CLIENT_PPT_STEPS if task_type == "generate_client_ppt" else GENERATE_PROJECT_DOCUMENT_STEPS
     for index, spec in enumerate(steps, start=1):
         session.add(
             TaskStep(
@@ -438,8 +473,99 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[st
     ]
 
 
+def _document_file_type_for_task(task_type: str) -> str:
+    return {
+        "generate_project_excel": "xlsx",
+        "generate_project_docx": "docx",
+        "generate_project_pdf": "pdf",
+    }.get(task_type, "docx")
+
+
+def _default_xlsx_sheets(goal: str, context: dict[str, Any]) -> list[dict[str, Any]]:
+    text = (goal or "").lower()
+    if any(token in text for token in ("访谈", "interview")):
+        return [
+            {
+                "name": "访谈计划",
+                "headers": ["访谈对象", "角色/部门", "访谈主题", "核心问题", "时间", "负责人", "状态", "备注"],
+                "data": [
+                    ["", "", "背景与目标", "当前最需要确认的业务目标是什么？", "", "", "待安排", ""],
+                    ["", "", "现状与痛点", "现有流程、系统或协作中最大的阻塞是什么？", "", "", "待安排", ""],
+                    ["", "", "决策与下一步", "后续决策需要哪些材料、数据或参与人？", "", "", "待安排", ""],
+                ],
+            },
+            {
+                "name": "访谈记录",
+                "headers": ["日期", "访谈对象", "关键观点", "风险/分歧", "待补充资料", "下一步动作", "负责人"],
+                "data": [],
+            },
+        ]
+    memory = context.get("memory") or {}
+    return [
+        {
+            "name": "项目清单",
+            "headers": ["事项", "说明", "负责人", "状态", "备注"],
+            "data": [
+                ["当前目标", memory.get("current_objective") or "待补充", "", "待确认", ""],
+                ["下一步动作", "；".join((memory.get("next_actions") or [])[:3]) or "待补充", "", "待推进", ""],
+            ],
+        }
+    ]
+
+
+def _default_document_sections(goal: str, context: dict[str, Any]) -> list[dict[str, Any]]:
+    project = context.get("project") or {}
+    memory = context.get("memory") or {}
+    client_memory = context.get("client_memory") or {}
+
+    def join_items(items: list[str] | None, fallback: str) -> str:
+        values = [str(item).strip() for item in (items or []) if str(item).strip()]
+        return "\n".join(f"- {item}" for item in values[:6]) if values else fallback
+
+    return [
+        {
+            "heading": "项目背景",
+            "level": 1,
+            "content": memory.get("project_brief") or project.get("description") or goal,
+        },
+        {
+            "heading": "当前目标",
+            "level": 1,
+            "content": memory.get("current_objective") or "围绕本次请求形成可交付材料，并保存到项目空间。",
+        },
+        {
+            "heading": "客户关注与风险",
+            "level": 1,
+            "content": "\n".join(
+                [
+                    join_items(client_memory.get("sensitive_topics"), "暂无明确客户敏感点。"),
+                    join_items(memory.get("key_risks"), "暂无结构化风险。"),
+                ]
+            ),
+        },
+        {
+            "heading": "建议下一步",
+            "level": 1,
+            "content": join_items(memory.get("next_actions"), "确认责任人、时间节点和后续资料补充。"),
+        },
+    ]
+
+
+def _build_project_document_spec(context: dict[str, Any], goal: str, file_type: str, title: str) -> dict[str, Any]:
+    if file_type == "xlsx":
+        return {"title": title, "file_type": file_type, "sheets": _default_xlsx_sheets(goal, context)}
+    sections = _default_document_sections(goal, context)
+    content = "\n\n".join(f"# {item['heading']}\n{item['content']}" for item in sections)
+    return {
+        "title": title,
+        "file_type": file_type,
+        "sections": sections,
+        "content": content,
+    }
+
+
 async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict[str, Any]:
-    if task.task_type != "generate_client_ppt":
+    if task.task_type not in SUPPORTED_TASK_TYPES:
         raise ValueError(f"Unsupported task type: {task.task_type}")
     if task.project_id is None:
         raise ValueError("Project id is required")
@@ -460,6 +586,12 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         context = _previous_step_output(session, task.id, "collect_context")
         slides = _build_client_ppt_slides(context, task.goal)
         return {"title": task_input.get("title") or context.get("project", {}).get("name") or task.goal, "slides": slides}
+
+    if step.key == "draft_document_spec":
+        context = _previous_step_output(session, task.id, "collect_context")
+        title = str(task_input.get("title") or task.goal or context.get("project", {}).get("name") or "项目交付物")
+        file_type = str(task_input.get("file_type") or _document_file_type_for_task(task.task_type))
+        return _build_project_document_spec(context, task.goal, file_type, title)
 
     if step.key == "create_deck":
         slide_spec = _previous_step_output(session, task.id, "draft_slide_spec")
@@ -488,10 +620,41 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         session.commit()
         return result
 
+    if step.key == "create_document":
+        document_spec = _previous_step_output(session, task.id, "draft_document_spec")
+        project = session.get(Project, task.project_id)
+        file_type = str(document_spec.get("file_type") or task_input.get("file_type") or _document_file_type_for_task(task.task_type))
+        title = str(task_input.get("title") or document_spec.get("title") or task.goal)
+        file_name = str(task_input.get("file_name") or f"{_slugify_filename(title)}.{file_type}")
+        result = await write_project_office_document(
+            project_id=task.project_id,
+            file_type=file_type,
+            file_name=file_name,
+            title=title,
+            content=str(document_spec.get("content") or ""),
+            sections=document_spec.get("sections"),
+            sheets=document_spec.get("sheets"),
+            slides=document_spec.get("slides"),
+            folder_id=task_input.get("folder_id"),
+            summary=task_input.get("summary") or f"AI generated {file_type.upper()} document for {project.client if project else 'project'}",
+        )
+        artifact = TaskArtifact(
+            task_run_id=task.id,
+            step_id=step.id,
+            project_file_id=result.get("id"),
+            name=result.get("name") or file_name,
+            file_type=result.get("file_type") or file_type,
+            path=result.get("path") or "",
+            metadata_json=_json_dumps(result),
+        )
+        session.add(artifact)
+        session.commit()
+        return result
+
     if step.key == "summarize_result":
-        deck = _previous_step_output(session, task.id, "create_deck")
+        deck = _previous_step_output(session, task.id, "create_deck") or _previous_step_output(session, task.id, "create_document")
         return {
-            "message": f"任务完成，已生成 {deck.get('name') or deck.get('file_name') or 'PPT'} 并保存到项目空间。",
+            "message": f"任务完成，已生成 {deck.get('name') or deck.get('file_name') or '文件'} 并保存到项目空间。",
             "artifact": deck,
         }
 

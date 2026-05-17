@@ -736,6 +736,38 @@ export interface GeneratedArtifact {
   created_at?: string
 }
 
+export interface TaskRunStep {
+  id: number
+  key: string
+  title: string
+  step_type: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | string
+  sort_order: number
+  output?: Record<string, unknown>
+  error_message?: string
+}
+
+export interface TaskRunArtifact {
+  id?: number
+  project_file_id?: number
+  name: string
+  file_type: string
+  path: string
+  metadata?: Record<string, unknown>
+}
+
+export interface TaskRun {
+  id: number
+  project_id?: number
+  conversation_id?: number | null
+  task_type: string
+  goal: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled' | string
+  current_step_key?: string
+  steps?: TaskRunStep[]
+  artifacts?: TaskRunArtifact[]
+}
+
 export interface MessageMetadata {
   references?: Reference[]
   tool_calls?: ToolCallEvent[]
@@ -767,7 +799,7 @@ export interface SendMessageRequest {
 }
 
 export interface StreamEvent {
-  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'done' | 'error'
+  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'task_run' | 'done' | 'error'
   id?: number
   content?: string
   stage?: string
@@ -781,6 +813,7 @@ export interface StreamEvent {
   total?: number
   current?: number
   result?: Record<string, unknown>
+  task?: TaskRun
   artifacts?: GeneratedArtifact[]
   error?: string
 }

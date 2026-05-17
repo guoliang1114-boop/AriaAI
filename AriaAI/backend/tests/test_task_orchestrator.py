@@ -60,7 +60,11 @@ def test_create_task_run_persists_ordered_steps():
 def test_detect_project_task_type_routes_ppt_creation_requests():
     assert detect_project_task_type("给客户准备一个 PPT 介绍") == "generate_client_ppt"
     assert detect_project_task_type("please create a powerpoint deck for the client") == "generate_client_ppt"
+    assert detect_project_task_type("我想要准备一个访谈的excel") == "generate_project_excel"
+    assert detect_project_task_type("帮我生成一份项目总结word文档") == "generate_project_docx"
+    assert detect_project_task_type("输出一个客户沟通pdf") == "generate_project_pdf"
     assert detect_project_task_type("这个项目风险是什么") is None
+    assert detect_project_task_type("介绍一下这个报告的重点") is None
 
 
 def test_task_run_chat_summary_mentions_steps_and_retry_hint():
@@ -123,6 +127,49 @@ def test_execute_task_run_completes_and_records_artifact(monkeypatch):
         assert all(step.status == "completed" for step in steps)
         assert artifacts and artifacts[0].file_type == "pptx"
         assert any(event.event_type == "task_completed" for event in events)
+    finally:
+        engine.dispose()
+
+
+def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
+    engine = _setup_engine()
+
+    async def fake_write_project_office_document(**kwargs):
+        assert kwargs["project_id"]
+        assert kwargs["file_type"] == "xlsx"
+        assert kwargs["sheets"][0]["name"] == "访谈计划"
+        return {
+            "ok": True,
+            "id": None,
+            "name": kwargs["file_name"],
+            "file_type": "xlsx",
+            "path": "projects/1/generated/interview.xlsx",
+        }
+
+    monkeypatch.setattr(task_orchestrator, "write_project_office_document", fake_write_project_office_document)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Excel Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="我想要准备一个访谈的excel",
+                input_data={"file_name": "interview.xlsx"},
+            )
+
+            asyncio.run(execute_task_run_in_session(session, task.id))
+            session.refresh(task)
+            steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
+            artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
+
+        assert task.status == "completed"
+        assert [step.key for step in steps] == ["collect_context", "draft_document_spec", "create_document", "summarize_result"]
+        assert all(step.status == "completed" for step in steps)
+        assert artifacts and artifacts[0].file_type == "xlsx"
     finally:
         engine.dispose()
 

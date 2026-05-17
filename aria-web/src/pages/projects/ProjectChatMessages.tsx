@@ -176,7 +176,7 @@ export function ProjectChatMessages({
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
             />
           ))}
-          {streamingContent && (
+          {(streamingContent || streamingToolCalls.length > 0 || streamingArtifacts.length > 0 || streamingReferences.length > 0) && (
             <ChatStreamingMessage
               artifacts={streamingArtifacts}
               content={streamingContent}
@@ -188,7 +188,7 @@ export function ProjectChatMessages({
               toolCalls={streamingToolCalls}
             />
           )}
-          {isLoading && !streamingContent && (
+          {isLoading && !streamingContent && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (
             <div className="mx-auto flex max-w-5xl gap-3">
               <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-white" />

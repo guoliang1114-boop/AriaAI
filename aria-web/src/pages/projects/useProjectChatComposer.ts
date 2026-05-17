@@ -15,6 +15,7 @@ import type {
   Reference,
   StreamEvent,
   ToolCallEvent,
+  TaskRun,
 } from "../../types/api";
 
 function parseMessageMetadata(metadataJson: string): MessageMetadata {
@@ -104,6 +105,58 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
   };
 }
 
+function artifactFromTaskRunArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
+  if (!artifact?.name || !artifact.path || !artifact.file_type) return null;
+  return {
+    name: artifact.name,
+    file_type: artifact.file_type,
+    path: artifact.path,
+    project_file_id: artifact.project_file_id,
+    description:
+      typeof artifact.metadata?.summary === "string"
+        ? artifact.metadata.summary
+        : typeof artifact.metadata?.message === "string"
+          ? artifact.metadata.message
+          : "",
+  };
+}
+
+function workflowStepFromTask(step: NonNullable<TaskRun["steps"]>[number], total: number): ToolCallEvent {
+  const status: ToolCallEvent["status"] =
+    step.status === "completed" || step.status === "skipped"
+      ? "completed"
+      : step.status === "failed"
+        ? "error"
+        : "running";
+  return {
+    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
+    status,
+    message:
+      status === "completed"
+        ? "该步骤已完成。"
+        : status === "error"
+          ? step.error_message || "该步骤执行失败，可稍后从任务记录重试。"
+          : "该步骤正在执行或等待执行。",
+    error: status === "error" ? step.error_message : undefined,
+    step_index: step.sort_order,
+    step_total: total,
+    step_title: step.title || step.key,
+  };
+}
+
+function buildArtifactFallbackContent(artifacts: GeneratedArtifact[], isZh = true) {
+  if (artifacts.length === 0) return "";
+  const names = artifacts.map((artifact) => artifact.name).filter(Boolean).join(isZh ? "、" : ", ");
+  if (isZh) {
+    return names
+      ? `已生成附件：${names}。可在本条回复中的文件卡片里直接打开或下载。`
+      : "已生成附件。可在本条回复中的文件卡片里直接打开或下载。";
+  }
+  return names
+    ? `Generated attachment: ${names}. You can open or download it from the file card in this reply.`
+    : "Generated an attachment. You can open or download it from the file card in this reply.";
+}
+
 function upsertWorkflowStep(
   steps: ToolCallEvent[],
   next: ToolCallEvent,
@@ -121,6 +174,13 @@ function upsertWorkflowStep(
         }
       : item,
   );
+}
+
+function upsertArtifacts(current: GeneratedArtifact[], incoming: GeneratedArtifact[]) {
+  return incoming.reduce<GeneratedArtifact[]>((items, artifact) => {
+    if (!artifact.path || items.some((item) => item.path === artifact.path)) return items;
+    return [...items, artifact];
+  }, current);
 }
 
 type UseProjectChatComposerParams = {
@@ -275,6 +335,24 @@ export function useProjectChatComposer({
           } else if (payload.type === "references") {
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);
+          } else if (payload.type === "task_run" && payload.task) {
+            const task = payload.task;
+            const steps = task.steps || [];
+            if (steps.length > 0) {
+              collectedToolCalls = steps
+                .filter((step) => step.status !== "pending")
+                .reduce<ToolCallEvent[]>((items, step) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length)), collectedToolCalls);
+              setStreamingToolCalls(collectedToolCalls);
+            }
+            if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
+              collectedArtifacts = upsertArtifacts(
+                collectedArtifacts,
+                task.artifacts
+                  .map((artifact) => artifactFromTaskRunArtifact(artifact))
+                  .filter((artifact): artifact is GeneratedArtifact => Boolean(artifact)),
+              );
+              setStreamingArtifacts(collectedArtifacts);
+            }
           } else if (payload.type === "tool_executing" && payload.tool_name) {
             if (collectedToolCalls.some((call) => call.step_index === 3)) {
               const stepCall: ToolCallEvent = {
@@ -357,12 +435,13 @@ export function useProjectChatComposer({
         }
       }
 
+      const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
       setStreamingContent("");
       setStreamingToolCalls([]);
-      if (fullContent.trim()) {
+      if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
         const assistantMessage = buildAssistantMessage({
           artifacts: collectedArtifacts,
-          content: fullContent,
+          content: finalContent,
           conversationId,
           projectId,
           references: collectedReferences,

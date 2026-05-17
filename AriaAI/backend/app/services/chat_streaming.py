@@ -313,6 +313,29 @@ def _workflow_status(
     }
 
 
+def _workflow_status_from_task_event(task_event: dict) -> dict | None:
+    step = task_event.get("step") or {}
+    if not step:
+        return None
+    task = task_event.get("task") or {}
+    steps = task.get("steps") or []
+    step_total = len(steps) or int(step.get("sort_order") or 1)
+    event_type = str(task_event.get("event_type") or "")
+    status = "running"
+    if event_type == "step_completed":
+        status = "completed"
+    elif event_type == "step_failed":
+        status = "error"
+    return _workflow_status(
+        step_index=int(step.get("sort_order") or 1),
+        step_total=step_total,
+        title=str(step.get("title") or step.get("key") or "执行步骤"),
+        stage="tools",
+        status=status,
+        message=str(task_event.get("message") or ""),
+    )
+
+
 def _workflow_plan_events(*, step_total: int = TOOL_WORKFLOW_STEP_TOTAL) -> list[dict]:
     return [
         _workflow_status(
@@ -562,6 +585,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 )
                 async for task_event in stream_execute_task_run_in_session(task_session, task.id):
                     event_message = task_event.get("message") or "任务状态已更新。"
+                    workflow_event = _workflow_status_from_task_event(task_event)
+                    if workflow_event:
+                        yield _sse_event(workflow_event)
                     yield _sse_event(
                         {
                             "type": "status",
@@ -1417,8 +1443,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         artifact_notice = _build_artifact_notice(artifacts) if artifacts else ""
         if not full_text and artifact_notice:
             full_text = artifact_notice
+            yield _sse_event({"type": "text", "content": artifact_notice})
         elif artifact_notice and artifact_notice not in full_text:
             full_text = f"{full_text}\n\n{artifact_notice}".strip()
+            yield _sse_event({"type": "text", "content": f"\n\n{artifact_notice}"})
 
         if not full_text:
             full_text = (

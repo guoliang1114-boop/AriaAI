@@ -3906,7 +3906,15 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertIn("stage_timings", assistant_messages[0].metadata_json)
 
     def test_stream_chat_events_repairs_project_office_tool_in_p3_follow_up(self):
+        with Session(self.engine) as session:
+            project = Project(name="Office Repair Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+
         conv_id = self._create_conversation()
+        prompt = "访谈的excel参数补齐"
         llm = FakeStreamingLLM(
             [
                 ['{"type":"tool_use","id":"tool-read","name":"read_project_markdown_document","input":{"file_id":1}}'],
@@ -3919,17 +3927,17 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         runtime = ChatRuntime(
             conv_id=conv_id,
-            project_id=27,
+            project_id=project_id,
             selected_model="claude-sonnet-4-6",
             llm=llm,
             system="system",
-            api_messages=[{"role": "user", "content": "我想要准备一个访谈的excel"}],
+            api_messages=[{"role": "user", "content": prompt}],
             rag_sources=[],
             tools=[{"name": "read_project_markdown_document"}, {"name": "write_project_office_document"}],
             max_tokens=1024,
             temperature=0.7,
         )
-        req = chat_router_module.SendMessageRequest(content="我想要准备一个访谈的excel", project_id=27)
+        req = chat_router_module.SendMessageRequest(content=prompt, project_id=project_id)
 
         async def mock_execute(name, input_data):
             if name == "read_project_markdown_document":
@@ -3944,7 +3952,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                         "project_file_id": 99,
                         "file_name": input_data["file_name"],
                         "file_type": input_data["file_type"],
-                        "file_path": f"projects/27/{input_data['file_name']}",
+                        "file_path": f"projects/{project_id}/{input_data['file_name']}",
                     },
                 }
             raise AssertionError(f"Unexpected tool call: {name}")
@@ -3955,7 +3963,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
         office_call = [call for call in execute_mock.await_args_list if call.args[0] == "write_project_office_document"][0]
         office_input = office_call.args[1]
-        self.assertEqual(office_input["project_id"], 27)
+        self.assertEqual(office_input["project_id"], project_id)
         self.assertEqual(office_input["file_type"], "xlsx")
         self.assertTrue(office_input["file_name"].endswith(".xlsx"))
         self.assertEqual(office_input["sheets"][0]["name"], "访谈计划")
