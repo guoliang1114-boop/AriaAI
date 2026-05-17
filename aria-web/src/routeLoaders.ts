@@ -1,4 +1,5 @@
 export const loadWelcome = () => import('./pages/Welcome')
+export const loadWorkspace = () => import('./pages/Workspace')
 export const loadChat = () => import('./pages/chat/Chat')
 export const loadSkills = () => import('./pages/skills/Skills')
 export const loadProjects = () => import('./pages/projects/Projects')
@@ -28,7 +29,8 @@ export const loadForbidden = () => import('./pages/Forbidden')
 export const loadNotFound = () => import('./pages/NotFound')
 
 export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {
-  '/': loadWelcome,
+  '/': loadWorkspace,
+  '/workspace': loadWorkspace,
   '/chat': loadChat,
   '/skills': loadSkills,
   '/projects': loadProjects,
@@ -41,6 +43,7 @@ export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {
 
 export const warmPrimaryRoutes = () =>
   Promise.allSettled([
+    loadWorkspace(),
     loadChat(),
     loadSkills(),
     loadProjects(),

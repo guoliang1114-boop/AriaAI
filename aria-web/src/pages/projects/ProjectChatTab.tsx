@@ -110,6 +110,14 @@ export function ProjectChatTab({
   } | null>(null);
   const [isCapturingStakeholders, setIsCapturingStakeholders] = useState(false);
   const [isApplyingStakeholders, setIsApplyingStakeholders] = useState(false);
+  const [autoStakeholderBanner, setAutoStakeholderBanner] = useState<{
+    candidates: StakeholderCandidate[];
+    clientName: string;
+    sourceText: string;
+  } | null>(null);
+  const [isQuickApplyingStakeholders, setIsQuickApplyingStakeholders] = useState(false);
+  const prevIsLoadingRef = useRef(false);
+  const dismissedAutoDetectRef = useRef<string>("");
   const [previewFile, setPreviewFile] = useState<ProjectFile | null>(null);
   const [isUploadingProjectFile, setIsUploadingProjectFile] = useState(false);
   const [previewContent, setPreviewContent] = useState("");
@@ -193,6 +201,53 @@ export function ProjectChatTab({
     scrollToBottom: panel.scrollToBottom,
     onSendError: () => toast.error(copy.sendFailed),
   });
+
+  useEffect(() => {
+    if (prevIsLoadingRef.current && !isLoading) {
+      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant && lastAssistant.content.length > 30 && lastAssistant.content !== dismissedAutoDetectRef.current) {
+        void (async () => {
+          try {
+            const result = await api.post<{ client_name: string; candidates: StakeholderCandidate[] }>(
+              `/projects/${project.id}/stakeholder-candidates`,
+              { text: lastAssistant.content },
+            );
+            if (result.candidates.length > 0) {
+              setAutoStakeholderBanner({
+                candidates: result.candidates,
+                clientName: result.client_name,
+                sourceText: lastAssistant.content,
+              });
+            }
+          } catch {
+            // silently ignore — auto-detection failures shouldn't disrupt chat
+          }
+        })();
+      }
+    }
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading, messages, project.id]);
+
+  const handleQuickApplyStakeholders = async () => {
+    if (!autoStakeholderBanner) return;
+    try {
+      setIsQuickApplyingStakeholders(true);
+      const result = await api.post<{ created: Array<{ name: string }>; skipped: Array<{ name: string }> }>(
+        `/projects/${project.id}/stakeholder-candidates/apply`,
+        { text: autoStakeholderBanner.sourceText },
+      );
+      if (result.created.length > 0) {
+        toast.success(isZh ? `已加入 ${result.created.length} 个客户干系人` : `Added ${result.created.length} client stakeholder(s)`);
+      } else {
+        toast.info(isZh ? "候选干系人已存在，无需重复加入" : "Stakeholder candidates already exist");
+      }
+      setAutoStakeholderBanner(null);
+    } catch {
+      toast.error(isZh ? "加入客户干系人失败" : "Failed to add client stakeholders");
+    } finally {
+      setIsQuickApplyingStakeholders(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -943,6 +998,54 @@ export function ProjectChatTab({
             <Loader2 className="h-4 w-4 animate-spin" />
             {isZh ? "正在识别客户干系人..." : "Detecting client stakeholders..."}
           </span>
+        </div>
+      ) : null}
+
+      {autoStakeholderBanner ? (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 max-w-xl rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
+          <div className="flex items-start gap-3">
+            <Users className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-gray-800">
+                {isZh
+                  ? <>检测到干系人：<span className="font-medium">{autoStakeholderBanner.candidates.map((c) => `${c.name}（${c.role}）`).join("、")}</span>，要不要加到客户卡片？</>
+                  : <>Detected stakeholders: <span className="font-medium">{autoStakeholderBanner.candidates.map((c) => `${c.name} (${c.role})`).join(", ")}</span>. Add to client card?</>
+                }
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleQuickApplyStakeholders()}
+                  disabled={isQuickApplyingStakeholders}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {isQuickApplyingStakeholders ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {isZh ? "添加" : "Add"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissedAutoDetectRef.current = autoStakeholderBanner.sourceText;
+                    setAutoStakeholderBanner(null);
+                  }}
+                  className="rounded-lg px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
+                >
+                  {isZh ? "忽略" : "Dismiss"}
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                dismissedAutoDetectRef.current = autoStakeholderBanner.sourceText;
+                setAutoStakeholderBanner(null);
+              }}
+              className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              aria-label={isZh ? "关闭" : "Close"}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       ) : null}
 

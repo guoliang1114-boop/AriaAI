@@ -29,7 +29,7 @@ export function Layout() {
   const isProjectDetailRoute = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname)
 
   const navItems = [
-    { path: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
+    { path: '/', label: isZh ? '工作台' : 'Workspace', icon: LayoutDashboard },
     { path: '/chat', label: t('nav.chat'), icon: MessageSquare },
     { path: '/skills', label: t('nav.skills'), icon: Wrench },
     { path: '/projects', label: t('nav.projects'), icon: FolderKanban },

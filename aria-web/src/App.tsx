@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './pages/Login'
 import {
   loadWelcome,
+  loadWorkspace,
   loadChat,
   loadSkills,
   loadProjects,
@@ -37,6 +38,7 @@ import {
 } from './routeLoaders'
 
 const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
+const Workspace = lazy(() => loadWorkspace().then((module) => ({ default: module.Workspace })))
 const Chat = lazy(() => loadChat().then((module) => ({ default: module.Chat })))
 const Skills = lazy(() => loadSkills().then((module) => ({ default: module.Skills })))
 const SkillCategoryPage = lazy(() => loadSkills().then((module) => ({ default: module.SkillCategoryPage })))
@@ -141,6 +143,22 @@ function AppRoutes() {
       >
         <Route
           index
+          element={
+            <LazyPage>
+              <Workspace />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="workspace"
+          element={
+            <LazyPage>
+              <Workspace />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="welcome"
           element={
             <LazyPage>
               <Welcome />

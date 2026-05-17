@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.routers.projects_deps import get_session
-from app.models.db import ClientStakeholder, ClientRecord, Project
+from app.models.db import ClientStakeholder, ClientRecord, Conversation, Message, Project
+from app.services.stakeholder_detection import detect_stakeholders_from_text
 from app.routers.projects_deps import (
     _build_project_briefing,
     _normalize_briefing_meeting_type,
@@ -144,6 +145,56 @@ async def refine_project_meeting_briefing(
             "generated_at": cached.updated_at.isoformat(),
             "cached": False,
         }
+
+
+@router.get("/{project_id}/stakeholder-candidates")
+def scan_recent_stakeholder_candidates(
+    project_id: int,
+    limit: int = 5,
+    session: Session = Depends(get_session),
+):
+    """Scan recent assistant messages in the project's conversations and return
+    stakeholder candidates that are NOT already in the stakeholder table."""
+    project = get_project_or_404(session, project_id)
+    client = _find_client_record_by_name(session, project.client)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Linked client not found")
+
+    conversations = session.exec(
+        select(Conversation).where(Conversation.project_id == project_id)
+    ).all()
+    if not conversations:
+        return {"project_id": project_id, "client_id": client.id, "client_name": client.name, "candidates": []}
+
+    conv_ids = [c.id for c in conversations if c.id is not None]
+    recent_messages = session.exec(
+        select(Message)
+        .where(Message.conversation_id.in_(conv_ids), Message.role == "assistant")  # type: ignore[attr-defined]
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    existing_names = {
+        _normalize_name(s.name)
+        for s in session.exec(select(ClientStakeholder).where(ClientStakeholder.client_id == client.id)).all()
+    }
+
+    seen: set[str] = set()
+    candidates: list[dict[str, str]] = []
+    for msg in recent_messages:
+        for cand in detect_stakeholders_from_text(msg.content):
+            normalized = _normalize_name(cand.get("name"))
+            if not normalized or normalized in seen or normalized in existing_names:
+                continue
+            seen.add(normalized)
+            candidates.append(cand)
+
+    return {
+        "project_id": project_id,
+        "client_id": client.id,
+        "client_name": client.name,
+        "candidates": candidates,
+    }
 
 
 @router.post("/{project_id}/stakeholder-candidates")

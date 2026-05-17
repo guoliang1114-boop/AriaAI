@@ -989,51 +989,9 @@ def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, lan
 
 
 def _extract_stakeholder_candidates_from_text(text: str, limit: int = 8) -> list[dict[str, str]]:
-    compact_text = " ".join((text or "").replace("\r", " ").replace("\n", " ").split())
-    candidates: list[dict[str, str]] = []
-    seen: set[str] = set()
+    from app.services.stakeholder_detection import detect_stakeholders_from_text
 
-    for match in _STAKEHOLDER_ROLE_PATTERN.finditer(compact_text):
-        raw_name = match.group("name").strip()
-        role = match.group("role").strip()
-        if len(raw_name) > 4 or raw_name in _STAKEHOLDER_NAME_STOPWORDS:
-            continue
-        name = f"{raw_name}{role}" if len(raw_name) == 1 else raw_name
-        key = f"{name}:{role}".lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(
-            {
-                "name": name,
-                "role": role,
-                "influence_type": role if role in {"采购", "财务", "法务", "安全", "商务"} else "",
-                "relationship_status": "unknown",
-                "note": _briefing_excerpt(compact_text, limit=180),
-            }
-        )
-        if len(candidates) >= limit:
-            return candidates
-
-    for match in _STAKEHOLDER_TITLE_PATTERN.finditer(compact_text):
-        title = match.group("title").strip()
-        key = title.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(
-            {
-                "name": title,
-                "role": title,
-                "influence_type": title,
-                "relationship_status": "unknown",
-                "note": _briefing_excerpt(compact_text, limit=180),
-            }
-        )
-        if len(candidates) >= limit:
-            return candidates
-
-    return candidates
+    return detect_stakeholders_from_text(text, limit=limit)
 
 
 def _record_project_memory_failure_by_id(

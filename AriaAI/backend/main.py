@@ -14,13 +14,14 @@ from app.config import (
     JWT_EXPIRATION_HOURS, SCHEDULER_ENABLED, SETTINGS_CACHE_TTL, validate_jwt_secret
 )
 from app.database import create_db, get_database_health, get_database_migration_governance, migrate_db, engine
-from app.routers import chat, projects, projects_memory, projects_files, projects_briefing, knowledge, settings, skills, schedules, templates, clients, artifacts, messages, memory_operations
+from app.routers import chat, projects, projects_memory, projects_files, projects_briefing, knowledge, settings, skills, schedules, templates, clients, clients_memory, clients_stakeholders, artifacts, messages, memory_operations
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
 
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
+from app.tools import office_documents  # noqa: F401
 from app.tools import pdf_translation  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS, ensure_builtin_pro_skills
 from app.services.project_core import init_default_project_folders
@@ -238,6 +239,8 @@ app.include_router(skills.router)
 app.include_router(schedules.router)
 app.include_router(templates.router)
 app.include_router(clients.router)
+app.include_router(clients_memory.router, prefix="/clients")
+app.include_router(clients_stakeholders.router, prefix="/clients")
 app.include_router(artifacts.router)
 app.include_router(messages.router)
 app.include_router(memory_operations.router)

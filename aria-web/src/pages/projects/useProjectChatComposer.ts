@@ -43,6 +43,36 @@ function mergeAssistantMetadata(message: Message, metadata: MessageMetadata): Me
   };
 }
 
+function buildAssistantMessage({
+  artifacts,
+  content,
+  conversationId,
+  projectId,
+  references,
+  toolCalls,
+}: {
+  artifacts: GeneratedArtifact[];
+  content: string;
+  conversationId: number;
+  projectId: number;
+  references: Reference[];
+  toolCalls: ToolCallEvent[];
+}): Message {
+  return {
+    id: Date.now() + 1,
+    conversation_id: conversationId,
+    role: "assistant",
+    content,
+    metadata_json: JSON.stringify({
+      artifacts,
+      project_id: projectId,
+      references,
+      tool_calls: toolCalls,
+    }),
+    created_at: new Date().toISOString(),
+  };
+}
+
 function summarizeToolResult(result: Record<string, unknown>, fallbackMessage?: string) {
   if (typeof result.error === "string" && result.error) return result.error;
   if (typeof result.file_name === "string" && result.file_name) {
@@ -145,6 +175,11 @@ export function useProjectChatComposer({
     isNearBottomRef.current = true;
     setTimeout(() => scrollToBottom(true), 0);
 
+    let fullContent = "";
+    let collectedReferences: Reference[] = [];
+    let collectedToolCalls: ToolCallEvent[] = [];
+    let collectedArtifacts: GeneratedArtifact[] = [];
+
     try {
       abortControllerRef.current = new AbortController();
       const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
@@ -170,10 +205,6 @@ export function useProjectChatComposer({
 
       const decoder = new TextDecoder();
       let buffer = "";
-      let fullContent = "";
-      let collectedReferences: Reference[] = [];
-      let collectedToolCalls: ToolCallEvent[] = [];
-      let collectedArtifacts: GeneratedArtifact[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -266,35 +297,42 @@ export function useProjectChatComposer({
 
       setStreamingContent("");
       setStreamingToolCalls([]);
-      await fetchMessages(conversationId);
-      if (
-        collectedReferences.length > 0 ||
-        collectedToolCalls.length > 0 ||
-        collectedArtifacts.length > 0
-      ) {
-        setMessages((prev) => {
-          const next = [...prev];
-          for (let index = next.length - 1; index >= 0; index -= 1) {
-            if (next[index]?.role === "assistant") {
-              next[index] = mergeAssistantMetadata(next[index], {
-                references: collectedReferences,
-                tool_calls: collectedToolCalls,
-                artifacts: collectedArtifacts,
-                project_id: projectId,
-              });
-              break;
-            }
-          }
-          return next;
+      if (fullContent.trim()) {
+        const assistantMessage = buildAssistantMessage({
+          artifacts: collectedArtifacts,
+          content: fullContent,
+          conversationId,
+          projectId,
+          references: collectedReferences,
+          toolCalls: collectedToolCalls,
         });
+        setMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        await fetchMessages(conversationId);
       }
-      await fetchConversations();
+      void fetchConversations();
       return true;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        const stoppedToolCalls = collectedToolCalls.map((call) =>
+          call.status === "running"
+            ? { ...call, status: "error" as const, error: "Generation stopped" }
+            : call,
+        );
         setStreamingContent("");
         setStreamingToolCalls([]);
-        await fetchMessages(conversationId);
+        if (fullContent.trim()) {
+          const assistantMessage = buildAssistantMessage({
+            artifacts: collectedArtifacts,
+            content: fullContent,
+            conversationId,
+            projectId,
+            references: collectedReferences,
+            toolCalls: stoppedToolCalls,
+          });
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+        void fetchConversations();
         return false;
       }
       console.error("Failed to send message:", error);
