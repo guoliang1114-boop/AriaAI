@@ -55,6 +55,13 @@ def _base_url(args: argparse.Namespace) -> str:
     ).rstrip("/")
 
 
+def _api_prefixed_url(url: str) -> str:
+    clean = url.rstrip("/")
+    if clean.endswith("/api"):
+        return clean
+    return f"{clean}/api"
+
+
 def _token(args: argparse.Namespace) -> str:
     config = _load_config()
     token = getattr(args, "token", None) or os.getenv("ARIA_AUTH_TOKEN") or config.get("token") or ""
@@ -168,14 +175,25 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 def cmd_login(args: argparse.Namespace) -> None:
     password = args.password or getpass.getpass("Password: ")
-    result = _request(
-        args,
-        "POST",
-        "/auth/login",
-        json_body={"email": args.email, "password": password},
-    )
+    body = {"email": args.email, "password": password}
+    try:
+        result = _request(args, "POST", "/auth/login", json_body=body)
+        login_base_url = _base_url(args)
+    except CliError as exc:
+        base_url = _base_url(args)
+        should_retry_with_api_prefix = (
+            not base_url.rstrip("/").endswith("/api")
+            and "HTTP 405" in str(exc)
+            and "<center><h1>405 Not Allowed</h1></center>" in str(exc)
+        )
+        if not should_retry_with_api_prefix:
+            raise
+        retry_args = argparse.Namespace(**vars(args))
+        retry_args.base_url = _api_prefixed_url(base_url)
+        result = _request(retry_args, "POST", "/auth/login", json_body=body)
+        login_base_url = retry_args.base_url
     config = _load_config()
-    config["base_url"] = _base_url(args)
+    config["base_url"] = login_base_url
     config["token"] = result["token"]
     _save_config(config)
     user = result.get("user") or {}

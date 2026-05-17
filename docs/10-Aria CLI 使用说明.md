@@ -24,10 +24,12 @@ scripts/aria_cli.py config show
 默认 API 地址是 `http://localhost:8000`。也可以指定：
 
 ```bash
-scripts/aria_cli.py --base-url https://aria.d2cgo.co auth login --email you@example.com
+scripts/aria_cli.py --base-url https://aria.d2cgo.co/api auth login --email you@example.com
 ```
 
 CLI 会把 `base_url` 和 token 保存到 `~/.aria-cli.json`。
+
+> 线上站点的后端接口挂在 `/api` 下。新版 CLI 如果误填根域名 `https://aria.d2cgo.co`，登录时会在遇到 nginx 405 后自动重试 `https://aria.d2cgo.co/api` 并保存正确地址。
 
 ## 项目
 
