@@ -1,17 +1,21 @@
-import { Download, FileText } from "lucide-react";
+import { Download, ExternalLink, FileText } from "lucide-react";
 import type { GeneratedArtifact } from "../../types/api";
 
 interface ProjectChatArtifactCardProps {
   artifact: GeneratedArtifact;
   isZh: boolean;
   onDownload: (artifact: GeneratedArtifact) => void;
+  onOpen?: (artifact: GeneratedArtifact) => void;
 }
 
 export function ProjectChatArtifactCard({
   artifact,
   isZh,
   onDownload,
+  onOpen,
 }: ProjectChatArtifactCardProps) {
+  const canOpenInSpace = Boolean(onOpen && artifact.project_file_id);
+
   return (
     <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3.5 py-3">
       <div className="flex items-start gap-3">
@@ -27,14 +31,26 @@ export function ProjectChatArtifactCard({
             {artifact.description ? <span className="truncate">{artifact.description}</span> : null}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onDownload(artifact)}
-          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-        >
-          <Download className="h-3.5 w-3.5" />
-          {isZh ? "下载" : "Download"}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {canOpenInSpace ? (
+            <button
+              type="button"
+              onClick={() => onOpen?.(artifact)}
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {isZh ? "打开" : "Open"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onDownload(artifact)}
+            className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {isZh ? "下载" : "Download"}
+          </button>
+        </div>
       </div>
     </div>
   );

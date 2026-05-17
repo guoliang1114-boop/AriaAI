@@ -99,8 +99,28 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
     name,
     file_type: fileType,
     path,
+    project_file_id: typeof source.project_file_id === "number" ? source.project_file_id : typeof source.id === "number" ? source.id : undefined,
     description: typeof source.note === "string" ? source.note : typeof source.message === "string" ? source.message : "",
   };
+}
+
+function upsertWorkflowStep(
+  steps: ToolCallEvent[],
+  next: ToolCallEvent,
+) {
+  if (!next.step_index) return [...steps, next];
+  const existingIndex = steps.findIndex((item) => item.step_index === next.step_index);
+  if (existingIndex === -1) return [...steps, next];
+  return steps.map((item, index) =>
+    index === existingIndex
+      ? {
+          ...item,
+          ...next,
+          summary: next.summary ?? item.summary,
+          error: next.error ?? item.error,
+        }
+      : item,
+  );
 }
 
 type UseProjectChatComposerParams = {
@@ -234,6 +254,21 @@ export function useProjectChatComposer({
             fullContent += payload.content;
             setStreamingContent(fullContent);
           } else if (payload.type === "status" && payload.message) {
+            if (payload.step_index) {
+              const stepCall: ToolCallEvent = {
+                tool_name: payload.step_title
+                  ? `步骤 ${payload.step_index}/${payload.step_total || 5}：${payload.step_title}`
+                  : `步骤 ${payload.step_index}/${payload.step_total || 5}`,
+                status: payload.step_status || "running",
+                message: payload.message,
+                step_index: payload.step_index,
+                step_total: payload.step_total,
+                step_title: payload.step_title,
+              };
+              collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
+              setStreamingToolCalls(collectedToolCalls);
+              continue;
+            }
             if (payload.stage === "saving" || payload.stage === "finalizing") {
               setStreamingToolCalls((prev) =>
                 prev.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
@@ -253,6 +288,19 @@ export function useProjectChatComposer({
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);
           } else if (payload.type === "tool_executing" && payload.tool_name) {
+            if (collectedToolCalls.some((call) => call.step_index === 3)) {
+              const stepCall: ToolCallEvent = {
+                tool_name: "步骤 3/5：执行 Skill / 工具",
+                status: "running",
+                message: payload.message || `正在调用 ${payload.tool_name}`,
+                step_index: 3,
+                step_total: 5,
+                step_title: "执行 Skill / 工具",
+              };
+              collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
+              setStreamingToolCalls(collectedToolCalls);
+              continue;
+            }
             const runningCall: ToolCallEvent = {
               tool_name: payload.tool_name,
               status: "running",
@@ -282,11 +330,37 @@ export function useProjectChatComposer({
               ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
               completedCall,
             ];
+            if (collectedToolCalls.some((call) => call.step_index === 3)) {
+              const stepCall: ToolCallEvent = {
+                tool_name: "步骤 3/5：执行 Skill / 工具",
+                status: completedCall.status,
+                message: completedCall.status === "error" ? "工具执行失败，正在整理可恢复信息。" : "工具执行完成，结果已返回。",
+                summary: completedCall.summary,
+                error: completedCall.error,
+                step_index: 3,
+                step_total: 5,
+                step_title: "执行 Skill / 工具",
+              };
+              collectedToolCalls = upsertWorkflowStep(
+                collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== completedCall.status),
+                stepCall,
+              );
+            }
             setStreamingToolCalls(collectedToolCalls);
 
             const artifact = artifactFromResult(result);
             if (artifact && !collectedArtifacts.some((item) => item.path === artifact.path)) {
               collectedArtifacts = [...collectedArtifacts, artifact];
+              setStreamingArtifacts(collectedArtifacts);
+            }
+          } else if (payload.type === "done") {
+            if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
+              collectedArtifacts = payload.artifacts.reduce<GeneratedArtifact[]>((items, artifact) => {
+                if (!artifact || !artifact.path || items.some((item) => item.path === artifact.path)) {
+                  return items;
+                }
+                return [...items, artifact];
+              }, collectedArtifacts);
               setStreamingArtifacts(collectedArtifacts);
             }
           } else if (payload.type === "error") {

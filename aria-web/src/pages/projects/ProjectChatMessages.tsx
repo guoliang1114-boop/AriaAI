@@ -18,10 +18,11 @@ const ChatStreamingMessage = memo<{
   content: string;
   isZh: boolean;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   projectId: number;
   references: Reference[];
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isZh, onDownloadArtifact, projectId, references, toolCalls }) => {
+}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, projectId, references, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -56,6 +57,7 @@ const ChatStreamingMessage = memo<{
                   artifact={artifact}
                   isZh={isZh}
                   onDownload={onDownloadArtifact}
+                  onOpen={onOpenArtifact}
                 />
               ))}
               {references.length > 0 && (
@@ -85,6 +87,7 @@ const ChatStreamingMessage = memo<{
 type ProjectChatMessagesProps = {
   messages: ChatMessage[];
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   streamingContent: string;
   streamingArtifacts: GeneratedArtifact[];
   streamingReferences: Reference[];
@@ -105,6 +108,7 @@ type ProjectChatMessagesProps = {
 export function ProjectChatMessages({
   messages,
   onDownloadArtifact,
+  onOpenArtifact,
   streamingContent,
   streamingArtifacts,
   streamingReferences,
@@ -166,6 +170,7 @@ export function ProjectChatMessages({
               highlight={highlightedMessageId === msg.id}
               msg={msg}
               onDownloadArtifact={onDownloadArtifact}
+              onOpenArtifact={onOpenArtifact}
               onApplyStakeholders={onApplyStakeholders}
               projectId={projectId}
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
@@ -177,6 +182,7 @@ export function ProjectChatMessages({
               content={streamingContent}
               isZh={isZh}
               onDownloadArtifact={onDownloadArtifact}
+              onOpenArtifact={onOpenArtifact}
               projectId={projectId}
               references={streamingReferences}
               toolCalls={streamingToolCalls}

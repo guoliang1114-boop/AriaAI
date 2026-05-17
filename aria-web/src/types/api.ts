@@ -718,10 +718,14 @@ export interface ToolCallEvent {
   message?: string
   summary?: string
   error?: string
+  step_index?: number
+  step_total?: number
+  step_title?: string
 }
 
 export interface GeneratedArtifact {
   id?: number
+  project_file_id?: number
   conversation_id?: number
   project_id?: number | null
   name: string
@@ -770,9 +774,14 @@ export interface StreamEvent {
   references?: Reference[]
   tool_name?: string
   message?: string
+  step_index?: number
+  step_total?: number
+  step_title?: string
+  step_status?: 'running' | 'completed' | 'error'
   total?: number
   current?: number
   result?: Record<string, unknown>
+  artifacts?: GeneratedArtifact[]
   error?: string
 }
 

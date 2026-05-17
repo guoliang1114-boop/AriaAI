@@ -20,6 +20,7 @@ from app.services.chat_streaming import (
     _is_standalone_fast_path,
     _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
+    _repair_project_office_tool_input,
     _resolve_runtime_model_and_tokens,
     _route_ppt_tool_for_skill,
     _should_apply_skill,
@@ -328,8 +329,11 @@ class ToUserFriendlyErrorTests(unittest.TestCase):
 
 class ExtractArtifactTests(unittest.TestCase):
     def test_full_source(self):
-        result = _extract_artifact({"file_path": "/a/b.pptx", "file_name": "deck.pptx", "file_type": "pptx"})
-        self.assertEqual(result, {"name": "deck.pptx", "file_type": "pptx", "path": "/a/b.pptx", "description": ""})
+        result = _extract_artifact({"id": 42, "file_path": "/a/b.pptx", "file_name": "deck.pptx", "file_type": "pptx"})
+        self.assertEqual(
+            result,
+            {"name": "deck.pptx", "file_type": "pptx", "path": "/a/b.pptx", "description": "", "project_file_id": 42},
+        )
 
     def test_nested_output(self):
         result = _extract_artifact({"output": {"path": "/x", "name": "y", "file_type": "docx", "note": "n"}})
@@ -347,6 +351,16 @@ class ExtractArtifactTests(unittest.TestCase):
     def test_description_fallbacks(self):
         result = _extract_artifact({"file_path": "/a", "file_name": "x", "file_type": "pptx", "message": "m"})
         self.assertEqual(result["description"], "m")
+
+
+class RepairProjectOfficeToolInputTests(unittest.TestCase):
+    def test_repairs_interview_excel_request(self):
+        result, changes = _repair_project_office_tool_input("我想要准备一个访谈的excel", {})
+
+        self.assertEqual(result["file_type"], "xlsx")
+        self.assertTrue(result["file_name"].endswith(".xlsx"))
+        self.assertEqual(result["sheets"][0]["name"], "访谈计划")
+        self.assertIn("生成默认 Excel 工作表结构", changes)
 
 
 class BuildArtifactNoticeTests(unittest.TestCase):

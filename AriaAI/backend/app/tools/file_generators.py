@@ -1828,6 +1828,22 @@ def _write_text_preserving_style(frame, text: str) -> None:
     frame.text = text
 
 
+def _clear_template_prompt_text(shape) -> None:
+    if not getattr(shape, "has_text_frame", False):
+        return
+    text = str(getattr(shape, "text", "") or "").strip().lower()
+    prompt_markers = (
+        "click to add",
+        "单击此处",
+        "单击添加",
+        "点击添加",
+        "添加标题",
+        "add title",
+    )
+    if any(marker in text for marker in prompt_markers):
+        shape.text_frame.clear()
+
+
 def _text_display_units(text: str) -> float:
     units = 0.0
     for char in str(text or ""):
@@ -1840,6 +1856,42 @@ def _text_display_units(text: str) -> float:
         else:
             units += 0.55
     return max(units, 1.0)
+
+
+def _text_capacity(width, height, font_size: int, *, line_height: float = 1.18) -> int:
+    width_pt = max(width / 12700, 20)
+    height_pt = max(height / 12700, 12)
+    avg_char_pt = max(font_size * 0.56, 4)
+    chars_per_line = max(int(width_pt / avg_char_pt), 8)
+    lines = max(int(height_pt / max(font_size * line_height, 8)), 1)
+    return max(chars_per_line * lines, 16)
+
+
+def _clip_text_to_box(text: str, width, height, font_size: int, *, reserve_ratio: float = 0.88) -> str:
+    clean_text = str(text or "").strip()
+    if not clean_text:
+        return ""
+    capacity = int(_text_capacity(width, height, font_size) * reserve_ratio)
+    if len(clean_text) <= capacity:
+        return clean_text
+    return clean_text[: max(capacity - 1, 12)].rstrip("，,。.;；、 \n") + "…"
+
+
+def _fit_text_frame_to_shape(frame, width, height, *, max_size: int, min_size: int = 8) -> None:
+    from pptx.util import Pt
+
+    text = "\n".join(paragraph.text for paragraph in frame.paragraphs if paragraph.text).strip()
+    if not text:
+        return
+    fitted_size = max_size
+    while fitted_size > min_size and len(text) > _text_capacity(width, height, fitted_size):
+        fitted_size -= 1
+
+    for paragraph in frame.paragraphs:
+        paragraph.font.size = Pt(fitted_size)
+        paragraph.line_spacing = 1.05 if fitted_size <= 10 else 1.12
+        for run in paragraph.runs:
+            run.font.size = Pt(fitted_size)
 
 
 def _fit_title_text_frame_one_line(frame, text: str, width, *, max_size: int | None = None, min_size: int = 14) -> None:
@@ -2198,6 +2250,7 @@ def _clear_text_shapes(slide):
 
 def _clear_generated_text_shapes(slide):
     for shape in slide.shapes:
+        _clear_template_prompt_text(shape)
         shape_name = str(getattr(shape, "name", "") or "")
         if shape_name.startswith("aria_"):
             continue
@@ -2396,12 +2449,13 @@ def _add_textbox(slide, x, y, w, h, text: str, *, size: int = 14, bold: bool = F
     frame.margin_top = Pt(4)
     frame.margin_bottom = Pt(4)
     paragraph = frame.paragraphs[0]
-    paragraph.text = text
+    paragraph.text = _clip_text_to_box(text, w, h, size)
     paragraph.font.name = "Aptos"
     paragraph.font.size = Pt(size)
     paragraph.font.bold = bold
     paragraph.font.color.rgb = RGBColor.from_string(color)
     paragraph.line_spacing = 1.08
+    _fit_text_frame_to_shape(frame, w, h, max_size=size, min_size=7)
     return box
 
 

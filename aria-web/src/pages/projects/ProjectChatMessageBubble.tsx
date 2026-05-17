@@ -58,13 +58,14 @@ interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
   msg: Message;
   onDownloadArtifact?: (artifact: GeneratedArtifact) => void;
+  onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onApplyStakeholders?: (message: Message) => void;
   onSaveToNotes?: () => void;
   projectId: number;
 }
 
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
-  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onSaveToNotes, projectId }) => {
+  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onOpenArtifact, onSaveToNotes, projectId }) => {
     const { t, i18n } = useTranslation();
     const { resolvedTimeZone } = useAppTimeZone();
     const [savingMarkdownIndex, setSavingMarkdownIndex] = useState<number | null>(null);
@@ -157,6 +158,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
                     artifact={artifact}
                     isZh={isZh}
                     onDownload={onDownloadArtifact}
+                    onOpen={onOpenArtifact}
                   />
                 ) : null,
               )}

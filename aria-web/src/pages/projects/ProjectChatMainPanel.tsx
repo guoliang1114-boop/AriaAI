@@ -42,6 +42,7 @@ interface ProjectChatMainPanelProps {
   onSend: () => void;
   onStop?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
@@ -90,6 +91,7 @@ export function ProjectChatMainPanel({
   onSend,
   onStop,
   onDownloadArtifact,
+  onOpenArtifact,
   onToggleSidebar,
   quickPrompts,
   projectId,
@@ -204,6 +206,7 @@ export function ProjectChatMainPanel({
         <ProjectChatMessages
           messages={messages}
           onDownloadArtifact={onDownloadArtifact}
+          onOpenArtifact={onOpenArtifact}
           streamingContent={streamingContent}
           streamingArtifacts={streamingArtifacts}
           streamingReferences={streamingReferences}

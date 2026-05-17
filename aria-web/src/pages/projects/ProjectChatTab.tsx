@@ -486,6 +486,34 @@ export function ProjectChatTab({
     }
   };
 
+  const handleOpenArtifact = async (artifact: GeneratedArtifact) => {
+    const projectFileId = artifact.project_file_id;
+    if (!projectFileId) {
+      await handleArtifactDownload(artifact);
+      return;
+    }
+
+    const existingFile = files?.find((file) => file.id === projectFileId);
+    if (existingFile) {
+      setPreviewFile(existingFile);
+      return;
+    }
+
+    try {
+      const latestFiles = await api.get<ProjectFile[]>(`/projects/${project.id}/files`);
+      const matchedFile = latestFiles.find((file) => file.id === projectFileId);
+      if (matchedFile) {
+        setPreviewFile(matchedFile);
+        void onProjectUpdate();
+        return;
+      }
+    } catch (error) {
+      console.error("Failed to open generated project file:", error);
+    }
+
+    await handleArtifactDownload(artifact);
+  };
+
   const handleDownloadProjectFile = async (file: ProjectFile) => {
     try {
       await downloadProjectFile({
@@ -892,6 +920,7 @@ export function ProjectChatTab({
             messages={messages}
             messagesContainerRef={panel.messagesContainerRef}
             onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
+            onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
             onInputChange={panel.setInputValue}
             onKnowledgeScopeChange={panel.setKnowledgeScope}

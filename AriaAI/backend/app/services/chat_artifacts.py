@@ -20,12 +20,16 @@ def _extract_artifact(result: dict) -> dict | None:
     if not artifact_path or not artifact_name or not artifact_type:
         return None
 
-    return {
+    artifact = {
         "name": artifact_name,
         "file_type": artifact_type,
         "path": artifact_path,
         "description": source.get("note") or source.get("message") or source.get("description") or "",
     }
+    project_file_id = source.get("project_file_id") or source.get("id")
+    if isinstance(project_file_id, int):
+        artifact["project_file_id"] = project_file_id
+    return artifact
 
 
 def _build_artifact_notice(artifacts: list[dict]) -> str:

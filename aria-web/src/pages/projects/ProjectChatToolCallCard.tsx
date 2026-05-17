@@ -26,11 +26,16 @@ export function ProjectChatToolCallCard({
   call,
   isZh,
 }: ProjectChatToolCallCardProps) {
+  const isWorkflowStep = Boolean(call.step_index);
   return (
     <div className={`rounded-xl border px-3.5 py-3 ${STATUS_STYLES[call.status]}`}>
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-white/80">
-          <Wrench className="h-4 w-4" />
+          {isWorkflowStep ? (
+            <span className="text-xs font-bold tabular-nums">{call.step_index}</span>
+          ) : (
+            <Wrench className="h-4 w-4" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
