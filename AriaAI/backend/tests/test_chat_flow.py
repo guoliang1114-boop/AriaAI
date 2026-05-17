@@ -3895,6 +3895,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn('"conversation_id"', joined)
         self.assertIn('"done"', joined)
         self.assertIn('"stage_timings"', joined)
+        self.assertNotIn('"step_index"', joined)
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(
@@ -3903,6 +3904,64 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(len(assistant_messages), 1)
             self.assertEqual(assistant_messages[0].content, "hello world")
             self.assertIn("stage_timings", assistant_messages[0].metadata_json)
+
+    def test_stream_chat_events_repairs_project_office_tool_in_p3_follow_up(self):
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                ['{"type":"tool_use","id":"tool-read","name":"read_project_markdown_document","input":{"file_id":1}}'],
+                [
+                    '我会创建访谈 Excel。 '
+                    '{"type":"tool_use","id":"tool-office","name":"write_project_office_document","input":{"title":"访谈计划"}}'
+                ],
+                ["访谈 Excel 已保存。"],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            project_id=27,
+            selected_model="claude-sonnet-4-6",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "我想要准备一个访谈的excel"}],
+            rag_sources=[],
+            tools=[{"name": "read_project_markdown_document"}, {"name": "write_project_office_document"}],
+            max_tokens=1024,
+            temperature=0.7,
+        )
+        req = chat_router_module.SendMessageRequest(content="我想要准备一个访谈的excel", project_id=27)
+
+        async def mock_execute(name, input_data):
+            if name == "read_project_markdown_document":
+                return {"type": "tool_result", "tool_name": name, "status": "success", "output": {"content": "# Context"}}
+            if name == "write_project_office_document":
+                return {
+                    "type": "tool_result",
+                    "tool_name": name,
+                    "status": "success",
+                    "output": {
+                        "success": True,
+                        "project_file_id": 99,
+                        "file_name": input_data["file_name"],
+                        "file_type": input_data["file_type"],
+                        "file_path": f"projects/27/{input_data['file_name']}",
+                    },
+                }
+            raise AssertionError(f"Unexpected tool call: {name}")
+
+        execute_mock = AsyncMock(side_effect=mock_execute)
+        with patch("app.services.chat_streaming.registry.execute", new=execute_mock):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        office_call = [call for call in execute_mock.await_args_list if call.args[0] == "write_project_office_document"][0]
+        office_input = office_call.args[1]
+        self.assertEqual(office_input["project_id"], 27)
+        self.assertEqual(office_input["file_type"], "xlsx")
+        self.assertTrue(office_input["file_name"].endswith(".xlsx"))
+        self.assertEqual(office_input["sheets"][0]["name"], "访谈计划")
+        joined = "".join(events)
+        self.assertIn('"step_index"', joined)
+        self.assertIn("访谈 Excel 已保存。", joined)
 
     def test_stream_chat_events_emits_and_persists_references(self):
         conv_id = self._create_conversation()

@@ -75,6 +75,7 @@ from app.services.chat_artifacts import (  # noqa: F401
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+TOOL_WORKFLOW_STEP_TOTAL = 4
 
 
 def _try_extract_tool_use_json(text: str) -> dict | None:
@@ -218,6 +219,7 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
     deliverable_keywords = (
         "\u751f\u6210", "\u5236\u4f5c", "\u521b\u5efa", "\u8f93\u51fa", "\u4ea7\u51fa", "\u5199\u4e00\u4efd", "\u505a\u4e00\u4efd", "\u6574\u7406\u6210", "\u5f62\u6210", "\u8bbe\u8ba1", "\u89c4\u5212", "\u5236\u5b9a",
         "\u5b8c\u5584", "\u91cd\u65b0\u751f\u6210", "\u5bfc\u51fa", "\u4e0b\u8f7d", "\u4ea4\u4ed8", "ppt", "powerpoint", "deck", "slide", "slides",
+        "excel", "xlsx", "xls", "word", "docx", "pdf", "\u8868\u683c", "\u5de5\u4f5c\u7c3f", "\u6587\u6863", "\u6587\u4ef6",
         "\u62a5\u544a", "\u65b9\u6848", "\u6750\u6599", "\u8def\u7ebf\u56fe", "roadmap", "\u84dd\u56fe", "blueprint", "\u6218\u7565", "strategy", "\u8ba1\u5212",
     )
     casual_prefixes = (
@@ -309,6 +311,27 @@ def _workflow_status(
         "step_title": title,
         "step_status": status,
     }
+
+
+def _workflow_plan_events(*, step_total: int = TOOL_WORKFLOW_STEP_TOTAL) -> list[dict]:
+    return [
+        _workflow_status(
+            step_index=1,
+            step_total=step_total,
+            title="判断执行方式",
+            stage="planning",
+            status="completed",
+            message="第 1 步：已判断这是需要调用 Skill / 工具的执行型任务。",
+        ),
+        _workflow_status(
+            step_index=2,
+            step_total=step_total,
+            title="准备参数与上下文",
+            stage="planning",
+            status="completed",
+            message="第 2 步：项目上下文、历史对话和工具参数已准备。",
+        ),
+    ]
 
 
 def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
@@ -507,6 +530,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
     tool_call_events = []
     artifacts = []
     pending_markdown_saves = []
+    workflow_started = False
 
     durable_task_type = detect_project_task_type(req.content) if req.project_id else None
     if durable_task_type:
@@ -605,41 +629,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
         prepare_context_label = "\u9879\u76ee\u4e0a\u4e0b\u6587" if req.project_id else "\u5de5\u4f5c\u53f0\u6458\u8981"
         yield _sse_event(
-            _workflow_status(
-                step_index=1,
-                step_total=5,
-                title="准备上下文",
-                stage="prepare",
-                message=f"第 1 步/5：加载{prepare_context_label}、最近对话和可用 Skill。",
-            )
-        )
-        yield _sse_event(
             {
                 "type": "status",
                 "stage": "prepare",
                 "message": f"{prepare_context_label}\u4e0e\u6700\u8fd1\u5bf9\u8bdd\u5df2\u52a0\u8f7d\uff0c\u6b63\u5728\u8bf7\u6c42\u6a21\u578b...",
             }
         )
-        yield _sse_event(
-            _workflow_status(
-                step_index=1,
-                step_total=5,
-                title="准备上下文",
-                stage="prepare",
-                status="completed",
-                message=f"第 1 步/5：{prepare_context_label}已加载完成。",
-            )
-        )
         p1_started_at = time.perf_counter()
-        yield _sse_event(
-            _workflow_status(
-                step_index=2,
-                step_total=5,
-                title="理解需求与规划",
-                stage="thinking",
-                message="第 2 步/5：理解你的目标，规划是否需要调用 Skill 或文件工具。",
-            )
-        )
         yield _sse_event(
             {
                 "type": "status",
@@ -748,16 +744,6 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
         stage_timings["planning_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
         yield _sse_event({"type": "timing", "key": "planning_ms", "duration_ms": stage_timings["planning_ms"]})
-        yield _sse_event(
-            _workflow_status(
-                step_index=2,
-                step_total=5,
-                title="理解需求与规划",
-                stage="thinking",
-                status="completed",
-                message="第 2 步/5：模型已完成需求理解和执行规划。",
-            )
-        )
         if p1_truncated and text_buffer.strip():
             continuation_messages = runtime.api_messages + [
                 {"role": "assistant", "content": text_buffer.strip()},
@@ -801,13 +787,16 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 yield _sse_event({"type": "text", "content": chunk})
 
         if tool_use_blocks:
+            workflow_started = True
+            for workflow_event in _workflow_plan_events():
+                yield _sse_event(workflow_event)
             yield _sse_event(
                 _workflow_status(
                     step_index=3,
-                    step_total=5,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
                     title="执行 Skill / 工具",
                     stage="tools",
-                    message="第 3 步/5：正在执行规划好的 Skill 或工具调用。",
+                    message="第 3 步：正在执行规划好的 Skill 或工具调用。",
                 )
             )
             yield _sse_event({"type": "status", "stage": "tools", "message": "\u6a21\u578b\u5df2\u5b8c\u6210\u521d\u7a3f\u89c4\u5212\uff0c\u6b63\u5728\u6267\u884c\u6240\u9700\u5de5\u5177..."})
@@ -847,10 +836,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     yield _sse_event(
                         _workflow_status(
                             step_index=3,
-                            step_total=5,
+                            step_total=TOOL_WORKFLOW_STEP_TOTAL,
                             title="执行 Skill / 工具",
                             stage="tools",
-                            message=f"第 3 步/5：已补齐文件生成参数（{'；'.join(repaired_changes)}）。",
+                            message=f"第 3 步：已补齐文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
                     )
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
@@ -970,14 +959,14 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event(
                 _workflow_status(
                     step_index=3,
-                    step_total=5,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
                     title="执行 Skill / 工具",
                     stage="tools",
                     status="error" if has_tool_error else "completed",
                     message=(
-                        "第 3 步/5：工具执行遇到错误，正在整理可恢复信息。"
+                        "第 3 步：工具执行遇到错误，正在整理可恢复信息。"
                         if has_tool_error
-                        else "第 3 步/5：Skill / 工具调用已完成。"
+                        else "第 3 步：Skill / 工具调用已完成。"
                     ),
                 )
             )
@@ -1011,10 +1000,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event(
                 _workflow_status(
                     step_index=4,
-                    step_total=5,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
                     title="整理最终回复",
                     stage="follow_up",
-                    message="第 4 步/5：工具结果已返回，正在整理最终说明和交付链接。",
+                    message="第 4 步：工具结果已返回，正在整理最终说明和交付链接。",
                 )
             )
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "\u5de5\u5177\u7ed3\u679c\u5df2\u8fd4\u56de\uff0c\u6b63\u5728\u751f\u6210\u6700\u7ec8\u7b54\u590d..."})
@@ -1098,8 +1087,29 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             }
                         )
                         continue
+                    tool_name, tool_input = _route_ppt_tool_for_skill(runtime, tool_name, tool_input)
+                    tool_input = _repair_digital_strategy_ppt_tool_input(
+                        runtime,
+                        tool_name,
+                        tool_input,
+                        follow_up_text,
+                        force_rebuild=p3_truncated,
+                    )
                     if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
                         tool_input = {**tool_input, "project_id": runtime.project_id}
+                    if tool_name in _PROJECT_OFFICE_TOOLS and runtime.project_id is not None:
+                        tool_input = {**tool_input, "project_id": runtime.project_id}
+                        tool_input, repaired_changes = _repair_project_office_tool_input(req.content, tool_input)
+                        if repaired_changes:
+                            yield _sse_event(
+                                _workflow_status(
+                                    step_index=3,
+                                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
+                                    title="执行 Skill / 工具",
+                                    stage="tools",
+                                    message=f"第 3 步：已补齐后续文件生成参数（{'；'.join(repaired_changes)}）。",
+                                )
+                            )
                     if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                         markdown_content = str(tool_input.get("content") or "").strip()
                         if markdown_content and markdown_content not in follow_up_text:
@@ -1156,6 +1166,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     else:
                         try:
                             result = await registry.execute(tool_name, tool_input)
+                            artifact = _extract_artifact(result)
+                            if artifact:
+                                artifacts.append(artifact)
                             tool_call_events.append(
                                 {
                                     "tool_name": tool_name,
@@ -1322,11 +1335,11 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event(
                 _workflow_status(
                     step_index=4,
-                    step_total=5,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
                     title="整理最终回复",
                     stage="follow_up",
                     status="completed",
-                    message="第 4 步/5：最终说明已整理完成。",
+                    message="第 4 步：最终说明已整理完成。",
                 )
             )
 
@@ -1334,22 +1347,17 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         if follow_up_text.strip():
             full_text = (full_text + "\n\n" + follow_up_text.strip()).strip()
         if not tool_use_blocks:
-            yield _sse_event(
-                _workflow_status(
-                    step_index=4,
-                    step_total=5,
-                    title="整理最终回复",
-                    stage="finalizing",
-                    status="completed",
-                    message="第 4 步/5：模型回复已整理完成。",
-                )
-            )
+            yield _sse_event({"type": "status", "stage": "finalizing", "message": "模型回复已整理完成。"})
         leaked_tool_blocks, cleaned_full_text = _extract_tool_use_json_blocks(full_text)
         if leaked_tool_blocks:
             print(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text", flush=True)
             full_text = cleaned_full_text.strip()
 
         if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, artifacts):
+            if not workflow_started:
+                workflow_started = True
+                for workflow_event in _workflow_plan_events():
+                    yield _sse_event(workflow_event)
             ppt_title, ppt_slides = _build_slides_from_strategy_text(full_text)
             tool_name = "generate_ppt_from_skill"
             tool_input = {
@@ -1361,10 +1369,10 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event(
                 _workflow_status(
                     step_index=3,
-                    step_total=5,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
                     title="执行 Skill / 工具",
                     stage="tools",
-                    message="第 3 步/5：检测到 Skill 没有生成 PPT，正在自动创建可下载材料。",
+                    message="第 3 步：检测到 Skill 没有生成 PPT，正在自动创建可下载材料。",
                 )
             )
             yield _sse_event({"type": "status", "stage": "tools", "message": "\u68c0\u6d4b\u5230\u6570\u5b57\u5316\u6218\u7565 Skill \u672a\u751f\u6210 PPT\uff0c\u6b63\u5728\u81ea\u52a8\u521b\u5efa\u53ef\u4e0b\u8f7d\u6750\u6599..."})
@@ -1391,15 +1399,16 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "PPT \u5df2\u751f\u6210\uff0c\u6b63\u5728\u4fdd\u5b58\u6b63\u6587\u548c\u9644\u4ef6..."})
 
         print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
-        yield _sse_event(
-            _workflow_status(
-                step_index=5,
-                step_total=5,
-                title="保存结果",
-                stage="saving",
-                message="第 5 步/5：正在保存回复、附件和项目空间链接。",
+        if workflow_started:
+            yield _sse_event(
+                _workflow_status(
+                    step_index=4,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
+                    title="整理结果与链接",
+                    stage="saving",
+                    message="第 4 步：正在保存回复、附件和项目空间链接。",
+                )
             )
-        )
         yield _sse_event({"type": "status", "stage": "saving", "message": "\u6b63\u5728\u4fdd\u5b58\u672c\u6b21\u56de\u590d..."})
         save_started_at = time.perf_counter()
         response_metadata = {}
@@ -1441,16 +1450,17 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         response_metadata = metadata
         yield _sse_event({"type": "timing", "key": "save_ms", "duration_ms": stage_timings["save_ms"]})
         yield _sse_event({"type": "timing", "key": "total_stream_ms", "duration_ms": stage_timings["total_stream_ms"]})
-        yield _sse_event(
-            _workflow_status(
-                step_index=5,
-                step_total=5,
-                title="保存结果",
-                stage="saving",
-                status="completed",
-                message="第 5 步/5：回复和生成物已保存完成。",
+        if workflow_started:
+            yield _sse_event(
+                _workflow_status(
+                    step_index=4,
+                    step_total=TOOL_WORKFLOW_STEP_TOTAL,
+                    title="整理结果与链接",
+                    stage="saving",
+                    status="completed",
+                    message="第 4 步：回复和生成物已保存完成。",
+                )
             )
-        )
 
         need_title = persist_assistant_message(
             bind,

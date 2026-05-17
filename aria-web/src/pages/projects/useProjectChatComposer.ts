@@ -257,8 +257,8 @@ export function useProjectChatComposer({
             if (payload.step_index) {
               const stepCall: ToolCallEvent = {
                 tool_name: payload.step_title
-                  ? `步骤 ${payload.step_index}/${payload.step_total || 5}：${payload.step_title}`
-                  : `步骤 ${payload.step_index}/${payload.step_total || 5}`,
+                  ? `步骤 ${payload.step_index}/${payload.step_total || 4}：${payload.step_title}`
+                  : `步骤 ${payload.step_index}/${payload.step_total || 4}`,
                 status: payload.step_status || "running",
                 message: payload.message,
                 step_index: payload.step_index,
@@ -270,31 +270,19 @@ export function useProjectChatComposer({
               continue;
             }
             if (payload.stage === "saving" || payload.stage === "finalizing") {
-              setStreamingToolCalls((prev) =>
-                prev.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
-              );
-              continue;
+              setStreamingToolCalls((prev) => prev.filter((call) => call.status !== "running"));
             }
-            const statusCall: ToolCallEvent = {
-              tool_name: "Aria",
-              status: "running",
-              message: payload.message,
-            };
-            setStreamingToolCalls((prev) => [
-              ...prev.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
-              statusCall,
-            ]);
           } else if (payload.type === "references") {
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);
           } else if (payload.type === "tool_executing" && payload.tool_name) {
             if (collectedToolCalls.some((call) => call.step_index === 3)) {
               const stepCall: ToolCallEvent = {
-                tool_name: "步骤 3/5：执行 Skill / 工具",
+                tool_name: "步骤 3/4：执行 Skill / 工具",
                 status: "running",
                 message: payload.message || `正在调用 ${payload.tool_name}`,
                 step_index: 3,
-                step_total: 5,
+                step_total: 4,
                 step_title: "执行 Skill / 工具",
               };
               collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
@@ -332,13 +320,13 @@ export function useProjectChatComposer({
             ];
             if (collectedToolCalls.some((call) => call.step_index === 3)) {
               const stepCall: ToolCallEvent = {
-                tool_name: "步骤 3/5：执行 Skill / 工具",
+                tool_name: "步骤 3/4：执行 Skill / 工具",
                 status: completedCall.status,
                 message: completedCall.status === "error" ? "工具执行失败，正在整理可恢复信息。" : "工具执行完成，结果已返回。",
                 summary: completedCall.summary,
                 error: completedCall.error,
                 step_index: 3,
-                step_total: 5,
+                step_total: 4,
                 step_title: "执行 Skill / 工具",
               };
               collectedToolCalls = upsertWorkflowStep(
