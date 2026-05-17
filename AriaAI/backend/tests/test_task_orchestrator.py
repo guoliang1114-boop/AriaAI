@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from sqlmodel import Session, SQLModel, select
 
@@ -41,6 +42,10 @@ def test_create_task_run_persists_ordered_steps():
             payload = serialize_task_run(session, task, include_events=True)
 
         assert payload["status"] == "pending"
+        json.dumps(payload, ensure_ascii=False)
+        assert isinstance(payload["created_at"], str)
+        assert isinstance(payload["steps"][0]["created_at"], str)
+        assert isinstance(payload["events"][0]["created_at"], str)
         assert [step["key"] for step in payload["steps"]] == [
             "collect_context",
             "draft_slide_spec",

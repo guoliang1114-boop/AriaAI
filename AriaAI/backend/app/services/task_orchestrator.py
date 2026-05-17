@@ -11,6 +11,7 @@ import json
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlmodel import Session, select
@@ -68,6 +69,10 @@ def _json_loads(value: str | None, fallback: Any = None) -> Any:
         return {} if fallback is None else fallback
 
 
+def _serialize_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
 def _slugify_filename(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9\u4e00-\u9fa5._-]+", "-", value.strip()).strip("-")
     return slug or "client-introduction"
@@ -110,10 +115,10 @@ def _serialize_step(step: TaskStep) -> dict[str, Any]:
         "error_message": step.error_message,
         "retryable": step.retryable,
         "retry_count": step.retry_count,
-        "created_at": step.created_at,
-        "updated_at": step.updated_at,
-        "started_at": step.started_at,
-        "completed_at": step.completed_at,
+        "created_at": _serialize_datetime(step.created_at),
+        "updated_at": _serialize_datetime(step.updated_at),
+        "started_at": _serialize_datetime(step.started_at),
+        "completed_at": _serialize_datetime(step.completed_at),
     }
 
 
@@ -127,7 +132,7 @@ def _serialize_artifact(artifact: TaskArtifact) -> dict[str, Any]:
         "file_type": artifact.file_type,
         "path": artifact.path,
         "metadata": _json_loads(artifact.metadata_json),
-        "created_at": artifact.created_at,
+        "created_at": _serialize_datetime(artifact.created_at),
     }
 
 
@@ -139,7 +144,7 @@ def _serialize_event(event: TaskEvent) -> dict[str, Any]:
         "event_type": event.event_type,
         "message": event.message,
         "payload": _json_loads(event.payload_json),
-        "created_at": event.created_at,
+        "created_at": _serialize_datetime(event.created_at),
     }
 
 
@@ -165,10 +170,10 @@ def serialize_task_run(session: Session, task: TaskRun, *, include_events: bool 
         "error_code": task.error_code,
         "error_message": task.error_message,
         "retry_count": task.retry_count,
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
-        "started_at": task.started_at,
-        "completed_at": task.completed_at,
+        "created_at": _serialize_datetime(task.created_at),
+        "updated_at": _serialize_datetime(task.updated_at),
+        "started_at": _serialize_datetime(task.started_at),
+        "completed_at": _serialize_datetime(task.completed_at),
         "steps": [_serialize_step(step) for step in steps],
         "artifacts": [_serialize_artifact(artifact) for artifact in artifacts],
     }
