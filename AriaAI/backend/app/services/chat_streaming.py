@@ -341,7 +341,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
 
 def _sse_event(payload: dict) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    return f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
 
 def _strip_truncation_marker(chunk: str) -> tuple[str, bool]:

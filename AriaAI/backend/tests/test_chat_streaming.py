@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime
 from typing import Optional
 
 from app.services.chat_streaming import (
@@ -84,6 +85,14 @@ class TryExtractToolUseJsonTests(unittest.TestCase):
 
     def test_empty_string(self):
         self.assertIsNone(_try_extract_tool_use_json(""))
+
+
+class SseEventTests(unittest.TestCase):
+    def test_serializes_datetime_payloads(self):
+        raw = _sse_event({"type": "task_run", "created_at": datetime(2026, 5, 17, 19, 54, 59)})
+
+        payload = json.loads(raw.removeprefix("data: ").strip())
+        self.assertEqual(payload["created_at"], "2026-05-17 19:54:59")
 
 
 class CapMaxTokensForModelTests(unittest.TestCase):
