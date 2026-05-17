@@ -395,6 +395,71 @@ class ScheduledTask(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now_naive)
 
 
+# ── Durable Task Runs ─────────────────────────────────────────────────────────
+
+class TaskRun(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    conversation_id: Optional[int] = Field(default=None, foreign_key="conversation.id", index=True)
+    parent_task_id: Optional[int] = Field(default=None, foreign_key="taskrun.id", index=True)
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    task_type: str = Field(index=True)
+    goal: str = ""
+    status: str = Field(default="pending", index=True)  # pending | running | completed | failed | canceled
+    current_step_key: str = ""
+    input_json: str = "{}"
+    output_json: str = "{}"
+    error_code: str = ""
+    error_message: str = ""
+    retry_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class TaskStep(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_run_id: int = Field(foreign_key="taskrun.id", index=True)
+    key: str = Field(index=True)
+    title: str
+    step_type: str = Field(index=True)
+    status: str = Field(default="pending", index=True)  # pending | running | completed | failed | skipped
+    sort_order: int = 0
+    input_json: str = "{}"
+    output_json: str = "{}"
+    error_code: str = ""
+    error_message: str = ""
+    retryable: bool = True
+    retry_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class TaskEvent(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_run_id: int = Field(foreign_key="taskrun.id", index=True)
+    step_id: Optional[int] = Field(default=None, foreign_key="taskstep.id", index=True)
+    event_type: str = Field(index=True)
+    message: str = ""
+    payload_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
+class TaskArtifact(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_run_id: int = Field(foreign_key="taskrun.id", index=True)
+    step_id: Optional[int] = Field(default=None, foreign_key="taskstep.id", index=True)
+    project_file_id: Optional[int] = Field(default=None, foreign_key="projectfile.id", index=True)
+    name: str
+    file_type: str
+    path: str = ""
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now_naive)
+
+
 # ── Templates ─────────────────────────────────────────────────────────────────
 
 class Template(SQLModel, table=True):

@@ -39,6 +39,8 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
+from app.tools import office_documents as _office_documents  # noqa: F401 - register project Office tools
+from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 # Sub-module imports
@@ -64,6 +66,7 @@ from app.services.chat_artifacts import (  # noqa: F401
 )
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
+_PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
 
 
 def _try_extract_tool_use_json(text: str) -> dict | None:
@@ -612,6 +615,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 force_rebuild=p1_truncated,
             )
             if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
+                tool_input = {**tool_input, "project_id": runtime.project_id}
+            if tool_name in _PROJECT_OFFICE_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 markdown_content = str(tool_input.get("content") or "").strip()

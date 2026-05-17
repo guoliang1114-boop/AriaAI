@@ -4,6 +4,7 @@ Memory, files, and briefing endpoints live in sub-routers:
   - projects_memory.py
   - projects_files.py
   - projects_briefing.py
+  - projects_tasks.py
 """
 from __future__ import annotations
 
@@ -443,10 +444,12 @@ async def ai_polish_project_notes_stream(project_id: int, body: NotePolishBody, 
 from app.routers import projects_memory as _projects_memory
 from app.routers import projects_files as _projects_files
 from app.routers import projects_briefing as _projects_briefing
+from app.routers import projects_tasks as _projects_tasks
 
 router.include_router(_projects_memory.router)
 router.include_router(_projects_files.router)
 router.include_router(_projects_briefing.router)
+router.include_router(_projects_tasks.router)
 
 # ── Re-exports for test compatibility ────────────────────────────────────────
 from app.config import UPLOADS_DIR  # noqa: F401

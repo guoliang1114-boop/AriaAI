@@ -135,6 +135,24 @@ class WorkspaceProjectInventoryContextTestCase(unittest.TestCase):
         self.assertIn("Useful source summary", context)
         self.assertNotIn("## Project File Contents", context)
 
+    def test_project_chat_exposes_office_generation_tool(self):
+        with Session(self.engine) as session:
+            project = Project(name="Deck Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            chat_context = build_chat_context(
+                session,
+                project_id=project.id,
+                content="给客户准备一个 PPT 介绍",
+            )
+
+        tool_names = {tool.get("name") for tool in (chat_context.tools or [])}
+        self.assertIn("read_project_markdown_document", tool_names)
+        self.assertIn("update_project_markdown_document", tool_names)
+        self.assertIn("write_project_office_document", tool_names)
+
     def test_project_context_includes_notes_todos_and_recent_artifacts(self):
         with Session(self.engine) as session:
             project = Project(

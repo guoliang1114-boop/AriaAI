@@ -30,6 +30,8 @@ from app.services.stakeholder_contexts import (
 )
 from app.services.time_utils import utc_now_naive
 from app.services.tool_executor import format_tools_for_claude
+from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
+from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
 MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
 MAX_SINGLE_FILE_CHARS = 8000
@@ -37,12 +39,16 @@ MAX_PROJECT_NOTES_CHARS = 6000
 MAX_PROJECT_TODOS = 12
 MAX_PROJECT_ARTIFACTS = 8
 PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document", "read_project_markdown_document"]
+PROJECT_OFFICE_TOOL_NAMES = [WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME]
 PROJECT_MARKDOWN_TOOL_PROMPT = """
 
-Project Markdown document tools:
+Project space document tools:
 - Use `read_project_markdown_document` with action='list' to discover which MD files exist in this project (returns id, name, folder, summary).
 - Use `read_project_markdown_document` with action='read' and a file_id or file_name to read a specific file's content before answering questions about it.
 - Use `update_project_markdown_document` to create, append to, or replace an MD file.
+- Use `write_project_office_document` whenever the user asks you to create a PPT/PPTX, Word/DOCX, Excel/XLSX, or PDF deliverable. This tool creates the file and saves it into the current project space.
+- For PPT/PPTX requests, call `write_project_office_document` with file_type='pptx', a clear file_name ending in .pptx, a title, summary, and a slides array. Use slide objects with type/title/content or type='two_column' with left_content/right_content.
+- For DOCX/PDF requests, provide title plus sections/content. For XLSX requests, provide sheets. Do NOT merely describe that a file can be created.
 - CRITICAL: When the user asks you to edit, update, rewrite, correct, create, modify, adjust, fix, or change a project document — OR when the user says they want to "矫正", "修改", "调整", "重写" a file — you MUST call `update_project_markdown_document` with mode='replace' and the complete new content.
 - DO NOT just describe the changes in your text reply. DO NOT say "I will update it" or "Now I will write" without actually calling the tool. The user cannot see your draft until you save it via the tool. You MUST invoke the tool IMMEDIATELY after reading the file if the user asked you to modify it.
 - ABSOLUTELY DO NOT output tool_use JSON as plain text in your response. If you need to call update_project_markdown_document, use the actual function calling API. Text that looks like {"type": "tool_use", ...} will NOT execute and the user will think you failed.
@@ -263,7 +269,7 @@ def build_skill_context(
 def _merge_project_chat_tools(tools: Optional[list], project_id: Optional[int]) -> Optional[list]:
     if project_id is None:
         return tools
-    project_tools = format_tools_for_claude(PROJECT_MARKDOWN_TOOL_NAMES)
+    project_tools = format_tools_for_claude(PROJECT_MARKDOWN_TOOL_NAMES + PROJECT_OFFICE_TOOL_NAMES)
     if not project_tools:
         return tools
     if not tools:
