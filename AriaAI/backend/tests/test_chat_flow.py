@@ -38,6 +38,7 @@ from app.models.db import (
     Skill,
     SystemMessage,
     SystemMessageRead,
+    TaskRun,
     User,
 )
 from app import config as app_config
@@ -240,6 +241,37 @@ class ChatRouterTestCase(unittest.TestCase):
         get_resp = self.client.get(f"/chat/conversations/{conv_id}")
         self.assertEqual(get_resp.status_code, 200)
         self.assertEqual(get_resp.json()["title"], "New Title")
+
+    def test_delete_conversation_unlinks_task_runs(self):
+        with Session(self.engine) as session:
+            project = Project(name="Task Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            conv = Conversation(title="Task Chat", project_id=project.id)
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            session.add(Message(conversation_id=conv.id, role="user", content="hello"))
+            task = TaskRun(
+                project_id=project.id,
+                conversation_id=conv.id,
+                task_type="generate_client_ppt",
+                goal="prepare ppt",
+            )
+            session.add(task)
+            session.commit()
+            task_id = task.id
+            conv_id = conv.id
+
+        delete_resp = self.client.delete(f"/chat/conversations/{conv_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(Conversation, conv_id))
+            task = session.get(TaskRun, task_id)
+            self.assertIsNotNone(task)
+            self.assertIsNone(task.conversation_id)
 
     def test_send_route_streams_service_output(self):
         async def fake_stream(*args, **kwargs):

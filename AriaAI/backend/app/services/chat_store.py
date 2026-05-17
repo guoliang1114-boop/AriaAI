@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import Conversation, GeneratedFile, Message
+from app.models.db import Conversation, GeneratedFile, Message, TaskRun, ToolCall
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
@@ -250,6 +250,13 @@ def persist_assistant_message(
 
 def delete_conversation_with_messages(session: Session, conv_id: int) -> None:
     conv = get_conversation_or_404(session, conv_id)
+    for task in session.exec(select(TaskRun).where(TaskRun.conversation_id == conv_id)).all():
+        task.conversation_id = None
+        session.add(task)
+    for artifact in session.exec(select(GeneratedFile).where(GeneratedFile.conversation_id == conv_id)).all():
+        session.delete(artifact)
+    for tool_call in session.exec(select(ToolCall).where(ToolCall.conversation_id == conv_id)).all():
+        session.delete(tool_call)
     for msg in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
         session.delete(msg)
     session.delete(conv)
