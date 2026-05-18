@@ -134,6 +134,7 @@ def _extract_tool_use_json_blocks(text: str) -> tuple[list[dict], str]:
 
 OUTPUT_TRUNCATED_MARKER = "[OUTPUT_TRUNCATED]"
 STREAM_HEARTBEAT_SECONDS = 8.0
+STREAM_TASK_EVENT_PAUSE_SECONDS = 0.18
 CHAT_HISTORY_WINDOW = 24
 STANDALONE_FAST_PATH_MODEL = "moonshot-v1-8k"
 STANDALONE_FAST_PATH_MAX_TOKENS = 1536
@@ -615,6 +616,11 @@ def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
 
+async def _task_stream_flush_pause() -> None:
+    """Give browsers/proxies a short chance to paint fast task progress events."""
+    await asyncio.sleep(STREAM_TASK_EVENT_PAUSE_SECONDS)
+
+
 def _strip_truncation_marker(chunk: str) -> tuple[str, bool]:
     if OUTPUT_TRUNCATED_MARKER not in chunk:
         return chunk, False
@@ -707,6 +713,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 "message": "正在判断这次请求应直接回答，还是进入可恢复任务编排...",
             }
         )
+        await _task_stream_flush_pause()
         task_route = await route_project_task_request(
             req.content,
             llm_complete=runtime.llm.complete,
@@ -722,6 +729,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     "message": "已识别为可恢复项目任务，正在创建任务运行记录...",
                 }
             )
+            await _task_stream_flush_pause()
             with Session(bind) as task_session:
                 task = create_task_run(
                     task_session,
@@ -742,12 +750,14 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 )
                 task_payload = serialize_task_run(task_session, task, include_events=True)
                 yield _sse_event({"type": "task_run", "task": task_payload})
+                await _task_stream_flush_pause()
                 yield _sse_event(
                     {
                         "type": "text",
                         "content": f"已创建编排任务：{req.content}\n\n我会按下方步骤持续更新进展。\n\n",
                     }
                 )
+                await _task_stream_flush_pause()
                 yield _sse_event(
                     {
                         "type": "status",
@@ -755,11 +765,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         "message": "任务已创建，正在按步骤执行。刷新页面后仍可在项目任务记录中查看。",
                     }
                 )
+                await _task_stream_flush_pause()
                 async for task_event in stream_execute_task_run_in_session(task_session, task.id):
                     event_message = task_event.get("message") or "任务状态已更新。"
                     workflow_event = _workflow_status_from_task_event(task_event)
                     if workflow_event:
                         yield _sse_event(workflow_event)
+                        await _task_stream_flush_pause()
                     yield _sse_event(
                         {
                             "type": "status",
@@ -768,7 +780,9 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             "task_event": task_event.get("event_type"),
                         }
                     )
+                    await _task_stream_flush_pause()
                     yield _sse_event({"type": "task_run", "task": task_event.get("task")})
+                    await _task_stream_flush_pause()
                 task_session.refresh(task)
                 task_payload = serialize_task_run(task_session, task, include_events=True)
 
