@@ -228,6 +228,8 @@ async def route_project_task_request(
         return fallback
     task_type = data.get("task_type")
     if task_type not in SUPPORTED_TASK_TYPES:
+        if fallback.task_type and fallback.confidence >= 0.8:
+            return fallback
         return TaskRoute(None, confidence=float(data.get("confidence") or 0), reason=str(data.get("reason") or "llm:no_task"))
     confidence = float(data.get("confidence") or 0)
     if confidence < 0.55:

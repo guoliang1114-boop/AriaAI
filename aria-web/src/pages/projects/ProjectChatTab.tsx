@@ -13,7 +13,12 @@ import type {
   ProjectMemoryResponse,
   ProjectMemoryStatusResponse,
   Message,
+  MessageMetadata,
   Skill,
+  TaskRun,
+  TaskRunEvent,
+  TaskRunStep,
+  ToolCallEvent,
 } from "../../types/api";
 import { downloadArtifact } from "./downloadArtifact";
 import { downloadProjectFile } from "./downloadProjectFile";
@@ -46,6 +51,45 @@ type StakeholderCandidate = {
   relationship_status?: string;
   note?: string;
 };
+
+function taskEventDetail(event: TaskRunEvent) {
+  const message = event.message || event.event_type || "任务状态更新";
+  const time = event.created_at ? new Date(event.created_at) : null;
+  const timeText = time && !Number.isNaN(time.getTime())
+    ? time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "";
+  return `${timeText ? `[${timeText}] ` : ""}${message}`;
+}
+
+function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunEvent[] = []): ToolCallEvent {
+  const status: ToolCallEvent["status"] =
+    step.status === "completed" || step.status === "skipped"
+      ? "completed"
+      : step.status === "failed"
+        ? "error"
+        : step.status === "pending" || step.status === "running"
+          ? "running"
+          : step.status === "canceled"
+            ? "error"
+            : "running";
+  return {
+    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
+    status,
+    message:
+      step.status === "skipped"
+        ? step.error_message || "该步骤已跳过。"
+        : status === "completed"
+          ? "该步骤已完成。"
+          : status === "error"
+            ? step.error_message || "该步骤已停止，请打开任务面板处理。"
+            : "该步骤正在执行或等待执行。",
+    error: status === "error" ? step.error_message : undefined,
+    details: events.filter((event) => event.step_id === step.id).map(taskEventDetail),
+    step_index: step.sort_order,
+    step_total: total,
+    step_title: step.title || step.key,
+  };
+}
 
 const NON_PERSON_STAKEHOLDER_TERMS = [
   "数据",
@@ -261,6 +305,33 @@ export function ProjectChatTab({
     scrollToBottom: panel.scrollToBottom,
     onSendError: () => toast.error(copy.sendFailed),
   });
+
+  const handleTaskRunUpdated = (task: TaskRun) => {
+    const toolCalls = (task.steps || []).map((step) => workflowStepFromTask(step, task.steps?.length || 1, task.events || []));
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.role !== "assistant") return message;
+        let metadata: MessageMetadata = {};
+        try {
+          metadata = JSON.parse(message.metadata_json || "{}") as MessageMetadata;
+        } catch {
+          metadata = {};
+        }
+        const metadataTaskId = metadata.task_run_id || metadata.task_run?.id;
+        if (metadataTaskId !== task.id) return message;
+        return {
+          ...message,
+          metadata_json: JSON.stringify({
+            ...metadata,
+            task_run: task,
+            task_run_id: task.id,
+            task_type: task.task_type,
+            tool_calls: toolCalls,
+          }),
+        };
+      }),
+    );
+  };
 
   useEffect(() => {
     if (prevIsLoadingRef.current && !isLoading) {
@@ -922,6 +993,7 @@ export function ProjectChatTab({
             onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
             onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
+            onTaskRunUpdated={handleTaskRunUpdated}
             onInputChange={panel.setInputValue}
             onKnowledgeScopeChange={panel.setKnowledgeScope}
             onOpenConversationSaveModal={panel.openConversationSaveModal}

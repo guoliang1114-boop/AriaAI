@@ -1828,9 +1828,9 @@ def _write_text_preserving_style(frame, text: str) -> None:
     frame.text = text
 
 
-def _clear_template_prompt_text(shape) -> None:
+def _clear_template_prompt_text(shape) -> bool:
     if not getattr(shape, "has_text_frame", False):
-        return
+        return False
     text = str(getattr(shape, "text", "") or "").strip().lower()
     prompt_markers = (
         "click to add",
@@ -1841,7 +1841,14 @@ def _clear_template_prompt_text(shape) -> None:
         "add title",
     )
     if any(marker in text for marker in prompt_markers):
-        shape.text_frame.clear()
+        parent = shape.element.getparent()
+        if parent is not None:
+            parent.remove(shape.element)
+            return True
+        else:
+            shape.text_frame.clear()
+            return False
+    return False
 
 
 def _text_display_units(text: str) -> float:
@@ -2017,7 +2024,7 @@ def _set_body_named_or_placeholder_text(slide, shape_name: str, text: str, *, de
         if not _has_usable_text_bounds(shape):
             return False
         _write_text_preserving_style(shape.text_frame, text)
-        _bump_text_frame_font_size(shape.text_frame, default_size=default_size)
+        _fit_text_frame_to_shape(shape.text_frame, shape.width, shape.height, max_size=default_size, min_size=8)
         return True
 
     placeholder = _placeholder_by_layout_name(slide, shape_name)
@@ -2026,7 +2033,7 @@ def _set_body_named_or_placeholder_text(slide, shape_name: str, text: str, *, de
     if not _has_usable_text_bounds(placeholder):
         return False
     _write_text_preserving_style(placeholder.text_frame, text)
-    _bump_text_frame_font_size(placeholder.text_frame, default_size=default_size)
+    _fit_text_frame_to_shape(placeholder.text_frame, placeholder.width, placeholder.height, max_size=default_size, min_size=8)
     return True
 
 
@@ -2249,8 +2256,9 @@ def _clear_text_shapes(slide):
 
 
 def _clear_generated_text_shapes(slide):
-    for shape in slide.shapes:
-        _clear_template_prompt_text(shape)
+    for shape in list(slide.shapes):
+        if _clear_template_prompt_text(shape):
+            continue
         shape_name = str(getattr(shape, "name", "") or "")
         if shape_name.startswith("aria_"):
             continue
@@ -2419,7 +2427,7 @@ def _render_graphic_library_content_slide(slide, title: str, content: str, slide
         body.text_frame.clear()
         body.text_frame.text = body_text
         body.text_frame.word_wrap = True
-        _bump_text_frame_font_size(body.text_frame, default_size=14)
+        _fit_text_frame_to_shape(body.text_frame, body.width, body.height, max_size=14, min_size=8)
         placed = True
 
     if not placed:
@@ -4700,7 +4708,7 @@ async def generate_ppt(
 
                 filename = _generate_filename("pptx")
                 filepath = GENERATED_DIR / filename
-                _ensure_body_min_font_sizes(prs, min_size=12)
+                _ensure_body_min_font_sizes(prs, min_size=8)
                 prs.save(filepath)
                 return {
                     "success": True,
@@ -4763,7 +4771,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
-            _ensure_body_min_font_sizes(prs, min_size=12)
+            _ensure_body_min_font_sizes(prs, min_size=8)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4838,7 +4846,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
-            _ensure_body_min_font_sizes(prs, min_size=12)
+            _ensure_body_min_font_sizes(prs, min_size=8)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4921,7 +4929,7 @@ async def generate_ppt(
     # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")
     filepath = GENERATED_DIR / filename
-    _ensure_body_min_font_sizes(prs, min_size=12)
+    _ensure_body_min_font_sizes(prs, min_size=8)
     prs.save(filepath)
 
     return {

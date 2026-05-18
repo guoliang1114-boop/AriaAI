@@ -13,7 +13,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
+import type { GeneratedArtifact, Message, MessageMetadata, Reference, TaskRun, TaskRunEvent, TaskRunStep, ToolCallEvent } from "../../types/api";
 import { api } from "../../api/client";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
@@ -54,6 +54,47 @@ const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title
   );
 });
 
+function taskEventDetail(event: TaskRunEvent) {
+  const message = event.message || event.event_type || "任务状态更新";
+  const time = event.created_at ? new Date(event.created_at) : null;
+  const timeText = time && !Number.isNaN(time.getTime())
+    ? time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "";
+  return `${timeText ? `[${timeText}] ` : ""}${message}`;
+}
+
+function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunEvent[] = []): ToolCallEvent {
+  const status: ToolCallEvent["status"] =
+    step.status === "completed" || step.status === "skipped"
+      ? "completed"
+      : step.status === "failed" || step.status === "canceled"
+        ? "error"
+        : "running";
+  return {
+    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
+    status,
+    message:
+      step.status === "skipped"
+        ? step.error_message || "该步骤已跳过。"
+        : status === "completed"
+          ? "该步骤已完成。"
+          : status === "error"
+            ? step.error_message || "该步骤已停止，请打开任务面板处理。"
+            : "该步骤正在执行或等待执行。",
+    error: status === "error" ? step.error_message : undefined,
+    details: events.filter((event) => event.step_id === step.id).map(taskEventDetail),
+    step_index: step.sort_order,
+    step_total: total,
+    step_title: step.title || step.key,
+  };
+}
+
+function workflowStepsFromTask(task?: TaskRun): ToolCallEvent[] {
+  const steps = task?.steps || [];
+  if (!steps.length) return [];
+  return steps.map((step) => workflowStepFromTask(step, steps.length, task?.events || []));
+}
+
 interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
   msg: Message;
@@ -82,7 +123,8 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
       metadata = {};
     }
     const references: Reference[] = metadata.references || [];
-    const toolCalls: ToolCallEvent[] = metadata.tool_calls || [];
+    const taskToolCalls = workflowStepsFromTask(metadata.task_run);
+    const toolCalls: ToolCallEvent[] = taskToolCalls.length ? taskToolCalls : metadata.tool_calls || [];
     const artifacts: GeneratedArtifact[] = metadata.artifacts || [];
     const pendingMarkdownSaves = metadata.pending_markdown_saves || [];
 

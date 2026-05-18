@@ -14,36 +14,13 @@ import type {
   MessageMetadata,
   Reference,
   StreamEvent,
-  ToolCallEvent,
   TaskRun,
+  TaskRunArtifact,
   TaskRunEvent,
+  TaskRunStep,
+  ToolCallEvent,
 } from "../../types/api";
 
-function parseMessageMetadata(metadataJson: string): MessageMetadata {
-  try {
-    return JSON.parse(metadataJson || "{}") as MessageMetadata;
-  } catch {
-    return {};
-  }
-}
-
-function mergeAssistantMetadata(message: Message, metadata: MessageMetadata): Message {
-  const existing = parseMessageMetadata(message.metadata_json);
-  return {
-    ...message,
-    metadata_json: JSON.stringify(
-      {
-        ...existing,
-        ...metadata,
-        references: metadata.references ?? existing.references ?? [],
-        tool_calls: metadata.tool_calls ?? existing.tool_calls ?? [],
-        artifacts: metadata.artifacts ?? existing.artifacts ?? [],
-      },
-      null,
-      0,
-    ),
-  };
-}
 
 function buildAssistantMessage({
   artifacts,
@@ -52,6 +29,8 @@ function buildAssistantMessage({
   projectId,
   references,
   toolCalls,
+  taskRun,
+  taskType,
 }: {
   artifacts: GeneratedArtifact[];
   content: string;
@@ -59,18 +38,26 @@ function buildAssistantMessage({
   projectId: number;
   references: Reference[];
   toolCalls: ToolCallEvent[];
+  taskRun?: TaskRun | null;
+  taskType?: string;
 }): Message {
+  const metadata: MessageMetadata = {
+    artifacts,
+    project_id: projectId,
+    references,
+    tool_calls: toolCalls,
+  };
+  if (taskRun) {
+    metadata.task_run = taskRun;
+    metadata.task_run_id = taskRun.id;
+    metadata.task_type = taskType || taskRun.task_type;
+  }
   return {
     id: Date.now() + 1,
     conversation_id: conversationId,
     role: "assistant",
     content,
-    metadata_json: JSON.stringify({
-      artifacts,
-      project_id: projectId,
-      references,
-      tool_calls: toolCalls,
-    }),
+    metadata_json: JSON.stringify(metadata),
     created_at: new Date().toISOString(),
   };
 }
@@ -335,6 +322,8 @@ export function useProjectChatComposer({
     let collectedToolCalls: ToolCallEvent[] = [];
     let collectedArtifacts: GeneratedArtifact[] = [];
     let serverPersistedAssistant = false;
+    let latestTaskRun: TaskRun | null = null;
+    let latestTaskType = "";
 
     try {
       abortControllerRef.current = new AbortController();
@@ -412,14 +401,16 @@ export function useProjectChatComposer({
             collectedReferences = payload.references || [];
             setStreamingReferences(collectedReferences);
           } else if (payload.type === "task_run" && payload.task) {
-            const task = payload.task;
+            const task = payload.task as TaskRun;
+            latestTaskRun = task;
+            latestTaskType = task.task_type || latestTaskType;
             const steps = task.steps || [];
             const taskEvents = task.events || [];
             if (steps.length > 0) {
               collectedToolCalls = steps
-                .filter((step) => step.status !== "pending")
+                .filter((step: TaskRunStep) => step.status !== "pending")
                 .reduce<ToolCallEvent[]>(
-                  (items, step) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
+                  (items: ToolCallEvent[], step: TaskRunStep) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
                   collectedToolCalls,
                 );
               setStreamingToolCalls(collectedToolCalls);
@@ -428,8 +419,8 @@ export function useProjectChatComposer({
               collectedArtifacts = upsertArtifacts(
                 collectedArtifacts,
                 task.artifacts
-                  .map((artifact) => artifactFromTaskRunArtifact(artifact))
-                  .filter((artifact): artifact is GeneratedArtifact => Boolean(artifact)),
+                  .map((artifact: TaskRunArtifact) => artifactFromTaskRunArtifact(artifact))
+                  .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
               );
               setStreamingArtifacts(collectedArtifacts);
             }
@@ -503,9 +494,15 @@ export function useProjectChatComposer({
             if (payload.task_run_id || payload.task_type || payload.task) {
               serverPersistedAssistant = true;
             }
+            if (payload.task && typeof payload.task === "object") {
+              latestTaskRun = payload.task as TaskRun;
+            }
+            if (typeof payload.task_type === "string") {
+              latestTaskType = payload.task_type;
+            }
             if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
-              collectedArtifacts = payload.artifacts.reduce<GeneratedArtifact[]>((items, artifact) => {
-                if (!artifact || !artifact.path || items.some((item) => item.path === artifact.path)) {
+              collectedArtifacts = payload.artifacts.reduce<GeneratedArtifact[]>((items: GeneratedArtifact[], artifact: GeneratedArtifact) => {
+                if (!artifact || !artifact.path || items.some((item: GeneratedArtifact) => item.path === artifact.path)) {
                   return items;
                 }
                 return [...items, artifact];
@@ -523,9 +520,7 @@ export function useProjectChatComposer({
       setStreamingToolCalls([]);
       setStreamingReferences([]);
       setStreamingArtifacts([]);
-      if (serverPersistedAssistant) {
-        await fetchMessages(conversationId);
-      } else if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
+      if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
         const assistantMessage = buildAssistantMessage({
           artifacts: collectedArtifacts,
           content: finalContent,
@@ -533,6 +528,8 @@ export function useProjectChatComposer({
           projectId,
           references: collectedReferences,
           toolCalls: collectedToolCalls,
+          taskRun: serverPersistedAssistant ? latestTaskRun : null,
+          taskType: latestTaskType,
         });
         setMessages((prev) => [...prev, assistantMessage]);
       } else {

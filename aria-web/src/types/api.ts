@@ -793,6 +793,9 @@ export interface MessageMetadata {
   references?: Reference[]
   tool_calls?: ToolCallEvent[]
   artifacts?: GeneratedArtifact[]
+  task_run?: TaskRun
+  task_run_id?: number
+  task_type?: string
   pending_markdown_saves?: Array<{
     tool_use_id?: string
     project_id?: number

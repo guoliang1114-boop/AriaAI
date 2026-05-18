@@ -9,6 +9,7 @@ import type {
   ProjectMemoryStatusResponse,
   Reference,
   Skill,
+  TaskRun,
   ToolCallEvent,
 } from "../../types/api";
 import { ProjectChatHeader } from "./ProjectChatHeader";
@@ -44,6 +45,7 @@ interface ProjectChatMainPanelProps {
   onStop?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onTaskRunUpdated?: (task: TaskRun) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
   projectId: number;
@@ -93,6 +95,7 @@ export function ProjectChatMainPanel({
   onStop,
   onDownloadArtifact,
   onOpenArtifact,
+  onTaskRunUpdated,
   onToggleSidebar,
   quickPrompts,
   projectId,
@@ -325,6 +328,7 @@ export function ProjectChatMainPanel({
         onClose={() => setIsTaskDrawerOpen(false)}
         onDownloadArtifact={onDownloadArtifact}
         onOpenArtifact={onOpenArtifact}
+        onTaskUpdated={onTaskRunUpdated}
       />
     </div>
   );

@@ -135,6 +135,26 @@ def test_llm_router_normalizes_common_step_aliases():
     ]
 
 
+def test_llm_router_keeps_explicit_ppt_creation_when_llm_says_no_task():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "task_type": None,
+                "confidence": 0.88,
+                "reason": "mistaken ordinary chat",
+                "title": "",
+                "output_kind": None,
+                "plan_steps": [],
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(route_project_task_request("好，给我一个初步沟通的方案，生成 PPT 版本", llm_complete=fake_complete, model="test"))
+
+    assert route.task_type == "generate_client_ppt"
+    assert route.reason == "rule:ppt"
+
+
 def test_task_run_chat_summary_mentions_steps_and_retry_hint():
     payload = {
         "id": 7,

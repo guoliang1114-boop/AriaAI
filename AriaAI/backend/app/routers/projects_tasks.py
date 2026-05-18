@@ -6,13 +6,15 @@ retryable even if the browser refreshes or a streaming connection drops.
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.routers.auth import get_current_user
 from app.routers.projects_deps import get_session
-from app.models.db import User
+from app.models.db import Message, User
 from app.services.project_core import get_project_or_404
 from app.services.task_orchestrator import (
     cancel_task_run_in_session,
@@ -36,6 +38,30 @@ class ProjectTaskCreate(BaseModel):
     conversation_id: int | None = None
     input: dict = Field(default_factory=dict)
     start: bool = True
+
+
+def _sync_task_run_into_chat_message(session: Session, payload: dict) -> None:
+    task_id = payload.get("id")
+    conversation_id = payload.get("conversation_id")
+    if not task_id or not conversation_id:
+        return
+    messages = session.exec(
+        select(Message).where(Message.conversation_id == conversation_id, Message.role == "assistant")
+    ).all()
+    for message in messages:
+        try:
+            metadata = json.loads(message.metadata_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        metadata_task = metadata.get("task_run") if isinstance(metadata.get("task_run"), dict) else {}
+        if metadata.get("task_run_id") != task_id and metadata_task.get("id") != task_id:
+            continue
+        metadata["task_run"] = payload
+        metadata["task_run_id"] = task_id
+        metadata["task_type"] = payload.get("task_type")
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        session.add(message)
+    session.commit()
 
 
 @router.get("/{project_id}/task-runs")
@@ -104,6 +130,7 @@ def cancel_project_task_run(project_id: int, task_id: int, session: Session = De
     payload = cancel_task_run_in_session(session, task.id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
+    _sync_task_run_into_chat_message(session, payload)
     return payload
 
 
@@ -117,6 +144,7 @@ def pause_project_task_run(project_id: int, task_id: int, session: Session = Dep
     payload = pause_task_run_in_session(session, task.id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
+    _sync_task_run_into_chat_message(session, payload)
     return payload
 
 
@@ -135,5 +163,6 @@ def resume_project_task_run(
     payload = resume_task_run_in_session(session, task.id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Task run not found")
+    _sync_task_run_into_chat_message(session, payload)
     background_tasks.add_task(resume_task_run, task.id)
     return payload

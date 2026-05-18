@@ -13,6 +13,7 @@ type ProjectTaskRunsDrawerProps = {
   onClose: () => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
+  onTaskUpdated?: (task: TaskRun) => void;
 };
 
 const STATUS_COPY: Record<string, { zh: string; en: string; className: string }> = {
@@ -122,6 +123,7 @@ export function ProjectTaskRunsDrawer({
   onClose,
   onDownloadArtifact,
   onOpenArtifact,
+  onTaskUpdated,
 }: ProjectTaskRunsDrawerProps) {
   const toast = useToast();
   const [tasks, setTasks] = useState<TaskRun[]>([]);
@@ -163,7 +165,8 @@ export function ProjectTaskRunsDrawer({
     try {
       await api.post<TaskRun>(`/projects/${projectId}/task-runs/${task.id}/retry`, {});
       toast.success(isZh ? "已重新加入执行" : "Retry queued");
-      await refreshTask(task.id);
+      const nextTask = await refreshTask(task.id);
+      onTaskUpdated?.(nextTask);
     } catch (error) {
       console.error("Failed to retry project task:", error);
       toast.error(isZh ? "重试任务失败" : "Failed to retry task");
@@ -177,6 +180,7 @@ export function ProjectTaskRunsDrawer({
     try {
       const nextTask = await api.post<TaskRun>(`/projects/${projectId}/task-runs/${task.id}/cancel`, {});
       setTasks((current) => current.map((item) => (item.id === task.id ? nextTask : item)));
+      onTaskUpdated?.(nextTask);
       toast.success(isZh ? "任务已取消" : "Task canceled");
     } catch (error) {
       console.error("Failed to cancel project task:", error);
@@ -191,6 +195,7 @@ export function ProjectTaskRunsDrawer({
     try {
       const nextTask = await api.post<TaskRun>(`/projects/${projectId}/task-runs/${task.id}/pause`, {});
       setTasks((current) => current.map((item) => (item.id === task.id ? nextTask : item)));
+      onTaskUpdated?.(nextTask);
       toast.success(isZh ? "任务已暂停" : "Task paused");
     } catch (error) {
       console.error("Failed to pause project task:", error);
@@ -205,6 +210,7 @@ export function ProjectTaskRunsDrawer({
     try {
       const nextTask = await api.post<TaskRun>(`/projects/${projectId}/task-runs/${task.id}/resume`, {});
       setTasks((current) => current.map((item) => (item.id === task.id ? nextTask : item)));
+      onTaskUpdated?.(nextTask);
       toast.success(isZh ? "任务已恢复执行" : "Task resumed");
     } catch (error) {
       console.error("Failed to resume project task:", error);
