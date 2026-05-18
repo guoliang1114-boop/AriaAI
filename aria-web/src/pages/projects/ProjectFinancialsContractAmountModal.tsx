@@ -37,7 +37,7 @@ export function ProjectFinancialsContractAmountModal({
       onClose();
     } catch (error) {
       console.error("Failed to update contract amount:", error);
-      toast.error(isZh ? "鏇存柊澶辫触" : "Failed to update");
+      toast.error(isZh ? "鏇存柊失败" : "Failed to update");
     } finally {
       setSaving(false);
     }
@@ -70,7 +70,7 @@ export function ProjectFinancialsContractAmountModal({
               onClick={onClose}
               className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
             >
-              {isZh ? "鍙栨秷" : "Cancel"}
+              {isZh ? "取消" : "Cancel"}
             </button>
             <button
               type="submit"

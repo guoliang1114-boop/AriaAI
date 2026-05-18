@@ -95,6 +95,36 @@ function workflowStepsFromTask(task?: TaskRun): ToolCallEvent[] {
   return steps.map((step) => workflowStepFromTask(step, steps.length, task?.events || []));
 }
 
+function artifactFromTaskArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
+  if (!artifact?.name || !artifact.file_type) return null;
+  return {
+    id: artifact.id,
+    name: artifact.name,
+    file_type: artifact.file_type,
+    path: artifact.path || "",
+    project_file_id: artifact.project_file_id,
+    description:
+      typeof artifact.metadata?.content === "string"
+        ? artifact.metadata.content
+        : typeof artifact.metadata?.summary === "string"
+          ? artifact.metadata.summary
+          : typeof artifact.metadata?.message === "string"
+            ? artifact.metadata.message
+            : "",
+  };
+}
+
+function mergeArtifacts(primary: GeneratedArtifact[], fallback: GeneratedArtifact[]) {
+  return [...primary, ...fallback].reduce<GeneratedArtifact[]>((items, artifact) => {
+    const key = artifact.path || `${artifact.file_type}:${artifact.id ?? artifact.name}`;
+    const exists = items.some((item) => {
+      const itemKey = item.path || `${item.file_type}:${item.id ?? item.name}`;
+      return itemKey === key;
+    });
+    return exists ? items : [...items, artifact];
+  }, []);
+}
+
 interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
   msg: Message;
@@ -125,7 +155,12 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const references: Reference[] = metadata.references || [];
     const taskToolCalls = workflowStepsFromTask(metadata.task_run);
     const toolCalls: ToolCallEvent[] = taskToolCalls.length ? taskToolCalls : metadata.tool_calls || [];
-    const artifacts: GeneratedArtifact[] = metadata.artifacts || [];
+    const artifacts: GeneratedArtifact[] = mergeArtifacts(
+      metadata.artifacts || [],
+      (metadata.task_run?.artifacts || [])
+        .map(artifactFromTaskArtifact)
+        .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
+    );
     const pendingMarkdownSaves = metadata.pending_markdown_saves || [];
 
     const confirmMarkdownSave = async (pendingIndex: number) => {

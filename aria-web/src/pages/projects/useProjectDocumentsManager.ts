@@ -123,7 +123,7 @@ export function useProjectDocumentsManager({
       });
     } catch (error) {
       console.error("Failed to download file:", error);
-      toast.error(isZh ? "涓嬭浇澶辫触" : "Download failed");
+      toast.error(isZh ? "涓嬭浇失败" : "Download failed");
     }
   };
 
@@ -143,7 +143,7 @@ export function useProjectDocumentsManager({
       setFileToDelete(null);
     } catch (error) {
       console.error("Failed to delete file:", error);
-      toast.error(isZh ? "鍒犻櫎澶辫触" : "Delete failed");
+      toast.error(isZh ? "删除失败" : "Delete failed");
     } finally {
       setDeleting(false);
     }
@@ -165,7 +165,7 @@ export function useProjectDocumentsManager({
     if (oversized.length > 0) {
       toast.error(
         isZh
-          ? `鏂囦欢杩囧ぇ锛?{oversized[0].name} 瓒呰繃 80MB 闄愬埗`
+          ? `文件杩囧ぇ锛?{oversized[0].name} 瓒呰繃 80MB 闄愬埗`
           : `File too large: ${oversized[0].name} exceeds 80MB limit`,
       );
       setUploadProgress(
@@ -234,14 +234,14 @@ export function useProjectDocumentsManager({
           const status = requestError.response?.status;
           const message = requestError.message || "";
           if (status === 413) {
-            toast.error(isZh ? `鏂囦欢杩囧ぇ锛?{file.name}` : `File too large: ${file.name}`);
+            toast.error(isZh ? `文件杩囧ぇ锛?{file.name}` : `File too large: ${file.name}`);
           } else if (
             requestError.code === "ECONNABORTED" ||
             message.includes("timeout")
           ) {
             toast.error(
               isZh
-                ? `涓婁紶瓒呮椂锛?{file.name}锛岃妫€鏌ョ綉缁滄垨灏濊瘯鍘嬬缉鏂囦欢`
+                ? `涓婁紶瓒呮椂锛?{file.name}锛岃妫€鏌ョ綉缁滄垨灏濊瘯鍘嬬缉文件`
                 : `Upload timeout: ${file.name}, please check your network or compress the file`,
             );
           } else if (!requestError.response) {
@@ -254,7 +254,7 @@ export function useProjectDocumentsManager({
             const detail = requestError.response?.data?.detail || "";
             toast.error(
               isZh
-                ? `涓婁紶澶辫触锛?{file.name}${detail ? ` (${detail})` : ""}`
+                ? `涓婁紶失败锛?{file.name}${detail ? ` (${detail})` : ""}`
                 : `Upload failed: ${file.name}${detail ? ` (${detail})` : ""}`,
             );
           }
@@ -301,7 +301,7 @@ export function useProjectDocumentsManager({
       onUpdate();
     } catch (error) {
       console.error("Failed to create folder:", error);
-      toast.error(isZh ? "鍒涘缓鏂囦欢澶瑰け璐?" : "Failed to create folder");
+      toast.error(isZh ? "鍒涘缓文件澶瑰け璐?" : "Failed to create folder");
     } finally {
       setCreatingFolder(false);
     }

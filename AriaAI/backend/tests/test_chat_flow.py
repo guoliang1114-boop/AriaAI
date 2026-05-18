@@ -765,6 +765,36 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         shutil.rmtree(self.uploads_dir, ignore_errors=True)
         self.engine.dispose()
 
+    def test_create_project_rejects_duplicate_active_project(self):
+        first_resp = self.client.post(
+            "/projects",
+            json={
+                "name": " 东阿阿胶新业务进入机会和策略 ",
+                "client": "东阿阿胶股份有限公司",
+                "status": "lead",
+            },
+        )
+        self.assertEqual(first_resp.status_code, 201)
+        first_project_id = first_resp.json()["id"]
+
+        duplicate_resp = self.client.post(
+            "/projects",
+            json={
+                "name": "东阿阿胶新业务进入机会和策略",
+                "client": " 东阿阿胶股份有限公司 ",
+                "status": "lead",
+            },
+        )
+
+        self.assertEqual(duplicate_resp.status_code, 409)
+        detail = duplicate_resp.json()["detail"]
+        self.assertEqual(detail["code"], "duplicate_project")
+        self.assertEqual(detail["project_id"], first_project_id)
+
+        with Session(self.engine) as session:
+            projects = session.exec(select(Project)).all()
+        self.assertEqual(len(projects), 1)
+
     def test_save_project_conversation_as_markdown_file(self):
         with Session(self.engine) as session:
             project = Project(name="Alpha", client="Client")

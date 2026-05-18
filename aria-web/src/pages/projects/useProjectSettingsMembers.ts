@@ -87,7 +87,7 @@ export function useProjectSettingsMembers({
     } catch (error) {
       toast.error(
         getApiErrorMessage(error) ||
-          (isZh ? "娣诲姞鎴愬憳澶辫触" : "Failed to add member"),
+          (isZh ? "娣诲姞鎴愬憳失败" : "Failed to add member"),
       );
     } finally {
       setIsAddingMember(false);
@@ -103,7 +103,7 @@ export function useProjectSettingsMembers({
     } catch (error) {
       toast.error(
         getApiErrorMessage(error) ||
-          (isZh ? "绉婚櫎鎴愬憳澶辫触" : "Failed to remove member"),
+          (isZh ? "绉婚櫎鎴愬憳失败" : "Failed to remove member"),
       );
     } finally {
       setRemovingUserId(null);

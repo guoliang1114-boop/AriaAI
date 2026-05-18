@@ -28,10 +28,10 @@ export function ProjectSettingsDeleteDialog({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">
-              {isZh ? "纭鍒犻櫎椤圭洰" : "Delete Project"}
+              {isZh ? "确认删除项目" : "Delete Project"}
             </h3>
             <p className="text-sm text-gray-500">
-              {isZh ? "姝ゆ搷浣滀笉鍙仮澶?" : "This action cannot be undone"}
+              {isZh ? "此操作不可恢复" : "This action cannot be undone"}
             </p>
           </div>
         </div>
@@ -56,7 +56,7 @@ export function ProjectSettingsDeleteDialog({
             onClick={onCancel}
             className="rounded-lg px-4 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50"
           >
-            {isZh ? "鍙栨秷" : "Cancel"}
+            {isZh ? "取消" : "Cancel"}
           </button>
           <button
             onClick={onConfirm}
@@ -64,7 +64,7 @@ export function ProjectSettingsDeleteDialog({
             className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {isZh ? "纭鍒犻櫎" : "Delete"}
+            {isZh ? "确认删除" : "Delete"}
           </button>
         </div>
       </div>

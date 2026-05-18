@@ -62,7 +62,7 @@ const ChatStreamingMessage = memo<{
               ))}
               {artifacts.map((artifact) => (
                 <ProjectChatArtifactCard
-                  key={`${artifact.path}-${artifact.name}`}
+                  key={`${artifact.path || artifact.id || artifact.name}-${artifact.name}`}
                   artifact={artifact}
                   isZh={isZh}
                   onDownload={onDownloadArtifact}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api/client'
@@ -70,7 +71,7 @@ export function NewProject() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!formData.name.trim() || !formData.client.trim()) return
+    if (loading || !formData.name.trim() || !formData.client.trim()) return
 
     setError(null)
     try {
@@ -88,6 +89,20 @@ export function NewProject() {
       navigate(`/projects/${projectId}`)
     } catch (submitError) {
       console.error('Failed to create project:', submitError)
+      if (axios.isAxiosError(submitError)) {
+        const detail = submitError.response?.data?.detail
+        if (
+          submitError.response?.status === 409 &&
+          detail &&
+          typeof detail === 'object' &&
+          detail.code === 'duplicate_project' &&
+          detail.project_id
+        ) {
+          setError(isZh ? '该客户下已有同名项目，正在打开已有项目。' : 'A project with this name already exists. Opening it now.')
+          navigate(`/projects/${detail.project_id}`)
+          return
+        }
+      }
       setError(isZh ? '创建项目失败，请重试' : 'Failed to create project, please try again')
     } finally {
       setLoading(false)

@@ -303,9 +303,20 @@ def _client_ppt_delivery_title(context: dict[str, Any] | None, goal: str, explic
     project_name = str(project.get("name") or "").strip()
     client_name = str(project.get("client") or "").strip()
 
+    def dedupe_project_name(title: str) -> str:
+        if not project_name or project_name not in title:
+            return title
+        first_index = title.find(project_name)
+        head = title[: first_index + len(project_name)]
+        tail = title[first_index + len(project_name) :].replace(project_name, "")
+        return f"{head}{tail}".strip("-_｜|/ ")
+
     for candidate in (explicit_title, goal):
         cleaned = _clean_ppt_request_title(str(candidate or ""))
         if cleaned:
+            cleaned = dedupe_project_name(cleaned)
+            if cleaned in {project_name, client_name}:
+                return f"{project_name or client_name}客户沟通建议"
             if project_name and project_name not in cleaned and len(cleaned) <= 18:
                 cleaned = f"{project_name}-{cleaned}"
             if any(token in cleaned for token in ("沟通", "访谈", "介绍", "方案", "建议", "策略")):

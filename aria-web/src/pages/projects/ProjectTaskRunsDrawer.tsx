@@ -66,6 +66,7 @@ function eventText(event: TaskRunEvent) {
 
 function artifactFromTaskArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact {
   return {
+    id: artifact.id,
     name: artifact.name,
     file_type: artifact.file_type,
     path: artifact.path,

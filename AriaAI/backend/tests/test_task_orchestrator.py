@@ -113,9 +113,14 @@ def test_client_ppt_delivery_title_and_file_name_are_clean():
         context,
         "内容不够丰富，对这个 PPT 进行全面丰富 页数要求20页以上",
     )
+    repeated_project_title = task_orchestrator._client_ppt_delivery_title(
+        context,
+        "东阿阿胶新业务进入机会和策略 东阿阿胶新业务进入机会和策略 客户沟通建议",
+    )
 
     assert title == "东阿阿胶新业务进入机会和策略-初步沟通方案"
     assert enriched_title == "东阿阿胶新业务进入机会和策略客户沟通建议"
+    assert repeated_project_title == "东阿阿胶新业务进入机会和策略客户沟通建议"
     assert task_orchestrator._client_ppt_file_name(enriched_title) == "东阿阿胶新业务进入机会和策略客户沟通建议.pptx"
     assert "内容不够丰富" not in task_orchestrator._client_ppt_file_name(enriched_title)
 

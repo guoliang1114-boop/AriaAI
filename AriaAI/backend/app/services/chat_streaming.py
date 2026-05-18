@@ -803,11 +803,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 if artifact_meta:
                     artifacts.append(
                         {
+                            "id": artifact.get("id"),
                             "project_file_id": artifact.get("project_file_id"),
                             "name": artifact.get("name"),
                             "file_type": artifact.get("file_type"),
                             "path": artifact.get("path"),
                             "description": artifact_meta.get("content") or artifact_meta.get("summary") or "",
+                            "created_at": artifact.get("created_at"),
                         }
                     )
             if artifacts:

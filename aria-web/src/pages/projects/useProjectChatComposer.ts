@@ -96,6 +96,7 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
 function artifactFromTaskRunArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
   if (!artifact?.name || !artifact.file_type) return null;
   return {
+    id: artifact.id,
     name: artifact.name,
     file_type: artifact.file_type,
     path: artifact.path || "",
@@ -240,7 +241,12 @@ function upsertWorkflowStep(
 
 function upsertArtifacts(current: GeneratedArtifact[], incoming: GeneratedArtifact[]) {
   return incoming.reduce<GeneratedArtifact[]>((items, artifact) => {
-    if (!artifact.path || items.some((item) => item.path === artifact.path)) return items;
+    const artifactKey = artifact.path || `${artifact.file_type}:${artifact.id ?? artifact.name}`;
+    const exists = items.some((item) => {
+      const itemKey = item.path || `${item.file_type}:${item.id ?? item.name}`;
+      return itemKey === artifactKey;
+    });
+    if (exists) return items;
     return [...items, artifact];
   }, current);
 }
@@ -489,8 +495,8 @@ export function useProjectChatComposer({
             setStreamingToolCalls(collectedToolCalls);
 
             const artifact = artifactFromResult(result);
-            if (artifact && !collectedArtifacts.some((item) => item.path === artifact.path)) {
-              collectedArtifacts = [...collectedArtifacts, artifact];
+            if (artifact) {
+              collectedArtifacts = upsertArtifacts(collectedArtifacts, [artifact]);
               setStreamingArtifacts(collectedArtifacts);
             }
           } else if (payload.type === "done") {
@@ -504,12 +510,7 @@ export function useProjectChatComposer({
               latestTaskType = payload.task_type;
             }
             if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
-              collectedArtifacts = payload.artifacts.reduce<GeneratedArtifact[]>((items: GeneratedArtifact[], artifact: GeneratedArtifact) => {
-                if (!artifact || !artifact.path || items.some((item: GeneratedArtifact) => item.path === artifact.path)) {
-                  return items;
-                }
-                return [...items, artifact];
-              }, collectedArtifacts);
+              collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
               setStreamingArtifacts(collectedArtifacts);
             }
           } else if (payload.type === "error") {

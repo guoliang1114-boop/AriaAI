@@ -25,7 +25,7 @@ export function ProjectDocumentsCreateFolderModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md m-4 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">
-            {isZh ? "鏂板缓鏂囦欢澶?" : "New Folder"}
+            {isZh ? "鏂板缓文件澶?" : "New Folder"}
           </h3>
           <button
             onClick={onClose}
@@ -37,7 +37,7 @@ export function ProjectDocumentsCreateFolderModal({
 
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            {isZh ? "鏂囦欢澶瑰悕绉?" : "Folder name"}
+            {isZh ? "文件澶瑰悕绉?" : "Folder name"}
           </label>
           <input
             ref={folderInputRef}
@@ -52,7 +52,7 @@ export function ProjectDocumentsCreateFolderModal({
                 onClose();
               }
             }}
-            placeholder={isZh ? "璇疯緭鍏ユ枃浠跺す鍚嶇О" : "Enter folder name"}
+            placeholder={isZh ? "请输入文件夹名称" : "Enter folder name"}
             className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
         </div>
@@ -62,7 +62,7 @@ export function ProjectDocumentsCreateFolderModal({
             onClick={onClose}
             className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            {isZh ? "鍙栨秷" : "Cancel"}
+            {isZh ? "取消" : "Cancel"}
           </button>
           <button
             onClick={onCreate}
