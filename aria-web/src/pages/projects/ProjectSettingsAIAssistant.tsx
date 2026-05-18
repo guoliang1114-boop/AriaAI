@@ -49,7 +49,7 @@ export function ProjectSettingsAIAssistant({
           ) : (
             <Wand2 className="h-3.5 w-3.5" />
           )}
-          {isZh ? "鐢熸垚寤鸿" : "Generate"}
+          {isZh ? "生成建议" : "Generate"}
         </button>
 
         {description && (
@@ -70,7 +70,7 @@ export function ProjectSettingsAIAssistant({
       {showSuggestions && suggestions.length > 0 && (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-500">
-            {isZh ? "AI 寤鸿锛岀偣鍑诲嵆鍙簲鐢?" : "AI suggestions, click to apply"}
+            {isZh ? "AI 建议，点击即可应用" : "AI suggestions, click to apply"}
           </p>
           {suggestions.map((suggestion, index) => (
             <button

@@ -37,9 +37,9 @@ export function ProjectSettingsDeleteDialog({
         </div>
 
         <p className="mb-4 text-sm text-gray-600">
-          {isZh ? "璇疯緭鍏ラ」鐩悕绉?" : "Please type the project name"}{" "}
+          {isZh ? "请输入项目名称" : "Please type the project name"}{" "}
           <span className="font-semibold text-gray-900">"{projectName}"</span>{" "}
-          {isZh ? "浠ョ‘璁ゅ垹闄ぁ€?" : "to confirm deletion."}
+          {isZh ? "以确认删除。" : "to confirm deletion."}
         </p>
 
         <input

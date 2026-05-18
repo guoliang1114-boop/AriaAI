@@ -32,7 +32,7 @@ export function ProjectDocumentsDeleteDialog({
               {isZh ? "删除文件" : "Delete File"}
             </h3>
             <p className="text-sm text-gray-500 mt-1">
-              {isZh ? "姝ゆ搷浣滀笉鍙挙閿€" : "This action cannot be undone"}
+              {isZh ? "此操作不可撤销" : "This action cannot be undone"}
             </p>
           </div>
         </div>

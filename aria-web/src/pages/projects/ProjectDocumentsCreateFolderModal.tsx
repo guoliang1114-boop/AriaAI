@@ -25,7 +25,7 @@ export function ProjectDocumentsCreateFolderModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md m-4 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">
-            {isZh ? "鏂板缓文件澶?" : "New Folder"}
+            {isZh ? "新建文件澶?" : "New Folder"}
           </h3>
           <button
             onClick={onClose}
@@ -37,7 +37,7 @@ export function ProjectDocumentsCreateFolderModal({
 
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            {isZh ? "文件澶瑰悕绉?" : "Folder name"}
+            {isZh ? "文件夹名称" : "Folder name"}
           </label>
           <input
             ref={folderInputRef}
@@ -70,7 +70,7 @@ export function ProjectDocumentsCreateFolderModal({
             className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {creatingFolder && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isZh ? "鍒涘缓" : "Create"}
+            {isZh ? "创建" : "Create"}
           </button>
         </div>
       </div>

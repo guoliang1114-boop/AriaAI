@@ -37,7 +37,7 @@ export function ProjectFinancialsContractAmountModal({
       onClose();
     } catch (error) {
       console.error("Failed to update contract amount:", error);
-      toast.error(isZh ? "鏇存柊失败" : "Failed to update");
+      toast.error(isZh ? "更新失败" : "Failed to update");
     } finally {
       setSaving(false);
     }
@@ -47,7 +47,7 @@ export function ProjectFinancialsContractAmountModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm m-4 p-5">
         <h3 className="text-lg font-bold text-gray-900 mb-4">
-          {isZh ? "璁剧疆鍚堝悓閲戦" : "Set Contract Amount"}
+          {isZh ? "设置合同金额" : "Set Contract Amount"}
         </h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">
@@ -77,7 +77,7 @@ export function ProjectFinancialsContractAmountModal({
               disabled={saving}
               className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90"
             >
-              {saving ? (isZh ? "淇濆瓨涓?.." : "Saving...") : isZh ? "淇濆瓨" : "Save"}
+              {saving ? (isZh ? "保存中..." : "Saving...") : isZh ? "保存" : "Save"}
             </button>
           </div>
         </form>

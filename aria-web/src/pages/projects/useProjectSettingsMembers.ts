@@ -81,13 +81,13 @@ export function useProjectSettingsMembers({
     setIsAddingMember(true);
     try {
       await api.post(`/projects/${projectId}/members`, { user_id: selectedUserId });
-      toast.success(isZh ? "鎴愬憳宸叉坊鍔?" : "Member added");
+      toast.success(isZh ? "成员已添加" : "Member added");
       setSelectedUserId(null);
       onUpdate();
     } catch (error) {
       toast.error(
         getApiErrorMessage(error) ||
-          (isZh ? "娣诲姞鎴愬憳失败" : "Failed to add member"),
+          (isZh ? "添加成员失败" : "Failed to add member"),
       );
     } finally {
       setIsAddingMember(false);
@@ -98,12 +98,12 @@ export function useProjectSettingsMembers({
     setRemovingUserId(userId);
     try {
       await api.delete(`/projects/${projectId}/members/${userId}`);
-      toast.success(isZh ? "鎴愬憳宸茬Щ闄?" : "Member removed");
+      toast.success(isZh ? "成员已移除" : "Member removed");
       onUpdate();
     } catch (error) {
       toast.error(
         getApiErrorMessage(error) ||
-          (isZh ? "绉婚櫎鎴愬憳失败" : "Failed to remove member"),
+          (isZh ? "移除成员失败" : "Failed to remove member"),
       );
     } finally {
       setRemovingUserId(null);

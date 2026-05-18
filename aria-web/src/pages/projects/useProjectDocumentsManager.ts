@@ -234,20 +234,20 @@ export function useProjectDocumentsManager({
           const status = requestError.response?.status;
           const message = requestError.message || "";
           if (status === 413) {
-            toast.error(isZh ? `文件杩囧ぇ锛?{file.name}` : `File too large: ${file.name}`);
+            toast.error(isZh ? `文件过大：${file.name}` : `File too large: ${file.name}`);
           } else if (
             requestError.code === "ECONNABORTED" ||
             message.includes("timeout")
           ) {
             toast.error(
               isZh
-                ? `涓婁紶瓒呮椂锛?{file.name}锛岃妫€鏌ョ綉缁滄垨灏濊瘯鍘嬬缉文件`
+                ? `上传超时：${file.name}，请检查网络或尝试压缩文件`
                 : `Upload timeout: ${file.name}, please check your network or compress the file`,
             );
           } else if (!requestError.response) {
             toast.error(
               isZh
-                ? `缃戠粶閿欒锛屾棤娉曚笂浼?${file.name}`
+                ? `网络错误，无法上传${file.name}`
                 : `Network error, unable to upload ${file.name}`,
             );
           } else {
@@ -301,7 +301,7 @@ export function useProjectDocumentsManager({
       onUpdate();
     } catch (error) {
       console.error("Failed to create folder:", error);
-      toast.error(isZh ? "鍒涘缓文件澶瑰け璐?" : "Failed to create folder");
+      toast.error(isZh ? "创建文件澶瑰け璐?" : "Failed to create folder");
     } finally {
       setCreatingFolder(false);
     }

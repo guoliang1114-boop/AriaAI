@@ -33,7 +33,7 @@ export function ProjectFinancialsPaymentForm({
     <>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          {isZh ? "缁鐎?" : "Type"}
+          {isZh ? "类型" : "Type"}
         </label>
         <div className="flex gap-2">
           {options.map((option) => (
