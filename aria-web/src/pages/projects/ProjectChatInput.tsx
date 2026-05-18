@@ -1,4 +1,4 @@
-import { Loader2, Send, Square } from "lucide-react";
+import { Send, Square } from "lucide-react";
 
 type ProjectChatInputProps = {
   value: string;

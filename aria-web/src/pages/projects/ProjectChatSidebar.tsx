@@ -6,11 +6,9 @@ import {
   FolderOpen,
   Loader2,
   MessageSquare,
-  Plus,
   Search,
   Shrink,
   Trash2,
-  Upload,
   X,
   FolderKanban,
 } from "lucide-react";

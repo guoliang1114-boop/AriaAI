@@ -18,6 +18,7 @@ vi.mock("../../api/client", () => ({
 }));
 
 vi.mock("./projectChatCopy", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   buildDefaultChatTitle: (content: string, _isZh: boolean) => {
     if (!content) return "New Chat";
     return content.slice(0, 15) + (content.length > 15 ? "..." : "");

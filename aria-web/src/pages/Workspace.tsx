@@ -74,7 +74,7 @@ function MemoryIndicator({ stale, version }: { stale?: boolean; version?: number
 
 export function Workspace() {
   const navigate = useNavigate()
-  const { i18n, t } = useTranslation()
+  const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
 
   const [loading, setLoading] = useState(true)
