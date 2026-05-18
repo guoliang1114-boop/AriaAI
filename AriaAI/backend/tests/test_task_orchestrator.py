@@ -14,6 +14,7 @@ from app.services.task_orchestrator import (
     execute_task_run_in_session,
     pause_task_run_in_session,
     resume_task_run_in_session,
+    route_project_task_request,
     serialize_task_run,
     task_run_chat_summary,
 )
@@ -68,6 +69,39 @@ def test_detect_project_task_type_routes_ppt_creation_requests():
     assert detect_project_task_type("输出一个客户沟通pdf") == "generate_project_pdf"
     assert detect_project_task_type("这个项目风险是什么") is None
     assert detect_project_task_type("介绍一下这个报告的重点") is None
+
+
+def test_rule_router_routes_text_artifacts_without_file_output():
+    assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
+
+
+def test_llm_router_uses_structured_plan():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "task_type": "create_text_artifact",
+                "confidence": 0.91,
+                "reason": "structured text deliverable",
+                "title": "项目风险清单",
+                "output_kind": "text",
+                "plan_steps": [
+                    {"key": "collect", "title": "收集上下文", "step_type": "collect_project_context", "retryable": True},
+                    {"key": "draft", "title": "生成风险清单", "step_type": "draft_text_artifact", "retryable": True},
+                    {"key": "finish", "title": "整理结果", "step_type": "summarize_result", "retryable": False},
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(route_project_task_request("帮我整理一份项目风险清单", llm_complete=fake_complete, model="test"))
+
+    assert route.task_type == "create_text_artifact"
+    assert route.title == "项目风险清单"
+    assert [step.step_type for step in route.plan_steps] == [
+        "collect_project_context",
+        "draft_text_artifact",
+        "summarize_result",
+    ]
 
 
 def test_task_run_chat_summary_mentions_steps_and_retry_hint():
@@ -203,6 +237,36 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
         assert [step.key for step in steps] == ["collect_context", "draft_document_spec", "create_document", "summarize_result"]
         assert all(step.status == "completed" for step in steps)
         assert artifacts and artifacts[0].file_type == "xlsx"
+    finally:
+        engine.dispose()
+
+
+def test_execute_text_artifact_task_records_text_artifact():
+    engine = _setup_engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Text Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="create_text_artifact",
+                goal="帮我整理一份项目风险清单",
+            )
+
+            asyncio.run(execute_task_run_in_session(session, task.id))
+            session.refresh(task)
+            steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
+            artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
+
+        assert task.status == "completed"
+        assert [step.key for step in steps] == ["collect_context", "draft_text_artifact", "summarize_result"]
+        assert artifacts and artifacts[0].file_type == "text"
+        metadata = json.loads(artifacts[0].metadata_json)
+        assert "项目风险清单" in metadata["title"]
+        assert metadata["content"].startswith("#")
     finally:
         engine.dispose()
 

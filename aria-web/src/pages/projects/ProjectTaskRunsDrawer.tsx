@@ -70,11 +70,13 @@ function artifactFromTaskArtifact(artifact: NonNullable<TaskRun["artifacts"]>[nu
     path: artifact.path,
     project_file_id: artifact.project_file_id,
     description:
-      typeof artifact.metadata?.summary === "string"
-        ? artifact.metadata.summary
-        : typeof artifact.metadata?.message === "string"
-          ? artifact.metadata.message
-          : "",
+      typeof artifact.metadata?.content === "string"
+        ? artifact.metadata.content
+        : typeof artifact.metadata?.summary === "string"
+          ? artifact.metadata.summary
+          : typeof artifact.metadata?.message === "string"
+            ? artifact.metadata.message
+            : "",
   };
 }
 

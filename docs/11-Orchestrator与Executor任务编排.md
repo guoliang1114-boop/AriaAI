@@ -43,17 +43,31 @@ aria-web/src/pages/projects/useProjectChatComposer.ts
 | `generate_project_docx` | 生成 Word / DOCX / 文档 / 报告 / 方案 | DOCX |
 | `generate_project_pdf` | 输出 PDF | PDF |
 
-任务识别函数：
+任务识别入口：
 
 ```python
-detect_project_task_type(content)
+route_project_task_request(content)
 ```
 
-识别原则：
+当前由 LLM Router 优先判断是否进入 Orchestrator，并返回结构化结果：
 
-- 必须同时有“文件类型/交付物类型”和“创建动作”。
-- 例如“准备一个访谈 Excel”会进入 Orchestrator。
-- 例如“介绍一下这个报告的重点”不会进入 Orchestrator，只走普通 LLM 回答。
+- `task_type`
+- `confidence`
+- `reason`
+- `output_kind`
+- `plan_steps`
+
+如果 LLM Router 不可用或返回不可解析内容，会降级到规则路由：
+
+- “准备一个访谈 Excel”会进入 Orchestrator。
+- “帮我整理一份项目风险清单”会进入 Text artifact 任务。
+- “介绍一下这个报告的重点”不会进入 Orchestrator，只走普通 LLM 回答。
+
+当前已支持：
+
+| task_type | 输出 |
+|---|---|
+| `create_text_artifact` | 仅文本交付，不生成 Office 文件 |
 
 ## 4. 执行流程
 
@@ -77,7 +91,9 @@ Executor 逐步执行
 返回任务日志、附件卡片、最终回复
 ```
 
-标准步骤：
+Planner 会优先使用 Router 返回的 `plan_steps` 创建动态步骤。若没有可靠计划，则使用默认步骤。
+
+默认 Office 步骤：
 
 ```text
 1. 收集项目上下文
@@ -93,6 +109,14 @@ PPT 任务使用专门步骤：
 2. 生成结构化大纲
 3. 生成并保存 PPT
 4. 整理交付结果
+```
+
+Text artifact 默认步骤：
+
+```text
+1. 收集项目上下文
+2. 生成文本交付内容
+3. 整理交付结果
 ```
 
 ## 5. 聊天分流策略
@@ -150,6 +174,7 @@ task_run.artifacts
 - TaskStep 状态
 - TaskEvent 完整日志
 - TaskArtifact 生成物
+- Text artifact 正文
 - 失败任务重试入口
 - 可取消任务的取消入口
 
@@ -241,6 +266,6 @@ npm run build
 最近一次验证：
 
 ```text
-123 passed
+125 passed
 npm run build 通过
 ```

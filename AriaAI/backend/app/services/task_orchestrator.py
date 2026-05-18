@@ -12,7 +12,7 @@ import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from sqlmodel import Session, select
 
@@ -29,13 +29,14 @@ SUPPORTED_TASK_TYPES = {
     "generate_project_excel",
     "generate_project_docx",
     "generate_project_pdf",
+    "create_text_artifact",
 }
 _PPT_INTENT_TERMS = ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍")
-_EXCEL_INTENT_TERMS = ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "清单", "台账")
+_EXCEL_INTENT_TERMS = ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "台账")
 _DOCX_INTENT_TERMS = ("word", "docx", "文档", "报告", "方案", "材料")
 _PDF_INTENT_TERMS = ("pdf",)
 _CREATE_INTENT_TERMS = (
-    "准备", "生成", "创建", "制作", "输出", "导出", "整理成", "形成", "写一份", "做一份",
+    "准备", "生成", "创建", "制作", "输出", "导出", "整理", "整理成", "形成", "写一份", "做一份",
     "proposal", "prepare", "create", "generate", "make", "export", "draft",
 )
 
@@ -46,6 +47,16 @@ class StepSpec:
     title: str
     step_type: str
     retryable: bool = True
+
+
+@dataclass(frozen=True)
+class TaskRoute:
+    task_type: str | None
+    confidence: float = 0.0
+    reason: str = ""
+    title: str = ""
+    output_kind: str = ""
+    plan_steps: tuple[StepSpec, ...] = ()
 
 
 GENERATE_CLIENT_PPT_STEPS = [
@@ -62,26 +73,151 @@ GENERATE_PROJECT_DOCUMENT_STEPS = [
     StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
 ]
 
+CREATE_TEXT_ARTIFACT_STEPS = [
+    StepSpec("collect_context", "收集项目上下文", "collect_project_context"),
+    StepSpec("draft_text_artifact", "生成文本交付内容", "draft_text_artifact"),
+    StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
+]
+
+ALLOWED_STEP_TYPES = {
+    "collect_project_context",
+    "build_slide_spec",
+    "build_document_spec",
+    "write_project_office_document",
+    "draft_text_artifact",
+    "summarize_result",
+}
+
 
 def detect_project_task_type(content: str) -> str | None:
     """Detect requests that should run as durable project tasks instead of a single chat turn."""
+    return _rule_based_task_route(content).task_type
+
+
+def _rule_based_task_route(content: str) -> TaskRoute:
     normalized = (content or "").strip().lower()
     if not normalized:
-        return None
+        return TaskRoute(None, reason="empty")
     wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
     wants_excel = any(term in normalized for term in _EXCEL_INTENT_TERMS)
     wants_pdf = any(term in normalized for term in _PDF_INTENT_TERMS)
     wants_docx = any(term in normalized for term in _DOCX_INTENT_TERMS)
     wants_create = any(term in normalized for term in _CREATE_INTENT_TERMS)
     if wants_ppt and wants_create:
-        return "generate_client_ppt"
+        return TaskRoute("generate_client_ppt", confidence=0.86, reason="rule:ppt", output_kind="pptx")
     if wants_excel and wants_create:
-        return "generate_project_excel"
+        return TaskRoute("generate_project_excel", confidence=0.86, reason="rule:excel", output_kind="xlsx")
     if wants_pdf and wants_create:
-        return "generate_project_pdf"
+        return TaskRoute("generate_project_pdf", confidence=0.86, reason="rule:pdf", output_kind="pdf")
     if wants_docx and wants_create:
-        return "generate_project_docx"
+        return TaskRoute("generate_project_docx", confidence=0.82, reason="rule:docx", output_kind="docx")
+    text_deliverable_terms = ("整理", "梳理", "总结", "形成", "准备", "起草", "写", "输出", "清单", "要点", "分析", "计划", "建议", "复盘")
+    question_prefixes = ("为什么", "怎么", "如何", "是否", "是不是", "解释", "介绍一下", "这个", "你觉得")
+    wants_text_artifact = wants_create and any(term in normalized for term in text_deliverable_terms)
+    if wants_text_artifact and not normalized.startswith(question_prefixes):
+        return TaskRoute("create_text_artifact", confidence=0.68, reason="rule:text_artifact", output_kind="text")
+    return TaskRoute(None, reason="rule:no_task")
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            value, _ = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            idx = text.find("{", idx + 1)
+            continue
+        if isinstance(value, dict):
+            return value
+        idx = text.find("{", idx + 1)
     return None
+
+
+def _normalize_planned_steps(raw_steps: Any, task_type: str) -> tuple[StepSpec, ...]:
+    if not isinstance(raw_steps, list):
+        return ()
+    steps: list[StepSpec] = []
+    seen_keys: set[str] = set()
+    for index, item in enumerate(raw_steps[:8], start=1):
+        if not isinstance(item, dict):
+            continue
+        step_type = str(item.get("step_type") or "").strip()
+        if step_type not in ALLOWED_STEP_TYPES:
+            continue
+        key = _slugify_filename(str(item.get("key") or step_type or f"step-{index}")).replace(".", "-")[:40]
+        if not key or key in seen_keys:
+            key = f"{step_type}-{index}"
+        seen_keys.add(key)
+        title = str(item.get("title") or step_type).strip()[:80]
+        retryable = bool(item.get("retryable", step_type != "summarize_result"))
+        steps.append(StepSpec(key=key, title=title, step_type=step_type, retryable=retryable))
+    required_first = steps and steps[0].step_type == "collect_project_context"
+    has_finish = any(step.step_type == "summarize_result" for step in steps)
+    if len(steps) < 2 or not required_first or not has_finish:
+        return ()
+    if task_type.startswith("generate_") and not any(step.step_type == "write_project_office_document" for step in steps):
+        return ()
+    if task_type == "create_text_artifact" and not any(step.step_type == "draft_text_artifact" for step in steps):
+        return ()
+    return tuple(steps)
+
+
+async def route_project_task_request(
+    content: str,
+    *,
+    llm_complete: Callable[..., Awaitable[str]] | None = None,
+    model: str = "",
+) -> TaskRoute:
+    fallback = _rule_based_task_route(content)
+    if llm_complete is None:
+        return fallback
+    system = (
+        "You are an intent router for a project assistant. Return only JSON. "
+        "Decide whether a user message needs a durable task. Ordinary questions should use task_type null. "
+        "Allowed task_type values: generate_client_ppt, generate_project_excel, generate_project_docx, "
+        "generate_project_pdf, create_text_artifact. Use create_text_artifact for structured deliverables "
+        "that should be shown as text rather than saved as an Office file. "
+        "Include plan_steps when a task is needed. Allowed step_type values: collect_project_context, "
+        "build_slide_spec, build_document_spec, write_project_office_document, draft_text_artifact, summarize_result."
+    )
+    prompt = {
+        "user_message": content,
+        "response_schema": {
+            "task_type": "string|null",
+            "confidence": "number 0-1",
+            "reason": "short string",
+            "title": "short title",
+            "output_kind": "pptx|xlsx|docx|pdf|text|null",
+            "plan_steps": [{"key": "string", "title": "string", "step_type": "string", "retryable": True}],
+        },
+    }
+    try:
+        raw = await llm_complete(
+            [{"role": "user", "content": json.dumps(prompt, ensure_ascii=False)}],
+            system=system,
+            model=model,
+            max_tokens=900,
+            temperature=0,
+        )
+        data = _extract_json_object(raw or "") or {}
+    except Exception:
+        return fallback
+    task_type = data.get("task_type")
+    if task_type not in SUPPORTED_TASK_TYPES:
+        return TaskRoute(None, confidence=float(data.get("confidence") or 0), reason=str(data.get("reason") or "llm:no_task"))
+    confidence = float(data.get("confidence") or 0)
+    if confidence < 0.55:
+        return fallback if fallback.task_type else TaskRoute(None, confidence=confidence, reason=str(data.get("reason") or "low_confidence"))
+    plan_steps = _normalize_planned_steps(data.get("plan_steps"), task_type)
+    return TaskRoute(
+        task_type=task_type,
+        confidence=confidence,
+        reason=str(data.get("reason") or "llm"),
+        title=str(data.get("title") or "").strip(),
+        output_kind=str(data.get("output_kind") or "").strip(),
+        plan_steps=plan_steps,
+    )
 
 
 def _json_dumps(value: Any) -> str:
@@ -327,7 +463,10 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
     if artifacts:
         lines.extend(["", "生成物："])
         for artifact in artifacts:
-            lines.append(f"- {artifact.get('name')}（{str(artifact.get('file_type') or '').upper()}）已保存到项目空间")
+            if artifact.get("file_type") == "text":
+                lines.append(f"- {artifact.get('name')}（文本）已生成，可在任务详情中查看")
+            else:
+                lines.append(f"- {artifact.get('name')}（{str(artifact.get('file_type') or '').upper()}）已保存到项目空间")
     elif payload.get("status") == "failed":
         lines.extend(["", "你可以稍后从失败步骤重试，前面已完成的步骤不会丢失。"])
     return "\n".join(lines)
@@ -374,6 +513,7 @@ def create_task_run(
     task_type: str,
     goal: str,
     input_data: dict | None = None,
+    plan_steps: list[StepSpec] | tuple[StepSpec, ...] | None = None,
     conversation_id: int | None = None,
     created_by_user_id: int | None = None,
 ) -> TaskRun:
@@ -395,7 +535,14 @@ def create_task_run(
     session.commit()
     session.refresh(task)
 
-    steps = GENERATE_CLIENT_PPT_STEPS if task_type == "generate_client_ppt" else GENERATE_PROJECT_DOCUMENT_STEPS
+    steps = list(plan_steps or [])
+    if not steps:
+        if task_type == "generate_client_ppt":
+            steps = GENERATE_CLIENT_PPT_STEPS
+        elif task_type == "create_text_artifact":
+            steps = CREATE_TEXT_ARTIFACT_STEPS
+        else:
+            steps = GENERATE_PROJECT_DOCUMENT_STEPS
     for index, spec in enumerate(steps, start=1):
         session.add(
             TaskStep(
@@ -408,7 +555,13 @@ def create_task_run(
             )
         )
     session.commit()
-    _record_event(session, task, event_type="task_created", message="任务已创建", payload={"task_type": task_type})
+    _record_event(
+        session,
+        task,
+        event_type="task_created",
+        message="任务已创建",
+        payload={"task_type": task_type, "planned_steps": [{"key": step.key, "step_type": step.step_type} for step in steps]},
+    )
     return task
 
 
@@ -701,6 +854,36 @@ def _default_document_sections(goal: str, context: dict[str, Any]) -> list[dict[
     ]
 
 
+def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
+    project = context.get("project") or {}
+    memory = context.get("memory") or {}
+    client_memory = context.get("client_memory") or {}
+
+    def list_block(title: str, values: list[Any] | None, fallback: str) -> str:
+        items = [str(item).strip() for item in (values or []) if str(item).strip()]
+        if not items:
+            items = [fallback]
+        return f"## {title}\n" + "\n".join(f"- {item}" for item in items[:8])
+
+    title = goal.strip()[:80] or "项目文本交付"
+    sections = [
+        f"# {title}",
+        f"## 项目背景\n{memory.get('project_brief') or project.get('description') or '暂无项目背景，建议补充项目空间资料。'}",
+        f"## 当前目标\n{memory.get('current_objective') or goal}",
+        list_block("关键风险", memory.get("key_risks"), "暂无结构化风险。"),
+        list_block("开放问题", memory.get("open_questions"), "暂无开放问题。"),
+        list_block("客户关注", client_memory.get("sensitive_topics"), "暂无客户侧敏感点。"),
+        list_block("下一步动作", memory.get("next_actions"), "确认责任人、时间节点和后续资料补充。"),
+    ]
+    content = "\n\n".join(sections)
+    return {
+        "title": title,
+        "file_type": "text",
+        "content": content,
+        "summary": f"已生成文本交付：{title}",
+    }
+
+
 def _build_project_document_spec(context: dict[str, Any], goal: str, file_type: str, title: str) -> dict[str, Any]:
     if file_type == "xlsx":
         return {"title": title, "file_type": file_type, "sheets": _default_xlsx_sheets(goal, context)}
@@ -742,6 +925,22 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         title = str(task_input.get("title") or task.goal or context.get("project", {}).get("name") or "项目交付物")
         file_type = str(task_input.get("file_type") or _document_file_type_for_task(task.task_type))
         return _build_project_document_spec(context, task.goal, file_type, title)
+
+    if step.key == "draft_text_artifact" or step.step_type == "draft_text_artifact":
+        context = _previous_step_output(session, task.id, "collect_context")
+        result = _build_text_artifact(context, task.goal)
+        artifact = TaskArtifact(
+            task_run_id=task.id,
+            step_id=step.id,
+            project_file_id=None,
+            name=result.get("title") or task.goal[:80] or "文本交付",
+            file_type="text",
+            path="",
+            metadata_json=_json_dumps(result),
+        )
+        session.add(artifact)
+        session.commit()
+        return result
 
     if step.key == "create_deck":
         slide_spec = _previous_step_output(session, task.id, "draft_slide_spec")
@@ -802,7 +1001,16 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         return result
 
     if step.key == "summarize_result":
-        deck = _previous_step_output(session, task.id, "create_deck") or _previous_step_output(session, task.id, "create_document")
+        deck = (
+            _previous_step_output(session, task.id, "create_deck")
+            or _previous_step_output(session, task.id, "create_document")
+            or _previous_step_output(session, task.id, "draft_text_artifact")
+        )
+        if deck.get("file_type") == "text":
+            return {
+                "message": f"任务完成，已生成文本交付「{deck.get('title') or '文本'}」。",
+                "artifact": deck,
+            }
         return {
             "message": f"任务完成，已生成 {deck.get('name') or deck.get('file_name') or '文件'} 并保存到项目空间。",
             "artifact": deck,

@@ -107,18 +107,20 @@ function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact 
 }
 
 function artifactFromTaskRunArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
-  if (!artifact?.name || !artifact.path || !artifact.file_type) return null;
+  if (!artifact?.name || !artifact.file_type) return null;
   return {
     name: artifact.name,
     file_type: artifact.file_type,
-    path: artifact.path,
+    path: artifact.path || "",
     project_file_id: artifact.project_file_id,
     description:
-      typeof artifact.metadata?.summary === "string"
-        ? artifact.metadata.summary
-        : typeof artifact.metadata?.message === "string"
-          ? artifact.metadata.message
-          : "",
+      typeof artifact.metadata?.content === "string"
+        ? artifact.metadata.content
+        : typeof artifact.metadata?.summary === "string"
+          ? artifact.metadata.summary
+          : typeof artifact.metadata?.message === "string"
+            ? artifact.metadata.message
+            : "",
   };
 }
 

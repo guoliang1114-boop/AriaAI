@@ -40,6 +40,7 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.task_orchestrator import (
     create_task_run,
     detect_project_task_type,
+    route_project_task_request,
     serialize_task_run,
     stream_execute_task_run_in_session,
     task_run_chat_summary,
@@ -697,7 +698,14 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
     pending_markdown_saves = []
     workflow_started = False
 
-    durable_task_type = detect_project_task_type(req.content) if req.project_id else None
+    task_route = None
+    if req.project_id:
+        task_route = await route_project_task_request(
+            req.content,
+            llm_complete=runtime.llm.complete,
+            model=runtime.selected_model,
+        )
+    durable_task_type = task_route.task_type if task_route else None
     if durable_task_type:
         try:
             yield _sse_event(
@@ -713,7 +721,16 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     project_id=req.project_id,
                     task_type=durable_task_type,
                     goal=req.content,
-                    input_data={"title": req.content[:80], "source": "project_chat"},
+                    input_data={
+                        "title": task_route.title or req.content[:80],
+                        "source": "project_chat",
+                        "router": {
+                            "confidence": task_route.confidence,
+                            "reason": task_route.reason,
+                            "output_kind": task_route.output_kind,
+                        },
+                    },
+                    plan_steps=list(task_route.plan_steps),
                     conversation_id=runtime.conv_id,
                 )
                 task_payload = serialize_task_run(task_session, task, include_events=True)
@@ -763,7 +780,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             "name": artifact.get("name"),
                             "file_type": artifact.get("file_type"),
                             "path": artifact.get("path"),
-                            "description": artifact_meta.get("summary") or "",
+                            "description": artifact_meta.get("content") or artifact_meta.get("summary") or "",
                         }
                     )
             if artifacts:
