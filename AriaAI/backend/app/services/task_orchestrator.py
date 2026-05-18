@@ -1441,7 +1441,18 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
             items = [fallback]
         return f"## {title}\n" + "\n".join(f"- {item}" for item in items[:8])
 
-    title = goal.strip()[:80] or "项目文本交付"
+    project_name = str(project.get("name") or "").strip()
+    normalized_goal = re.sub(r"\s+", " ", goal.strip())
+    if "客户会议" in normalized_goal or "会议" in normalized_goal:
+        title_core = "客户会议准备"
+    elif "风险" in normalized_goal:
+        title_core = "项目风险清单"
+    elif "行动" in normalized_goal or "清单" in normalized_goal:
+        title_core = "行动清单"
+    else:
+        title_core = normalized_goal[:36] or "项目文本交付"
+    title = f"{project_name}-{title_core}" if project_name and project_name not in title_core else title_core
+    title = title[:80] or "项目文本交付"
     sections = [
         f"# {title}",
         f"## 项目背景\n{memory.get('project_brief') or project.get('description') or '暂无项目背景，建议补充项目空间资料。'}",
@@ -1514,7 +1525,7 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         project_file = create_project_document_record(
             session,
             task.project_id,
-            name=result.get("title") or task.goal[:80] or "项目文本交付",
+            name=result.get("title") or "项目文本交付",
             content=str(result.get("content") or ""),
             uploads_dir=UPLOADS_DIR,
             init_default_folders=init_default_project_folders,

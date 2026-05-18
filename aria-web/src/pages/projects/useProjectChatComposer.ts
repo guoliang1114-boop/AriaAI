@@ -183,7 +183,9 @@ function workflowStepFromTask(
       ? "completed"
       : step.status === "failed"
         ? "error"
-        : "running";
+        : step.status === "running"
+          ? "running"
+          : "pending";
   const eventDetails = events
     .filter((event) => event.step_id === step.id)
     .map(taskEventDetail)
@@ -197,7 +199,9 @@ function workflowStepFromTask(
         ? "该步骤已完成。"
         : status === "error"
           ? step.error_message || "该步骤执行失败，可稍后从任务记录重试。"
-          : "该步骤正在执行或等待执行。",
+          : status === "running"
+            ? "该步骤正在执行。"
+            : "该步骤等待前序步骤完成。",
     error: status === "error" ? step.error_message : undefined,
     step_index: step.sort_order,
     step_total: total,

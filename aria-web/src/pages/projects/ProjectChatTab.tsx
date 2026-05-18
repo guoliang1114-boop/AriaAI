@@ -67,11 +67,13 @@ function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunE
       ? "completed"
       : step.status === "failed"
         ? "error"
-        : step.status === "pending" || step.status === "running"
+        : step.status === "pending"
+          ? "pending"
+          : step.status === "running"
           ? "running"
           : step.status === "canceled"
             ? "error"
-            : "running";
+            : "pending";
   return {
     tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
     status,

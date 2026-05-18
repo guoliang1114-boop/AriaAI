@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, Loader2, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
 interface ProjectChatToolCallCardProps {
@@ -9,18 +9,21 @@ interface ProjectChatToolCallCardProps {
 }
 
 const STATUS_STYLES: Record<ToolCallEvent["status"], string> = {
+  pending: "border-gray-200 bg-gray-50 text-gray-600",
   running: "border-amber-200 bg-amber-50 text-amber-700",
   completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
   error: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
 const WORKFLOW_STEP_STYLES: Record<ToolCallEvent["status"], string> = {
+  pending: "border-gray-200 bg-white",
   running: "border-blue-200 bg-blue-50/80",
   completed: "border-emerald-200 bg-white",
   error: "border-rose-200 bg-rose-50/70",
 };
 
 const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
+  pending: "bg-gray-200 text-gray-600",
   running: "bg-blue-600 text-white",
   completed: "bg-emerald-600 text-white",
   error: "bg-rose-600 text-white",
@@ -29,6 +32,9 @@ const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
 const WORKFLOW_DETAIL_PREFERENCE_KEY = "aria.projectChat.workflowStepDetailsExpanded";
 
 function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
+  if (status === "pending") {
+    return <Clock3 className="h-3.5 w-3.5" />;
+  }
   if (status === "running") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
   }
@@ -46,11 +52,11 @@ export function ProjectChatToolCallCard({
   const isWorkflowStep = Boolean(call.step_index);
   const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
   const [expanded, setExpanded] = useState(() => {
-    if (typeof window === "undefined") return call.status !== "completed";
+    if (typeof window === "undefined") return call.status === "running" || call.status === "error";
     const saved = window.localStorage.getItem(WORKFLOW_DETAIL_PREFERENCE_KEY);
     if (saved === "expanded") return true;
     if (saved === "collapsed") return false;
-    return call.status !== "completed";
+    return call.status === "running" || call.status === "error";
   });
 
   useEffect(() => {
@@ -86,7 +92,11 @@ export function ProjectChatToolCallCard({
               </p>
               <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600">
                 <StatusIcon status={call.status} />
-                {call.status === "running"
+                {call.status === "pending"
+                  ? isZh
+                    ? "等待中"
+                    : "Pending"
+                  : call.status === "running"
                   ? isZh
                     ? "进行中"
                     : "In progress"
@@ -161,7 +171,11 @@ export function ProjectChatToolCallCard({
             <p className="text-sm font-medium text-gray-900">{call.tool_name}</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium">
               <StatusIcon status={call.status} />
-              {call.status === "running"
+              {call.status === "pending"
+                ? isZh
+                  ? "等待中"
+                  : "Pending"
+                : call.status === "running"
                 ? isZh
                   ? "执行中"
                   : "Running"

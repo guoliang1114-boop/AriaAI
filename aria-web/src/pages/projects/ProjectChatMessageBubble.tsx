@@ -69,7 +69,9 @@ function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunE
       ? "completed"
       : step.status === "failed" || step.status === "canceled"
         ? "error"
-        : "running";
+        : step.status === "running"
+          ? "running"
+          : "pending";
   return {
     tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
     status,
@@ -80,7 +82,9 @@ function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunE
           ? "该步骤已完成。"
           : status === "error"
             ? step.error_message || "该步骤已停止，请打开任务面板处理。"
-            : "该步骤正在执行或等待执行。",
+            : status === "running"
+              ? "该步骤正在执行。"
+              : "该步骤等待前序步骤完成。",
     error: status === "error" ? step.error_message : undefined,
     details: events.filter((event) => event.step_id === step.id).map(taskEventDetail),
     step_index: step.sort_order,

@@ -363,6 +363,10 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
 def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, tmp_path):
     engine = _setup_engine()
     monkeypatch.setattr(task_orchestrator, "UPLOADS_DIR", tmp_path)
+    goal = (
+        "请帮我准备一次客户会议。项目：东阿阿胶新业务进入机会和策略，客户：东阿阿胶股份有限公司。"
+        "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。"
+    )
     try:
         with Session(engine) as session:
             project = Project(name="Text Project", client="Client", status="active")
@@ -373,7 +377,7 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
                 session,
                 project_id=project.id,
                 task_type="create_text_artifact",
-                goal="帮我整理一份项目风险清单",
+                goal=goal,
             )
 
             asyncio.run(execute_task_run_in_session(session, task.id))
@@ -389,9 +393,11 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
         assert artifacts[0].path
         assert project_files and project_files[0].file_type == "md"
         assert project_files[0].name.endswith(".md")
+        assert len(project_files[0].name.encode("utf-8")) <= 120
+        assert len((tmp_path / project_files[0].path).name.encode("utf-8")) <= 255
         assert (tmp_path / project_files[0].path).is_file()
         metadata = json.loads(artifacts[0].metadata_json)
-        assert "项目风险清单" in metadata["title"]
+        assert "客户会议准备" in metadata["title"]
         assert metadata["project_file_id"] == project_files[0].id
         assert metadata["path"] == project_files[0].path
         assert metadata["content"].startswith("#")

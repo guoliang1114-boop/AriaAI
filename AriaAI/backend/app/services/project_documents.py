@@ -11,15 +11,32 @@ from sqlmodel import Session, select
 from app.models.db import Project, ProjectFile, ProjectFolder
 from app.services.time_utils import utc_now_naive
 
+_MARKDOWN_FILENAME_MAX_BYTES = 120
+
+
+def _truncate_utf8(value: str, max_bytes: int) -> str:
+    if len(value.encode("utf-8")) <= max_bytes:
+        return value
+    output: list[str] = []
+    used = 0
+    for char in value:
+        size = len(char.encode("utf-8"))
+        if used + size > max_bytes:
+            break
+        output.append(char)
+        used += size
+    return "".join(output).rstrip("._- ")
+
 
 def ensure_markdown_filename(name: str) -> str:
     sanitized = "_".join((name or "document").strip().split())
-    sanitized = sanitized.replace("/", "_").replace("\\", "_")
+    for char in '/\\:*?"<>|':
+        sanitized = sanitized.replace(char, "_")
     if not sanitized:
         sanitized = "document"
-    if not sanitized.lower().endswith(".md"):
-        sanitized = f"{sanitized}.md"
-    return sanitized
+    stem = sanitized[:-3] if sanitized.lower().endswith(".md") else sanitized
+    stem = _truncate_utf8(stem, _MARKDOWN_FILENAME_MAX_BYTES - len(".md"))
+    return f"{stem or 'document'}.md"
 
 
 def build_markdown_export_header(timestamp: datetime | None = None) -> str:
@@ -29,7 +46,9 @@ def build_markdown_export_header(timestamp: datetime | None = None) -> str:
 
 def build_timestamped_markdown_filename(base_name: str, timestamp: datetime | None = None) -> str:
     current = timestamp or utc_now_naive()
+    suffix = f"_{current.strftime('%Y%m%d_%H%M%S')}"
     safe_name = ensure_markdown_filename(base_name).removesuffix(".md")
+    safe_name = _truncate_utf8(safe_name, _MARKDOWN_FILENAME_MAX_BYTES - len(suffix.encode("utf-8")) - len(".md"))
     return f"{safe_name}_{current.strftime('%Y%m%d_%H%M%S')}.md"
 
 
@@ -56,7 +75,7 @@ def write_project_markdown_file(
 
 
 def sanitize_markdown_filename(name: str) -> str:
-    return ensure_markdown_filename(name).removesuffix(".md")[:80] or "conversation"
+    return ensure_markdown_filename(name).removesuffix(".md") or "conversation"
 
 
 def project_documents_dir(project_id: int, uploads_dir: Path) -> Path:
@@ -77,7 +96,7 @@ def create_markdown_project_file(
     source_file_id: int | None = None,
     origin: str = "manual",
 ) -> ProjectFile:
-    safe_name = name if name.lower().endswith(".md") else f"{name}.md"
+    safe_name = ensure_markdown_filename(name)
     dest_dir = project_documents_dir(project_id, uploads_dir)
     dest_file = dest_dir / f"{uuid.uuid4().hex}_{safe_name}"
     dest_file.write_text(content, encoding="utf-8")
