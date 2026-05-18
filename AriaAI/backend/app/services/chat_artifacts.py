@@ -16,9 +16,13 @@ def _extract_artifact(result: dict) -> dict | None:
 
     artifact_path = source.get("file_path") or source.get("path")
     artifact_name = source.get("file_name") or source.get("name")
-    artifact_type = source.get("file_type")
+    artifact_type = str(source.get("file_type") or "").lower().lstrip(".")
     if not artifact_path or not artifact_name or not artifact_type:
         return None
+    artifact_name_text = str(artifact_name)
+    artifact_path_text = str(artifact_path)
+    if artifact_name_text.lower().endswith(".md") or artifact_path_text.lower().endswith(".md"):
+        artifact_type = "md"
 
     artifact = {
         "name": artifact_name,

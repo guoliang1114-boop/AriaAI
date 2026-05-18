@@ -129,7 +129,6 @@ export function ProjectChatSidebar({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
   const [search, setSearch] = useState("");
-  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "space">("chat");
   const [showUploadFolderSelect, setShowUploadFolderSelect] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -224,11 +223,7 @@ export function ProjectChatSidebar({
     conversation: Conversation,
   ) => {
     event.stopPropagation();
-    setDeletingId(conversation.id);
-    window.setTimeout(() => {
-      onDeleteConversation(conversation);
-      setDeletingId(null);
-    }, 250);
+    onDeleteConversation(conversation);
   };
 
   return (
@@ -479,11 +474,9 @@ export function ProjectChatSidebar({
                           key={conversation.id}
                           onClick={() => onSelectConversation(conversation.id)}
                           className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
-                            deletingId === conversation.id
-                              ? "opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none"
-                              : activeConvId === conversation.id
-                                ? "bg-primary/8"
-                                : "hover:bg-gray-50"
+                            activeConvId === conversation.id
+                              ? "bg-primary/8"
+                              : "hover:bg-gray-50"
                           }`}
                         >
                           <div

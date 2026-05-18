@@ -16,9 +16,12 @@ from typing import Any, Awaitable, Callable
 
 from sqlmodel import Session, select
 
+from app.config import UPLOADS_DIR
 from app.database import engine
 from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.routers.projects_deps import _build_project_briefing
+from app.services.project_core import init_default_project_folders
+from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
 from app.tools.office_documents import write_project_office_document
 
@@ -138,7 +141,7 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     question_prefixes = ("为什么", "怎么", "如何", "是否", "是不是", "解释", "介绍一下", "这个", "你觉得")
     wants_text_artifact = wants_create and any(term in normalized for term in text_deliverable_terms)
     if wants_text_artifact and not normalized.startswith(question_prefixes):
-        return TaskRoute("create_text_artifact", confidence=0.68, reason="rule:text_artifact", output_kind="text")
+        return TaskRoute("create_text_artifact", confidence=0.68, reason="rule:text_artifact", output_kind="md")
     return TaskRoute(None, reason="rule:no_task")
 
 
@@ -199,8 +202,8 @@ async def route_project_task_request(
         "You are an intent router for a project assistant. Return only JSON. "
         "Decide whether a user message needs a durable task. Ordinary questions should use task_type null. "
         "Allowed task_type values: generate_client_ppt, generate_project_excel, generate_project_docx, "
-        "generate_project_pdf, create_text_artifact. Use create_text_artifact for structured deliverables "
-        "that should be shown as text rather than saved as an Office file. "
+        "generate_project_pdf, create_text_artifact. Use create_text_artifact for structured Markdown "
+        "deliverables that should be saved to project space rather than as an Office file. "
         "Include plan_steps when a task is needed. Allowed step_type values: collect_project_context, "
         "build_slide_spec, build_document_spec, write_project_office_document, draft_text_artifact, summarize_result."
     )
@@ -211,7 +214,7 @@ async def route_project_task_request(
             "confidence": "number 0-1",
             "reason": "short string",
             "title": "short title",
-            "output_kind": "pptx|xlsx|docx|pdf|text|null",
+            "output_kind": "pptx|xlsx|docx|pdf|md|null",
             "plan_steps": [{"key": "string", "title": "string", "step_type": "string", "retryable": True}],
         },
     }
@@ -1451,9 +1454,9 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
     content = "\n\n".join(sections)
     return {
         "title": title,
-        "file_type": "text",
+        "file_type": "md",
         "content": content,
-        "summary": f"已生成文本交付：{title}",
+        "summary": f"已生成 Markdown 交付：{title}",
     }
 
 
@@ -1508,13 +1511,34 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
     if step.step_type == "draft_text_artifact":
         context = _previous_context_output(session, task.id)
         result = _build_text_artifact(context, task.goal)
+        project_file = create_project_document_record(
+            session,
+            task.project_id,
+            name=result.get("title") or task.goal[:80] or "项目文本交付",
+            content=str(result.get("content") or ""),
+            uploads_dir=UPLOADS_DIR,
+            init_default_folders=init_default_project_folders,
+            folder_id=task_input.get("folder_id"),
+            summary=str(result.get("summary") or "AI generated Markdown deliverable"),
+            auto_assign_folder=True,
+        )
+        result.update(
+            {
+                "id": project_file.id,
+                "project_file_id": project_file.id,
+                "name": project_file.name,
+                "file_name": project_file.name,
+                "file_type": project_file.file_type,
+                "path": project_file.path,
+            }
+        )
         artifact = TaskArtifact(
             task_run_id=task.id,
             step_id=step.id,
-            project_file_id=None,
-            name=result.get("title") or task.goal[:80] or "文本交付",
-            file_type="text",
-            path="",
+            project_file_id=project_file.id,
+            name=project_file.name,
+            file_type=project_file.file_type,
+            path=project_file.path,
             metadata_json=_json_dumps(result),
         )
         session.add(artifact)
@@ -1586,11 +1610,6 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
             or _previous_step_output(session, task.id, "draft_text_artifact")
             or _previous_step_output_by_type(session, task.id, "draft_text_artifact")
         )
-        if deck.get("file_type") == "text":
-            return {
-                "message": f"任务完成，已生成文本交付「{deck.get('title') or '文本'}」。",
-                "artifact": deck,
-            }
         return {
             "message": f"任务完成，已生成 {deck.get('name') or deck.get('file_name') or '文件'} 并保存到项目空间。",
             "artifact": deck,

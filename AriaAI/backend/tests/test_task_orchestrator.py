@@ -5,7 +5,7 @@ import json
 
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
+from app.models.db import Project, ProjectFile, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.services import task_orchestrator
 from app.services.task_orchestrator import (
     cancel_task_run_in_session,
@@ -72,7 +72,7 @@ def test_detect_project_task_type_routes_ppt_creation_requests():
     assert detect_project_task_type("介绍一下这个报告的重点") is None
 
 
-def test_rule_router_routes_text_artifacts_without_file_output():
+def test_rule_router_routes_markdown_artifacts():
     assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
 
 
@@ -133,7 +133,7 @@ def test_llm_router_uses_structured_plan():
                 "confidence": 0.91,
                 "reason": "structured text deliverable",
                 "title": "项目风险清单",
-                "output_kind": "text",
+                "output_kind": "md",
                 "plan_steps": [
                     {"key": "collect", "title": "收集上下文", "step_type": "collect_project_context", "retryable": True},
                     {"key": "draft", "title": "生成风险清单", "step_type": "draft_text_artifact", "retryable": True},
@@ -360,8 +360,9 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
         engine.dispose()
 
 
-def test_execute_text_artifact_task_records_text_artifact():
+def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, tmp_path):
     engine = _setup_engine()
+    monkeypatch.setattr(task_orchestrator, "UPLOADS_DIR", tmp_path)
     try:
         with Session(engine) as session:
             project = Project(name="Text Project", client="Client", status="active")
@@ -379,12 +380,20 @@ def test_execute_text_artifact_task_records_text_artifact():
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
+            project_files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project.id)).all()
 
         assert task.status == "completed"
         assert [step.key for step in steps] == ["collect_context", "draft_text_artifact", "summarize_result"]
-        assert artifacts and artifacts[0].file_type == "text"
+        assert artifacts and artifacts[0].file_type == "md"
+        assert artifacts[0].project_file_id
+        assert artifacts[0].path
+        assert project_files and project_files[0].file_type == "md"
+        assert project_files[0].name.endswith(".md")
+        assert (tmp_path / project_files[0].path).is_file()
         metadata = json.loads(artifacts[0].metadata_json)
         assert "项目风险清单" in metadata["title"]
+        assert metadata["project_file_id"] == project_files[0].id
+        assert metadata["path"] == project_files[0].path
         assert metadata["content"].startswith("#")
     finally:
         engine.dispose()

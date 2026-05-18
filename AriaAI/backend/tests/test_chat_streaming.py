@@ -404,6 +404,10 @@ class ExtractArtifactTests(unittest.TestCase):
         result = _extract_artifact({"file_path": "/a", "file_name": "x", "file_type": "pptx", "message": "m"})
         self.assertEqual(result["description"], "m")
 
+    def test_markdown_extension_overrides_text_file_type(self):
+        result = _extract_artifact({"file_path": "/a/meeting.md", "file_name": "meeting.md", "file_type": "txt"})
+        self.assertEqual(result["file_type"], "md")
+
 
 class RepairProjectOfficeToolInputTests(unittest.TestCase):
     def test_repairs_interview_excel_request(self):
