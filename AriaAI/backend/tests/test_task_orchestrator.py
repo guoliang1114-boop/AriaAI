@@ -76,6 +76,25 @@ def test_rule_router_routes_text_artifacts_without_file_output():
     assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
 
 
+def test_ppt_slide_count_request_is_extracted_and_used():
+    assert task_orchestrator._extract_requested_slide_count("内容不够丰富，页数要求20页以上") == 20
+    assert task_orchestrator._extract_requested_slide_count("make at least 22 slides") == 22
+
+    slides = task_orchestrator._build_client_ppt_slides(
+        {
+            "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+            "memory": {"project_brief": "探索功能性护肤品/医美抗衰赛道的新业务机会。"},
+            "client_memory": {},
+            "meeting_card": {},
+        },
+        "内容不够丰富，对这个 PPT 进行全面丰富 页数要求20页以上",
+    )
+
+    assert len(slides) >= 20
+    assert any(slide["title"] == "资料收集计划" for slide in slides)
+    assert any(slide["title"] == "商业验证假设" for slide in slides)
+
+
 def test_llm_router_uses_structured_plan():
     async def fake_complete(*args, **kwargs):
         return json.dumps(

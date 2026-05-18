@@ -267,6 +267,26 @@ def _slugify_filename(value: str) -> str:
     return slug or "client-introduction"
 
 
+def _extract_requested_slide_count(text: str) -> int | None:
+    """Extract a user-requested minimum slide/page count from a PPT request."""
+    value = text or ""
+    patterns = (
+        r"(\d{1,2})\s*(?:页|頁|p|page|pages|slide|slides)\s*(?:以上|起|至少|\+|plus|or\s+more)?",
+        r"(?:至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*(\d{1,2})\s*(?:页|頁|p|page|pages|slide|slides)?",
+    )
+    matches: list[int] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, value, flags=re.IGNORECASE):
+            try:
+                matches.append(int(match.group(1)))
+            except (TypeError, ValueError):
+                continue
+    if not matches:
+        return None
+    # Keep generated decks usable while honoring explicit user asks.
+    return max(4, min(max(matches), 40))
+
+
 def _record_event(
     session: Session,
     task: TaskRun,
@@ -740,7 +760,7 @@ def _previous_office_output(session: Session, task_id: int) -> dict[str, Any]:
     )
 
 
-def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[str, str]]:
+def _build_client_ppt_slides(context: dict[str, Any], goal: str, target_slide_count: int | None = None) -> list[dict[str, str]]:
     project = context.get("project") or {}
     meeting_card = context.get("meeting_card") or {}
     memory = context.get("memory") or {}
@@ -760,7 +780,8 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[st
 
     project_name = project.get("name") or "客户项目"
     client_name = project.get("client") or "客户"
-    return [
+    target_slide_count = target_slide_count or _extract_requested_slide_count(goal)
+    base_slides: list[dict[str, str]] = [
         {"type": "section", "title": f"{client_name}｜客户介绍与沟通建议", "content": goal},
         {
             "type": "content",
@@ -850,6 +871,290 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[st
             "content": bullets(memory.get("next_actions"), "形成会后行动清单、责任人和时间节点。"),
         },
     ]
+    target = max(len(base_slides), int(target_slide_count or 0))
+    if len(base_slides) >= target:
+        return base_slides
+
+    context_points = [
+        str(item).strip()
+        for group in (
+            memory.get("recent_progress"),
+            memory.get("delivery_signals"),
+            memory.get("key_risks"),
+            memory.get("open_questions"),
+            memory.get("next_actions"),
+            client_memory.get("sensitive_topics"),
+            meeting_card.get("say"),
+            meeting_card.get("confirm"),
+            meeting_card.get("avoid"),
+        )
+        for item in (group or [])
+        if str(item).strip()
+    ]
+
+    def contextual_items(fallbacks: list[str], offset: int = 0) -> list[str]:
+        selected = context_points[offset : offset + 3]
+        values = selected + fallbacks
+        deduped: list[str] = []
+        for item in values:
+            if item and item not in deduped:
+                deduped.append(item)
+        return deduped[:5]
+
+    supplemental_slides: list[dict[str, str]] = [
+        {
+            "type": "content",
+            "title": "项目事实与资料基础",
+            "content": bullets(
+                contextual_items(
+                    [
+                        f"项目名称：{project_name}",
+                        f"客户主体：{client_name}",
+                        "优先基于项目空间、项目记忆和客户记忆整理事实，避免直接跳到结论。",
+                        "把事实、假设和待验证问题分层呈现，方便客户快速校准。",
+                    ]
+                ),
+                "先补齐项目事实、客户背景和资料来源。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "资料收集计划",
+            "left_content": bullets(
+                [
+                    "已知资料：项目背景、当前目标、近期进展、风险和开放问题。",
+                    "待补资料：客户组织结构、决策链、历史尝试、预算约束和渠道数据。",
+                    "外部资料：行业增长、竞品动作、渠道趋势、监管和消费者洞察。",
+                ],
+                "围绕已知资料、待补资料和外部资料建立收集清单。",
+            ),
+            "right_content": bullets(
+                [
+                    "先用项目空间资料形成第一版判断。",
+                    "再通过访谈补齐客户内部视角。",
+                    "最后用桌面研究校验市场假设和机会边界。",
+                ],
+                "资料收集要服务于判断，而不是堆材料。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "客户决策链与影响路径",
+            "content": bullets(
+                contextual_items(
+                    [
+                        "识别最终拍板人、业务发起人、资源提供方和潜在反对方。",
+                        "把每类干系人的诉求、担忧、影响力和需要的证据分别列清。",
+                        "优先设计能让不同部门同时接受的共同问题，而不是单点说服。",
+                    ],
+                    2,
+                ),
+                "先画清决策链，再设计沟通顺序。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "客户价值主张",
+            "left_content": bullets(
+                [
+                    "业务价值：识别可进入的新增长机会。",
+                    "管理价值：降低跨界探索的不确定性。",
+                    "组织价值：让品牌、渠道、产品和战略团队形成同一套判断语言。",
+                ],
+                "价值主张需要同时覆盖业务、管理和组织协同。",
+            ),
+            "right_content": bullets(
+                [
+                    "用事实框架替代主观判断。",
+                    "用最小验证路径替代一次性大投入。",
+                    "用阶段门机制替代模糊推进。",
+                ],
+                "让客户看到低风险推进路径。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "机会空间拆解",
+            "content": bullets(
+                [
+                    "赛道吸引力：规模、增长、利润、竞争和监管。",
+                    "客户适配度：品牌资产、渠道能力、产品可信度和组织资源。",
+                    "进入难度：供应链、研发、合规、获客成本和试错周期。",
+                    "优先级：先识别高确定性、低试错成本的切入点。",
+                ],
+                "从吸引力、适配度和进入难度拆解机会。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "进入路径选项",
+            "left_content": bullets(
+                [
+                    "路径 A：自有品牌延伸，利于沉淀长期资产。",
+                    "路径 B：联合品牌或渠道试点，利于降低初期风险。",
+                    "路径 C：先做概念验证和小样测试，利于快速学习。",
+                ],
+                "给客户可选择的进入路径，而不是单一路径。",
+            ),
+            "right_content": bullets(
+                [
+                    "评估标准：投入强度、品牌风险、速度、组织复杂度和数据可得性。",
+                    "建议先用小范围场景验证，再决定是否扩大投入。",
+                    "每条路径都要明确停止条件，防止沉没成本扩大。",
+                ],
+                "每条路径必须带评估标准和停止条件。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "商业验证假设",
+            "content": bullets(
+                [
+                    "客户需求假设：目标人群是否真的接受该品类和品牌联想。",
+                    "渠道假设：既有渠道是否能触达并转化目标客户。",
+                    "产品假设：功效、定价、包装和体验是否能形成差异化。",
+                    "组织假设：内部团队是否能承接试点和快速复盘。",
+                ],
+                "把机会判断转成可验证假设。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "风险分级与控制",
+            "content": bullets(
+                contextual_items(
+                    [
+                        "高风险：品牌稀释、合规不确定、组织资源不足。",
+                        "中风险：渠道效率、供应链响应、消费者教育成本。",
+                        "低风险：沟通节奏、资料完整度和会议推进方式。",
+                        "每类风险都要绑定监控指标和应对动作。",
+                    ],
+                    4,
+                ),
+                "风险要分级管理，并绑定应对动作。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "初步访谈设计",
+            "left_content": bullets(
+                [
+                    "战略/业务负责人：确认目标、边界、决策标准。",
+                    "品牌/渠道负责人：确认资源、限制和客户触点。",
+                    "产品/供应链负责人：确认可行性、成本和周期。",
+                ],
+                "访谈对象应覆盖目标、资源和可行性。",
+            ),
+            "right_content": bullets(
+                [
+                    "问题从事实开始，再进入判断，最后确认行动。",
+                    "每场访谈沉淀关键观点、分歧、证据和待补资料。",
+                    "访谈后要形成可追踪的问题闭环。",
+                ],
+                "访谈不是收集观点，而是收敛判断。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "沟通话术建议",
+            "content": bullets(
+                [
+                    "开场先说明本次材料是初步判断框架，不是最终结论。",
+                    "强调目标是帮助客户降低新业务探索的不确定性。",
+                    "遇到争议时回到事实、假设和验证方式。",
+                    "避免过早承诺市场规模、收入目标或确定性结论。",
+                ],
+                "用假设验证语言替代确定性销售语言。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "阶段性交付物",
+            "left_content": bullets(
+                [
+                    "第一阶段：项目事实包、问题清单和访谈提纲。",
+                    "第二阶段：机会评估框架、进入路径和风险清单。",
+                    "第三阶段：试点方案、资源需求和决策建议。",
+                ],
+                "交付物按阶段递进，避免一次性过重。",
+            ),
+            "right_content": bullets(
+                [
+                    "每一阶段都应有明确输入、输出和客户确认点。",
+                    "客户确认后再进入下一阶段，降低返工。",
+                    "项目空间持续沉淀所有版本和会议记录。",
+                ],
+                "用阶段确认机制提升推进质量。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "会议议程建议",
+            "content": bullets(
+                [
+                    "5 分钟：确认会议目标和材料边界。",
+                    "15 分钟：回顾项目背景、现有事实和关键问题。",
+                    "25 分钟：讨论机会假设、路径选项和主要风险。",
+                    "15 分钟：确认待补资料、责任人和下一步时间表。",
+                ],
+                "会议要围绕校准判断和确认下一步设计。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "需要客户提前准备的资料",
+            "content": bullets(
+                [
+                    "现有品牌、渠道、消费者和产品相关资料。",
+                    "历史新业务尝试、合作案例和内部复盘材料。",
+                    "预算、时间窗口、组织资源和决策流程说明。",
+                    "客户认为必须规避的品牌、合规或商业风险。",
+                ],
+                "提前收集资料能显著提高会议质量。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "会后推进机制",
+            "left_content": bullets(
+                [
+                    "输出会议纪要：共识、分歧、证据和待补资料。",
+                    "更新项目空间：文件、访谈记录、版本和任务。",
+                    "形成下一轮材料：围绕客户反馈补强判断。",
+                ],
+                "会后必须把讨论转成可追踪资产。",
+            ),
+            "right_content": bullets(
+                [
+                    "设置 24 小时内纪要回传。",
+                    "设置 3-5 个工作日资料补齐窗口。",
+                    "设置下一次决策会议或专题访谈。",
+                ],
+                "用时间节点推动闭环。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "管理层决策看板",
+            "content": bullets(
+                [
+                    "机会吸引力：市场空间、增长、利润和竞争。",
+                    "客户适配度：品牌、渠道、产品和组织能力。",
+                    "验证成本：投入、周期、资源和失败代价。",
+                    "推荐动作：推进、观察、暂停或补充验证。",
+                ],
+                "管理层需要一页能判断是否继续投入的看板。",
+            ),
+        },
+    ]
+
+    while len(base_slides) < target:
+        template = supplemental_slides[(len(base_slides) - 10) % len(supplemental_slides)]
+        slide = dict(template)
+        if len(base_slides) >= 10 + len(supplemental_slides):
+            slide["title"] = f"{slide['title']}（补充视角 {len(base_slides) + 1}）"
+        base_slides.append(slide)
+    return base_slides
 
 
 def _document_file_type_for_task(task_type: str) -> str:
@@ -1056,8 +1361,13 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
 
     if step.step_type == "build_slide_spec":
         context = _previous_context_output(session, task.id)
-        slides = _build_client_ppt_slides(context, task.goal)
-        return {"title": task_input.get("title") or context.get("project", {}).get("name") or task.goal, "slides": slides}
+        target_slide_count = task_input.get("target_slide_count") or _extract_requested_slide_count(task.goal)
+        slides = _build_client_ppt_slides(context, task.goal, int(target_slide_count or 0) or None)
+        return {
+            "title": task_input.get("title") or context.get("project", {}).get("name") or task.goal,
+            "slides": slides,
+            "target_slide_count": target_slide_count,
+        }
 
     if step.step_type == "build_document_spec":
         context = _previous_context_output(session, task.id)
