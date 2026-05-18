@@ -4875,6 +4875,8 @@ async def generate_ppt(
 
     else:
         prs = Presentation()
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
         has_template_content_prototype = False
 
         # Blank template: add a simple cover slide

@@ -700,6 +700,13 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
     task_route = None
     if req.project_id:
+        yield _sse_event(
+            {
+                "type": "status",
+                "stage": "routing",
+                "message": "正在判断这次请求应直接回答，还是进入可恢复任务编排...",
+            }
+        )
         task_route = await route_project_task_request(
             req.content,
             llm_complete=runtime.llm.complete,
@@ -735,6 +742,12 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 )
                 task_payload = serialize_task_run(task_session, task, include_events=True)
                 yield _sse_event({"type": "task_run", "task": task_payload})
+                yield _sse_event(
+                    {
+                        "type": "text",
+                        "content": f"已创建编排任务：{req.content}\n\n我会按下方步骤持续更新进展。\n\n",
+                    }
+                )
                 yield _sse_event(
                     {
                         "type": "status",

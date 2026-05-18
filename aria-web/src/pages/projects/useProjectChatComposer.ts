@@ -276,6 +276,7 @@ export function useProjectChatComposer({
 }: UseProjectChatComposerParams) {
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [streamingStatus, setStreamingStatus] = useState("");
   const [streamingReferences, setStreamingReferences] = useState<Reference[]>([]);
   const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallEvent[]>([]);
   const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
@@ -283,6 +284,7 @@ export function useProjectChatComposer({
 
   const resetStreamingContent = useCallback(() => {
     setStreamingContent("");
+    setStreamingStatus("");
     setStreamingReferences([]);
     setStreamingToolCalls([]);
     setStreamingArtifacts([]);
@@ -378,6 +380,7 @@ export function useProjectChatComposer({
           if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
             fullContent += payload.content;
             setStreamingContent(fullContent);
+            setStreamingStatus("");
           } else if (payload.type === "status" && payload.message) {
             if (payload.step_index) {
               const stepCall: ToolCallEvent = {
@@ -394,6 +397,7 @@ export function useProjectChatComposer({
               setStreamingToolCalls(collectedToolCalls);
               continue;
             }
+            setStreamingStatus(payload.message);
             if (payload.stage === "saving" || payload.stage === "finalizing") {
               setStreamingToolCalls((prev) => prev.filter((call) => call.status !== "running"));
             }
@@ -408,7 +412,6 @@ export function useProjectChatComposer({
             const taskEvents = task.events || [];
             if (steps.length > 0) {
               collectedToolCalls = steps
-                .filter((step: TaskRunStep) => step.status !== "pending")
                 .reduce<ToolCallEvent[]>(
                   (items: ToolCallEvent[], step: TaskRunStep) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
                   collectedToolCalls,
@@ -517,6 +520,7 @@ export function useProjectChatComposer({
 
       const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
       setStreamingContent("");
+      setStreamingStatus("");
       setStreamingToolCalls([]);
       setStreamingReferences([]);
       setStreamingArtifacts([]);
@@ -545,6 +549,7 @@ export function useProjectChatComposer({
             : call,
         );
         setStreamingContent("");
+        setStreamingStatus("");
         setStreamingToolCalls([]);
         if (fullContent.trim()) {
           const assistantMessage = buildAssistantMessage({
@@ -562,6 +567,7 @@ export function useProjectChatComposer({
       }
       console.error("Failed to send message:", error);
       setStreamingContent("");
+      setStreamingStatus("");
       setStreamingToolCalls([]);
       onSendError();
       await fetchMessages(conversationId);
@@ -594,6 +600,7 @@ export function useProjectChatComposer({
     isLoading,
     streamingArtifacts,
     streamingContent,
+    streamingStatus,
     streamingReferences,
     streamingToolCalls,
     resetStreamingContent,

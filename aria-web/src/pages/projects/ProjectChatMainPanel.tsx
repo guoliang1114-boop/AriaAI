@@ -54,6 +54,7 @@ interface ProjectChatMainPanelProps {
   startConversationLabel: string;
   streamingArtifacts: GeneratedArtifact[];
   streamingContent: string;
+  streamingStatus: string;
   streamingReferences: Reference[];
   streamingToolCalls: ToolCallEvent[];
   subtitle: string;
@@ -102,6 +103,7 @@ export function ProjectChatMainPanel({
   startConversationLabel,
   streamingArtifacts,
   streamingContent,
+  streamingStatus,
   streamingReferences,
   streamingToolCalls,
   subtitle,
@@ -224,6 +226,7 @@ export function ProjectChatMainPanel({
           onOpenArtifact={onOpenArtifact}
           onOpenTasks={() => setIsTaskDrawerOpen(true)}
           streamingContent={streamingContent}
+          streamingStatus={streamingStatus}
           streamingArtifacts={streamingArtifacts}
           streamingReferences={streamingReferences}
           streamingToolCalls={streamingToolCalls}

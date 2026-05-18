@@ -752,6 +752,12 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[st
             values = [fallback]
         return "\n".join(f"- {item}" for item in values[:5])
 
+    def combined_bullets(*groups: list[str] | None, fallback: str) -> str:
+        values: list[str] = []
+        for group in groups:
+            values.extend(str(item).strip() for item in (group or []) if str(item).strip())
+        return bullets(values, fallback)
+
     project_name = project.get("name") or "客户项目"
     client_name = project.get("client") or "客户"
     return [
@@ -781,15 +787,62 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[st
         {
             "type": "content",
             "title": "近期进展与可交付信号",
+            "content": combined_bullets(
+                memory.get("recent_progress"),
+                memory.get("delivery_signals"),
+                fallback="暂无近期进展沉淀，建议先补充项目空间资料。",
+            ),
+        },
+        {
+            "type": "content",
+            "title": "机会判断与进入假设",
             "content": bullets(
-                (memory.get("recent_progress") or []) + (memory.get("delivery_signals") or []),
-                "暂无近期进展沉淀，建议先补充项目空间资料。",
+                [
+                    f"围绕 {project_name} 的目标先形成可验证的赛道假设，而不是直接进入大规模投入。",
+                    "优先判断品牌调性、渠道复用、产品可信度和组织承接能力。",
+                    "用小范围访谈和桌面研究验证客户内部是否存在一致的机会认知。",
+                    "把结论拆成可进入、需观察、暂不进入三类，方便管理层决策。",
+                ],
+                "先形成可验证机会假设，再决定是否进入下一阶段。",
+            ),
+        },
+        {
+            "type": "two_column",
+            "title": "初步沟通路径",
+            "left_content": bullets(
+                [
+                    "先确认客户对新业务方向的真实目标和内部决策背景。",
+                    "再澄清约束条件：品牌边界、预算节奏、渠道可用性和时间窗口。",
+                    "最后对齐本次项目要交付的判断框架、阶段成果和决策节点。",
+                ],
+                "先对齐目标，再澄清约束，最后确认交付边界。",
+            ),
+            "right_content": bullets(
+                [
+                    "建议采用 60-90 分钟闭门沟通，避免一开始就进入方案销售。",
+                    "用问题清单引导客户表达，而不是直接呈现结论。",
+                    "会后输出机会假设、关键分歧和下一步资料需求。",
+                ],
+                "以问题驱动沟通，形成下一步资料和判断框架。",
             ),
         },
         {
             "type": "content",
             "title": "风险与应对",
             "content": bullets(memory.get("key_risks"), "暂无结构化风险，建议在会中确认不确定性和责任边界。"),
+        },
+        {
+            "type": "content",
+            "title": "需要客户确认的问题",
+            "content": combined_bullets(
+                memory.get("open_questions"),
+                [
+                    "本次新业务探索的决策人、影响人和最终拍板机制是什么？",
+                    "客户希望项目优先解决机会判断、进入路径，还是商业验证？",
+                    "哪些既有品牌、渠道、供应链资源可以被新业务复用？",
+                ],
+                fallback="建议在首次沟通中确认目标、边界、决策人和资料需求。",
+            ),
         },
         {
             "type": "content",

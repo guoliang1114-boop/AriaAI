@@ -286,6 +286,7 @@ export function ProjectChatTab({
     isLoading,
     streamingArtifacts,
     streamingContent,
+    streamingStatus,
     streamingReferences,
     streamingToolCalls,
     resetStreamingContent,
@@ -759,10 +760,10 @@ export function ProjectChatTab({
   }, [messages.length, panel.isAutoFollow, panel.scrollToBottom]);
 
   useEffect(() => {
-    if (streamingContent && panel.isAutoFollow) {
+    if ((streamingContent || streamingStatus || streamingToolCalls.length > 0) && panel.isAutoFollow) {
       panel.scrollToBottom(false);
     }
-  }, [panel.isAutoFollow, panel.scrollToBottom, streamingContent]);
+  }, [panel.isAutoFollow, panel.scrollToBottom, streamingContent, streamingStatus, streamingToolCalls.length]);
 
   useEffect(() => {
     if (controlledFullscreen === undefined) {
@@ -1016,6 +1017,7 @@ export function ProjectChatTab({
             startConversationLabel={copy.startConversation}
             streamingArtifacts={streamingArtifacts}
             streamingContent={streamingContent}
+            streamingStatus={streamingStatus}
             streamingReferences={streamingReferences}
             streamingToolCalls={streamingToolCalls}
             subtitle={copy.projectAssistantSubtitle}

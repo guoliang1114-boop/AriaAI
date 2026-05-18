@@ -22,8 +22,9 @@ const ChatStreamingMessage = memo<{
   onOpenTasks?: () => void;
   projectId: number;
   references: Reference[];
+  status: string;
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, toolCalls }) => {
+}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -40,7 +41,13 @@ const ChatStreamingMessage = memo<{
         <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">Aria</p>
         <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
           <div className="md-root w-full">
-            {renderedContent}
+            {content ? renderedContent : null}
+            {!content && status ? (
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span>{status}</span>
+              </div>
+            ) : null}
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
           </div>
           {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
@@ -92,6 +99,7 @@ type ProjectChatMessagesProps = {
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onOpenTasks?: () => void;
   streamingContent: string;
+  streamingStatus: string;
   streamingArtifacts: GeneratedArtifact[];
   streamingReferences: Reference[];
   streamingToolCalls: ToolCallEvent[];
@@ -114,6 +122,7 @@ export function ProjectChatMessages({
   onOpenArtifact,
   onOpenTasks,
   streamingContent,
+  streamingStatus,
   streamingArtifacts,
   streamingReferences,
   streamingToolCalls,
@@ -153,7 +162,7 @@ export function ProjectChatMessages({
         </div>
       )}
 
-      {messages.length === 0 && !streamingContent && !isLoading && !isLoadingMessages && (
+      {messages.length === 0 && !streamingContent && !streamingStatus && !isLoading && !isLoadingMessages && (
         <div className="absolute inset-0 flex items-center justify-center px-4 py-10">
           <div className="w-full max-w-4xl">
             <ProjectChatEmptyState
@@ -166,7 +175,7 @@ export function ProjectChatMessages({
         </div>
       )}
 
-      {!isLoadingMessages && (messages.length > 0 || streamingContent || isLoading) && (
+      {!isLoadingMessages && (messages.length > 0 || streamingContent || streamingStatus || isLoading) && (
         <>
           {messages.map((msg) => (
             <ProjectChatMessageBubble
@@ -181,7 +190,7 @@ export function ProjectChatMessages({
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
             />
           ))}
-          {(streamingContent || streamingToolCalls.length > 0 || streamingArtifacts.length > 0 || streamingReferences.length > 0) && (
+          {(streamingContent || streamingStatus || streamingToolCalls.length > 0 || streamingArtifacts.length > 0 || streamingReferences.length > 0) && (
             <ChatStreamingMessage
               artifacts={streamingArtifacts}
               content={streamingContent}
@@ -191,10 +200,11 @@ export function ProjectChatMessages({
               onOpenTasks={onOpenTasks}
               projectId={projectId}
               references={streamingReferences}
+              status={streamingStatus}
               toolCalls={streamingToolCalls}
             />
           )}
-          {isLoading && !streamingContent && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (
+          {isLoading && !streamingContent && !streamingStatus && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (
             <div className="mx-auto flex max-w-5xl gap-3">
               <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-white" />
