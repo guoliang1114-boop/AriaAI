@@ -483,15 +483,78 @@ def _document_file_type_for_task(task_type: str) -> str:
 
 def _default_xlsx_sheets(goal: str, context: dict[str, Any]) -> list[dict[str, Any]]:
     text = (goal or "").lower()
+    project = context.get("project") or {}
+    memory = context.get("memory") or {}
+    client_memory = context.get("client_memory") or {}
+    meeting_card = context.get("meeting_card") or {}
+    stakeholders = context.get("stakeholders") or []
+
+    def list_items(values: list[Any] | None, fallback: list[str]) -> list[str]:
+        items = [str(item).strip() for item in (values or []) if str(item).strip()]
+        return items or fallback
+
     if any(token in text for token in ("访谈", "interview")):
+        stakeholder_rows = []
+        for item in stakeholders[:8]:
+            if isinstance(item, dict):
+                stakeholder_rows.append(
+                    [
+                        item.get("name") or item.get("title") or "",
+                        item.get("role") or item.get("department") or "",
+                        item.get("influence_level") or item.get("attitude") or "",
+                        item.get("note") or item.get("description") or "",
+                    ]
+                )
+        if not stakeholder_rows:
+            stakeholder_rows = [
+                ["项目负责人/业务方", "项目目标与决策输入", "高", "确认目标、边界、约束和成功标准"],
+                ["客户品牌/渠道相关方", "落地可行性与资源", "中高", "确认品牌、渠道、数据和协作限制"],
+                ["项目执行团队", "交付路径与风险", "中", "确认资料、时间表和行动闭环"],
+            ]
+
+        interview_topics = [
+            ("项目背景与目标", memory.get("project_brief") or project.get("description") or goal),
+            ("当前目标", memory.get("current_objective") or "确认本次项目的核心目标、范围与成功标准。"),
+            ("近期进展", "；".join(list_items(memory.get("recent_progress"), ["补充近期推进情况"]))),
+            ("关键风险", "；".join(list_items(memory.get("key_risks"), ["识别决策、资源、范围、时间表等风险"]))),
+            ("开放问题", "；".join(list_items(memory.get("open_questions"), ["确认仍未闭合的问题和资料缺口"]))),
+            ("下一步动作", "；".join(list_items(memory.get("next_actions"), ["形成会后行动清单、负责人和时间点"]))),
+            ("客户敏感点", "；".join(list_items(client_memory.get("sensitive_topics"), ["确认客户侧敏感话题和沟通边界"]))),
+            ("会议建议", "；".join(list_items(meeting_card.get("confirm"), ["确认决策链、预算、资料、时间表和下一次会议安排"]))),
+        ]
+        question_rows = [
+            ["业务负责人/客户相关方", "", topic, f"围绕“{basis}”，请确认当前事实、判断依据、主要分歧和下一步动作。", "", "", "待安排", ""]
+            for topic, basis in interview_topics
+        ]
+        question_rows.extend(
+            [
+                ["决策人", "", "决策标准", "最终判断本项目是否推进时，最重要的 3 个标准是什么？", "", "", "待安排", ""],
+                ["执行负责人", "", "资源与时间", "若进入下一阶段，需要哪些资源、资料和时间窗口？", "", "", "待安排", ""],
+                ["风险相关方", "", "风险边界", "哪些前提不成立会导致项目暂停、延期或调整范围？", "", "", "待安排", ""],
+            ]
+        )
         return [
             {
                 "name": "访谈计划",
                 "headers": ["访谈对象", "角色/部门", "访谈主题", "核心问题", "时间", "负责人", "状态", "备注"],
+                "data": question_rows,
+            },
+            {
+                "name": "关键干系人",
+                "headers": ["姓名/群体", "角色/部门", "影响/态度", "访谈重点"],
+                "data": stakeholder_rows,
+            },
+            {
+                "name": "项目上下文",
+                "headers": ["维度", "内容"],
                 "data": [
-                    ["", "", "背景与目标", "当前最需要确认的业务目标是什么？", "", "", "待安排", ""],
-                    ["", "", "现状与痛点", "现有流程、系统或协作中最大的阻塞是什么？", "", "", "待安排", ""],
-                    ["", "", "决策与下一步", "后续决策需要哪些材料、数据或参与人？", "", "", "待安排", ""],
+                    ["项目名称", project.get("name") or ""],
+                    ["客户", project.get("client") or ""],
+                    ["项目背景", memory.get("project_brief") or project.get("description") or ""],
+                    ["当前目标", memory.get("current_objective") or ""],
+                    ["关键风险", "；".join(list_items(memory.get("key_risks"), []))],
+                    ["开放问题", "；".join(list_items(memory.get("open_questions"), []))],
+                    ["下一步动作", "；".join(list_items(memory.get("next_actions"), []))],
                 ],
             },
             {

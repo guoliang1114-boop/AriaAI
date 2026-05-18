@@ -138,6 +138,10 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
         assert kwargs["project_id"]
         assert kwargs["file_type"] == "xlsx"
         assert kwargs["sheets"][0]["name"] == "访谈计划"
+        assert len(kwargs["sheets"][0]["data"]) >= 8
+        sheet_names = {sheet["name"] for sheet in kwargs["sheets"]}
+        assert "关键干系人" in sheet_names
+        assert "项目上下文" in sheet_names
         return {
             "ok": True,
             "id": None,

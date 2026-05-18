@@ -815,6 +815,8 @@ export interface StreamEvent {
   result?: Record<string, unknown>
   task?: TaskRun
   artifacts?: GeneratedArtifact[]
+  task_run_id?: number
+  task_type?: string
   error?: string
 }
 

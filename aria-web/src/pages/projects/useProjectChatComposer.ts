@@ -259,6 +259,7 @@ export function useProjectChatComposer({
     let collectedReferences: Reference[] = [];
     let collectedToolCalls: ToolCallEvent[] = [];
     let collectedArtifacts: GeneratedArtifact[] = [];
+    let serverPersistedAssistant = false;
 
     try {
       abortControllerRef.current = new AbortController();
@@ -420,6 +421,9 @@ export function useProjectChatComposer({
               setStreamingArtifacts(collectedArtifacts);
             }
           } else if (payload.type === "done") {
+            if (payload.task_run_id || payload.task_type || payload.task) {
+              serverPersistedAssistant = true;
+            }
             if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
               collectedArtifacts = payload.artifacts.reduce<GeneratedArtifact[]>((items, artifact) => {
                 if (!artifact || !artifact.path || items.some((item) => item.path === artifact.path)) {
@@ -438,7 +442,9 @@ export function useProjectChatComposer({
       const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
       setStreamingContent("");
       setStreamingToolCalls([]);
-      if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
+      if (serverPersistedAssistant) {
+        await fetchMessages(conversationId);
+      } else if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
         const assistantMessage = buildAssistantMessage({
           artifacts: collectedArtifacts,
           content: finalContent,
