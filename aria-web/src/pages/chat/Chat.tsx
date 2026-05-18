@@ -644,6 +644,7 @@ export function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isComposingRef = useRef(false)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const skillDropdownRef = useRef<HTMLDivElement>(null)
   const streamingContentRef = useRef('')
@@ -1086,7 +1087,12 @@ export function Chat() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const nativeEvent = e.nativeEvent as KeyboardEvent
+      if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) return
+      e.preventDefault()
+      handleSend()
+    }
   }
 
   const fillSuggestion = (text: string) => {
@@ -1984,6 +1990,8 @@ export function Chat() {
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onCompositionStart={() => { isComposingRef.current = true }}
+                onCompositionEnd={() => { isComposingRef.current = false }}
                 onKeyDown={handleKeyDown}
                 placeholder={t('chat.placeholder')}
                 disabled={sending}

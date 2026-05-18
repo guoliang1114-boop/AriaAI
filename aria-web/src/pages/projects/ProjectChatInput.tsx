@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Send, Square } from "lucide-react";
 
 type ProjectChatInputProps = {
@@ -22,6 +23,8 @@ export function ProjectChatInput({
   onSend,
   onStop,
 }: ProjectChatInputProps) {
+  const isComposingRef = useRef(false);
+
   return (
     <div className="relative flex-shrink-0 border-t border-gray-100 bg-slate-50 px-4 pb-4 pt-3">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-10 -translate-y-full bg-gradient-to-b from-transparent to-slate-50" />
@@ -33,8 +36,18 @@ export function ProjectChatInput({
             <textarea
               value={value}
               onChange={(event) => onChange(event.target.value)}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
+                  const nativeEvent = event.nativeEvent as KeyboardEvent;
+                  if (isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+                    return;
+                  }
                   event.preventDefault();
                   onSend();
                 }
