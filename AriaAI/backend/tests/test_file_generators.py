@@ -154,6 +154,37 @@ class GeneratePptTestCase(unittest.TestCase):
         self.assertEqual(result["template_applied"], False)
         mock_pres_class.assert_called_once()  # Called without template path
 
+    @patch("app.tools.file_generators._render_digital_strategy_layout")
+    @patch("app.tools.file_generators._ensure_body_min_font_sizes")
+    @patch("app.tools.file_generators._write_title_preserving_style")
+    @patch("app.tools.file_generators._find_body_placeholder")
+    @patch("pptx.Presentation")
+    def test_blank_deck_uses_strategy_layout_hints(self, mock_pres_class, mock_find_body, mock_write_title, mock_ensure, mock_strategy):
+        mock_strategy.return_value = True
+        mock_slide = MagicMock()
+        mock_slide.shapes.title = MagicMock()
+        mock_slide_layout = MagicMock()
+        mock_prs = MagicMock()
+        mock_prs.slide_layouts = [mock_slide_layout, mock_slide_layout]
+        mock_prs.slides.add_slide.return_value = mock_slide
+        mock_pres_class.return_value = mock_prs
+
+        mock_generated_dir = MagicMock()
+        with patch("app.tools.file_generators.GENERATED_DIR", mock_generated_dir):
+            result = self._call(
+                title="Consulting Deck",
+                slides=[
+                    {
+                        "title": "管理层决策看板",
+                        "content": "- 业务价值\n- 采用率\n- 风险控制",
+                        "layout_key": "investment_kpi",
+                    }
+                ],
+            )
+
+        self.assertTrue(result["success"])
+        mock_strategy.assert_called_once()
+
 
 class GenerateXlsxTestCase(unittest.TestCase):
     def test_applies_kpmg_inspired_table_style(self):

@@ -93,6 +93,9 @@ def test_ppt_slide_count_request_is_extracted_and_used():
     assert len(slides) >= 20
     assert any(slide["title"] == "资料收集计划" for slide in slides)
     assert any(slide["title"] == "商业验证假设" for slide in slides)
+    assert any(slide.get("layout_key") == "roadmap" for slide in slides)
+    assert any(slide.get("layout_key") == "prioritization_matrix" for slide in slides)
+    assert all(slide.get("insight") for slide in slides if slide.get("layout_key"))
 
 
 def test_llm_router_uses_structured_plan():

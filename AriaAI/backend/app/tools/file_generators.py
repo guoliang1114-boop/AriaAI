@@ -4896,6 +4896,11 @@ async def generate_ppt(
     for slide_index, slide_data in enumerate(slides):
         slide_type  = slide_data.get("type", "content")
         slide_title = slide_data.get("title", "")
+        content = slide_data.get("content", "")
+        strategy_layout = _resolve_digital_strategy_layout(slide_data)
+        use_visual = slide_type in {"roadmap", "matrix", "kpi", "risk", "next_steps"} or (
+            slide_type == "content" and _wants_visual_slide(slide_title, content)
+        )
 
         layout = two_col_layout if slide_type == "two_column" else content_layout
         if using_template and has_template_content_prototype and slide_index == 0:
@@ -4903,8 +4908,17 @@ async def generate_ppt(
         else:
             slide = prs.slides.add_slide(layout)
 
-        if slide_type == "content" and "content" in slide_data:
-            _render_content_slide(slide, slide_title, slide_data["content"], slide_index + 1, slide_data)
+        if slide_type in {"title", "section"}:
+            _render_section_slide(slide, slide_title, slide_index + 1, slide_data)
+
+        elif strategy_layout and _render_digital_strategy_layout(slide, slide_data, slide_index + 1, strategy_layout):
+            pass
+
+        elif use_visual:
+            _render_visual_slide(slide, slide_title, content, slide_index + 1, slide_type, slide_data)
+
+        elif slide_type == "content" and "content" in slide_data:
+            _render_content_slide(slide, slide_title, content, slide_index + 1, slide_data)
 
         elif slide_type == "two_column":
             _render_two_column_slide(

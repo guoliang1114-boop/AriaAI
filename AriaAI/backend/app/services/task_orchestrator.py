@@ -873,6 +873,7 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str, target_slide_co
     ]
     target = max(len(base_slides), int(target_slide_count or 0))
     if len(base_slides) >= target:
+        _upgrade_client_ppt_slide_specs(base_slides)
         return base_slides
 
     context_points = [
@@ -1154,7 +1155,60 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str, target_slide_co
         if len(base_slides) >= 10 + len(supplemental_slides):
             slide["title"] = f"{slide['title']}（补充视角 {len(base_slides) + 1}）"
         base_slides.append(slide)
+    _upgrade_client_ppt_slide_specs(base_slides)
     return base_slides
+
+
+def _upgrade_client_ppt_slide_specs(slides: list[dict[str, Any]]) -> None:
+    """Attach consulting-style layout hints so PPT rendering is more executive-ready."""
+    layout_by_title = {
+        "项目背景与当前目标": "strategic_context",
+        "这次应该主打什么": "current_target",
+        "客户侧关注与敏感点": "risk_register",
+        "近期进展与可交付信号": "initiative_milestones",
+        "机会判断与进入假设": "prioritization_matrix",
+        "初步沟通路径": "roadmap",
+        "风险与应对": "risk_register",
+        "需要客户确认的问题": "action_plan",
+        "下一步行动": "action_plan",
+        "项目事实与资料基础": "strategic_context",
+        "资料收集计划": "roadmap",
+        "客户决策链与影响路径": "operating_model",
+        "客户价值主张": "executive_summary",
+        "机会空间拆解": "portfolio_matrix",
+        "进入路径选项": "current_target",
+        "商业验证假设": "prioritization_matrix",
+        "风险分级与控制": "risk_register",
+        "初步访谈设计": "customer_journey",
+        "沟通话术建议": "action_plan",
+        "阶段性交付物": "initiative_milestones",
+        "会议议程建议": "roadmap",
+        "需要客户提前准备的资料": "action_plan",
+        "会后推进机制": "operating_model",
+        "管理层决策看板": "investment_kpi",
+    }
+    insight_by_layout = {
+        "executive_summary": "本页先给管理层一个可判断、可取舍、可推进的核心答案。",
+        "strategic_context": "先把事实、触发因素和管理含义讲清，避免直接进入方案堆砌。",
+        "current_target": "把现状约束和目标动作并排呈现，帮助客户快速校准方向。",
+        "risk_register": "风险页必须同时呈现风险、触发条件和缓释动作，才能进入真实治理。",
+        "initiative_milestones": "把内容拆成阶段性里程碑，便于客户理解推进节奏和交付边界。",
+        "prioritization_matrix": "用价值和可行性组织判断，避免所有机会看起来同等重要。",
+        "roadmap": "路线图要说明先后顺序、依赖关系和阶段门，而不是简单排时间。",
+        "operating_model": "组织和责任机制决定项目能否从讨论进入执行。",
+        "portfolio_matrix": "机会组合需要同时看吸引力、适配度、进入难度和验证成本。",
+        "customer_journey": "访谈和客户旅程设计应服务于假设验证，而不是泛泛收集观点。",
+        "investment_kpi": "管理层需要看到判断标准、关键指标和下一步决策动作。",
+        "action_plan": "行动页要把问题转成责任人、输入、输出和时间节点。",
+    }
+    for slide in slides:
+        title = str(slide.get("title") or "").split("（补充视角")[0]
+        layout_key = layout_by_title.get(title)
+        if layout_key:
+            slide.setdefault("layout_key", layout_key)
+            slide.setdefault("visualization_type", layout_key)
+            slide.setdefault("insight", insight_by_layout.get(layout_key, "本页需要形成清晰判断、证据要求和下一步动作。"))
+            slide.setdefault("page_rhythm", "anchor" if layout_key in {"executive_summary", "current_target"} else "dense")
 
 
 def _document_file_type_for_task(task_type: str) -> str:
