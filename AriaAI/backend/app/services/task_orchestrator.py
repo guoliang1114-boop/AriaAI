@@ -267,6 +267,64 @@ def _slugify_filename(value: str) -> str:
     return slug or "client-introduction"
 
 
+def _clean_ppt_request_title(value: str) -> str:
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    if not text:
+        return ""
+    text = re.sub(
+        r"(页数要求|至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*\d{1,2}\s*(?:页|頁|p|page|pages|slide|slides)?\s*(?:以上|起|\+|plus|or\s+more)?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    cleanup_patterns = [
+        r"^(好的?|请|麻烦|帮我|帮忙|给我|我想要|我要|需要|可以)?\s*",
+        r"(内容不够丰富|对这个\s*ppt\s*进行|对这个\s*PPT\s*进行|这个\s*ppt|这个\s*PPT)",
+        r"(重新生成|全面丰富|生成|准备|制作|输出|创建|整理|完善|丰富|修正|优化)",
+        r"(一个|一份|一下|版本|版)",
+        r"(好的?|请|麻烦|帮我|帮忙|给我|我想要|我要|需要|可以)",
+        r"(给客户介绍|给客户|客户介绍)",
+        r"(pptx|powerpoint|ppt|PPT)",
+        r"的",
+        r"(。|，|,|；|;|：|:)",
+    ]
+    for pattern in cleanup_patterns:
+        text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", "", text).strip("-_｜|/ ")
+    generic_values = {"", "客户", "介绍", "方案", "沟通", "初步沟通", "客户沟通", "访谈", "材料"}
+    if text in generic_values or len(text) < 3:
+        return ""
+    return text[:40]
+
+
+def _client_ppt_delivery_title(context: dict[str, Any] | None, goal: str, explicit_title: str | None = None) -> str:
+    context = context or {}
+    project = context.get("project") or {}
+    project_name = str(project.get("name") or "").strip()
+    client_name = str(project.get("client") or "").strip()
+
+    for candidate in (explicit_title, goal):
+        cleaned = _clean_ppt_request_title(str(candidate or ""))
+        if cleaned:
+            if project_name and project_name not in cleaned and len(cleaned) <= 18:
+                cleaned = f"{project_name}-{cleaned}"
+            if any(token in cleaned for token in ("沟通", "访谈", "介绍", "方案", "建议", "策略")):
+                return cleaned
+            return f"{cleaned}客户沟通建议"
+
+    base = project_name or client_name or "客户项目"
+    if len(base) > 34:
+        base = base[:34]
+    return f"{base}客户沟通建议"
+
+
+def _client_ppt_file_name(title: str) -> str:
+    stem = _slugify_filename(title)[:80].strip("-_.")
+    if not stem:
+        stem = "client-introduction"
+    return f"{stem}.pptx"
+
+
 def _extract_requested_slide_count(text: str) -> int | None:
     """Extract a user-requested minimum slide/page count from a PPT request."""
     value = text or ""
@@ -760,7 +818,12 @@ def _previous_office_output(session: Session, task_id: int) -> dict[str, Any]:
     )
 
 
-def _build_client_ppt_slides(context: dict[str, Any], goal: str, target_slide_count: int | None = None) -> list[dict[str, str]]:
+def _build_client_ppt_slides(
+    context: dict[str, Any],
+    goal: str,
+    target_slide_count: int | None = None,
+    deck_title: str | None = None,
+) -> list[dict[str, str]]:
     project = context.get("project") or {}
     meeting_card = context.get("meeting_card") or {}
     memory = context.get("memory") or {}
@@ -780,9 +843,10 @@ def _build_client_ppt_slides(context: dict[str, Any], goal: str, target_slide_co
 
     project_name = project.get("name") or "客户项目"
     client_name = project.get("client") or "客户"
+    deck_title = deck_title or _client_ppt_delivery_title(context, goal)
     target_slide_count = target_slide_count or _extract_requested_slide_count(goal)
     base_slides: list[dict[str, str]] = [
-        {"type": "section", "title": f"{client_name}｜客户介绍与沟通建议", "content": goal},
+        {"type": "section", "title": deck_title, "content": f"{client_name}｜客户沟通建议"},
         {
             "type": "content",
             "title": "项目背景与当前目标",
@@ -1416,9 +1480,10 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
     if step.step_type == "build_slide_spec":
         context = _previous_context_output(session, task.id)
         target_slide_count = task_input.get("target_slide_count") or _extract_requested_slide_count(task.goal)
-        slides = _build_client_ppt_slides(context, task.goal, int(target_slide_count or 0) or None)
+        title = _client_ppt_delivery_title(context, task.goal, str(task_input.get("title") or ""))
+        slides = _build_client_ppt_slides(context, task.goal, int(target_slide_count or 0) or None, title)
         return {
-            "title": task_input.get("title") or context.get("project", {}).get("name") or task.goal,
+            "title": title,
             "slides": slides,
             "target_slide_count": target_slide_count,
         }
@@ -1448,8 +1513,9 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
     if step.step_type == "write_project_office_document" and task.task_type == "generate_client_ppt":
         slide_spec = _previous_slide_spec_output(session, task.id)
         project = session.get(Project, task.project_id)
-        title = str(task_input.get("title") or slide_spec.get("title") or task.goal)
-        file_name = str(task_input.get("file_name") or f"{_slugify_filename(title)}.pptx")
+        context = _previous_context_output(session, task.id)
+        title = str(slide_spec.get("title") or _client_ppt_delivery_title(context, task.goal, str(task_input.get("title") or "")))
+        file_name = str(task_input.get("file_name") or _client_ppt_file_name(title))
         result = await write_project_office_document(
             project_id=task.project_id,
             file_type="pptx",

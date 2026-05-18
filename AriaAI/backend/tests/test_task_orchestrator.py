@@ -80,22 +80,44 @@ def test_ppt_slide_count_request_is_extracted_and_used():
     assert task_orchestrator._extract_requested_slide_count("内容不够丰富，页数要求20页以上") == 20
     assert task_orchestrator._extract_requested_slide_count("make at least 22 slides") == 22
 
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {"project_brief": "探索功能性护肤品/医美抗衰赛道的新业务机会。"},
+        "client_memory": {},
+        "meeting_card": {},
+    }
     slides = task_orchestrator._build_client_ppt_slides(
-        {
-            "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
-            "memory": {"project_brief": "探索功能性护肤品/医美抗衰赛道的新业务机会。"},
-            "client_memory": {},
-            "meeting_card": {},
-        },
+        context,
         "内容不够丰富，对这个 PPT 进行全面丰富 页数要求20页以上",
     )
 
     assert len(slides) >= 20
+    assert slides[0]["title"] == "东阿阿胶新业务进入机会和策略客户沟通建议"
     assert any(slide["title"] == "资料收集计划" for slide in slides)
     assert any(slide["title"] == "商业验证假设" for slide in slides)
     assert any(slide.get("layout_key") == "roadmap" for slide in slides)
     assert any(slide.get("layout_key") == "prioritization_matrix" for slide in slides)
     assert all(slide.get("insight") for slide in slides if slide.get("layout_key"))
+
+
+def test_client_ppt_delivery_title_and_file_name_are_clean():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+    }
+
+    title = task_orchestrator._client_ppt_delivery_title(
+        context,
+        "好，给我一个初步沟通的方案，生成 PPT 版本",
+    )
+    enriched_title = task_orchestrator._client_ppt_delivery_title(
+        context,
+        "内容不够丰富，对这个 PPT 进行全面丰富 页数要求20页以上",
+    )
+
+    assert title == "东阿阿胶新业务进入机会和策略-初步沟通方案"
+    assert enriched_title == "东阿阿胶新业务进入机会和策略客户沟通建议"
+    assert task_orchestrator._client_ppt_file_name(enriched_title) == "东阿阿胶新业务进入机会和策略客户沟通建议.pptx"
+    assert "内容不够丰富" not in task_orchestrator._client_ppt_file_name(enriched_title)
 
 
 def test_llm_router_uses_structured_plan():
