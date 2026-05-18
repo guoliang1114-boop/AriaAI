@@ -88,6 +88,29 @@ ALLOWED_STEP_TYPES = {
     "summarize_result",
 }
 
+STEP_TYPE_ALIASES = {
+    "collect_context": "collect_project_context",
+    "load_context": "collect_project_context",
+    "build_document": "build_document_spec",
+    "build_qa_spec": "build_document_spec",
+    "draft_document": "build_document_spec",
+    "draft_text": "draft_text_artifact",
+    "finalize": "summarize_result",
+    "summary": "summarize_result",
+    "write_document": "write_project_office_document",
+    "create_file": "write_project_office_document",
+    "generate_file": "write_project_office_document",
+    "create_document": "write_project_office_document",
+    "create_deck": "write_project_office_document",
+}
+
+
+def _normalize_step_type(raw_step_type: str, task_type: str) -> str:
+    step_type = str(raw_step_type or "").strip()
+    if step_type in {"build_spec", "draft_spec"}:
+        return "build_slide_spec" if task_type == "generate_client_ppt" else "build_document_spec"
+    return STEP_TYPE_ALIASES.get(step_type, step_type)
+
 
 def detect_project_task_type(content: str) -> str | None:
     """Detect requests that should run as durable project tasks instead of a single chat turn."""
@@ -142,7 +165,7 @@ def _normalize_planned_steps(raw_steps: Any, task_type: str) -> tuple[StepSpec, 
     for index, item in enumerate(raw_steps[:8], start=1):
         if not isinstance(item, dict):
             continue
-        step_type = str(item.get("step_type") or "").strip()
+        step_type = _normalize_step_type(str(item.get("step_type") or ""), task_type)
         if step_type not in ALLOWED_STEP_TYPES:
             continue
         key = _slugify_filename(str(item.get("key") or step_type or f"step-{index}")).replace(".", "-")[:40]
@@ -472,6 +495,32 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def task_run_chat_brief(payload: dict[str, Any]) -> str:
+    goal = payload.get("goal") or payload.get("task_type") or "任务"
+    status = str(payload.get("status") or "")
+    steps = [step for step in (payload.get("steps") or []) if isinstance(step, dict)]
+    failed_step = next((step for step in steps if step.get("status") == "failed"), None)
+    artifacts = [artifact for artifact in (payload.get("artifacts") or []) if isinstance(artifact, dict)]
+
+    if status == "completed":
+        if artifacts:
+            names = "、".join(str(artifact.get("name") or "交付物") for artifact in artifacts[:3])
+            return f"任务已完成：{goal}\n\n生成物：{names}\n\n下方卡片可以直接打开，完整执行记录在右上角「任务」面板。"
+        return f"任务已完成：{goal}\n\n执行步骤和结果已记录在下方卡片与右上角「任务」面板。"
+
+    if failed_step:
+        step_index = failed_step.get("sort_order") or "-"
+        title = failed_step.get("title") or failed_step.get("key") or "执行步骤"
+        error = str(failed_step.get("error_message") or "").strip()
+        error_line = f"\n\n失败原因：{error}" if error else ""
+        return (
+            f"任务在第 {step_index} 步「{title}」暂停，需要处理。"
+            f"{error_line}\n\n请点击失败步骤卡片里的「打开任务面板处理」，可从失败处重试、取消任务或查看完整日志。"
+        )
+
+    return f"任务已创建：{goal}\n\n我会按下方步骤执行，完整记录可在右上角「任务」面板查看。"
+
+
 def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, output: dict | None = None) -> str:
     if event_type == "task_started":
         return "编排器已启动：将按步骤执行，并记录每一步状态。"
@@ -652,6 +701,41 @@ def _previous_step_output(session: Session, task_id: int, key: str) -> dict[str,
         select(TaskStep).where(TaskStep.task_run_id == task_id, TaskStep.key == key)
     ).first()
     return _json_loads(step.output_json) if step else {}
+
+
+def _previous_step_output_by_type(session: Session, task_id: int, step_type: str) -> dict[str, Any]:
+    step = session.exec(
+        select(TaskStep)
+        .where(TaskStep.task_run_id == task_id, TaskStep.step_type == step_type, TaskStep.status == "completed")
+        .order_by(TaskStep.sort_order.desc())
+    ).first()
+    return _json_loads(step.output_json) if step else {}
+
+
+def _previous_context_output(session: Session, task_id: int) -> dict[str, Any]:
+    return _previous_step_output(session, task_id, "collect_context") or _previous_step_output_by_type(
+        session, task_id, "collect_project_context"
+    )
+
+
+def _previous_document_spec_output(session: Session, task_id: int) -> dict[str, Any]:
+    return _previous_step_output(session, task_id, "draft_document_spec") or _previous_step_output_by_type(
+        session, task_id, "build_document_spec"
+    )
+
+
+def _previous_slide_spec_output(session: Session, task_id: int) -> dict[str, Any]:
+    return _previous_step_output(session, task_id, "draft_slide_spec") or _previous_step_output_by_type(
+        session, task_id, "build_slide_spec"
+    )
+
+
+def _previous_office_output(session: Session, task_id: int) -> dict[str, Any]:
+    return (
+        _previous_step_output(session, task_id, "create_deck")
+        or _previous_step_output(session, task_id, "create_document")
+        or _previous_step_output_by_type(session, task_id, "write_project_office_document")
+    )
 
 
 def _build_client_ppt_slides(context: dict[str, Any], goal: str) -> list[dict[str, str]]:
@@ -904,7 +988,7 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         raise ValueError("Project id is required")
 
     task_input = _json_loads(task.input_json)
-    if step.key == "collect_context":
+    if step.step_type == "collect_project_context":
         briefing = _build_project_briefing(session, task.project_id)
         return {
             "project": briefing.get("project", {}),
@@ -915,19 +999,19 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
             "generated_at": briefing.get("generated_at"),
         }
 
-    if step.key == "draft_slide_spec":
-        context = _previous_step_output(session, task.id, "collect_context")
+    if step.step_type == "build_slide_spec":
+        context = _previous_context_output(session, task.id)
         slides = _build_client_ppt_slides(context, task.goal)
         return {"title": task_input.get("title") or context.get("project", {}).get("name") or task.goal, "slides": slides}
 
-    if step.key == "draft_document_spec":
-        context = _previous_step_output(session, task.id, "collect_context")
+    if step.step_type == "build_document_spec":
+        context = _previous_context_output(session, task.id)
         title = str(task_input.get("title") or task.goal or context.get("project", {}).get("name") or "项目交付物")
         file_type = str(task_input.get("file_type") or _document_file_type_for_task(task.task_type))
         return _build_project_document_spec(context, task.goal, file_type, title)
 
-    if step.key == "draft_text_artifact" or step.step_type == "draft_text_artifact":
-        context = _previous_step_output(session, task.id, "collect_context")
+    if step.step_type == "draft_text_artifact":
+        context = _previous_context_output(session, task.id)
         result = _build_text_artifact(context, task.goal)
         artifact = TaskArtifact(
             task_run_id=task.id,
@@ -942,8 +1026,8 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         session.commit()
         return result
 
-    if step.key == "create_deck":
-        slide_spec = _previous_step_output(session, task.id, "draft_slide_spec")
+    if step.step_type == "write_project_office_document" and task.task_type == "generate_client_ppt":
+        slide_spec = _previous_slide_spec_output(session, task.id)
         project = session.get(Project, task.project_id)
         title = str(task_input.get("title") or slide_spec.get("title") or task.goal)
         file_name = str(task_input.get("file_name") or f"{_slugify_filename(title)}.pptx")
@@ -969,8 +1053,8 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         session.commit()
         return result
 
-    if step.key == "create_document":
-        document_spec = _previous_step_output(session, task.id, "draft_document_spec")
+    if step.step_type == "write_project_office_document":
+        document_spec = _previous_document_spec_output(session, task.id)
         project = session.get(Project, task.project_id)
         file_type = str(document_spec.get("file_type") or task_input.get("file_type") or _document_file_type_for_task(task.task_type))
         title = str(task_input.get("title") or document_spec.get("title") or task.goal)
@@ -1000,11 +1084,11 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         session.commit()
         return result
 
-    if step.key == "summarize_result":
+    if step.step_type == "summarize_result":
         deck = (
-            _previous_step_output(session, task.id, "create_deck")
-            or _previous_step_output(session, task.id, "create_document")
+            _previous_office_output(session, task.id)
             or _previous_step_output(session, task.id, "draft_text_artifact")
+            or _previous_step_output_by_type(session, task.id, "draft_text_artifact")
         )
         if deck.get("file_type") == "text":
             return {
@@ -1016,7 +1100,7 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
             "artifact": deck,
         }
 
-    raise ValueError(f"Unsupported step: {step.key}")
+    raise ValueError(f"Unsupported step: {step.step_type or step.key}")
 
 
 async def execute_task_run_in_session(session: Session, task_id: int) -> None:
@@ -1092,7 +1176,9 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
         }
 
     now = utc_now_naive()
-    final_output = _previous_step_output(session, task.id, "summarize_result")
+    final_output = _previous_step_output(session, task.id, "summarize_result") or _previous_step_output_by_type(
+        session, task.id, "summarize_result"
+    )
     task.status = "completed"
     task.current_step_key = ""
     task.output_json = _json_dumps(final_output)

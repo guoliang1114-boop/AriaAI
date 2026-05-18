@@ -19,10 +19,11 @@ const ChatStreamingMessage = memo<{
   isZh: boolean;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onOpenTasks?: () => void;
   projectId: number;
   references: Reference[];
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, projectId, references, toolCalls }) => {
+}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -49,6 +50,7 @@ const ChatStreamingMessage = memo<{
                   key={`${call.tool_name}-${call.status}-${index}`}
                   call={call}
                   isZh={isZh}
+                  onOpenTasks={onOpenTasks}
                 />
               ))}
               {artifacts.map((artifact) => (
@@ -88,6 +90,7 @@ type ProjectChatMessagesProps = {
   messages: ChatMessage[];
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onOpenTasks?: () => void;
   streamingContent: string;
   streamingArtifacts: GeneratedArtifact[];
   streamingReferences: Reference[];
@@ -109,6 +112,7 @@ export function ProjectChatMessages({
   messages,
   onDownloadArtifact,
   onOpenArtifact,
+  onOpenTasks,
   streamingContent,
   streamingArtifacts,
   streamingReferences,
@@ -171,6 +175,7 @@ export function ProjectChatMessages({
               msg={msg}
               onDownloadArtifact={onDownloadArtifact}
               onOpenArtifact={onOpenArtifact}
+              onOpenTasks={onOpenTasks}
               onApplyStakeholders={onApplyStakeholders}
               projectId={projectId}
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
@@ -183,6 +188,7 @@ export function ProjectChatMessages({
               isZh={isZh}
               onDownloadArtifact={onDownloadArtifact}
               onOpenArtifact={onOpenArtifact}
+              onOpenTasks={onOpenTasks}
               projectId={projectId}
               references={streamingReferences}
               toolCalls={streamingToolCalls}
@@ -205,6 +211,7 @@ export function ProjectChatMessages({
                     key={`${call.tool_name}-${call.status}-${index}`}
                     call={call}
                     isZh={isZh}
+                    onOpenTasks={onOpenTasks}
                   />
                 ))}
               </div>

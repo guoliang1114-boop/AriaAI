@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
 interface ProjectChatToolCallCardProps {
   call: ToolCallEvent;
   isZh: boolean;
+  onOpenTasks?: () => void;
 }
 
 const STATUS_STYLES: Record<ToolCallEvent["status"], string> = {
@@ -40,6 +41,7 @@ function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
 export function ProjectChatToolCallCard({
   call,
   isZh,
+  onOpenTasks,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
   const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
@@ -119,6 +121,25 @@ export function ProjectChatToolCallCard({
                         {detail}
                       </p>
                     ))}
+                  </div>
+                ) : null}
+                {call.status === "error" ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/80 px-3 py-2">
+                    <p className="text-xs leading-relaxed text-rose-700">
+                      {isZh
+                        ? "这个步骤已暂停，需要你决定下一步：从失败处重试、取消任务，或查看完整日志。"
+                        : "This step is paused. Retry from here, cancel the task, or inspect full logs."}
+                    </p>
+                    {onOpenTasks ? (
+                      <button
+                        type="button"
+                        onClick={onOpenTasks}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-rose-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700"
+                      >
+                        <PanelRightOpen className="h-3.5 w-3.5" />
+                        {isZh ? "打开任务面板处理" : "Open task panel"}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

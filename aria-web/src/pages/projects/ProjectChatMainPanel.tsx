@@ -219,6 +219,7 @@ export function ProjectChatMainPanel({
           messages={messages}
           onDownloadArtifact={onDownloadArtifact}
           onOpenArtifact={onOpenArtifact}
+          onOpenTasks={() => setIsTaskDrawerOpen(true)}
           streamingContent={streamingContent}
           streamingArtifacts={streamingArtifacts}
           streamingReferences={streamingReferences}

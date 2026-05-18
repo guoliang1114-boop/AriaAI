@@ -43,7 +43,7 @@ from app.services.task_orchestrator import (
     route_project_task_request,
     serialize_task_run,
     stream_execute_task_run_in_session,
-    task_run_chat_summary,
+    task_run_chat_brief,
 )
 from app.services.title_generator import schedule_title_generation
 from app.tools import registry
@@ -465,7 +465,7 @@ def _task_payload_tool_calls(task_payload: dict) -> list[dict]:
                 "message": (
                     "该步骤已完成。"
                     if status == "completed"
-                    else error_message or "该步骤执行失败，可稍后从任务记录重试。"
+                    else error_message or "该步骤执行失败，请打开任务面板处理。"
                     if status == "error"
                     else "该步骤正在执行或等待执行。"
                 ),
@@ -759,7 +759,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 task_session.refresh(task)
                 task_payload = serialize_task_run(task_session, task, include_events=True)
 
-            full_text = task_run_chat_summary(task_payload)
+            full_text = task_run_chat_brief(task_payload)
             metadata = {
                 "project_id": req.project_id,
                 "task_run": task_payload,

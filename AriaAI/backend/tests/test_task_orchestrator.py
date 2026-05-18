@@ -16,6 +16,7 @@ from app.services.task_orchestrator import (
     resume_task_run_in_session,
     route_project_task_request,
     serialize_task_run,
+    task_run_chat_brief,
     task_run_chat_summary,
 )
 from tests.test_database import create_test_engine, drop_all_tables
@@ -104,6 +105,36 @@ def test_llm_router_uses_structured_plan():
     ]
 
 
+def test_llm_router_normalizes_common_step_aliases():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "task_type": "generate_project_excel",
+                "confidence": 0.92,
+                "reason": "excel deliverable",
+                "title": "访谈 Q&A",
+                "output_kind": "xlsx",
+                "plan_steps": [
+                    {"key": "context", "title": "收集访谈背景", "step_type": "collect_context"},
+                    {"key": "build_spec", "title": "构建Q&A文档规格", "step_type": "build_spec"},
+                    {"key": "write", "title": "生成Excel文件", "step_type": "create_file"},
+                    {"key": "finish", "title": "汇总生成结果", "step_type": "finalize", "retryable": False},
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(route_project_task_request("我想要准备一个访谈的excel", llm_complete=fake_complete, model="test"))
+
+    assert route.task_type == "generate_project_excel"
+    assert [step.step_type for step in route.plan_steps] == [
+        "collect_project_context",
+        "build_document_spec",
+        "write_project_office_document",
+        "summarize_result",
+    ]
+
+
 def test_task_run_chat_summary_mentions_steps_and_retry_hint():
     payload = {
         "id": 7,
@@ -148,6 +179,25 @@ def test_task_run_chat_summary_mentions_steps_and_retry_hint():
     assert "项目：PPT Project；客户：Client" in summary
     assert "RuntimeError，可重试" in summary
     assert "失败步骤重试" in summary
+
+
+def test_task_run_chat_brief_points_failed_tasks_to_task_panel():
+    payload = {
+        "goal": "我想要准备一个访谈的excel",
+        "status": "failed",
+        "steps": [
+            {"sort_order": 1, "title": "收集访谈背景", "status": "completed"},
+            {"sort_order": 2, "title": "构建Q&A文档规格", "status": "failed", "error_message": "Unsupported step"},
+        ],
+        "artifacts": [],
+    }
+
+    brief = task_run_chat_brief(payload)
+
+    assert "第 2 步" in brief
+    assert "构建Q&A文档规格" in brief
+    assert "打开任务面板处理" in brief
+    assert "编排日志" not in brief
 
 
 def test_execute_task_run_completes_and_records_artifact(monkeypatch):
