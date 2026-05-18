@@ -123,7 +123,7 @@ export function useProjectDocumentsManager({
       });
     } catch (error) {
       console.error("Failed to download file:", error);
-      toast.error(isZh ? "涓嬭浇失败" : "Download failed");
+      toast.error(isZh ? "下载失败" : "Download failed");
     }
   };
 

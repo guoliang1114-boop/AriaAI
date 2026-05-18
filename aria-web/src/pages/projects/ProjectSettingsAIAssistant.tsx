@@ -33,7 +33,7 @@ export function ProjectSettingsAIAssistant({
       <div className="mb-3 flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-primary" />
         <span className="text-sm font-medium text-gray-700">
-          {isZh ? "AI 鍔╂墜" : "AI Assistant"}
+          {isZh ? "AI 助手" : "AI Assistant"}
         </span>
       </div>
 
@@ -60,7 +60,7 @@ export function ProjectSettingsAIAssistant({
             className="flex items-center gap-1.5 rounded-lg border border-primary bg-white px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/5 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            {isZh ? "浼樺寲鎻忚堪" : "Polish"}
+            {isZh ? "优化描述" : "Polish"}
           </button>
         )}
       </div>
