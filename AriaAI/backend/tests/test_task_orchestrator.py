@@ -73,8 +73,30 @@ def test_task_run_chat_summary_mentions_steps_and_retry_hint():
         "goal": "给客户准备 PPT",
         "status": "failed",
         "steps": [
-            {"title": "收集项目上下文", "status": "completed"},
-            {"title": "生成并保存 PPT", "status": "failed", "error_message": "template unavailable"},
+            {"id": 11, "title": "收集项目上下文", "status": "completed"},
+            {"id": 12, "title": "生成并保存 PPT", "status": "failed", "error_message": "template unavailable"},
+        ],
+        "events": [
+            {
+                "event_type": "task_created",
+                "message": "任务已创建",
+                "payload": {"task_type": "generate_client_ppt"},
+                "created_at": "2026-05-18T10:00:00",
+            },
+            {
+                "step_id": 11,
+                "event_type": "step_completed",
+                "message": "收集项目上下文完成",
+                "payload": {"project": {"name": "PPT Project", "client": "Client"}},
+                "created_at": "2026-05-18T10:00:01",
+            },
+            {
+                "step_id": 12,
+                "event_type": "step_failed",
+                "message": "生成并保存 PPT失败：template unavailable",
+                "payload": {"error_code": "RuntimeError", "retryable": True},
+                "created_at": "2026-05-18T10:00:02",
+            },
         ],
         "artifacts": [],
     }
@@ -84,6 +106,10 @@ def test_task_run_chat_summary_mentions_steps_and_retry_hint():
     assert "任务 ID：7" in summary
     assert "收集项目上下文：完成" in summary
     assert "生成并保存 PPT：失败" in summary
+    assert "详细执行日志" in summary
+    assert "任务类型：generate_client_ppt" in summary
+    assert "项目：PPT Project；客户：Client" in summary
+    assert "RuntimeError，可重试" in summary
     assert "失败步骤重试" in summary
 
 

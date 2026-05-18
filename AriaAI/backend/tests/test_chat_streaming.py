@@ -28,6 +28,7 @@ from app.services.chat_streaming import (
     _sse_event,
     _strip_truncation_marker,
     _summarize_tool_result,
+    _task_payload_tool_calls,
     _to_user_friendly_error,
     _tool_progress_payload,
     _tool_start_progress_payload,
@@ -94,6 +95,57 @@ class SseEventTests(unittest.TestCase):
 
         payload = json.loads(raw.removeprefix("data: ").strip())
         self.assertEqual(payload["created_at"], "2026-05-17 19:54:59")
+
+
+class TaskPayloadToolCallsTests(unittest.TestCase):
+    def test_builds_collapsible_step_details_from_task_events(self):
+        calls = _task_payload_tool_calls(
+            {
+                "steps": [
+                    {
+                        "id": 10,
+                        "key": "collect_context",
+                        "title": "收集项目上下文",
+                        "status": "completed",
+                        "sort_order": 1,
+                        "output": {"project_name": "东阿阿胶", "client": "东阿阿胶股份有限公司"},
+                    },
+                    {
+                        "id": 11,
+                        "key": "create_document",
+                        "title": "生成访谈 Excel",
+                        "status": "failed",
+                        "sort_order": 2,
+                        "output": {"file_type": "xlsx", "sheets": [{"name": "访谈计划"}]},
+                        "error_message": "缺少 project_id",
+                    },
+                ],
+                "events": [
+                    {
+                        "step_id": 10,
+                        "event_type": "step_completed",
+                        "message": "上下文已加载",
+                        "payload": {"project": {"name": "东阿阿胶", "client": "东阿阿胶股份有限公司"}},
+                        "created_at": "2026-05-17 14:21:29.816749",
+                    },
+                    {
+                        "step_id": 11,
+                        "event_type": "step_failed",
+                        "message": "工具执行失败",
+                        "payload": {"error_code": "missing_argument", "retryable": True},
+                        "created_at": "2026-05-17 14:21:31.000000",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(calls[0]["status"], "completed")
+        self.assertIn("上下文：东阿阿胶 / 东阿阿胶股份有限公司", calls[0]["details"])
+        self.assertTrue(any("上下文已加载" in detail for detail in calls[0]["details"]))
+        self.assertEqual(calls[1]["status"], "error")
+        self.assertEqual(calls[1]["error"], "缺少 project_id")
+        self.assertTrue(any("工作表：访谈计划" in detail for detail in calls[1]["details"]))
+        self.assertTrue(any("missing_argument" in detail and "可重试" in detail for detail in calls[1]["details"]))
 
 
 class CapMaxTokensForModelTests(unittest.TestCase):

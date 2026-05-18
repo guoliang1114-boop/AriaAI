@@ -1,4 +1,6 @@
 """Tests for file_generators — core delivery tools for PPT/HTML generation."""
+import asyncio
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch, mock_open
 from pathlib import Path
@@ -151,3 +153,37 @@ class GeneratePptTestCase(unittest.TestCase):
         self.assertEqual(result["file_type"], "pptx")
         self.assertEqual(result["template_applied"], False)
         mock_pres_class.assert_called_once()  # Called without template path
+
+
+class GenerateXlsxTestCase(unittest.TestCase):
+    def test_applies_kpmg_inspired_table_style(self):
+        from openpyxl import load_workbook
+        from app.tools.file_generators import generate_xlsx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            uploads_dir = Path(tmpdir) / "uploads"
+            generated_dir = uploads_dir / "generated"
+            generated_dir.mkdir(parents=True)
+            with patch("app.tools.file_generators.UPLOADS_DIR", uploads_dir), patch(
+                "app.tools.file_generators.GENERATED_DIR",
+                generated_dir,
+            ):
+                result = asyncio.run(
+                    generate_xlsx(
+                        sheets=[
+                            {
+                                "name": "访谈计划",
+                                "headers": ["访谈对象", "核心问题"],
+                                "data": [["客户负责人", "当前最重要目标是什么？"]],
+                            }
+                        ]
+                    )
+                )
+
+            self.assertTrue(result["success"], result)
+            workbook = load_workbook(result["full_path"])
+            sheet = workbook["访谈计划"]
+            self.assertEqual(sheet.freeze_panes, "A2")
+            self.assertEqual(sheet["A1"].fill.fgColor.rgb, "0000338D")
+            self.assertEqual(sheet["A1"].font.color.rgb, "00FFFFFF")
+            self.assertGreaterEqual(sheet.column_dimensions["A"].width, 12)

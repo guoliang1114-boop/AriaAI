@@ -175,6 +175,40 @@ def _serialize_event(event: TaskEvent) -> dict[str, Any]:
     }
 
 
+def _format_log_time(value: str | None) -> str:
+    if not value:
+        return "--:--:--"
+    try:
+        return datetime.fromisoformat(value).strftime("%H:%M:%S")
+    except ValueError:
+        return str(value)[11:19] if len(str(value)) >= 19 else str(value)
+
+
+def _summarize_event_payload(payload: dict[str, Any]) -> str:
+    if not payload:
+        return ""
+    if payload.get("task_type"):
+        return f"任务类型：{payload.get('task_type')}"
+    if payload.get("error_code") or payload.get("retryable") is not None:
+        retry_text = "可重试" if payload.get("retryable") else "不可重试"
+        return f"{payload.get('error_code') or '错误'}，{retry_text}"
+    if payload.get("project"):
+        project = payload.get("project") or {}
+        return f"项目：{project.get('name') or '-'}；客户：{project.get('client') or '-'}"
+    if payload.get("slides") is not None:
+        return f"结构页数：{len(payload.get('slides') or [])}"
+    if payload.get("sheets") is not None:
+        sheet_names = [str(sheet.get("name") or "") for sheet in payload.get("sheets") or [] if isinstance(sheet, dict)]
+        return "工作表：" + "、".join(sheet_names[:6])
+    if payload.get("sections") is not None:
+        return f"章节数：{len(payload.get('sections') or [])}"
+    if payload.get("name") or payload.get("file_name"):
+        return f"文件：{payload.get('name') or payload.get('file_name')}"
+    if payload.get("message"):
+        return str(payload.get("message"))
+    return ""
+
+
 def serialize_task_run(session: Session, task: TaskRun, *, include_events: bool = False) -> dict[str, Any]:
     steps = session.exec(
         select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)
@@ -234,7 +268,23 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
         "failed": "失败",
         "skipped": "跳过",
     }
-    for index, step in enumerate(payload.get("steps") or [], start=1):
+    steps = payload.get("steps") or []
+    events = payload.get("events") or []
+    events_by_step_id: dict[int, list[dict[str, Any]]] = {}
+    task_level_events: list[dict[str, Any]] = []
+    for event in events:
+        step_id = event.get("step_id")
+        if step_id is None:
+            task_level_events.append(event)
+            continue
+        try:
+            normalized_step_id = int(step_id)
+        except (TypeError, ValueError):
+            task_level_events.append(event)
+            continue
+        events_by_step_id.setdefault(normalized_step_id, []).append(event)
+
+    for index, step in enumerate(steps, start=1):
         status = step_status.get(str(step.get("status")), str(step.get("status") or "-"))
         line = f"{index}. {step.get('title') or step.get('key')}：{status}"
         if step.get("error_message"):
@@ -253,6 +303,24 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
             elif step.get("key") == "create_document":
                 line += f"。已保存文件「{output.get('name') or output.get('file_name') or '-'}」。"
         lines.append(line)
+
+    if events:
+        lines.extend(["", "详细执行日志："])
+        for event in task_level_events:
+            message = event.get("message") or event.get("event_type") or "任务事件"
+            detail = _summarize_event_payload(event.get("payload") or {})
+            suffix = f"（{detail}）" if detail else ""
+            lines.append(f"- [{_format_log_time(event.get('created_at'))}] {message}{suffix}")
+        for index, step in enumerate(steps, start=1):
+            step_events = events_by_step_id.get(step.get("id"), [])
+            if not step_events:
+                continue
+            lines.append(f"- 第 {index} 步「{step.get('title') or step.get('key')}」")
+            for event in step_events:
+                message = event.get("message") or event.get("event_type") or "步骤事件"
+                detail = _summarize_event_payload(event.get("payload") or {})
+                suffix = f"（{detail}）" if detail else ""
+                lines.append(f"  - [{_format_log_time(event.get('created_at'))}] {message}{suffix}")
 
     artifacts = payload.get("artifacts") or []
     if artifacts:

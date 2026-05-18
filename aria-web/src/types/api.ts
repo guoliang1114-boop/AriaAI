@@ -718,6 +718,7 @@ export interface ToolCallEvent {
   message?: string
   summary?: string
   error?: string
+  details?: string[]
   step_index?: number
   step_total?: number
   step_title?: string
@@ -756,6 +757,16 @@ export interface TaskRunArtifact {
   metadata?: Record<string, unknown>
 }
 
+export interface TaskRunEvent {
+  id?: number
+  task_run_id?: number
+  step_id?: number | null
+  event_type: string
+  message?: string
+  payload?: Record<string, unknown>
+  created_at?: string
+}
+
 export interface TaskRun {
   id: number
   project_id?: number
@@ -766,6 +777,7 @@ export interface TaskRun {
   current_step_key?: string
   steps?: TaskRunStep[]
   artifacts?: TaskRunArtifact[]
+  events?: TaskRunEvent[]
 }
 
 export interface MessageMetadata {

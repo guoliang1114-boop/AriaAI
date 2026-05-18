@@ -5195,7 +5195,7 @@ async def generate_xlsx(
     """Generate an Excel spreadsheet."""
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     except ImportError:
         return {
             "success": False,
@@ -5215,16 +5215,42 @@ async def generate_xlsx(
         else:
             ws = wb.create_sheet(title=sheet_name)
         
+        primary_fill = PatternFill(start_color="00338D", end_color="00338D", fill_type="solid")
+        banded_fill = PatternFill(start_color="F3F6FA", end_color="F3F6FA", fill_type="solid")
+        border_side = Side(style="thin", color="D7DFEA")
+        cell_border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+
+        ws.freeze_panes = "A2"
+        ws.sheet_view.showGridLines = False
+
         # Add headers
         for col_idx, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_idx, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="B4C7DC", end_color="B4C7DC", fill_type="solid")
+            cell.font = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+            cell.fill = primary_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = cell_border
+        ws.row_dimensions[1].height = 24
         
         # Add data
         for row_idx, row_data in enumerate(data, 2):
             for col_idx, value in enumerate(row_data, 1):
-                ws.cell(row=row_idx, column=col_idx, value=value)
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = Font(name="Arial", color="111827", size=10)
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                cell.border = cell_border
+                if row_idx % 2 == 0:
+                    cell.fill = banded_fill
+            ws.row_dimensions[row_idx].height = 30
+
+        if headers:
+            ws.auto_filter.ref = ws.dimensions
+
+        for col_idx, header in enumerate(headers, 1):
+            values = [str(header or "")]
+            values.extend(str(ws.cell(row=row_idx, column=col_idx).value or "") for row_idx in range(2, min(ws.max_row, 40) + 1))
+            width = min(max(max(len(value) for value in values) + 4, 12), 36)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
     
     # Save file
     filename = _generate_filename("xlsx")

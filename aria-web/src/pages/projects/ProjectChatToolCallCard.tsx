@@ -1,4 +1,5 @@
-import { CheckCircle2, Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, ChevronDown, Loader2, TriangleAlert, Wrench } from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
 interface ProjectChatToolCallCardProps {
@@ -24,6 +25,8 @@ const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
   error: "bg-rose-600 text-white",
 };
 
+const WORKFLOW_DETAIL_PREFERENCE_KEY = "aria.projectChat.workflowStepDetailsExpanded";
+
 function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
   if (status === "running") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
@@ -39,6 +42,29 @@ export function ProjectChatToolCallCard({
   isZh,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
+  const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
+  const [expanded, setExpanded] = useState(() => {
+    if (typeof window === "undefined") return call.status !== "completed";
+    const saved = window.localStorage.getItem(WORKFLOW_DETAIL_PREFERENCE_KEY);
+    if (saved === "expanded") return true;
+    if (saved === "collapsed") return false;
+    return call.status !== "completed";
+  });
+
+  useEffect(() => {
+    if (call.status === "error") setExpanded(true);
+  }, [call.status]);
+
+  const toggleExpanded = () => {
+    setExpanded((current) => {
+      const next = !current;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(WORKFLOW_DETAIL_PREFERENCE_KEY, next ? "expanded" : "collapsed");
+      }
+      return next;
+    });
+  };
+
   if (isWorkflowStep) {
     const stepTitle = call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
     return (
@@ -70,10 +96,33 @@ export function ProjectChatToolCallCard({
                       ? "需处理"
                       : "Needs attention"}
               </span>
+              {hasDetails ? (
+                <button
+                  type="button"
+                  onClick={toggleExpanded}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500 transition hover:border-gray-300 hover:text-gray-800"
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                  {expanded ? (isZh ? "收起日志" : "Hide logs") : (isZh ? "展开日志" : "Show logs")}
+                </button>
+              ) : null}
             </div>
-            {call.message ? <p className="mt-1.5 text-xs leading-relaxed text-gray-600">{call.message}</p> : null}
-            {call.summary ? <p className="mt-1 text-xs leading-relaxed text-gray-500">{call.summary}</p> : null}
-            {call.error ? <p className="mt-1.5 text-xs leading-relaxed text-rose-600">{call.error}</p> : null}
+            {hasDetails && expanded ? (
+              <div className="mt-2 space-y-1.5 rounded-xl border border-white/70 bg-white/75 px-3 py-2">
+                {call.message ? <p className="text-xs leading-relaxed text-gray-600">{call.message}</p> : null}
+                {call.summary ? <p className="text-xs leading-relaxed text-gray-500">{call.summary}</p> : null}
+                {call.error ? <p className="text-xs leading-relaxed text-rose-600">{call.error}</p> : null}
+                {call.details?.length ? (
+                  <div className="space-y-1 border-t border-gray-100 pt-1.5">
+                    {call.details.map((detail, index) => (
+                      <p key={`${call.step_index}-${index}`} className="text-[11px] leading-relaxed text-gray-500">
+                        {detail}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

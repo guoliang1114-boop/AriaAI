@@ -16,6 +16,7 @@ import type {
   StreamEvent,
   ToolCallEvent,
   TaskRun,
+  TaskRunEvent,
 } from "../../types/api";
 
 function parseMessageMetadata(metadataJson: string): MessageMetadata {
@@ -121,13 +122,83 @@ function artifactFromTaskRunArtifact(artifact: NonNullable<TaskRun["artifacts"]>
   };
 }
 
-function workflowStepFromTask(step: NonNullable<TaskRun["steps"]>[number], total: number): ToolCallEvent {
+function formatTaskEventTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(11, 19);
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function payloadSummary(payload?: Record<string, unknown>) {
+  if (!payload) return "";
+  const details: string[] = [];
+  const project = payload.project;
+  if (project && typeof project === "object") {
+    const record = project as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name : "";
+    const client = typeof record.client === "string" ? record.client : "";
+    if (name || client) details.push(`项目：${[name, client].filter(Boolean).join(" / ")}`);
+  }
+  if (typeof payload.task_type === "string") details.push(`任务类型：${payload.task_type}`);
+  if (typeof payload.file_type === "string") details.push(`文件类型：${payload.file_type.toUpperCase()}`);
+  if (typeof payload.file_name === "string") details.push(`文件：${payload.file_name}`);
+  if (typeof payload.name === "string") details.push(`文件：${payload.name}`);
+  if (typeof payload.slide_count === "number") details.push(`页数：${payload.slide_count}`);
+  if (Array.isArray(payload.sheets)) {
+    const sheetNames = payload.sheets
+      .map((sheet) => (sheet && typeof sheet === "object" ? (sheet as Record<string, unknown>).name : sheet))
+      .filter((item): item is string => typeof item === "string" && item.length > 0);
+    if (sheetNames.length) details.push(`工作表：${sheetNames.join("、")}`);
+  }
+  if (typeof payload.error_code === "string" && payload.error_code) details.push(`错误：${payload.error_code}`);
+  if (typeof payload.retryable === "boolean") details.push(payload.retryable ? "可重试" : "不可重试");
+  if (typeof payload.message === "string" && payload.message) details.push(payload.message);
+  return details.join("；");
+}
+
+function taskEventDetail(event: TaskRunEvent) {
+  const time = formatTaskEventTime(event.created_at);
+  const message = event.message || event.event_type || "任务状态更新";
+  const payload = payloadSummary(event.payload);
+  return `${time ? `[${time}] ` : ""}${message}${payload ? `（${payload}）` : ""}`;
+}
+
+function stepOutputDetails(output?: Record<string, unknown>) {
+  if (!output) return [];
+  const details: string[] = [];
+  if (typeof output.project_name === "string" || typeof output.client === "string") {
+    details.push(`上下文：${[output.project_name, output.client].filter(Boolean).join(" / ")}`);
+  }
+  if (typeof output.file_type === "string") details.push(`输出类型：${output.file_type.toUpperCase()}`);
+  if (typeof output.file_name === "string") details.push(`输出文件：${output.file_name}`);
+  if (typeof output.title === "string") details.push(`标题：${output.title}`);
+  if (Array.isArray(output.sheets)) {
+    const sheetNames = output.sheets
+      .map((sheet) => (sheet && typeof sheet === "object" ? (sheet as Record<string, unknown>).name : sheet))
+      .filter((item): item is string => typeof item === "string" && item.length > 0);
+    if (sheetNames.length) details.push(`工作表：${sheetNames.join("、")}`);
+  }
+  if (typeof output.sections_count === "number") details.push(`章节数：${output.sections_count}`);
+  if (typeof output.slide_count === "number") details.push(`页数：${output.slide_count}`);
+  return details;
+}
+
+function workflowStepFromTask(
+  step: NonNullable<TaskRun["steps"]>[number],
+  total: number,
+  events: TaskRunEvent[] = [],
+): ToolCallEvent {
   const status: ToolCallEvent["status"] =
     step.status === "completed" || step.status === "skipped"
       ? "completed"
       : step.status === "failed"
         ? "error"
         : "running";
+  const eventDetails = events
+    .filter((event) => event.step_id === step.id)
+    .map(taskEventDetail)
+    .filter(Boolean);
+  const details = [...stepOutputDetails(step.output), ...eventDetails];
   return {
     tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
     status,
@@ -141,6 +212,7 @@ function workflowStepFromTask(step: NonNullable<TaskRun["steps"]>[number], total
     step_index: step.sort_order,
     step_total: total,
     step_title: step.title || step.key,
+    details,
   };
 }
 
@@ -171,6 +243,7 @@ function upsertWorkflowStep(
           ...next,
           summary: next.summary ?? item.summary,
           error: next.error ?? item.error,
+          details: next.details ?? item.details,
         }
       : item,
   );
@@ -339,10 +412,14 @@ export function useProjectChatComposer({
           } else if (payload.type === "task_run" && payload.task) {
             const task = payload.task;
             const steps = task.steps || [];
+            const taskEvents = task.events || [];
             if (steps.length > 0) {
               collectedToolCalls = steps
                 .filter((step) => step.status !== "pending")
-                .reduce<ToolCallEvent[]>((items, step) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length)), collectedToolCalls);
+                .reduce<ToolCallEvent[]>(
+                  (items, step) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
+                  collectedToolCalls,
+                );
               setStreamingToolCalls(collectedToolCalls);
             }
             if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
@@ -442,6 +519,8 @@ export function useProjectChatComposer({
       const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
       setStreamingContent("");
       setStreamingToolCalls([]);
+      setStreamingReferences([]);
+      setStreamingArtifacts([]);
       if (serverPersistedAssistant) {
         await fetchMessages(conversationId);
       } else if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
