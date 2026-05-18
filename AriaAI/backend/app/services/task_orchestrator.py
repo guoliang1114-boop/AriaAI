@@ -23,6 +23,7 @@ from app.services.time_utils import utc_now_naive
 from app.tools.office_documents import write_project_office_document
 
 TASK_STATUS_TERMINAL = {"completed", "failed", "canceled"}
+TASK_STATUS_PAUSED = "paused"
 SUPPORTED_TASK_TYPES = {
     "generate_client_ppt",
     "generate_project_excel",
@@ -337,6 +338,12 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
         return "编排器已启动：将按步骤执行，并记录每一步状态。"
     if event_type == "task_completed":
         return "编排器已完成：结果和生成物已保存。"
+    if event_type == "task_canceled":
+        return "任务已取消：已完成步骤会保留，未执行步骤不再继续。"
+    if event_type == "task_paused":
+        return "任务已暂停：当前已完成步骤会保留，恢复后继续后续步骤。"
+    if event_type == "task_resumed":
+        return "任务已恢复：将从下一个未完成步骤继续执行。"
     if not step:
         return "任务状态已更新。"
     prefix = f"第 {step.get('sort_order')} 步：{step.get('title') or step.get('key')}"
@@ -473,6 +480,18 @@ def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception) 
         message=f"{step.title}失败：{exc}",
         payload={"error_code": step.error_code, "retryable": step.retryable},
     )
+
+
+def _skip_step(session: Session, task: TaskRun, step: TaskStep, *, reason: str = "任务已取消") -> None:
+    now = utc_now_naive()
+    step.status = "skipped"
+    step.error_code = "canceled"
+    step.error_message = reason
+    step.updated_at = now
+    step.completed_at = now
+    session.add(step)
+    session.commit()
+    _record_event(session, task, step=step, event_type="step_skipped", message=f"{step.title}跳过", payload={"message": reason})
 
 
 def _previous_step_output(session: Session, task_id: int, key: str) -> dict[str, Any]:
@@ -799,7 +818,7 @@ async def execute_task_run_in_session(session: Session, task_id: int) -> None:
 
 async def stream_execute_task_run_in_session(session: Session, task_id: int) -> AsyncIterator[dict[str, Any]]:
     task = session.get(TaskRun, task_id)
-    if task is None or task.status in TASK_STATUS_TERMINAL:
+    if task is None or task.status in TASK_STATUS_TERMINAL or task.status == TASK_STATUS_PAUSED:
         return
     _record_event(session, task, event_type="task_started", message="任务开始执行")
     yield {
@@ -811,6 +830,21 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
         select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)
     ).all()
     for step in steps:
+        session.refresh(task)
+        if task.status == "canceled":
+            yield {
+                "event_type": "task_canceled",
+                "message": task_step_log_message("task_canceled"),
+                "task": serialize_task_run(session, task, include_events=True),
+            }
+            return
+        if task.status == TASK_STATUS_PAUSED:
+            yield {
+                "event_type": "task_paused",
+                "message": task_step_log_message("task_paused"),
+                "task": serialize_task_run(session, task, include_events=True),
+            }
+            return
         if step.status == "completed":
             continue
         _start_step(session, task, step)
@@ -828,6 +862,16 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
                 "event_type": "step_failed",
                 "step": _serialize_step(step),
                 "message": task_step_log_message("step_failed", _serialize_step(step)),
+                "task": serialize_task_run(session, task, include_events=True),
+            }
+            return
+        session.refresh(task)
+        if task.status == "canceled":
+            _skip_step(session, task, step, reason=task.error_message or "用户取消任务")
+            yield {
+                "event_type": "task_canceled",
+                "step": _serialize_step(step),
+                "message": task_step_log_message("task_canceled"),
                 "task": serialize_task_run(session, task, include_events=True),
             }
             return
@@ -892,4 +936,76 @@ async def retry_task_run(task_id: int) -> None:
         session.add(failed_step)
         session.commit()
         _record_event(session, task, step=failed_step, event_type="task_retry", message="任务从失败步骤重试")
+    await execute_task_run(task_id)
+
+
+def cancel_task_run_in_session(session: Session, task_id: int, *, reason: str = "用户取消任务") -> dict[str, Any] | None:
+    task = session.get(TaskRun, task_id)
+    if task is None:
+        return None
+    if task.status in {"completed", "canceled"}:
+        return serialize_task_run(session, task, include_events=True)
+
+    now = utc_now_naive()
+    task.status = "canceled"
+    task.current_step_key = ""
+    task.error_code = "canceled"
+    task.error_message = reason
+    task.updated_at = now
+    task.completed_at = now
+    pending_steps = session.exec(
+        select(TaskStep)
+        .where(TaskStep.task_run_id == task.id, TaskStep.status == "pending")
+        .order_by(TaskStep.sort_order)
+    ).all()
+    for step in pending_steps:
+        step.status = "skipped"
+        step.error_code = "canceled"
+        step.error_message = reason
+        step.updated_at = now
+        step.completed_at = now
+        session.add(step)
+    session.add(task)
+    session.commit()
+    _record_event(session, task, event_type="task_canceled", message=reason)
+    return serialize_task_run(session, task, include_events=True)
+
+
+def pause_task_run_in_session(session: Session, task_id: int, *, reason: str = "用户暂停任务") -> dict[str, Any] | None:
+    task = session.get(TaskRun, task_id)
+    if task is None:
+        return None
+    if task.status in TASK_STATUS_TERMINAL:
+        return serialize_task_run(session, task, include_events=True)
+    now = utc_now_naive()
+    task.status = TASK_STATUS_PAUSED
+    task.updated_at = now
+    session.add(task)
+    session.commit()
+    _record_event(session, task, event_type="task_paused", message=reason)
+    return serialize_task_run(session, task, include_events=True)
+
+
+def resume_task_run_in_session(session: Session, task_id: int, *, reason: str = "任务恢复执行") -> dict[str, Any] | None:
+    task = session.get(TaskRun, task_id)
+    if task is None:
+        return None
+    if task.status != TASK_STATUS_PAUSED:
+        return serialize_task_run(session, task, include_events=True)
+    now = utc_now_naive()
+    task.status = "pending"
+    task.error_code = ""
+    task.error_message = ""
+    task.updated_at = now
+    session.add(task)
+    session.commit()
+    _record_event(session, task, event_type="task_resumed", message=reason)
+    return serialize_task_run(session, task, include_events=True)
+
+
+async def resume_task_run(task_id: int) -> None:
+    with Session(engine) as session:
+        payload = resume_task_run_in_session(session, task_id)
+        if payload is None or payload.get("status") != "pending":
+            return
     await execute_task_run(task_id)

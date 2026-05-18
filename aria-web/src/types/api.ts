@@ -773,8 +773,17 @@ export interface TaskRun {
   conversation_id?: number | null
   task_type: string
   goal: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled' | string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled' | 'paused' | string
   current_step_key?: string
+  input?: Record<string, unknown>
+  output?: Record<string, unknown>
+  error_code?: string
+  error_message?: string
+  retry_count?: number
+  created_at?: string
+  updated_at?: string
+  started_at?: string | null
+  completed_at?: string | null
   steps?: TaskRunStep[]
   artifacts?: TaskRunArtifact[]
   events?: TaskRunEvent[]

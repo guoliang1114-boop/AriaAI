@@ -1,4 +1,4 @@
-import { BookOpen, ChevronDown, Clock3, Info, Wrench } from "lucide-react";
+import { BookOpen, ChevronDown, ClipboardList, Clock3, Info, Wrench } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -15,6 +15,7 @@ import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMessages } from "./ProjectChatMessages";
 import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
+import { ProjectTaskRunsDrawer } from "./ProjectTaskRunsDrawer";
 import { getProjectChatCopy, type ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatMainPanelProps {
@@ -123,6 +124,7 @@ export function ProjectChatMainPanel({
   );
   const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
+  const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -181,6 +183,16 @@ export function ProjectChatMainPanel({
               </button>
             </div>
           ) : undefined
+        }
+        taskControl={
+          <button
+            type="button"
+            onClick={() => setIsTaskDrawerOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+          >
+            <ClipboardList className="h-4 w-4" />
+            <span>{isZh ? "任务" : "Tasks"}</span>
+          </button>
         }
       />
 
@@ -304,6 +316,14 @@ export function ProjectChatMainPanel({
         onChange={onInputChange}
         onSend={onSend}
         onStop={onStop}
+      />
+      <ProjectTaskRunsDrawer
+        isOpen={isTaskDrawerOpen}
+        isZh={isZh}
+        projectId={projectId}
+        onClose={() => setIsTaskDrawerOpen(false)}
+        onDownloadArtifact={onDownloadArtifact}
+        onOpenArtifact={onOpenArtifact}
       />
     </div>
   );

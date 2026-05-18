@@ -21,6 +21,7 @@ type ProjectChatHeaderProps = {
   memoryVersion: number;
   skillControl?: React.ReactNode;
   skillSaveControl?: React.ReactNode;
+  taskControl?: React.ReactNode;
   onRebuildMemory: () => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -39,6 +40,7 @@ export function ProjectChatHeader({
   memoryUpdatedAt,
   skillControl,
   skillSaveControl,
+  taskControl,
   onToggleSidebar,
   onKnowledgeScopeChange,
 }: ProjectChatHeaderProps) {
@@ -108,6 +110,7 @@ export function ProjectChatHeader({
             <div className="hidden items-center gap-2 lg:flex">
               {skillControl}
               {skillSaveControl}
+              {taskControl}
               <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
               <select
                 value={knowledgeScope}
@@ -125,6 +128,7 @@ export function ProjectChatHeader({
 
           <div className={`${isFullscreen ? "" : "ml-auto xl:ml-0"} flex items-center gap-2`}>
             {!isFullscreen ? skillSaveControl : null}
+            <div className={isFullscreen ? "" : "lg:hidden"}>{taskControl}</div>
           </div>
         </div>
       </div>

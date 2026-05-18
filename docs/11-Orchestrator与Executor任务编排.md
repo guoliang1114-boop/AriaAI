@@ -131,6 +131,7 @@ PPT 任务使用专门步骤：
 aria-web/src/pages/projects/useProjectChatComposer.ts
 aria-web/src/pages/projects/ProjectChatMessages.tsx
 aria-web/src/pages/projects/ProjectChatToolCallCard.tsx
+aria-web/src/pages/projects/ProjectTaskRunsDrawer.tsx
 aria-web/src/types/api.ts
 ```
 
@@ -142,6 +143,15 @@ task_run.artifacts
 ```
 
 这样刷新、重连或任务较长时，用户仍能理解执行进度。
+
+步骤卡支持展开 / 收起详细日志，偏好会保存在浏览器本地。任务详情抽屉会展示：
+
+- TaskRun 基本信息
+- TaskStep 状态
+- TaskEvent 完整日志
+- TaskArtifact 生成物
+- 失败任务重试入口
+- 可取消任务的取消入口
 
 ## 7. 失败与恢复
 
@@ -166,7 +176,23 @@ Executor 执行每一步时会记录：
 GET  /projects/{project_id}/task-runs
 GET  /projects/{project_id}/task-runs/{task_id}
 POST /projects/{project_id}/task-runs/{task_id}/retry
+POST /projects/{project_id}/task-runs/{task_id}/cancel
+POST /projects/{project_id}/task-runs/{task_id}/pause
+POST /projects/{project_id}/task-runs/{task_id}/resume
 ```
+
+取消任务采用合作式取消：
+
+- 未开始或等待中的步骤会标记为 `skipped`
+- 已完成步骤保留
+- 正在执行的工具调用不强杀，避免文件写入到一半造成不一致
+- Executor 会在进入下一步前检查 `canceled` 状态，不再继续执行
+
+暂停 / 恢复任务也采用合作式机制：
+
+- 暂停后，当前步骤如果已经在执行，会先自然结束
+- Executor 进入下一步前会检查 `paused` 状态并停住
+- 恢复后从下一个未完成步骤继续
 
 ## 8. 当前边界
 
@@ -176,29 +202,24 @@ POST /projects/{project_id}/task-runs/{task_id}/retry
 
 - 任务识别仍是规则优先，不是完整 LLM planner。
 - Excel / Word / PDF 的内容结构是模板化生成，后续可接入更强的规划器。
-- 前端已有步骤卡和附件卡，但还没有独立任务详情面板。
-- 取消、暂停、人工确认、分支任务还没有完整产品化。
+- 前端已有步骤卡、附件卡和任务详情抽屉。
+- 取消、暂停、恢复已支持合作式机制；人工确认、分支任务还没有完整产品化。
+- 现在是固定步骤模板，不是任意 DAG 工作流。
 
 ## 9. 后续增强方向
 
 建议优先级：
 
-1. 增加任务详情面板  
-   展示 TaskRun、TaskStep、TaskEvent、Artifact、重试入口。
-
-2. 引入轻量 Planner  
+1. 引入轻量 Planner  
    对复杂请求先生成结构化计划，再创建 TaskStep。
 
-3. 增加人工确认步骤  
+2. 增加人工确认步骤  
    例如覆盖文件、发送客户材料、删除文件前等待用户确认。
 
-4. 支持更多任务类型  
+3. 支持更多任务类型  
    例如 research_and_write、update_project_file、multi_step_delivery。
 
-5. 增加任务取消与暂停  
-   允许长任务中途取消，并保留已完成步骤。
-
-6. 更细的 Executor 适配器  
+4. 更细的 Executor 适配器  
    把 Office、空间文件、项目记忆、客户干系人分别做成独立 executor。
 
 ## 10. 验证
@@ -207,8 +228,7 @@ POST /projects/{project_id}/task-runs/{task_id}/retry
 
 ```bash
 cd AriaAI/backend
-.venv/bin/python -m pytest tests/test_task_orchestrator.py
-.venv/bin/python -m pytest tests/test_chat_streaming.py
+.venv/bin/python -m pytest tests/test_task_orchestrator.py tests/test_chat_streaming.py
 ```
 
 前端构建：
@@ -221,6 +241,6 @@ npm run build
 最近一次验证：
 
 ```text
-120 passed
+123 passed
 npm run build 通过
 ```

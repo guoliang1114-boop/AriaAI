@@ -8,9 +8,12 @@ from sqlmodel import Session, SQLModel, select
 from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.services import task_orchestrator
 from app.services.task_orchestrator import (
+    cancel_task_run_in_session,
     create_task_run,
     detect_project_task_type,
     execute_task_run_in_session,
+    pause_task_run_in_session,
+    resume_task_run_in_session,
     serialize_task_run,
     task_run_chat_summary,
 )
@@ -232,5 +235,110 @@ def test_execute_task_run_fails_only_current_step(monkeypatch):
         assert [step.status for step in steps] == ["completed", "completed", "failed", "pending"]
         assert steps[2].error_message == "template unavailable"
         assert steps[2].retryable is True
+    finally:
+        engine.dispose()
+
+
+def test_cancel_task_run_marks_pending_steps_skipped():
+    engine = _setup_engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Cancel Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="准备访谈 Excel",
+            )
+
+            payload = cancel_task_run_in_session(session, task.id)
+
+        assert payload is not None
+        assert payload["status"] == "canceled"
+        assert payload["error_code"] == "canceled"
+        assert all(step["status"] == "skipped" for step in payload["steps"])
+        assert any(event["event_type"] == "task_canceled" for event in payload["events"])
+    finally:
+        engine.dispose()
+
+
+def test_cancel_task_run_keeps_running_step_until_executor_stops():
+    engine = _setup_engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Cancel Running Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="准备访谈 Excel",
+            )
+            step = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).first()
+            step.status = "running"
+            session.add(step)
+            session.commit()
+
+            payload = cancel_task_run_in_session(session, task.id)
+
+        assert payload is not None
+        assert payload["status"] == "canceled"
+        assert payload["steps"][0]["status"] == "running"
+        assert all(step["status"] == "skipped" for step in payload["steps"][1:])
+    finally:
+        engine.dispose()
+
+
+def test_pause_task_run_records_event_without_skipping_steps():
+    engine = _setup_engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Pause Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="准备访谈 Excel",
+            )
+
+            payload = pause_task_run_in_session(session, task.id)
+
+        assert payload is not None
+        assert payload["status"] == "paused"
+        assert all(step["status"] == "pending" for step in payload["steps"])
+        assert any(event["event_type"] == "task_paused" for event in payload["events"])
+    finally:
+        engine.dispose()
+
+
+def test_resume_task_run_sets_pending_and_records_event():
+    engine = _setup_engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Resume Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="准备访谈 Excel",
+            )
+            pause_task_run_in_session(session, task.id)
+
+            payload = resume_task_run_in_session(session, task.id)
+
+        assert payload is not None
+        assert payload["status"] == "pending"
+        assert any(event["event_type"] == "task_resumed" for event in payload["events"])
     finally:
         engine.dispose()

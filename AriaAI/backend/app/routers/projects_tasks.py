@@ -15,10 +15,14 @@ from app.routers.projects_deps import get_session
 from app.models.db import User
 from app.services.project_core import get_project_or_404
 from app.services.task_orchestrator import (
+    cancel_task_run_in_session,
     create_task_run,
     execute_task_run,
     get_task_run_or_none,
     list_project_task_runs,
+    pause_task_run_in_session,
+    resume_task_run,
+    resume_task_run_in_session,
     retry_task_run,
     serialize_task_run,
 )
@@ -88,3 +92,48 @@ def retry_project_task_run(
         raise HTTPException(status_code=400, detail="Only failed task runs can be retried")
     background_tasks.add_task(retry_task_run, task.id)
     return serialize_task_run(session, task, include_events=True)
+
+
+@router.post("/{project_id}/task-runs/{task_id}/cancel")
+def cancel_project_task_run(project_id: int, task_id: int, session: Session = Depends(get_session)):
+    task = get_task_run_or_none(session, task_id)
+    if task is None or task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    if task.status == "completed":
+        raise HTTPException(status_code=400, detail="Completed task runs cannot be canceled")
+    payload = cancel_task_run_in_session(session, task.id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    return payload
+
+
+@router.post("/{project_id}/task-runs/{task_id}/pause")
+def pause_project_task_run(project_id: int, task_id: int, session: Session = Depends(get_session)):
+    task = get_task_run_or_none(session, task_id)
+    if task is None or task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    if task.status in {"completed", "failed", "canceled"}:
+        raise HTTPException(status_code=400, detail="Only pending or running task runs can be paused")
+    payload = pause_task_run_in_session(session, task.id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    return payload
+
+
+@router.post("/{project_id}/task-runs/{task_id}/resume")
+def resume_project_task_run(
+    project_id: int,
+    task_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    task = get_task_run_or_none(session, task_id)
+    if task is None or task.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    if task.status != "paused":
+        raise HTTPException(status_code=400, detail="Only paused task runs can be resumed")
+    payload = resume_task_run_in_session(session, task.id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    background_tasks.add_task(resume_task_run, task.id)
+    return payload
