@@ -23,7 +23,9 @@ from app.models.db import (
     ClientRecord,
     ClientStakeholder,
     Conversation,
+    DocumentChunk,
     GeneratedFile,
+    KnowledgeDocument,
     Message,
     Milestone,
     Project,
@@ -36,9 +38,14 @@ from app.models.db import (
     ProjectTodo,
     Setting,
     Skill,
+    ScheduledTask,
     SystemMessage,
     SystemMessageRead,
+    TaskArtifact,
+    TaskEvent,
     TaskRun,
+    TaskStep,
+    ToolCall,
     User,
 )
 from app import config as app_config
@@ -1704,6 +1711,80 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             session.commit()
             session.refresh(message)
 
+            generated_file = GeneratedFile(
+                conversation_id=conv.id,
+                project_id=project.id,
+                name="Generated Deck.pptx",
+                file_type="pptx",
+                path="projects/generated-deck.pptx",
+            )
+            task = TaskRun(project_id=project.id, conversation_id=conv.id, task_type="generate_client_ppt", goal="deck")
+            knowledge_document = KnowledgeDocument(
+                name="Knowledge.md",
+                file_type="md",
+                path="projects/knowledge.md",
+                project_id=project.id,
+            )
+            memory_summary = ProjectMemorySummary(
+                project_id=project.id,
+                summary_type="brief",
+                language="zh",
+                memory_version=1,
+                content="summary",
+            )
+            memory_snapshot = ProjectMemorySnapshot(
+                project_id=project.id,
+                memory_version=1,
+                trigger="test",
+                memory_json="{}",
+            )
+            scheduled_task = ScheduledTask(name="Daily review", project_id=project.id, frequency="daily")
+            session.add(generated_file)
+            session.add(task)
+            session.add(knowledge_document)
+            session.add(memory_summary)
+            session.add(memory_snapshot)
+            session.add(scheduled_task)
+            session.commit()
+            session.refresh(generated_file)
+            session.refresh(task)
+            session.refresh(knowledge_document)
+
+            tool_call = ToolCall(
+                conversation_id=conv.id,
+                message_id=message.id,
+                tool_name="write_project_office_document",
+                output_file_id=generated_file.id,
+                status="success",
+            )
+            task_step = TaskStep(task_run_id=task.id, key="create", title="Create", step_type="write_project_office_document")
+            document_chunk = DocumentChunk(document_id=knowledge_document.id, chunk_index=0, content="chunk")
+            session.add(tool_call)
+            session.add(task_step)
+            session.add(document_chunk)
+            session.commit()
+            session.refresh(task_step)
+
+            task_event = TaskEvent(task_run_id=task.id, step_id=task_step.id, event_type="step_completed", message="done")
+            task_artifact = TaskArtifact(
+                task_run_id=task.id,
+                step_id=task_step.id,
+                project_file_id=project_file.id,
+                name="Text artifact",
+                file_type="text",
+                metadata_json='{"content":"hello"}',
+            )
+            session.add(task_event)
+            session.add(task_artifact)
+            session.commit()
+            session.refresh(tool_call)
+            session.refresh(task_event)
+            session.refresh(task_artifact)
+            session.refresh(document_chunk)
+            session.refresh(memory_summary)
+            session.refresh(memory_snapshot)
+            session.refresh(scheduled_task)
+
             project_id = project.id
             folder_id = folder.id
             milestone_id = milestone.id
@@ -1713,6 +1794,17 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             conv_id = conv.id
             message_id = message.id
             file_id = project_file.id
+            generated_file_id = generated_file.id
+            tool_call_id = tool_call.id
+            task_id = task.id
+            task_step_id = task_step.id
+            task_event_id = task_event.id
+            task_artifact_id = task_artifact.id
+            knowledge_document_id = knowledge_document.id
+            document_chunk_id = document_chunk.id
+            memory_summary_id = memory_summary.id
+            memory_snapshot_id = memory_snapshot.id
+            scheduled_task_id = scheduled_task.id
 
         delete_resp = self.client.delete(f"/projects/{project_id}")
         self.assertEqual(delete_resp.status_code, 200)
@@ -1728,6 +1820,17 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNone(session.get(Conversation, conv_id))
             self.assertIsNone(session.get(Message, message_id))
             self.assertIsNone(session.get(ProjectFile, file_id))
+            self.assertIsNone(session.get(GeneratedFile, generated_file_id))
+            self.assertIsNone(session.get(ToolCall, tool_call_id))
+            self.assertIsNone(session.get(TaskRun, task_id))
+            self.assertIsNone(session.get(TaskStep, task_step_id))
+            self.assertIsNone(session.get(TaskEvent, task_event_id))
+            self.assertIsNone(session.get(TaskArtifact, task_artifact_id))
+            self.assertIsNone(session.get(KnowledgeDocument, knowledge_document_id))
+            self.assertIsNone(session.get(DocumentChunk, document_chunk_id))
+            self.assertIsNone(session.get(ProjectMemorySummary, memory_summary_id))
+            self.assertIsNone(session.get(ProjectMemorySnapshot, memory_snapshot_id))
+            self.assertIsNone(session.get(ScheduledTask, scheduled_task_id))
 
     def test_project_milestone_crud_flow(self):
         with Session(self.engine) as session:
