@@ -213,7 +213,7 @@ export function ProjectTaskRunsDrawer({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{isZh ? "项目任务" : "Project tasks"}</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isZh ? "编排任务详情" : "Task orchestration"}</h2>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isZh ? "任务详情" : "Task details"}</h2>
             <p className="mt-1 text-sm text-slate-500">
               {isZh ? "查看每一步、日志、生成物，并处理失败任务。" : "Inspect steps, logs, artifacts, and failed runs."}
             </p>
@@ -238,7 +238,7 @@ export function ProjectTaskRunsDrawer({
               </div>
             ) : tasks.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                {isZh ? "暂无编排任务。" : "No task runs yet."}
+                {isZh ? "暂无任务记录。" : "No task runs yet."}
               </div>
             ) : (
               <div className="space-y-2">

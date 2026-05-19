@@ -509,11 +509,11 @@ def task_run_chat_summary(payload: dict[str, Any]) -> str:
         "canceled": "已取消",
     }.get(str(payload.get("status")), str(payload.get("status") or "未知"))
     lines = [
-        f"已创建可恢复任务：{payload.get('goal') or payload.get('task_type')}",
+        f"已准备处理：{payload.get('goal') or payload.get('task_type')}",
         f"任务 ID：{payload.get('id')}",
         f"当前状态：{status_label}",
         "",
-        "编排日志：",
+        "执行进展：",
     ]
     step_status = {
         "pending": "等待",
@@ -599,8 +599,8 @@ def task_run_chat_brief(payload: dict[str, Any]) -> str:
     if status == "completed":
         if artifacts:
             names = "、".join(str(artifact.get("name") or "交付物") for artifact in artifacts[:3])
-            return f"任务已完成：{goal}\n\n生成物：{names}\n\n下方卡片可以直接打开，完整执行记录在右上角「任务」面板。"
-        return f"任务已完成：{goal}\n\n执行步骤和结果已记录在下方卡片与右上角「任务」面板。"
+            return f"已完成：{goal}\n\n生成物：{names}\n\n下方卡片可以直接打开，完整执行记录在右上角「任务」面板。"
+        return f"已完成：{goal}\n\n执行步骤和结果已记录在下方卡片与右上角「任务」面板。"
 
     if failed_step:
         step_index = failed_step.get("sort_order") or "-"
@@ -612,14 +612,14 @@ def task_run_chat_brief(payload: dict[str, Any]) -> str:
             f"{error_line}\n\n请点击失败步骤卡片里的「打开任务面板处理」，可从失败处重试、取消任务或查看完整日志。"
         )
 
-    return f"任务已创建：{goal}\n\n我会按下方步骤执行，完整记录可在右上角「任务」面板查看。"
+    return f"已准备执行：{goal}\n\n我会按下方步骤更新进展，完整记录可在右上角「任务」面板查看。"
 
 
 def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, output: dict | None = None) -> str:
     if event_type == "task_started":
-        return "编排器已启动：将按步骤执行，并记录每一步状态。"
+        return "已开始处理：会按步骤更新进展，并记录每一步状态。"
     if event_type == "task_completed":
-        return "编排器已完成：结果和生成物已保存。"
+        return "处理完成：结果和生成物已保存。"
     if event_type == "task_canceled":
         return "任务已取消：已完成步骤会保留，未执行步骤不再继续。"
     if event_type == "task_paused":

@@ -439,7 +439,7 @@ def _task_payload_tool_calls(task_payload: dict) -> list[dict]:
         "skipped": "completed",
         "failed": "error",
         "running": "running",
-        "pending": "running",
+        "pending": "pending",
     }
     events_by_step_id: dict[int, list[dict]] = {}
     for event in events:
@@ -468,7 +468,9 @@ def _task_payload_tool_calls(task_payload: dict) -> list[dict]:
                     if status == "completed"
                     else error_message or "该步骤执行失败，请打开任务面板处理。"
                     if status == "error"
-                    else "该步骤正在执行或等待执行。"
+                    else "该步骤正在执行。"
+                    if status == "running"
+                    else "该步骤等待前序步骤完成。"
                 ),
                 "error": error_message if status == "error" and error_message else None,
                 "details": details,
@@ -706,14 +708,6 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
     task_route = None
     if req.project_id:
-        yield _sse_event(
-            {
-                "type": "status",
-                "stage": "routing",
-                "message": "正在判断这次请求应直接回答，还是进入可恢复任务编排...",
-            }
-        )
-        await _task_stream_flush_pause()
         task_route = await route_project_task_request(
             req.content,
             llm_complete=runtime.llm.complete,
@@ -726,7 +720,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 {
                     "type": "status",
                     "stage": "planning",
-                    "message": "已识别为可恢复项目任务，正在创建任务运行记录...",
+                    "message": "这需要分步骤完成，我正在准备执行计划...",
                 }
             )
             await _task_stream_flush_pause()
@@ -754,7 +748,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 yield _sse_event(
                     {
                         "type": "text",
-                        "content": f"已创建编排任务：{req.content}\n\n我会按下方步骤持续更新进展。\n\n",
+                        "content": f"我会把这件事拆成几个可追踪步骤处理：{req.content}\n\n",
                     }
                 )
                 await _task_stream_flush_pause()
@@ -762,7 +756,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     {
                         "type": "status",
                         "stage": "tools",
-                        "message": "任务已创建，正在按步骤执行。刷新页面后仍可在项目任务记录中查看。",
+                        "message": "执行计划已准备好，正在开始第一步。",
                     }
                 )
                 await _task_stream_flush_pause()
