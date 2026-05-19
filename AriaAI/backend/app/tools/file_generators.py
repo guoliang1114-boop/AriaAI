@@ -1710,7 +1710,7 @@ async def generate_html_deck_from_skill(
 
 @registry.register(
     name="generate_ppt",
-    description="Generate a PowerPoint (.pptx) presentation with structured slides. Supports title slides, content slides, and two-column layouts.",
+    description="Generate a PowerPoint (.pptx) presentation with structured slides. Supports title, content, two-column, table, quote, process, roadmap, matrix, KPI, risk, and next-step layouts.",
     input_schema={
         "type": "object",
         "properties": {
@@ -1730,7 +1730,7 @@ async def generate_html_deck_from_skill(
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["title", "content", "two_column"],
+                            "enum": ["title", "section", "content", "two_column", "table", "quote", "process", "roadmap", "matrix", "kpi", "risk", "next_steps"],
                             "description": "Slide layout type"
                         },
                         "title": {
@@ -1748,6 +1748,29 @@ async def generate_html_deck_from_skill(
                         "right_content": {
                             "type": "string",
                             "description": "Right column content (for two_column type)"
+                        },
+                        "columns": {
+                            "type": "array",
+                            "description": "Table column headers (for table type)",
+                            "items": {"type": "string"}
+                        },
+                        "rows": {
+                            "type": "array",
+                            "description": "Table rows as arrays or objects (for table type)",
+                            "items": {"type": "object"}
+                        },
+                        "items": {
+                            "type": "array",
+                            "description": "Process steps, cards, or timeline items",
+                            "items": {"type": "object"}
+                        },
+                        "quote": {
+                            "type": "string",
+                            "description": "Quote text (for quote type)"
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": "Quote source or chart/source caption"
                         }
                     },
                     "required": ["type", "title"]
@@ -2276,6 +2299,29 @@ def _remove_shape_by_name(slide, shape_name: str) -> bool:
     return removed
 
 
+def _remove_empty_text_placeholders(slide) -> None:
+    """Remove unused PowerPoint prompt placeholders left by templates.
+
+    Empty title/body placeholders show as "Click to add..." in edit mode and
+    can sit on top of generated cards. Once a generated slide has been
+    rendered, those empty text placeholders are no longer useful.
+    """
+    for shape in list(slide.shapes):
+        if not getattr(shape, "is_placeholder", False) or not getattr(shape, "has_text_frame", False):
+            continue
+        if str(getattr(shape, "text", "") or "").strip():
+            continue
+        parent = shape.element.getparent()
+        if parent is not None:
+            parent.remove(shape.element)
+
+
+def _finalize_ppt_layout(prs) -> None:
+    for slide in prs.slides:
+        _remove_empty_text_placeholders(slide)
+    _ensure_body_min_font_sizes(prs, min_size=8)
+
+
 def _slide_has_named_shapes(slide, required_names: set[str]) -> bool:
     shape_names = {getattr(shape, "name", "") for shape in slide.shapes}
     return required_names.issubset(shape_names)
@@ -2533,6 +2579,7 @@ def _prepare_ppt_slide_text(slides: list[dict]) -> list[dict]:
     prepared: list[dict] = []
     for slide in slides:
         item = dict(slide)
+        item["type"] = _normalize_presentation_slide_type(item.get("type"))
         for key in ("title", "subtitle", "content", "left_content", "right_content"):
             if key in item:
                 item[key] = _clean_ppt_text(item.get(key))
@@ -2660,14 +2707,14 @@ def _add_roadmap_visual(slide, title: str, bullets: list[str], slide_number: int
     for idx, phase in enumerate(phases):
         x = Inches(0.85 + idx * 4.05)
         fill, accent = colors[idx % len(colors)]
-        _add_card(slide, x, Inches(1.55), Inches(3.55), Inches(4.55), fill=fill, line=accent)
-        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.25), Inches(1.85), Inches(0.58), Inches(0.58), fill=accent, line=accent)
-        _add_textbox(slide, x + Inches(0.42), Inches(1.97), Inches(0.28), Inches(0.22), str(idx + 1), size=11, bold=True, color="FFFFFF")
+        _add_card(slide, x, Inches(1.92), Inches(3.55), Inches(4.18), fill=fill, line=accent)
+        _add_shape(slide, MSO_SHAPE.OVAL, x + Inches(0.25), Inches(2.22), Inches(0.58), Inches(0.58), fill=accent, line=accent)
+        _add_textbox(slide, x + Inches(0.42), Inches(2.34), Inches(0.28), Inches(0.22), str(idx + 1), size=11, bold=True, color="FFFFFF")
         label = ["夯实基础", "规模复制", "领先优化"][idx] if idx < 3 else f"阶段 {idx + 1}"
-        _add_textbox(slide, x + Inches(0.95), Inches(1.88), Inches(2.2), Inches(0.35), label, size=15, bold=True, color=accent)
-        _add_textbox(slide, x + Inches(0.35), Inches(2.55), Inches(2.95), Inches(2.45), phase[:260], size=12, color="334155")
+        _add_textbox(slide, x + Inches(0.95), Inches(2.25), Inches(2.2), Inches(0.35), label, size=15, bold=True, color=accent)
+        _add_textbox(slide, x + Inches(0.35), Inches(2.92), Inches(2.95), Inches(2.08), phase[:220], size=12, color="334155")
         if idx < len(phases) - 1:
-            _add_shape(slide, MSO_SHAPE.CHEVRON, x + Inches(3.38), Inches(3.42), Inches(0.48), Inches(0.44), fill="E5E7EB", line="E5E7EB")
+            _add_shape(slide, MSO_SHAPE.CHEVRON, x + Inches(3.38), Inches(3.62), Inches(0.48), Inches(0.44), fill="E5E7EB", line="E5E7EB")
     _add_slide_footer(slide)
     return True
 
@@ -2894,7 +2941,7 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
         _remove_shape_by_name(slide, "aria_visual_area")
         _set_body_named_or_placeholder_text(slide, "aria_slide_body", "")
         used_template = title_set
-        visual_bounds = (Inches(1.02), Inches(1.38), Inches(11.28), Inches(5.22))
+        visual_bounds = (Inches(1.02), Inches(2.02), Inches(11.28), Inches(4.58))
     else:
         used_template = (
             title_set
@@ -2907,7 +2954,7 @@ def _prepare_strategy_canvas(slide, title: str, body: str, slide_number: int, fu
         _add_slide_header(slide, title, slide_number)
         _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, body), role="content")
         if full_canvas:
-            visual_bounds = (Inches(0.92), Inches(1.58), Inches(11.48), Inches(4.98))
+            visual_bounds = (Inches(0.92), Inches(2.02), Inches(11.48), Inches(4.54))
         else:
             visual_bounds = (Inches(6.9), Inches(1.55), Inches(5.6), Inches(5.05))
             _add_textbox(slide, Inches(0.82), Inches(1.55), Inches(5.65), Inches(4.9), "\n".join(f"- {bullet}" for bullet in bullets[:6]), size=13, color="334155")
@@ -3451,6 +3498,125 @@ def _render_two_column_slide(slide, title: str, left_content: str, right_content
             _add_textbox(slide, x + Inches(0.65), y - Inches(0.02), Inches(4.55), Inches(0.38), bullet, size=12, color="334155")
     if not used_template:
         _add_slide_footer(slide)
+
+
+def _slide_items(slide_data: dict | None, content: str = "", *, limit: int = 8) -> list[str]:
+    slide_data = slide_data or {}
+    for key in ("items", "steps", "process_steps", "timeline", "milestones", "data_points"):
+        value = slide_data.get(key)
+        if isinstance(value, list):
+            items = [
+                str(item.get("text") or item.get("title") or item.get("label") or item).strip()
+                if isinstance(item, dict)
+                else str(item).strip()
+                for item in value
+            ]
+            items = [item for item in items if item]
+            if items:
+                return items[:limit]
+    return _split_bullets(content or _combined_slide_content(slide_data), limit=limit)
+
+
+def _parse_table_data(slide_data: dict | None, content: str = "") -> tuple[list[str], list[list[str]]]:
+    slide_data = slide_data or {}
+    columns = slide_data.get("columns") or slide_data.get("headers") or []
+    rows = slide_data.get("rows") or slide_data.get("data") or []
+    parsed_columns = [str(col).strip() for col in columns if str(col).strip()] if isinstance(columns, list) else []
+    parsed_rows: list[list[str]] = []
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict):
+                keys = parsed_columns or list(row.keys())
+                parsed_rows.append([str(row.get(key, "")).strip() for key in keys])
+            elif isinstance(row, list):
+                parsed_rows.append([str(cell).strip() for cell in row])
+            elif str(row).strip():
+                parsed_rows.append([str(row).strip()])
+
+    if not parsed_rows:
+        lines = [line.strip() for line in _clean_ppt_text(content).splitlines() if line.strip()]
+        table_lines = [line for line in lines if "|" in line]
+        for line in table_lines:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if cells and all(set(cell) <= {"-", ":", " "} for cell in cells):
+                continue
+            if not parsed_columns:
+                parsed_columns = cells
+            else:
+                parsed_rows.append(cells)
+
+    if not parsed_columns:
+        parsed_columns = ["主题", "要点", "含义"]
+    if not parsed_rows:
+        bullets = _split_bullets(content or _combined_slide_content(slide_data), limit=6)
+        parsed_rows = [[str(index + 1), bullet, "待确认"] for index, bullet in enumerate(bullets)]
+        parsed_columns = ["序号", "内容", "说明"]
+    return parsed_columns[:5], [row[:5] for row in parsed_rows[:8]]
+
+
+def _render_table_slide(slide, title: str, slide_data: dict, slide_number: int):
+    from pptx.util import Inches
+
+    content = str(slide_data.get("content") or "")
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
+    columns, rows = _parse_table_data(slide_data, content)
+    x, y, w, h = Inches(0.82), Inches(1.92), Inches(11.7), Inches(4.85)
+    col_count = max(len(columns), 1)
+    row_h = h / (len(rows) + 1)
+    col_w = w / col_count
+    for col_idx, column in enumerate(columns):
+        left = x + col_idx * col_w
+        _add_card(slide, left, y, col_w - Inches(0.03), row_h, fill="1D4ED8", line="1D4ED8")
+        _add_textbox(slide, left + Inches(0.05), y + Inches(0.08), col_w - Inches(0.1), row_h - Inches(0.12), column[:32], size=9, bold=True, color="FFFFFF")
+    for row_idx, row in enumerate(rows):
+        top = y + (row_idx + 1) * row_h
+        fill = "F8FAFC" if row_idx % 2 == 0 else "FFFFFF"
+        for col_idx in range(col_count):
+            left = x + col_idx * col_w
+            _add_card(slide, left, top, col_w - Inches(0.03), row_h - Inches(0.03), fill=fill, line="E2E8F0")
+            text = row[col_idx] if col_idx < len(row) else ""
+            _add_textbox(slide, left + Inches(0.05), top + Inches(0.06), col_w - Inches(0.1), row_h - Inches(0.12), text[:92], size=8, color="334155")
+    _add_slide_footer(slide)
+
+
+def _render_quote_slide(slide, title: str, content: str, slide_number: int, slide_data: dict | None = None):
+    from pptx.util import Inches
+
+    slide_data = slide_data or {}
+    quote = str(slide_data.get("quote") or content or "").strip()
+    source = str(slide_data.get("source") or slide_data.get("caption") or "").strip()
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    _add_card(slide, Inches(1.05), Inches(1.75), Inches(11.15), Inches(4.25), fill="EFF6FF", line="BFDBFE")
+    _add_textbox(slide, Inches(1.45), Inches(2.05), Inches(0.65), Inches(0.6), "“", size=28, bold=True, color="1D4ED8")
+    _add_textbox(slide, Inches(2.05), Inches(2.08), Inches(9.35), Inches(2.1), quote[:260], size=22, bold=True, color="0F172A")
+    if source:
+        _add_textbox(slide, Inches(2.08), Inches(4.72), Inches(8.8), Inches(0.32), f"— {source}", size=12, color="475569")
+    _add_slide_footer(slide)
+
+
+def _render_process_slide(slide, title: str, content: str, slide_number: int, slide_data: dict | None = None):
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    _clear_text_shapes(slide)
+    _add_slide_header(slide, title, slide_number)
+    _add_generated_slide_lead(slide, _slide_lead_text(slide_data, title, content), role="content")
+    steps = _slide_items(slide_data, content, limit=5) or ["明确目标", "收集证据", "形成判断", "共创方案", "落地复盘"]
+    accents = ["1D4ED8", "047857", "C2410C", "7C3AED", "0F766E"]
+    x, y, w = Inches(0.85), Inches(2.05), Inches(11.65)
+    step_w = w / len(steps) - Inches(0.08)
+    _add_shape(slide, MSO_SHAPE.RECTANGLE, x + Inches(0.2), y + Inches(0.44), w - Inches(0.4), Inches(0.06), fill="CBD5E1", line="CBD5E1")
+    for idx, step in enumerate(steps):
+        left = x + idx * (step_w + Inches(0.1))
+        accent = accents[idx % len(accents)]
+        _add_shape(slide, MSO_SHAPE.OVAL, left + step_w / 2 - Inches(0.24), y + Inches(0.2), Inches(0.48), Inches(0.48), fill=accent, line=accent)
+        _add_textbox(slide, left + step_w / 2 - Inches(0.08), y + Inches(0.31), Inches(0.16), Inches(0.12), str(idx + 1), size=7, bold=True, color="FFFFFF")
+        _add_card(slide, left, y + Inches(1.0), step_w, Inches(3.65), fill="FFFFFF", line="D7DEE8")
+        _add_textbox(slide, left + Inches(0.16), y + Inches(1.25), step_w - Inches(0.32), Inches(2.9), step[:150], size=10, bold=True, color=accent)
+    _add_slide_footer(slide)
 
 
 def _render_back_cover(slide, title: str):
@@ -4571,6 +4737,14 @@ def _normalize_presentation_slide_type(slide_type: Any) -> str:
         "risk_mitigation": "risk",
         "nextsteps": "next_steps",
         "actions": "next_steps",
+        "action_plan": "next_steps",
+        "table_chart": "table",
+        "data_table": "table",
+        "quote_slide": "quote",
+        "callout": "quote",
+        "workflow": "process",
+        "process_flow": "process",
+        "steps": "process",
     }
     return aliases.get(normalized, normalized)
 
@@ -4686,6 +4860,15 @@ async def generate_ppt(
                             slide_index + 1,
                             slide_data,
                         )
+                    elif slide_type == "table":
+                        slide = _clone_slide_from_prototype(prs, aria_content_prototype)
+                        _render_table_slide(slide, slide_title, slide_data, slide_index + 1)
+                    elif slide_type == "quote":
+                        slide = _clone_slide_from_prototype(prs, aria_title_prototype)
+                        _render_quote_slide(slide, slide_title, slide_data.get("content", ""), slide_index + 1, slide_data)
+                    elif slide_type == "process":
+                        slide = _clone_slide_from_prototype(prs, aria_content_prototype)
+                        _render_process_slide(slide, slide_title, slide_data.get("content", ""), slide_index + 1, slide_data)
                     else:
                         slide = _clone_slide_from_prototype(prs, aria_content_prototype)
                         _render_content_slide(
@@ -4708,7 +4891,7 @@ async def generate_ppt(
 
                 filename = _generate_filename("pptx")
                 filepath = GENERATED_DIR / filename
-                _ensure_body_min_font_sizes(prs, min_size=8)
+                _finalize_ppt_layout(prs)
                 prs.save(filepath)
                 return {
                     "success": True,
@@ -4754,8 +4937,17 @@ async def generate_ppt(
                         slide_data.get("left_content", ""),
                         slide_data.get("right_content", ""),
                         slide_index + 1,
-                        slide_data,
-                    )
+                            slide_data,
+                        )
+                elif slide_type == "table":
+                    slide = _clone_slide_from_prototype(prs, content_prototype)
+                    _render_table_slide(slide, slide_title, slide_data, slide_index + 1)
+                elif slide_type == "quote":
+                    slide = _clone_slide_from_prototype(prs, divider_prototype)
+                    _render_quote_slide(slide, slide_title, slide_data.get("content", ""), slide_index + 1, slide_data)
+                elif slide_type == "process":
+                    slide = _clone_slide_from_prototype(prs, content_prototype)
+                    _render_process_slide(slide, slide_title, slide_data.get("content", ""), slide_index + 1, slide_data)
                 else:
                     slide = _clone_slide_from_prototype(prs, content_prototype)
                     _render_graphic_library_content_slide(
@@ -4771,7 +4963,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
-            _ensure_body_min_font_sizes(prs, min_size=8)
+            _finalize_ppt_layout(prs)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4813,6 +5005,8 @@ async def generate_ppt(
 
                 if slide_type in {"title", "section"}:
                     slide = _clone_slide_from_prototype(prs, section_prototype)
+                elif slide_type == "quote":
+                    slide = _clone_slide_from_prototype(prs, section_prototype)
                 elif strategy_layout or use_visual:
                     slide = _clone_slide_from_prototype(prs, visual_prototype)
                 elif slide_type == "two_column":
@@ -4823,6 +5017,12 @@ async def generate_ppt(
                 if slide_type in {"title", "section"}:
                     section_counter += 1
                     _render_section_slide(slide, slide_title, section_counter, slide_data)
+                elif slide_type == "table":
+                    _render_table_slide(slide, slide_title, slide_data, slide_index + 1)
+                elif slide_type == "quote":
+                    _render_quote_slide(slide, slide_title, content, slide_index + 1, slide_data)
+                elif slide_type == "process":
+                    _render_process_slide(slide, slide_title, content, slide_index + 1, slide_data)
                 elif strategy_layout and _render_digital_strategy_layout(slide, slide_data, slide_index + 1, strategy_layout):
                     pass
                 elif use_visual:
@@ -4846,7 +5046,7 @@ async def generate_ppt(
 
             filename = _generate_filename("pptx")
             filepath = GENERATED_DIR / filename
-            _ensure_body_min_font_sizes(prs, min_size=8)
+            _finalize_ppt_layout(prs)
             prs.save(filepath)
             return {
                 "success": True,
@@ -4911,6 +5111,15 @@ async def generate_ppt(
         if slide_type in {"title", "section"}:
             _render_section_slide(slide, slide_title, slide_index + 1, slide_data)
 
+        elif slide_type == "table":
+            _render_table_slide(slide, slide_title, slide_data, slide_index + 1)
+
+        elif slide_type == "quote":
+            _render_quote_slide(slide, slide_title, content, slide_index + 1, slide_data)
+
+        elif slide_type == "process":
+            _render_process_slide(slide, slide_title, content, slide_index + 1, slide_data)
+
         elif strategy_layout and _render_digital_strategy_layout(slide, slide_data, slide_index + 1, strategy_layout):
             pass
 
@@ -4945,7 +5154,7 @@ async def generate_ppt(
     # ── Save ─────────────────────────────────────────────────────────────────
     filename = _generate_filename("pptx")
     filepath = GENERATED_DIR / filename
-    _ensure_body_min_font_sizes(prs, min_size=8)
+    _finalize_ppt_layout(prs)
     prs.save(filepath)
 
     return {

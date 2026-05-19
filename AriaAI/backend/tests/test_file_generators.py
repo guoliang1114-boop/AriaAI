@@ -131,11 +131,11 @@ class GeneratePptTestCase(unittest.TestCase):
 
     @patch("app.tools.file_generators._render_content_slide")
     @patch("app.tools.file_generators._render_two_column_slide")
-    @patch("app.tools.file_generators._ensure_body_min_font_sizes")
+    @patch("app.tools.file_generators._finalize_ppt_layout")
     @patch("app.tools.file_generators._write_title_preserving_style")
     @patch("app.tools.file_generators._find_body_placeholder")
     @patch("pptx.Presentation")
-    def test_blank_deck_generation(self, mock_pres_class, mock_find_body, mock_write_title, mock_ensure, mock_two_col, mock_render_content):
+    def test_blank_deck_generation(self, mock_pres_class, mock_find_body, mock_write_title, mock_finalize, mock_two_col, mock_render_content):
         """generate_ppt without template creates a blank presentation."""
         mock_slide = MagicMock()
         mock_slide.shapes.title = MagicMock()
@@ -155,11 +155,11 @@ class GeneratePptTestCase(unittest.TestCase):
         mock_pres_class.assert_called_once()  # Called without template path
 
     @patch("app.tools.file_generators._render_digital_strategy_layout")
-    @patch("app.tools.file_generators._ensure_body_min_font_sizes")
+    @patch("app.tools.file_generators._finalize_ppt_layout")
     @patch("app.tools.file_generators._write_title_preserving_style")
     @patch("app.tools.file_generators._find_body_placeholder")
     @patch("pptx.Presentation")
-    def test_blank_deck_uses_strategy_layout_hints(self, mock_pres_class, mock_find_body, mock_write_title, mock_ensure, mock_strategy):
+    def test_blank_deck_uses_strategy_layout_hints(self, mock_pres_class, mock_find_body, mock_write_title, mock_finalize, mock_strategy):
         mock_strategy.return_value = True
         mock_slide = MagicMock()
         mock_slide.shapes.title = MagicMock()
@@ -184,6 +184,47 @@ class GeneratePptTestCase(unittest.TestCase):
 
         self.assertTrue(result["success"])
         mock_strategy.assert_called_once()
+
+    @patch("app.tools.file_generators._render_process_slide")
+    @patch("app.tools.file_generators._render_quote_slide")
+    @patch("app.tools.file_generators._render_table_slide")
+    @patch("app.tools.file_generators._finalize_ppt_layout")
+    @patch("app.tools.file_generators._write_title_preserving_style")
+    @patch("app.tools.file_generators._find_body_placeholder")
+    @patch("pptx.Presentation")
+    def test_blank_deck_supports_richer_slide_types(
+        self,
+        mock_pres_class,
+        mock_find_body,
+        mock_write_title,
+        mock_finalize,
+        mock_table,
+        mock_quote,
+        mock_process,
+    ):
+        mock_slide = MagicMock()
+        mock_slide.shapes.title = MagicMock()
+        mock_slide_layout = MagicMock()
+        mock_prs = MagicMock()
+        mock_prs.slide_layouts = [mock_slide_layout, mock_slide_layout]
+        mock_prs.slides.add_slide.return_value = mock_slide
+        mock_pres_class.return_value = mock_prs
+
+        mock_generated_dir = MagicMock()
+        with patch("app.tools.file_generators.GENERATED_DIR", mock_generated_dir):
+            result = self._call(
+                title="Rich Deck",
+                slides=[
+                    {"type": "table", "title": "数据表", "columns": ["A"], "rows": [["B"]]},
+                    {"type": "quote", "title": "客户原话", "quote": "先小步验证"},
+                    {"type": "process", "title": "推进步骤", "items": ["访谈", "验证", "复盘"]},
+                ],
+            )
+
+        self.assertTrue(result["success"])
+        mock_table.assert_called_once()
+        mock_quote.assert_called_once()
+        mock_process.assert_called_once()
 
 
 class GenerateXlsxTestCase(unittest.TestCase):

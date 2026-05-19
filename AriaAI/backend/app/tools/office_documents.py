@@ -446,7 +446,11 @@ def _register_generated_project_file(
             },
             "slides": {
                 "type": "array",
-                "description": "PPTX slides: type/title/content/left_content/right_content.",
+                "description": (
+                    "PPTX slides. Supported type values include title, section, content, two_column, "
+                    "table, quote, process, roadmap, matrix, kpi, risk, and next_steps. "
+                    "Use columns/rows for tables, items/steps for process slides, quote/source for quote slides."
+                ),
                 "items": {"type": "object"},
             },
             "folder_id": {"type": "integer", "description": "Optional project folder id."},
