@@ -145,13 +145,14 @@ export function useProjectChatComposer({
 
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
-      setStreamIsLoading(true);
       resetStream();
+      setStreamIsLoading(true);
+      setStreamStatus("已收到，正在处理…");
 
       if (!conversationId) {
         conversationId = await createConversation(trimmed, skillId || null);
         if (!conversationId) {
-          setStreamIsLoading(false);
+          resetStream();
           return false;
         }
       }
@@ -463,9 +464,14 @@ export function useProjectChatComposer({
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
 
+      resetStream();
+      setStreamIsLoading(true);
+      setStreamStatus("已提交到后台，正在创建任务…");
+
       if (!conversationId) {
         conversationId = await createConversation(trimmed, skillId || null);
         if (!conversationId) {
+          resetStream();
           return false;
         }
       }
@@ -558,6 +564,7 @@ export function useProjectChatComposer({
         return false;
       } finally {
         abortControllerAsyncRef.current = null;
+        resetStream();
       }
     },
     [
@@ -568,9 +575,12 @@ export function useProjectChatComposer({
       knowledgeScope,
       onSendError,
       projectId,
+      resetStream,
       scrollToBottom,
       selectedSkillId,
       selectedModel,
+      setStreamIsLoading,
+      setStreamStatus,
       setMessages,
       isNearBottomRef,
     ],
