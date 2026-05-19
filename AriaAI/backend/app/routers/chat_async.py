@@ -188,7 +188,12 @@ async def send_message_async(req: SendMessageRequest, session: Session = Depends
 
 @router.get("/tasks/{conversation_id}", response_model=ChatTaskStatusResponse)
 def get_chat_task_status(conversation_id: int, session: Session = Depends(get_session)):
-    """Check whether a background chat task is still running."""
+    """Check whether a background chat task is still running.
+
+    Uses in-memory registry for live tasks and falls back to TaskRun DB state.
+    If a task is marked "running" in DB but not in memory (e.g. after service restart),
+    it is reported as "stale" so the client can decide whether to retry.
+    """
     from app.services.chat_store import get_conversation_messages
 
     is_running = conversation_id in _background_chat_tasks
@@ -196,9 +201,20 @@ def get_chat_task_status(conversation_id: int, session: Session = Depends(get_se
     task_run = _latest_background_chat_run(session, conversation_id)
     messages = get_conversation_messages(session, conversation_id, limit=1)
     persisted_status = task_run.status if task_run else None
-    status = "running" if is_running else status_record.get("status") or persisted_status or "completed"
+
+    if is_running:
+        status = "running"
+    elif status_record.get("status"):
+        status = status_record.get("status")
+    elif persisted_status == "running":
+        # DB says running but not in memory → likely stale after restart
+        status = "stale"
+    else:
+        status = persisted_status or "completed"
+
     if status == "canceled":
         status = "cancelled"
+
     return ChatTaskStatusResponse(
         conversation_id=conversation_id,
         task_run_id=task_run.id if task_run else None,

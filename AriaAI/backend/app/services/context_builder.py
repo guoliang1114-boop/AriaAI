@@ -1052,6 +1052,13 @@ def build_chat_context(
     mention_context: Optional[dict] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG."""
+    # Merge mention_context file_ids into file_ids so @-mentioned files get injected
+    _mention = mention_context or {}
+    _mentioned_file_ids = _mention.get("file_ids") or []
+    if _mentioned_file_ids:
+        merged_file_ids = list(dict.fromkeys((file_ids or []) + _mentioned_file_ids))
+        file_ids = merged_file_ids
+
     # Build skill context
     skill_ctx = build_skill_context(session, skill_id, default_max_tokens)
     

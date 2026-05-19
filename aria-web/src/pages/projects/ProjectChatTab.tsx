@@ -315,6 +315,7 @@ export function ProjectChatTab({
   };
 
   useEffect(() => {
+    let cancelled = false;
     if (prevIsLoadingRef.current && !isLoading) {
       const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
       if (lastAssistant && lastAssistant.content.length > 30 && lastAssistant.content !== dismissedAutoDetectRef.current) {
@@ -324,6 +325,7 @@ export function ProjectChatTab({
               `/projects/${project.id}/stakeholder-candidates`,
               { text: lastAssistant.content },
             );
+            if (cancelled) return;
             const displayableCandidates = filterDisplayableStakeholders(result.candidates);
             if (displayableCandidates.length > 0) {
               setAutoStakeholderBanner({
@@ -339,6 +341,9 @@ export function ProjectChatTab({
       }
     }
     prevIsLoadingRef.current = isLoading;
+    return () => {
+      cancelled = true;
+    };
   }, [isLoading, messages, project.id]);
 
   const handleQuickApplyStakeholders = async () => {

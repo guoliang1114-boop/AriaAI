@@ -131,6 +131,7 @@ export function useProjectChatComposer({
   const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
   const [streamingTruncated, setStreamingTruncated] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllerAsyncRef = useRef<AbortController | null>(null);
 
   const resetStreamingContent = useCallback(() => {
     setStreamingContent("");
@@ -452,6 +453,7 @@ export function useProjectChatComposer({
 
   const stopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
+    abortControllerAsyncRef.current?.abort();
   }, []);
 
   const sendMessageAsync = useCallback(async (content: string) => {
@@ -487,6 +489,11 @@ export function useProjectChatComposer({
       milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
     } : undefined;
 
+    abortControllerAsyncRef.current = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      abortControllerAsyncRef.current?.abort();
+    }, 30000);
+
     try {
       const response = await fetch(`${getApiBaseUrl()}/chat/send-async`, {
         method: "POST",
@@ -504,7 +511,9 @@ export function useProjectChatComposer({
           model: selectedModel || undefined,
           mention_context: mentionContext,
         }),
+        signal: abortControllerAsyncRef.current.signal,
       });
+      window.clearTimeout(timeoutId);
       if (!response.ok) {
         throw new Error(`Background request failed: ${response.status}`);
       }
@@ -531,9 +540,17 @@ export function useProjectChatComposer({
       void fetchConversations();
       return true;
     } catch (error) {
+      window.clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        console.error("Background request timed out after 30s");
+        onSendError();
+        return false;
+      }
       console.error("Failed to send async message:", error);
       onSendError();
       return false;
+    } finally {
+      abortControllerAsyncRef.current = null;
     }
   }, [
     activeConvId,

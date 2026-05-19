@@ -76,9 +76,17 @@ def test_rule_router_routes_markdown_artifacts():
     assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
 
 
+def test_router_keeps_diagnostic_chat_as_direct_answer():
+    route = asyncio.run(route_project_task_request("你看这个聊天记录生成的内容是不是有问题？"))
+
+    assert route.task_type is None
+    assert route.reason == "rule:direct_diagnostic"
+
+
 def test_ppt_slide_count_request_is_extracted_and_used():
     assert task_orchestrator._extract_requested_slide_count("内容不够丰富，页数要求20页以上") == 20
     assert task_orchestrator._extract_requested_slide_count("make at least 22 slides") == 22
+    assert task_orchestrator._extract_requested_slide_count("准备一个 50 页的 PPT") == 50
 
     context = {
         "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
@@ -97,6 +105,32 @@ def test_ppt_slide_count_request_is_extracted_and_used():
     assert any(slide["title"] == "商业验证假设" for slide in slides)
     assert any(slide.get("layout_key") == "roadmap" for slide in slides)
     assert any(slide.get("layout_key") == "prioritization_matrix" for slide in slides)
+    assert all(slide.get("insight") for slide in slides if slide.get("layout_key"))
+
+
+def test_large_ppt_request_generates_distinct_story_pages_without_filler_titles():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {
+            "project_brief": "探索功能性护肤品/医美抗衰赛道的新业务机会。",
+            "recent_progress": ["已完成项目需求梳理。"],
+        },
+        "client_memory": {"sensitive_topics": ["品牌高端化战略调整背景下需注意品牌调性一致性"]},
+        "meeting_card": {"avoid": ["品牌高端化战略调整背景下需注意品牌调性一致性"]},
+    }
+
+    slides = task_orchestrator._build_client_ppt_slides(
+        context,
+        "准备一个 50 页的 PPT 和客户沟通，要求适合大前期的战略沟通",
+    )
+    titles = [slide["title"] for slide in slides]
+
+    assert len(slides) >= 50
+    assert len(titles) == len(set(titles))
+    assert not any("补充视角" in title for title in titles)
+    assert "赛道宏观吸引力" in titles
+    assert "最小验证路径" in titles
+    assert "决策门与退出条件" in titles
     assert all(slide.get("insight") for slide in slides if slide.get("layout_key"))
 
 
@@ -416,6 +450,25 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
         assert metadata["content"].startswith("#")
     finally:
         engine.dispose()
+
+
+def test_text_artifact_storyline_request_uses_storyline_structure():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {"project_brief": "探索功能性护肤品新业务进入机会。"},
+        "client_memory": {},
+        "stakeholders": [],
+    }
+
+    result = task_orchestrator._build_text_artifact(
+        context,
+        "给我准备一个和客户沟通的初步大纲storyline",
+    )
+
+    assert "## 一句话沟通主线" in result["content"]
+    assert "## Storyline 结构" in result["content"]
+    assert "## 项目背景" not in result["content"]
+    assert "关键风险" not in result["content"]
 
 
 def test_execute_task_run_fails_only_current_step(monkeypatch):

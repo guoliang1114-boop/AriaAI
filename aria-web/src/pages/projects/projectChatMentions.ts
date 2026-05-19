@@ -1,4 +1,4 @@
-const MENTION_PATTERN = /@[filesmh]:(\d+):([^\s]+)/g;
+const MENTION_PATTERN = /@[fsm]:(\d+):([^\s]+)/g;
 
 export type MentionType = "file" | "stakeholder" | "milestone";
 
@@ -61,6 +61,8 @@ export function getActiveMentionQuery(
   const beforeCursor = text.slice(0, cursorPos);
   const lastAt = beforeCursor.lastIndexOf("@");
   if (lastAt < 0) return null;
+  // Ensure @ is at the start of a word (preceded by whitespace or start of string)
+  if (lastAt > 0 && !/\s/.test(beforeCursor[lastAt - 1])) return null;
   // Make sure there is no whitespace between @ and cursor
   const between = beforeCursor.slice(lastAt + 1);
   if (/\s/.test(between)) return null;

@@ -145,6 +145,21 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     return TaskRoute(None, reason="rule:no_task")
 
 
+def _looks_like_direct_diagnostic(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    diagnostic_terms = (
+        "看一下", "看看", "检查", "排查", "分析原因", "为什么", "是不是", "有没有问题",
+        "哪里不对", "哪里有问题", "复盘一下", "review", "debug", "inspect", "why",
+    )
+    explicit_deliverable_terms = (
+        "创建", "制作", "导出", "保存", "输出文件", "生成报告", "生成文档", "生成材料",
+        "ppt", "pptx", "excel", "xlsx", "word", "docx", "pdf", "markdown", "md",
+    )
+    return any(term in text for term in diagnostic_terms) and not any(term in text for term in explicit_deliverable_terms)
+
+
 def _extract_json_object(text: str) -> dict[str, Any] | None:
     decoder = json.JSONDecoder()
     idx = text.find("{")
@@ -196,6 +211,8 @@ async def route_project_task_request(
     model: str = "",
 ) -> TaskRoute:
     fallback = _rule_based_task_route(content)
+    if fallback.task_type is None and _looks_like_direct_diagnostic(content):
+        return TaskRoute(None, confidence=0.95, reason="rule:direct_diagnostic")
     if llm_complete is None:
         return fallback
     system = (
@@ -275,7 +292,7 @@ def _clean_ppt_request_title(value: str) -> str:
     if not text:
         return ""
     text = re.sub(
-        r"(页数要求|至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*\d{1,2}\s*(?:页|頁|p|page|pages|slide|slides)?\s*(?:以上|起|\+|plus|or\s+more)?",
+        r"(页数要求|至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*\d{1,3}\s*(?:页|頁|p|page|pages|slide|slides)?\s*(?:以上|起|\+|plus|or\s+more)?",
         "",
         text,
         flags=re.IGNORECASE,
@@ -343,8 +360,8 @@ def _extract_requested_slide_count(text: str) -> int | None:
     """Extract a user-requested minimum slide/page count from a PPT request."""
     value = text or ""
     patterns = (
-        r"(\d{1,2})\s*(?:页|頁|p|page|pages|slide|slides)\s*(?:以上|起|至少|\+|plus|or\s+more)?",
-        r"(?:至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*(\d{1,2})\s*(?:页|頁|p|page|pages|slide|slides)?",
+        r"(\d{1,3})\s*(?:页|頁|p|page|pages|slide|slides)\s*(?:以上|起|至少|\+|plus|or\s+more)?",
+        r"(?:至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*(\d{1,3})\s*(?:页|頁|p|page|pages|slide|slides)?",
     )
     matches: list[int] = []
     for pattern in patterns:
@@ -355,8 +372,24 @@ def _extract_requested_slide_count(text: str) -> int | None:
                 continue
     if not matches:
         return None
-    # Keep generated decks usable while honoring explicit user asks.
-    return max(4, min(max(matches), 40))
+    # Keep generated decks usable while honoring explicit user asks. 80 is a
+    # practical upper bound for one synchronous project artifact, not a silent
+    # downgrade of common asks such as 50 pages.
+    return max(4, min(max(matches), 80))
+
+
+def _dedupe_nonempty(items: list[Any] | tuple[Any, ...] | None, *, limit: int | None = None) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in items or []:
+        value = re.sub(r"\s+", " ", str(item or "").strip())
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+        if limit and len(values) >= limit:
+            break
+    return values
 
 
 def _record_event(
@@ -844,7 +877,7 @@ def _build_client_ppt_slides(
     client_memory = context.get("client_memory") or {}
 
     def bullets(items: list[str] | None, fallback: str) -> str:
-        values = [str(item).strip() for item in (items or []) if str(item).strip()]
+        values = _dedupe_nonempty(items)
         if not values:
             values = [fallback]
         return "\n".join(f"- {item}" for item in values[:5])
@@ -853,7 +886,7 @@ def _build_client_ppt_slides(
         values: list[str] = []
         for group in groups:
             values.extend(str(item).strip() for item in (group or []) if str(item).strip())
-        return bullets(values, fallback)
+        return bullets(_dedupe_nonempty(values), fallback)
 
     project_name = project.get("name") or "客户项目"
     client_name = project.get("client") or "客户"
@@ -970,15 +1003,12 @@ def _build_client_ppt_slides(
         for item in (group or [])
         if str(item).strip()
     ]
+    context_points = _dedupe_nonempty(context_points)
 
     def contextual_items(fallbacks: list[str], offset: int = 0) -> list[str]:
         selected = context_points[offset : offset + 3]
         values = selected + fallbacks
-        deduped: list[str] = []
-        for item in values:
-            if item and item not in deduped:
-                deduped.append(item)
-        return deduped[:5]
+        return _dedupe_nonempty(values, limit=5)
 
     supplemental_slides: list[dict[str, str]] = [
         {
@@ -1227,11 +1257,175 @@ def _build_client_ppt_slides(
         },
     ]
 
+    deepening_topics: list[dict[str, Any]] = [
+        {
+            "title": "赛道宏观吸引力",
+            "layout_key": "strategic_context",
+            "bullets": ["市场规模和增长速度", "利润池与价格带", "监管边界和准入要求", "客户资产可迁移程度"],
+        },
+        {
+            "title": "消费者需求场景",
+            "layout_key": "customer_journey",
+            "bullets": ["目标客群是谁", "核心痛点和购买触发", "现有解决方案不足", "可验证的首批场景"],
+        },
+        {
+            "title": "竞品与替代方案",
+            "layout_key": "portfolio_matrix",
+            "bullets": ["直接竞品打法", "替代品类威胁", "渠道资源差异", "可借鉴和需规避动作"],
+        },
+        {
+            "title": "品牌延展边界",
+            "layout_key": "risk_register",
+            "bullets": ["主品牌调性保护", "新品类信任背书", "高端化一致性", "避免稀释核心认知"],
+        },
+        {
+            "title": "渠道复用假设",
+            "layout_key": "prioritization_matrix",
+            "bullets": ["既有渠道触达能力", "私域和会员资产", "线下终端转化效率", "新增渠道投入强度"],
+        },
+        {
+            "title": "产品组合方向",
+            "layout_key": "portfolio_matrix",
+            "bullets": ["入门试点产品", "高价值明星单品", "套组和复购设计", "功效证据和合规表达"],
+        },
+        {
+            "title": "试点市场选择",
+            "layout_key": "prioritization_matrix",
+            "bullets": ["先选高反馈市场", "控制投放成本", "兼顾渠道代表性", "明确停止和扩大条件"],
+        },
+        {
+            "title": "最小验证路径",
+            "layout_key": "roadmap",
+            "bullets": ["两周完成假设清单", "四周完成访谈和桌研", "六周形成试点方案", "八周进入管理层决策"],
+        },
+        {
+            "title": "组织协同机制",
+            "layout_key": "operating_model",
+            "bullets": ["战略部牵头", "品牌和渠道共同评审", "产品与合规提前介入", "管理层设置阶段门"],
+        },
+        {
+            "title": "投资与资源需求",
+            "layout_key": "investment_kpi",
+            "bullets": ["人力投入", "外部研究预算", "试点费用", "管理层审批材料"],
+        },
+        {
+            "title": "关键指标体系",
+            "layout_key": "investment_kpi",
+            "bullets": ["需求验证指标", "渠道转化指标", "品牌风险指标", "商业回报指标"],
+        },
+        {
+            "title": "沟通对象分层",
+            "layout_key": "customer_journey",
+            "bullets": ["决策层看投入产出", "业务方看落地路径", "品牌方看调性风险", "渠道方看转化抓手"],
+        },
+        {
+            "title": "访谈问题设计",
+            "layout_key": "customer_journey",
+            "bullets": ["先问事实再问判断", "先问资源再问约束", "先问历史再问未来", "每题绑定决策用途"],
+        },
+        {
+            "title": "资料清单与证据等级",
+            "layout_key": "action_plan",
+            "bullets": ["内部资料", "市场资料", "消费者资料", "竞品资料"],
+        },
+        {
+            "title": "主要不确定性",
+            "layout_key": "risk_register",
+            "bullets": ["品类认知不确定", "渠道效率不确定", "组织承接不确定", "投入节奏不确定"],
+        },
+        {
+            "title": "风险缓释动作",
+            "layout_key": "risk_register",
+            "bullets": ["设置阶段门", "小样本验证", "限定预算池", "提前设定退出条件"],
+        },
+        {
+            "title": "客户会议开场",
+            "layout_key": "executive_summary",
+            "bullets": ["说明材料是初步框架", "强调共同验证", "避免过早定结论", "聚焦下一步输入"],
+        },
+        {
+            "title": "客户会议议程",
+            "layout_key": "roadmap",
+            "bullets": ["背景校准", "假设讨论", "分歧确认", "行动闭环"],
+        },
+        {
+            "title": "会后输出包",
+            "layout_key": "initiative_milestones",
+            "bullets": ["会议纪要", "问题清单", "资料需求", "下一版判断框架"],
+        },
+        {
+            "title": "下一阶段工作计划",
+            "layout_key": "roadmap",
+            "bullets": ["第 1 周资料收集", "第 2 周访谈", "第 3 周机会评估", "第 4 周管理层汇报"],
+        },
+        {
+            "title": "决策门与退出条件",
+            "layout_key": "investment_kpi",
+            "bullets": ["继续推进条件", "补充验证条件", "暂停条件", "退出条件"],
+        },
+        {
+            "title": "项目成功标准",
+            "layout_key": "executive_summary",
+            "bullets": ["形成清晰机会判断", "明确进入路径", "验证关键风险", "客户愿意进入下一阶段"],
+        },
+        {
+            "title": "管理层汇报口径",
+            "layout_key": "investment_kpi",
+            "bullets": ["一句话结论", "三个关键证据", "两类主要风险", "一个下一步请求"],
+        },
+        {
+            "title": "项目空间沉淀方式",
+            "layout_key": "operating_model",
+            "bullets": ["资料版本可追踪", "会议记录可复用", "生成物可直接打开", "任务日志可回溯"],
+        },
+        {
+            "title": "最终沟通收束",
+            "layout_key": "action_plan",
+            "bullets": ["确认共识", "确认分歧", "确认责任人", "确认下一次节点"],
+        },
+    ]
+
+    used_titles = {str(slide.get("title") or "") for slide in base_slides}
+    extension_queue: list[dict[str, Any]] = supplemental_slides + [
+        {
+            "type": "content" if index % 3 else "two_column",
+            "title": topic["title"],
+            "content": bullets(topic["bullets"], "补充该专题的事实、判断和下一步动作。"),
+            "left_content": bullets(topic["bullets"][:2], "说明该专题的事实基础。"),
+            "right_content": bullets(topic["bullets"][2:], "说明该专题的判断和动作。"),
+            "layout_key": topic["layout_key"],
+            "visualization_type": topic["layout_key"],
+            "page_rhythm": "dense",
+        }
+        for index, topic in enumerate(deepening_topics, start=1)
+    ]
+
+    queue_index = 0
     while len(base_slides) < target:
-        template = supplemental_slides[(len(base_slides) - 10) % len(supplemental_slides)]
-        slide = dict(template)
-        if len(base_slides) >= 10 + len(supplemental_slides):
-            slide["title"] = f"{slide['title']}（补充视角 {len(base_slides) + 1}）"
+        if queue_index < len(extension_queue):
+            slide = dict(extension_queue[queue_index])
+            queue_index += 1
+        else:
+            chapter = len(base_slides) + 1
+            slide = {
+                "type": "content",
+                "title": f"专题深化 {chapter}：待验证问题与行动",
+                "content": bullets(
+                    [
+                        "明确本页服务的判断问题。",
+                        "补齐需要客户确认的事实和证据。",
+                        "记录对应责任人、资料来源和时间节点。",
+                        "在下一轮沟通中更新为正式结论页。",
+                    ],
+                    "围绕新增专题补齐判断和行动。",
+                ),
+                "layout_key": "action_plan",
+                "visualization_type": "action_plan",
+                "page_rhythm": "dense",
+            }
+        if slide["title"] in used_titles:
+            continue
+        used_titles.add(slide["title"])
         base_slides.append(slide)
     _upgrade_client_ppt_slide_specs(base_slides)
     return base_slides
@@ -1281,7 +1475,7 @@ def _upgrade_client_ppt_slide_specs(slides: list[dict[str, Any]]) -> None:
     }
     for slide in slides:
         title = str(slide.get("title") or "").split("（补充视角")[0]
-        layout_key = layout_by_title.get(title)
+        layout_key = layout_by_title.get(title) or str(slide.get("layout_key") or "")
         if layout_key:
             slide.setdefault("layout_key", layout_key)
             slide.setdefault("visualization_type", layout_key)
@@ -1463,13 +1657,15 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
 
     def agenda_items() -> list[str]:
         items = [
-            "确认会议目标和预期产出：对齐本次沟通需要形成的判断、边界和后续动作。",
-            "回顾项目背景与当前判断：先讲清楚业务进入机会、客户已有共识和仍需验证的假设。",
-            "聚焦关键分歧和敏感点：围绕品牌调性、渠道复用、投入产出和试错路径逐项讨论。",
-            "明确后续推进机制：确定责任人、资料补充、验证节奏和下一次决策节点。",
+            "确认会议目标和预期产出：先说明本次不是直接卖方案，而是共创进入机会判断、合作边界和下一步验证路径。",
+            "校准项目背景与业务假设：围绕功能性护肤品/医美抗衰方向，确认客户为什么现在考虑、希望解决什么增长问题。",
+            "拆解机会吸引力和适配度：讨论赛道空间、东阿阿胶品牌资产、渠道复用、产品可信度和组织承接能力。",
+            "聚焦关键分歧和敏感点：把品牌调性、主业压力、原料供应、投入产出和试错成本逐项放到桌面上。",
+            "确认最小验证路径：明确先访谈谁、补哪些资料、用什么标准判断“继续推进/补充验证/暂停”。",
+            "锁定会后动作：确定责任人、资料清单、时间节点和下一次决策会议安排。",
         ]
         open_questions = [str(item).strip() for item in (memory.get("open_questions") or []) if str(item).strip()]
-        return (items + open_questions)[:6]
+        return _dedupe_nonempty(items + open_questions, limit=8)
 
     def stakeholder_lines() -> list[str]:
         values: list[str] = []
@@ -1484,27 +1680,31 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         if values:
             return values
         return [
-            "战略/新业务负责人：强调机会判断、验证路径和阶段性投入边界，避免直接承诺最终结论。",
-            "品牌与渠道相关负责人：使用“品牌调性一致性、渠道复用、风险可控”的表达，先降低对主品牌稀释的担忧。",
-            "高管/决策层：突出投入产出、试错成本和决策所需证据，让讨论落到可审批的下一步。",
+            "战略/新业务负责人：用“机会假设 + 最小验证路径 + 阶段门”的语言沟通，强调先验证再投入，避免把早期探索说成确定性结论。",
+            "品牌负责人：围绕“品牌调性一致性、功效背书边界、是否稀释主品牌”展开，主动提出风险控制口径。",
+            "渠道负责人：围绕“既有渠道能否复用、首批试点场景、转化指标和渠道投入”展开，避免只谈宏观市场机会。",
+            "产品/供应链/合规相关方：重点确认功效表达、研发周期、合规边界和供应链可行性，把不可行条件提前暴露。",
+            "高管/决策层：突出投入产出、试错成本、停止条件和下一阶段所需决策，帮助其快速判断是否值得继续推进。",
         ]
 
     def action_items() -> list[str]:
         next_actions = [str(item).strip() for item in (memory.get("next_actions") or []) if str(item).strip()]
         defaults = [
             "会后 24 小时内输出会议纪要，标注已达成共识、待确认问题和责任人。",
-            "补齐业务进入假设所需资料，包括赛道规模、客户资产、竞品路径和初步商业验证口径。",
-            "约定下一次推进会时间，并在会前完成关键假设和风险清单更新。",
+            "补齐业务进入假设所需资料，包括赛道规模、竞品路径、渠道资产、品牌边界、试点预算和合规要求。",
+            "形成一页机会判断框架，把“赛道吸引力、客户适配度、进入难度、验证成本”作为统一决策语言。",
+            "安排 3-5 位关键人访谈，覆盖战略、新业务、品牌、渠道、产品/合规等角色。",
+            "约定下一次推进会时间，并在会前完成关键假设、风险清单和资料缺口更新。",
         ]
-        return (next_actions + defaults)[:6]
+        return _dedupe_nonempty(next_actions + defaults, limit=8)
 
     def default_section_content(heading: str) -> str:
         normalized = clean_heading(heading)
         if "开场" in normalized or "话术" in normalized:
             return (
-                f"各位好，今天我们围绕「{project.get('name') or '本项目'}」做一次聚焦沟通。"
-                f"我们的目标不是先下结论，而是把当前判断、关键分歧和后续验证动作讲清楚。"
-                f"我会先用几分钟对齐背景，再按议题逐项讨论，最后确认会后行动清单。"
+                f"各位好，今天我们围绕「{project.get('name') or '本项目'}」做一次大前期沟通。"
+                f"我们不会在还没有充分验证前直接给一个确定结论，而是先把机会假设、客户资产、关键风险和下一步验证方式放到同一张桌面上。"
+                f"今天希望达成三件事：第一，对齐为什么要看功能性护肤品/医美抗衰这类新方向；第二，确认哪些判断需要客户内部资料和关键人访谈支持；第三，明确会后谁补什么资料、什么时候进入下一次决策讨论。"
             )
         if "议题" in normalized or "顺序" in normalized or "流程" in normalized:
             return "\n".join(f"{index}. {item}" for index, item in enumerate(agenda_items(), start=1))
@@ -1546,6 +1746,21 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         missing = [heading for heading in requested_headings if f"## {heading}" not in content]
         if missing:
             raise ValueError(f"Text artifact missing requested sections: {', '.join(missing)}")
+    elif any(token in normalized_goal.lower() for token in ("storyline", "大纲", "沟通框架", "沟通方案")):
+        content = "\n\n".join(
+            [
+                f"# {title}",
+                f"## 一句话沟通主线\n本次沟通建议围绕「{project.get('name') or '本项目'}」先建立共同判断语言：为什么看这个机会、东阿阿胶有哪些可迁移资产、哪些风险必须先验证、下一阶段如何低成本推进。",
+                "## Storyline 结构\n"
+                "1. 背景校准：从客户增长诉求和新业务孵化职责切入，说明为什么此时讨论功能性护肤品/医美抗衰机会。\n"
+                "2. 机会假设：拆解赛道吸引力、品牌适配度、渠道复用空间和产品可信度。\n"
+                "3. 关键分歧：把品牌调性、投入产出、组织承接、合规和供应链边界作为需要共同验证的问题。\n"
+                "4. 进入路径：给出自有品牌延伸、联合试点、概念验证三类路径，并说明适用条件。\n"
+                "5. 行动闭环：明确资料清单、关键人访谈、时间表和下一次决策点。",
+                f"## 客户关注与表达方式\n{default_section_content('每个关键人应关注的表达方式')}",
+                "## 会后推进动作\n" + "\n".join(f"- [ ] {item}" for item in action_items()),
+            ]
+        )
     else:
         sections = [
             f"# {title}",

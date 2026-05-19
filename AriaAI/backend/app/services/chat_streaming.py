@@ -61,6 +61,8 @@ from app.services.chat_tools import (  # noqa: F401
     _tool_progress_payload,
     _tool_start_progress_payload,
 )
+import logging
+
 from app.services.chat_artifacts import (  # noqa: F401
     _build_artifact_notice,
     _build_slides_from_strategy_text,
@@ -73,6 +75,8 @@ from app.services.chat_artifacts import (  # noqa: F401
     _route_ppt_tool_for_skill,
     _should_auto_generate_digital_strategy_ppt,
 )
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
@@ -835,7 +839,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         except Exception as exc:
             import traceback
 
-            print(f"[durable_task_stream error] {exc}\n{traceback.format_exc()}", flush=True)
+            logger.error(f"[durable_task_stream error] {exc}", exc_info=True)
             yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
             return
 
@@ -846,7 +850,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         p1_truncated = False
         p1_double_truncated = False
 
-        print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
+        logger.info(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}")
         prepare_context_label = "\u9879\u76ee\u4e0a\u4e0b\u6587" if req.project_id else "\u5de5\u4f5c\u53f0\u6458\u8981"
         yield _sse_event(
             {
@@ -914,9 +918,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             mixed_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
             if mixed_tool_blocks:
                 for block in mixed_tool_blocks:
-                    print(
-                        f"[P1] tool_use detected in mixed text: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}",
-                        flush=True,
+                    logger.info(
+                        f"[P1] tool_use detected in mixed text: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}"
                     )
                     tool_use_blocks.append(block)
                     yield _sse_event(
@@ -935,9 +938,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 try:
                     block = json.loads(stripped)
                     if block.get("type") == "tool_use":
-                        print(
-                            f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}",
-                            flush=True,
+                        logger.info(
+                            f"[P1] tool_use detected: {block.get('name')}, id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}"
                         )
                         if not first_model_event_recorded:
                             first_model_event_recorded = True
@@ -961,7 +963,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             text_buffer += chunk
             yield _sse_event({"type": "text", "content": chunk})
 
-        print(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}", flush=True)
+        logger.info(f"[P1] done. text_len={len(text_buffer)}, tool_use_count={len(tool_use_blocks)}")
         stage_timings["planning_ms"] = round((time.perf_counter() - p1_started_at) * 1000)
         yield _sse_event({"type": "timing", "key": "planning_ms", "duration_ms": stage_timings["planning_ms"]})
         if p1_truncated and text_buffer.strip():
@@ -1137,7 +1139,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
 
-            print(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}", flush=True)
+            logger.info(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}")
             tool_started_at = time.perf_counter()
             try:
                 result = None
@@ -1155,7 +1157,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             except Exception as exc:
                 result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
 
-            print(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}", flush=True)
+            logger.info(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}")
             yield _sse_event({"type": "tool_result", "result": result})
             tool_duration_ms = round((time.perf_counter() - tool_started_at) * 1000)
             yield _sse_event({"type": "timing", "key": f"tool:{tool_name}", "duration_ms": tool_duration_ms})
@@ -1184,7 +1186,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 }
             )
 
-        print(f"[P2] done. tool_result_blocks={len(tool_result_blocks)}", flush=True)
+        logger.info(f"[P2] done. tool_result_blocks={len(tool_result_blocks)}")
         if tool_use_blocks:
             stage_timings["tools_total_ms"] = round((time.perf_counter() - tools_started_at) * 1000)
             yield _sse_event({"type": "timing", "key": "tools_total_ms", "duration_ms": stage_timings["tools_total_ms"]})
@@ -1228,7 +1230,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 {"role": "user", "content": tool_result_blocks},
             ]
 
-            print(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}", flush=True)
+            logger.info(f"[P3] starting follow-up. continuation_messages={len(continuation_messages)}")
             follow_up_started_at = time.perf_counter()
             yield _sse_event(
                 _workflow_status(
@@ -1272,7 +1274,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 mixed_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
                 if mixed_tool_blocks:
                     for block in mixed_tool_blocks:
-                        print(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}", flush=True)
+                        logger.info(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}")
                         p3_tool_use_blocks.append(block)
                         yield _sse_event({"type": "status", "stage": "tool_planned", "message": f"\u6a21\u578b\u5df2\u89c4\u5212\u8c03\u7528\u5de5\u5177\uff1a{block.get('name')}"})
                     if cleaned_chunk:
@@ -1306,7 +1308,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
 
             p3_tool_result_blocks = []
             if p3_tool_use_blocks:
-                print(f"[P3] executing {len(p3_tool_use_blocks)} detected tool_use blocks", flush=True)
+                logger.info(f"[P3] executing {len(p3_tool_use_blocks)} detected tool_use blocks")
                 yield _sse_event({"type": "status", "stage": "tools", "message": "\u68c0\u6d4b\u5230\u540e\u7eed\u5de5\u5177\u8c03\u7528\uff0c\u6b63\u5728\u6267\u884c..."})
                 for tool_data in p3_tool_use_blocks:
                     tool_name = tool_data.get("name", "")
@@ -1378,6 +1380,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                         "summary": tool_input.get("summary"),
                                         "folder_id": output.get("folder_id") if isinstance(output, dict) else tool_input.get("folder_id"),
                                         "saved": True,
+                                        "original_content": output.get("original_content") if isinstance(output, dict) else None,
                                     }
                                 )
                                 tool_call_events.append(
@@ -1483,7 +1486,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         {"role": "user", "content": p3_tool_result_blocks},
                     ]
 
-                    print(f"[P3] re-follow-up after tool execution. messages={len(p3_re_follow_messages)}", flush=True)
+                    logger.info(f"[P3] re-follow-up after tool execution. messages={len(p3_re_follow_messages)}")
                     yield _sse_event({"type": "status", "stage": "follow_up", "message": "\u5de5\u5177\u7ed3\u679c\u5df2\u8fd4\u56de\uff0c\u6b63\u5728\u751f\u6210\u6700\u7ec8\u7b54\u590d..."})
                     re_follow_text = ""
                     async for item in _iter_with_heartbeat(
@@ -1504,6 +1507,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         chunk = item
                         chunk, was_truncated = _strip_truncation_marker(chunk)
                         if was_truncated:
+                            p3_double_truncated = True
                             yield _sse_event(
                                 {
                                     "type": "status",
@@ -1517,9 +1521,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         leaked_tool_blocks, cleaned_chunk = _extract_tool_use_json_blocks(chunk)
                         if leaked_tool_blocks:
                             for block in leaked_tool_blocks:
-                                print(
-                                    f"[P3] suppressed leaked tool_use in re-follow-up: {block.get('name')}, id={block.get('id')}",
-                                    flush=True,
+                                logger.info(
+                                    f"[P3] suppressed leaked tool_use in re-follow-up: {block.get('name')}, id={block.get('id')}"
                                 )
                             chunk = cleaned_chunk
                             stripped_chunk = chunk.strip()
@@ -1576,7 +1579,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 follow_up_text = "\u6a21\u578b\u6b63\u5728\u601d\u8003\u4e2d\uff0c\u5c1a\u672a\u751f\u6210\u6700\u7ec8\u7b54\u590d\u3002\u4f60\u53ef\u4ee5\u5c1d\u8bd5\u8865\u5145\u66f4\u5177\u4f53\u7684\u77eb\u6b63\u8981\u6c42\uff0c\u6216\u7a0d\u540e\u518d\u8bd5\u3002"
                 yield _sse_event({"type": "text", "content": follow_up_text})
 
-            print(f"[P3] done. follow_up_text_len={len(follow_up_text)}", flush=True)
+            logger.info(f"[P3] done. follow_up_text_len={len(follow_up_text)}")
             stage_timings["follow_up_ms"] = round((time.perf_counter() - follow_up_started_at) * 1000)
             yield _sse_event({"type": "timing", "key": "follow_up_ms", "duration_ms": stage_timings["follow_up_ms"]})
             yield _sse_event(
@@ -1597,7 +1600,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             yield _sse_event({"type": "status", "stage": "finalizing", "message": "模型回复已整理完成。"})
         leaked_tool_blocks, cleaned_full_text = _extract_tool_use_json_blocks(full_text)
         if leaked_tool_blocks:
-            print(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text", flush=True)
+            logger.warning(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text")
             full_text = cleaned_full_text.strip()
 
         if _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, artifacts):
@@ -1624,7 +1627,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             )
             yield _sse_event({"type": "status", "stage": "tools", "message": "\u68c0\u6d4b\u5230\u6570\u5b57\u5316\u6218\u7565 Skill \u672a\u751f\u6210 PPT\uff0c\u6b63\u5728\u81ea\u52a8\u521b\u5efa\u53ef\u4e0b\u8f7d\u6750\u6599..."})
             yield _sse_event({"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)})
-            print(f"[P2-fallback] executing tool: {tool_name}, slides={len(ppt_slides)}", flush=True)
+            logger.info(f"[P2-fallback] executing tool: {tool_name}, slides={len(ppt_slides)}")
             try:
                 result = await registry.execute(tool_name, tool_input)
             except Exception as exc:
@@ -1645,7 +1648,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 artifacts.append(artifact)
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "PPT \u5df2\u751f\u6210\uff0c\u6b63\u5728\u4fdd\u5b58\u6b63\u6587\u548c\u9644\u4ef6..."})
 
-        print(f"[P4] persisting. full_text_len={len(full_text)}", flush=True)
+        logger.info(f"[P4] persisting. full_text_len={len(full_text)}")
         if workflow_started:
             yield _sse_event(
                 _workflow_status(
@@ -1677,7 +1680,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 "3. API Key \u914d\u7f6e\u5f02\u5e38\u6216\u4f59\u989d\u4e0d\u8db3\n\n"
                 "\u5efa\u8bae\u7a0d\u540e\u91cd\u8bd5\uff0c\u6216\u524d\u5f80\u300c\u8bbe\u7f6e\u300d\u68c0\u67e5 API Key \u914d\u7f6e\u3002"
             )
-            print(f"[P4] WARNING: empty response detected, using fallback message", flush=True)
+            logger.warning("[P4] empty response detected, using fallback message")
 
         metadata = {}
         if runtime.rag_sources:
@@ -1724,11 +1727,11 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
     except Exception as exc:
         import traceback
 
-        print(f"[event_stream error] {exc}\n{traceback.format_exc()}", flush=True)
+        logger.error(f"[event_stream error] {exc}", exc_info=True)
         yield _sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
         return
 
-    print(f"[chat timing] conv={runtime.conv_id} metrics={stage_timings}", flush=True)
+    logger.info(f"[chat timing] conv={runtime.conv_id} metrics={stage_timings}")
     yield _sse_event({"type": "done", **response_metadata})
 
     if need_title and full_text:
