@@ -1659,6 +1659,96 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
         self.assertEqual(list_after_delete_resp.status_code, 200)
         self.assertEqual(list_after_delete_resp.json(), [])
 
+    def test_delete_project_file_cleans_task_artifact_and_generated_file_references(self):
+        with Session(self.engine) as session:
+            project = Project(name="Generated File Project", client="Client")
+            conversation = Conversation(title="Project chat", project_id=None)
+            session.add(project)
+            session.add(conversation)
+            session.commit()
+            session.refresh(project)
+            session.refresh(conversation)
+
+            file_path = Path("projects") / str(project.id) / "generated.md"
+            full_path = self.uploads_dir / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text("# Generated", encoding="utf-8")
+
+            project_file = ProjectFile(
+                project_id=project.id,
+                name="generated.md",
+                file_type="md",
+                path=str(file_path),
+                size_bytes=full_path.stat().st_size,
+                origin="ai_generated",
+            )
+            session.add(project_file)
+            session.commit()
+            session.refresh(project_file)
+
+            derivative = ProjectFile(
+                project_id=project.id,
+                source_file_id=project_file.id,
+                name="generated_extracted.md",
+                file_type="md",
+                path=str(Path("projects") / str(project.id) / "generated_extracted.md"),
+                size_bytes=0,
+                origin="markdown_derivative",
+            )
+            task = TaskRun(project_id=project.id, conversation_id=conversation.id, task_type="text", goal="write")
+            generated_file = GeneratedFile(
+                conversation_id=conversation.id,
+                project_id=project.id,
+                name=project_file.name,
+                file_type=project_file.file_type,
+                path=project_file.path,
+                size_bytes=project_file.size_bytes,
+            )
+            session.add(derivative)
+            session.add(task)
+            session.add(generated_file)
+            session.commit()
+            session.refresh(derivative)
+            session.refresh(task)
+
+            artifact = TaskArtifact(
+                task_run_id=task.id,
+                project_file_id=project_file.id,
+                name=project_file.name,
+                file_type=project_file.file_type,
+                path=project_file.path,
+            )
+            session.add(artifact)
+            session.commit()
+            session.refresh(artifact)
+
+            project_id = project.id
+            file_id = project_file.id
+            derivative_id = derivative.id
+            artifact_id = artifact.id
+
+        delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True})
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(ProjectFile, file_id))
+            saved_derivative = session.get(ProjectFile, derivative_id)
+            self.assertIsNotNone(saved_derivative)
+            self.assertIsNone(saved_derivative.source_file_id)
+            saved_artifact = session.get(TaskArtifact, artifact_id)
+            self.assertIsNotNone(saved_artifact)
+            self.assertIsNone(saved_artifact.project_file_id)
+            generated_files = session.exec(
+                select(GeneratedFile).where(
+                    GeneratedFile.project_id == project_id,
+                    GeneratedFile.path == str(file_path),
+                )
+            ).all()
+            self.assertEqual(generated_files, [])
+
+        self.assertFalse(full_path.exists())
+
     def test_delete_project_cascades_related_records(self):
         with Session(self.engine) as session:
             project = Project(name="Cascade Project", client="Client")

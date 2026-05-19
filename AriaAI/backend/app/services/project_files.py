@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 from sqlmodel import Session, select
 
-from app.models.db import ProjectFile
+from app.models.db import GeneratedFile, ProjectFile, TaskArtifact
 from app.services.project_todos import ensure_project_exists
 
 
@@ -69,7 +69,32 @@ def resolve_project_file_path(project_file: ProjectFile, uploads_dir: Path) -> P
 def delete_project_file(session: Session, project_id: int, file_id: int, *, uploads_dir: Path) -> None:
     project_file = get_project_file_or_404(session, project_id, file_id)
     full_path = uploads_dir / project_file.path
-    if full_path.is_file():
-        full_path.unlink()
+
+    derivative_files = session.exec(
+        select(ProjectFile).where(ProjectFile.source_file_id == file_id)
+    ).all()
+    for derivative_file in derivative_files:
+        derivative_file.source_file_id = None
+        session.add(derivative_file)
+
+    task_artifacts = session.exec(
+        select(TaskArtifact).where(TaskArtifact.project_file_id == file_id)
+    ).all()
+    for task_artifact in task_artifacts:
+        task_artifact.project_file_id = None
+        session.add(task_artifact)
+
+    generated_files = session.exec(
+        select(GeneratedFile).where(
+            GeneratedFile.project_id == project_id,
+            GeneratedFile.path == project_file.path,
+        )
+    ).all()
+    for generated_file in generated_files:
+        session.delete(generated_file)
+
     session.delete(project_file)
     session.commit()
+
+    if full_path.is_file():
+        full_path.unlink()
