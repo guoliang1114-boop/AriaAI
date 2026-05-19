@@ -321,7 +321,10 @@ def update_project_document_record(
     return {
         "ok": True,
         "id": project_file.id,
+        "project_file_id": project_file.id,
         "name": project_file.name,
+        "file_type": project_file.file_type,
+        "path": project_file.path,
         "folder_id": project_file.folder_id,
         "size_bytes": project_file.size_bytes,
     }

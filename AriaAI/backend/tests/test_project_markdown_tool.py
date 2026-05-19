@@ -45,7 +45,7 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
 
         self.assertTrue(context.tools)
         self.assertIn(PROJECT_MARKDOWN_TOOL_NAME, {tool["name"] for tool in context.tools})
-        self.assertIn("Project Markdown document tools", context.skill_prompt)
+        self.assertIn("Project space document tools", context.skill_prompt)
 
     def test_tool_creates_and_appends_markdown_document(self):
         project_id = self._create_project()
@@ -69,6 +69,9 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
             output = created["output"]
             self.assertEqual(created["status"], "success")
             self.assertEqual(output["action"], "created")
+            self.assertEqual(output["file_type"], "md")
+            self.assertEqual(output["project_file_id"], output["id"])
+            self.assertTrue(output["path"].endswith("status.md"))
 
             appended = asyncio.run(
                 registry.execute(
@@ -83,6 +86,11 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
             )
 
         self.assertEqual(appended["status"], "success")
+        appended_output = appended["output"]
+        self.assertEqual(appended_output["action"], "appended")
+        self.assertEqual(appended_output["file_type"], "md")
+        self.assertEqual(appended_output["project_file_id"], output["id"])
+        self.assertEqual(appended_output["path"], output["path"])
         with Session(self.engine) as session:
             project_file = project_markdown_tool.get_project_document_file_or_404(
                 session,

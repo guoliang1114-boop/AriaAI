@@ -1065,27 +1065,43 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                 write_result = None
                 try:
                     write_result = await registry.execute(tool_name, tool_input)
-                    pending_markdown_saves.append(
-                        {
-                            "tool_use_id": tool_id,
-                            "project_id": runtime.project_id,
-                            "file_id": tool_input.get("file_id"),
-                            "file_name": tool_input.get("file_name"),
-                            "mode": tool_input.get("mode"),
-                            "content": markdown_content,
-                            "summary": tool_input.get("summary"),
-                            "folder_id": tool_input.get("folder_id"),
-                            "saved": True,
-                        }
-                    )
-                    tool_call_events.append(
-                        {
-                            "tool_name": tool_name,
-                            "status": "completed",
-                            "message": "\u5df2\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u3002",
-                            "summary": "\u5df2\u4fdd\u5b58\u5230\u9879\u76ee Markdown \u6587\u4ef6",
-                        }
-                    )
+                    artifact = _extract_artifact(write_result)
+                    if artifact:
+                        artifacts.append(artifact)
+                    write_failed = write_result.get("status") == "error" or write_result.get("success") is False
+                    output = write_result.get("output", write_result)
+                    if write_failed:
+                        tool_call_events.append(
+                            {
+                                "tool_name": tool_name,
+                                "status": "error",
+                                "message": "\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u5931\u8d25\u3002",
+                                "summary": _summarize_tool_result(write_result),
+                                "error": str(write_result.get("error") or output.get("error") if isinstance(output, dict) else ""),
+                            }
+                        )
+                    else:
+                        pending_markdown_saves.append(
+                            {
+                                "tool_use_id": tool_id,
+                                "project_id": runtime.project_id,
+                                "file_id": output.get("project_file_id") or output.get("id") if isinstance(output, dict) else tool_input.get("file_id"),
+                                "file_name": output.get("name") if isinstance(output, dict) else tool_input.get("file_name"),
+                                "mode": tool_input.get("mode"),
+                                "content": markdown_content,
+                                "summary": tool_input.get("summary"),
+                                "folder_id": output.get("folder_id") if isinstance(output, dict) else tool_input.get("folder_id"),
+                                "saved": True,
+                            }
+                        )
+                        tool_call_events.append(
+                            {
+                                "tool_name": tool_name,
+                                "status": "completed",
+                                "message": "\u5df2\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u3002",
+                                "summary": _summarize_tool_result(write_result),
+                            }
+                        )
                     yield _sse_event({"type": "tool_result", "result": write_result})
                 except Exception as exc:
                     write_result = {
@@ -1103,6 +1119,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                             "error": str(exc),
                         }
                     )
+                    yield _sse_event({"type": "tool_result", "result": write_result})
                 output = write_result.get("output", write_result) if write_result else {"error": "No result"}
                 tool_result_blocks.append(
                     {
@@ -1328,27 +1345,43 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         write_result = None
                         try:
                             write_result = await registry.execute(tool_name, tool_input)
-                            pending_markdown_saves.append(
-                                {
-                                    "tool_use_id": tool_id,
-                                    "project_id": runtime.project_id,
-                                    "file_id": tool_input.get("file_id"),
-                                    "file_name": tool_input.get("file_name"),
-                                    "mode": tool_input.get("mode"),
-                                    "content": markdown_content,
-                                    "summary": tool_input.get("summary"),
-                                    "folder_id": tool_input.get("folder_id"),
-                                    "saved": True,
-                                }
-                            )
-                            tool_call_events.append(
-                                {
-                                    "tool_name": tool_name,
-                                    "status": "completed",
-                                    "message": "\u5df2\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u3002",
-                                    "summary": "\u5df2\u4fdd\u5b58\u5230\u9879\u76ee Markdown \u6587\u4ef6",
-                                }
-                            )
+                            artifact = _extract_artifact(write_result)
+                            if artifact:
+                                artifacts.append(artifact)
+                            write_failed = write_result.get("status") == "error" or write_result.get("success") is False
+                            output = write_result.get("output", write_result)
+                            if write_failed:
+                                tool_call_events.append(
+                                    {
+                                        "tool_name": tool_name,
+                                        "status": "error",
+                                        "message": "\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u5931\u8d25\u3002",
+                                        "summary": _summarize_tool_result(write_result),
+                                        "error": str(write_result.get("error") or output.get("error") if isinstance(output, dict) else ""),
+                                    }
+                                )
+                            else:
+                                pending_markdown_saves.append(
+                                    {
+                                        "tool_use_id": tool_id,
+                                        "project_id": runtime.project_id,
+                                        "file_id": output.get("project_file_id") or output.get("id") if isinstance(output, dict) else tool_input.get("file_id"),
+                                        "file_name": output.get("name") if isinstance(output, dict) else tool_input.get("file_name"),
+                                        "mode": tool_input.get("mode"),
+                                        "content": markdown_content,
+                                        "summary": tool_input.get("summary"),
+                                        "folder_id": output.get("folder_id") if isinstance(output, dict) else tool_input.get("folder_id"),
+                                        "saved": True,
+                                    }
+                                )
+                                tool_call_events.append(
+                                    {
+                                        "tool_name": tool_name,
+                                        "status": "completed",
+                                        "message": "\u5df2\u5199\u5165\u9879\u76ee Markdown \u6587\u4ef6\u3002",
+                                        "summary": _summarize_tool_result(write_result),
+                                    }
+                                )
                             yield _sse_event({"type": "tool_result", "result": write_result})
                         except Exception as exc:
                             write_result = {
@@ -1366,6 +1399,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                     "error": str(exc),
                                 }
                             )
+                            yield _sse_event({"type": "tool_result", "result": write_result})
                         output = write_result.get("output", write_result) if write_result else {"error": "No result"}
                         p3_tool_result_blocks.append(
                             {

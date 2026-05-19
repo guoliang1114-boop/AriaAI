@@ -408,6 +408,26 @@ class ExtractArtifactTests(unittest.TestCase):
         result = _extract_artifact({"file_path": "/a/meeting.md", "file_name": "meeting.md", "file_type": "txt"})
         self.assertEqual(result["file_type"], "md")
 
+    def test_project_markdown_tool_output_becomes_artifact(self):
+        result = _extract_artifact(
+            {
+                "type": "tool_result",
+                "tool_name": "update_project_markdown_document",
+                "status": "success",
+                "output": {
+                    "id": 7,
+                    "project_file_id": 7,
+                    "name": "meeting.md",
+                    "file_type": "md",
+                    "path": "projects/27/abc_meeting.md",
+                    "message": "Updated meeting.md",
+                },
+            }
+        )
+        self.assertEqual(result["name"], "meeting.md")
+        self.assertEqual(result["file_type"], "md")
+        self.assertEqual(result["project_file_id"], 7)
+
 
 class RepairProjectOfficeToolInputTests(unittest.TestCase):
     def test_repairs_interview_excel_request(self):
@@ -443,6 +463,9 @@ class SummarizeToolResultTests(unittest.TestCase):
 
     def test_message(self):
         self.assertEqual(_summarize_tool_result({"message": "done"}), "done")
+
+    def test_nested_output_message(self):
+        self.assertEqual(_summarize_tool_result({"output": {"message": "Updated meeting.md"}}), "Updated meeting.md")
 
     def test_success_true(self):
         self.assertEqual(_summarize_tool_result({"success": True}), "Completed successfully")

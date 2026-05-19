@@ -74,6 +74,14 @@ def _to_user_friendly_error(error_msg: str) -> str:
 def _summarize_tool_result(result: dict) -> str:
     if result.get("error"):
         return str(result.get("error"))
+    output = result.get("output")
+    if isinstance(output, dict):
+        if output.get("error"):
+            return str(output.get("error"))
+        if output.get("message"):
+            return str(output.get("message"))
+        if output.get("file_name"):
+            return f"Created {output.get('file_name')}"
     if result.get("file_name"):
         return f"Created {result.get('file_name')}"
     if result.get("message"):
