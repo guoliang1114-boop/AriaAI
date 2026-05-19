@@ -116,13 +116,27 @@ export function useProjectChatComposer({
   scrollToBottom,
   onSendError,
 }: UseProjectChatComposerParams) {
-  const streamStore = useChatStreamStore();
+  const isLoading = useChatStreamStore((state) => state.isLoading);
+  const streamingArtifacts = useChatStreamStore((state) => state.streamingArtifacts);
+  const streamingContent = useChatStreamStore((state) => state.streamingContent);
+  const streamingStatus = useChatStreamStore((state) => state.streamingStatus);
+  const streamingReferences = useChatStreamStore((state) => state.streamingReferences);
+  const streamingToolCalls = useChatStreamStore((state) => state.streamingToolCalls);
+  const streamingTruncated = useChatStreamStore((state) => state.streamingTruncated);
+  const setStreamIsLoading = useChatStreamStore((state) => state.setIsLoading);
+  const appendStreamText = useChatStreamStore((state) => state.appendText);
+  const setStreamStatus = useChatStreamStore((state) => state.setStatus);
+  const setStreamToolCalls = useChatStreamStore((state) => state.setStreamingToolCalls);
+  const setStreamReferences = useChatStreamStore((state) => state.setReferences);
+  const setStreamArtifacts = useChatStreamStore((state) => state.setStreamingArtifacts);
+  const setStreamTruncated = useChatStreamStore((state) => state.setTruncated);
+  const resetStream = useChatStreamStore((state) => state.reset);
   const abortControllerRef = useRef<AbortController | null>(null);
   const abortControllerAsyncRef = useRef<AbortController | null>(null);
 
   const resetStreamingContent = useCallback(() => {
-    streamStore.reset();
-  }, [streamStore]);
+    resetStream();
+  }, [resetStream]);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -131,13 +145,13 @@ export function useProjectChatComposer({
 
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
-      streamStore.setIsLoading(true);
-      streamStore.reset();
+      setStreamIsLoading(true);
+      resetStream();
 
       if (!conversationId) {
         conversationId = await createConversation(trimmed, skillId || null);
         if (!conversationId) {
-          streamStore.setIsLoading(false);
+          setStreamIsLoading(false);
           return false;
         }
       }
@@ -227,8 +241,8 @@ export function useProjectChatComposer({
 
             if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
               fullContent += payload.content;
-              streamStore.appendText(payload.content);
-              streamStore.setStatus("");
+              appendStreamText(payload.content);
+              setStreamStatus("");
             } else if (payload.type === "status" && payload.message) {
               if (payload.step_index) {
                 const stepCall: ToolCallEvent = {
@@ -242,16 +256,16 @@ export function useProjectChatComposer({
                   step_title: payload.step_title,
                 };
                 collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
-                streamStore.setStreamingToolCalls(collectedToolCalls);
+                setStreamToolCalls(collectedToolCalls);
                 continue;
               }
-              streamStore.setStatus(payload.message);
+              setStreamStatus(payload.message);
               if (payload.stage === "saving" || payload.stage === "finalizing") {
-                streamStore.setStreamingToolCalls(collectedToolCalls.filter((call) => call.status !== "running"));
+                setStreamToolCalls(collectedToolCalls.filter((call) => call.status !== "running"));
               }
             } else if (payload.type === "references") {
               collectedReferences = payload.references || [];
-              streamStore.setReferences(collectedReferences);
+              setStreamReferences(collectedReferences);
             } else if (payload.type === "task_run" && payload.task) {
               const task = payload.task as TaskRun;
               latestTaskRun = task;
@@ -264,7 +278,7 @@ export function useProjectChatComposer({
                     upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
                   collectedToolCalls,
                 );
-                streamStore.setStreamingToolCalls(collectedToolCalls);
+                setStreamToolCalls(collectedToolCalls);
               }
               if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
                 collectedArtifacts = upsertArtifacts(
@@ -273,14 +287,14 @@ export function useProjectChatComposer({
                     .map((artifact: TaskRunArtifact) => artifactFromTaskRunArtifact(artifact))
                     .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
                 );
-                streamStore.setStreamingArtifacts(collectedArtifacts);
+                setStreamArtifacts(collectedArtifacts);
               }
             } else if (payload.type === "tool_executing" && payload.tool_name) {
               const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
               const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
               if (hasActiveWorkflowStep) {
                 collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
-                streamStore.setStreamingToolCalls(collectedToolCalls);
+                setStreamToolCalls(collectedToolCalls);
                 continue;
               }
               const runningCall: ToolCallEvent = {
@@ -292,7 +306,7 @@ export function useProjectChatComposer({
                 ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
                 runningCall,
               ];
-              streamStore.setStreamingToolCalls([
+              setStreamToolCalls([
                 ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
               ]);
             } else if (payload.type === "tool_result" && payload.result) {
@@ -323,12 +337,12 @@ export function useProjectChatComposer({
                   completedCall,
                 ];
               }
-              streamStore.setStreamingToolCalls(collectedToolCalls);
+              setStreamToolCalls(collectedToolCalls);
 
               const artifact = artifactFromResult(result);
               if (artifact) {
                 collectedArtifacts = upsertArtifacts(collectedArtifacts, [artifact]);
-                streamStore.setStreamingArtifacts(collectedArtifacts);
+                setStreamArtifacts(collectedArtifacts);
               }
             } else if (payload.type === "done") {
               if (payload.task_run_id || payload.task_type || payload.task) {
@@ -342,11 +356,11 @@ export function useProjectChatComposer({
               }
               if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
                 collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
-                streamStore.setStreamingArtifacts(collectedArtifacts);
+                setStreamArtifacts(collectedArtifacts);
               }
             } else if (payload.type === "truncated") {
               wasTruncated = true;
-              streamStore.setTruncated(true);
+              setStreamTruncated(true);
             } else if (payload.type === "error") {
               throw new Error(payload.message || payload.error || "Chat failed");
             }
@@ -355,7 +369,7 @@ export function useProjectChatComposer({
 
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
         const isTruncated = wasTruncated;
-        streamStore.reset();
+        resetStream();
         if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
           const assistantMessage = buildAssistantMessage({
             artifacts: collectedArtifacts,
@@ -386,7 +400,7 @@ export function useProjectChatComposer({
               ? { ...call, status: "error" as const, error: "Generation stopped" }
               : call,
           );
-          streamStore.reset();
+          resetStream();
           if (fullContent.trim()) {
             const assistantMessage = buildAssistantMessage({
               artifacts: collectedArtifacts,
@@ -402,13 +416,13 @@ export function useProjectChatComposer({
           return false;
         }
         console.error("Failed to send message:", error);
-        streamStore.reset();
+        resetStream();
         onSendError();
         await fetchMessages(conversationId);
         return false;
       } finally {
         abortControllerRef.current = null;
-        streamStore.setIsLoading(false);
+        setStreamIsLoading(false);
       }
     },
     [
@@ -420,13 +434,19 @@ export function useProjectChatComposer({
       knowledgeScope,
       onSendError,
       projectId,
-      resetStreamingContent,
+      appendStreamText,
       scrollToBottom,
       selectedSkillId,
       selectedModel,
       forceSkill,
+      resetStream,
+      setStreamArtifacts,
+      setStreamIsLoading,
+      setStreamReferences,
+      setStreamStatus,
+      setStreamToolCalls,
+      setStreamTruncated,
       setMessages,
-      streamStore,
     ],
   );
 
@@ -557,13 +577,13 @@ export function useProjectChatComposer({
   );
 
   return {
-    isLoading: streamStore.isLoading,
-    streamingArtifacts: streamStore.streamingArtifacts,
-    streamingContent: streamStore.streamingContent,
-    streamingStatus: streamStore.streamingStatus,
-    streamingReferences: streamStore.streamingReferences,
-    streamingToolCalls: streamStore.streamingToolCalls,
-    streamingTruncated: streamStore.streamingTruncated,
+    isLoading,
+    streamingArtifacts,
+    streamingContent,
+    streamingStatus,
+    streamingReferences,
+    streamingToolCalls,
+    streamingTruncated,
     resetStreamingContent,
     sendMessage,
     sendMessageAsync,
