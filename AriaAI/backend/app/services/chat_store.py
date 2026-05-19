@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from app.config import CONVERSATION_CACHE_TTL, UPLOADS_DIR
+from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
 from app.models.db import Conversation, GeneratedFile, Message, TaskRun, ToolCall
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
 _CONV_TTL = CONVERSATION_CACHE_TTL
+_RETENTION_DAYS = max(CHAT_RETENTION_DAYS, 1)
 
 
 def list_conversations_cached(
@@ -21,6 +22,8 @@ def list_conversations_cached(
     project_id: Optional[int] = None,
     standalone: bool = False,
 ):
+    purge_expired_conversations(session)
+
     cache_key = f"list:{project_id or ''}:{'s' if standalone else ''}"
     cached = conversations_cache.get(cache_key)
     if cached is not None:
@@ -35,6 +38,26 @@ def list_conversations_cached(
     result = session.exec(stmt).all()
     conversations_cache.set(cache_key, result, _CONV_TTL)
     return result
+
+
+def purge_expired_conversations(
+    session: Session,
+    *,
+    retention_days: int = _RETENTION_DAYS,
+    now: Optional[datetime] = None,
+) -> int:
+    cutoff = (now or utc_now_naive()) - timedelta(days=max(retention_days, 1))
+    expired = session.exec(
+        select(Conversation).where(Conversation.updated_at < cutoff).order_by(Conversation.updated_at)
+    ).all()
+    if not expired:
+        return 0
+
+    for conv in expired:
+        if conv.id is not None:
+            delete_conversation_with_messages(session, conv.id, clear_cache=False)
+    conversations_cache.delete_prefix("list:")
+    return len(expired)
 
 
 def get_conversation_or_404(session: Session, conv_id: int) -> Conversation:
@@ -248,7 +271,7 @@ def persist_assistant_message(
     return need_title
 
 
-def delete_conversation_with_messages(session: Session, conv_id: int) -> None:
+def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_cache: bool = True) -> None:
     conv = get_conversation_or_404(session, conv_id)
     for task in session.exec(select(TaskRun).where(TaskRun.conversation_id == conv_id)).all():
         task.conversation_id = None
@@ -261,7 +284,8 @@ def delete_conversation_with_messages(session: Session, conv_id: int) -> None:
         session.delete(msg)
     session.delete(conv)
     session.commit()
-    conversations_cache.delete_prefix("list:")
+    if clear_cache:
+        conversations_cache.delete_prefix("list:")
 
 
 def update_conversation_title(

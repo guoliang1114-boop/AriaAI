@@ -135,6 +135,7 @@ CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == 
 CONVERSATION_CACHE_TTL = float(os.getenv("CONVERSATION_CACHE_TTL", "20.0"))
 PROJECTS_CACHE_TTL = float(os.getenv("PROJECTS_CACHE_TTL", "120.0"))
 SETTINGS_CACHE_TTL = float(os.getenv("SETTINGS_CACHE_TTL", "300.0"))
+CHAT_RETENTION_DAYS = int(os.getenv("CHAT_RETENTION_DAYS", "7"))
 
 # =============================================================================
 # Scheduler Configuration

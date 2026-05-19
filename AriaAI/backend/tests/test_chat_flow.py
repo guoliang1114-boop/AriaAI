@@ -60,7 +60,7 @@ from app.routers import projects_memory as projects_memory_module
 from app.routers import projects_deps as projects_deps_module
 from app.routers import projects_files as projects_files_module
 from app.routers import skills as skills_router_module
-from app.services.cache import projects_cache
+from app.services.cache import conversations_cache, projects_cache
 from app.services import chat_exports as chat_exports_module
 from app.services import chat_streaming as chat_streaming_module
 from app.services import client_contexts as client_contexts_module
@@ -173,6 +173,7 @@ def collect_async_generator(async_gen):
 class ChatRouterTestCase(unittest.TestCase):
     def setUp(self):
         projects_cache.clear()
+        conversations_cache.clear()
         self.engine = create_test_engine()
         drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
@@ -229,6 +230,66 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertIn("# Regression Chat", export_resp.text)
         self.assertIn("**User**", export_resp.text)
         self.assertIn("**Assistant**", export_resp.text)
+
+    def test_conversation_list_purges_items_inactive_for_more_than_7_days(self):
+        now = utc_now_naive()
+        with Session(self.engine) as session:
+            project = Project(name="Retention Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+
+            old_conv = Conversation(
+                title="Old Chat",
+                created_at=now - timedelta(days=10),
+                updated_at=now - timedelta(days=8),
+            )
+            recent_conv = Conversation(
+                title="Recent Chat",
+                created_at=now - timedelta(days=20),
+                updated_at=now - timedelta(days=1),
+            )
+            session.add(old_conv)
+            session.add(recent_conv)
+            session.commit()
+            session.refresh(old_conv)
+            session.refresh(recent_conv)
+
+            session.add(Message(conversation_id=old_conv.id, role="user", content="old"))
+            session.add(Message(conversation_id=recent_conv.id, role="user", content="recent"))
+            task = TaskRun(
+                project_id=project.id,
+                conversation_id=old_conv.id,
+                task_type="text_artifact",
+                goal="old task",
+            )
+            artifact = GeneratedFile(
+                conversation_id=old_conv.id,
+                name="old.md",
+                file_type="md",
+                path="generated/old.md",
+            )
+            session.add(task)
+            session.add(artifact)
+            session.commit()
+            old_conv_id = old_conv.id
+            recent_conv_id = recent_conv.id
+            task_id = task.id
+
+        list_resp = self.client.get("/chat/conversations")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual([item["id"] for item in list_resp.json()], [recent_conv_id])
+
+        with Session(self.engine) as session:
+            self.assertIsNone(session.get(Conversation, old_conv_id))
+            self.assertIsNotNone(session.get(Conversation, recent_conv_id))
+            old_messages = session.exec(select(Message).where(Message.conversation_id == old_conv_id)).all()
+            old_artifacts = session.exec(select(GeneratedFile).where(GeneratedFile.conversation_id == old_conv_id)).all()
+            self.assertEqual(old_messages, [])
+            self.assertEqual(old_artifacts, [])
+            task = session.get(TaskRun, task_id)
+            self.assertIsNotNone(task)
+            self.assertIsNone(task.conversation_id)
 
     def test_patch_conversation_updates_title(self):
         create_resp = self.client.post(

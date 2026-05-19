@@ -18,6 +18,7 @@ from app.routers import chat, projects, projects_memory, projects_files, project
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
+from app.services.chat_store import purge_expired_conversations
 
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
@@ -134,6 +135,10 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).info(
             "ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping default admin seed."
         )
+    with Session(engine) as session:
+        purged_count = purge_expired_conversations(session)
+        if purged_count:
+            logging.getLogger(__name__).info("Purged %s expired conversations.", purged_count)
     if SCHEDULER_ENABLED:
         scheduler.start()
     yield
