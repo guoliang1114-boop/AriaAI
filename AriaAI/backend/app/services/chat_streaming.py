@@ -547,6 +547,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         file_ids=req.file_ids if req.file_ids else None,
         content=req.content,
         default_max_tokens=max_tokens,
+        mention_context=req.mention_context.model_dump() if req.mention_context else None,
     )
     expanded_query_allowed = req.project_id is None or (req.knowledge_scope or "project") != "project"
     has_client_portfolio_context = chat_ctx.project_context.startswith("# Client Project Portfolio Context") or (
@@ -559,6 +560,13 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     step_started_at = time.perf_counter()
     selected_model = get_selected_model(session)
+    # Allow user to override model per-request
+    user_model = (req.model or "").strip()
+    if user_model:
+        model_lower = user_model.lower()
+        known_prefixes = ("claude-", "kimi-", "moonshot-", "deepseek-", "glm-", "mimo-")
+        if any(model_lower.startswith(p) for p in known_prefixes):
+            selected_model = user_model
     runtime_model, runtime_max_tokens = _resolve_runtime_model_and_tokens(
         req,
         selected_model,
@@ -836,6 +844,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         tool_use_blocks = []
         reasoning_content = ""
         p1_truncated = False
+        p1_double_truncated = False
 
         print(f"[P1] starting stream, tools={[t.get('name') for t in (runtime.tools or [])]}", flush=True)
         prepare_context_label = "\u9879\u76ee\u4e0a\u4e0b\u6587" if req.project_id else "\u5de5\u4f5c\u53f0\u6458\u8981"
@@ -984,13 +993,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                     if chunk:
                         text_buffer += chunk
                         yield _sse_event({"type": "text", "content": chunk})
-                    text_buffer += "\n\n\uff08\u5185\u5bb9\u8f83\u957f\uff0c\u5df2\u8fbe\u5230\u5355\u6b21\u56de\u590d\u957f\u5ea6\u4e0a\u9650\u3002\u4f60\u53ef\u4ee5\u7ee7\u7eed\u53d1\u9001\u201c\u7ee7\u7eed\u201d\uff0c\u6211\u4f1a\u4ece\u8fd9\u91cc\u63a5\u7740\u5c55\u5f00\u3002\uff09"
-                    yield _sse_event(
-                        {
-                            "type": "text",
-                            "content": "\n\n\uff08\u5185\u5bb9\u8f83\u957f\uff0c\u5df2\u8fbe\u5230\u5355\u6b21\u56de\u590d\u957f\u5ea6\u4e0a\u9650\u3002\u4f60\u53ef\u4ee5\u7ee7\u7eed\u53d1\u9001\u201c\u7ee7\u7eed\u201d\uff0c\u6211\u4f1a\u4ece\u8fd9\u91cc\u63a5\u7740\u5c55\u5f00\u3002\uff09",
-                        }
-                    )
+                    p1_double_truncated = True
+                    yield _sse_event({"type": "truncated", "can_continue": True})
                     break
                 if not chunk:
                     continue
@@ -1092,6 +1096,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                                 "summary": tool_input.get("summary"),
                                 "folder_id": output.get("folder_id") if isinstance(output, dict) else tool_input.get("folder_id"),
                                 "saved": True,
+                                "original_content": output.get("original_content") if isinstance(output, dict) else None,
                             }
                         )
                         tool_call_events.append(
@@ -1236,6 +1241,7 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
             )
             yield _sse_event({"type": "status", "stage": "follow_up", "message": "\u5de5\u5177\u7ed3\u679c\u5df2\u8fd4\u56de\uff0c\u6b63\u5728\u751f\u6210\u6700\u7ec8\u7b54\u590d..."})
             p3_truncated = False
+            p3_double_truncated = False
             p3_tool_use_blocks = []
             p3_reasoning_content = ""
             async for item in _iter_with_heartbeat(
@@ -1559,12 +1565,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
                         if chunk:
                             follow_up_text += chunk
                             yield _sse_event({"type": "text", "content": chunk})
-                        yield _sse_event(
-                            {
-                                "type": "text",
-                                "content": "\n\n\uff08\u5185\u5bb9\u8f83\u957f\uff0c\u5df2\u8fbe\u5230\u5355\u6b21\u56de\u590d\u957f\u5ea6\u4e0a\u9650\u3002\u4f60\u53ef\u4ee5\u7ee7\u7eed\u53d1\u9001\u201c\u7ee7\u7eed\u201d\uff0c\u6211\u4f1a\u4ece\u8fd9\u91cc\u63a5\u7740\u5c55\u5f00\u3002\uff09",
-                            }
-                        )
+                        p3_double_truncated = True
+                        yield _sse_event({"type": "truncated", "can_continue": True})
                         break
                     if not chunk:
                         continue
@@ -1691,6 +1693,8 @@ async def stream_chat_events(runtime: ChatRuntime, req: SendMessageRequest, bind
         if runtime.skill_name:
             metadata["skill_id"] = req.skill_id
             metadata["skill_progress"] = _build_completed_skill_progress(tool_call_events, full_text)
+        if p1_double_truncated or p3_double_truncated:
+            metadata["truncated"] = True
         stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
         stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
         metadata["stage_timings"] = stage_timings

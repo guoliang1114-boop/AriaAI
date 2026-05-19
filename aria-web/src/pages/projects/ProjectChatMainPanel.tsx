@@ -2,6 +2,8 @@ import { BookOpen, ChevronDown, ClipboardList, Clock3, Info, Wrench } from "luci
 import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
+  ChatModel,
+  ChatPlanResponse,
   Conversation,
   GeneratedArtifact,
   Message,
@@ -48,6 +50,13 @@ interface ProjectChatMainPanelProps {
   onTaskRunUpdated?: (task: TaskRun) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
+  models?: ChatModel[];
+  selectedModel?: string;
+  onModelChange?: (modelId: string) => void;
+  isBackgroundMode?: boolean;
+  onToggleBackgroundMode?: () => void;
+  isPlanMode?: boolean;
+  onTogglePlanMode?: () => void;
   projectId: number;
   projectClientName?: string;
   quickPrompts: ProjectQuickPrompt[];
@@ -57,6 +66,12 @@ interface ProjectChatMainPanelProps {
   streamingStatus: string;
   streamingReferences: Reference[];
   streamingToolCalls: ToolCallEvent[];
+  isStreamingTruncated?: boolean;
+  onContinue?: () => void;
+  planResult?: ChatPlanResponse | null;
+  isGeneratingPlan?: boolean;
+  onExecutePlan?: () => void;
+  onCancelPlan?: () => void;
   subtitle: string;
   thinkingLabel: string;
   title: string;
@@ -99,6 +114,13 @@ export function ProjectChatMainPanel({
   onTaskRunUpdated,
   onToggleSidebar,
   quickPrompts,
+  models,
+  selectedModel,
+  onModelChange,
+  isBackgroundMode,
+  onToggleBackgroundMode,
+  isPlanMode,
+  onTogglePlanMode,
   projectId,
   startConversationLabel,
   streamingArtifacts,
@@ -106,6 +128,12 @@ export function ProjectChatMainPanel({
   streamingStatus,
   streamingReferences,
   streamingToolCalls,
+  isStreamingTruncated,
+  onContinue,
+  planResult,
+  isGeneratingPlan,
+  onExecutePlan,
+  onCancelPlan,
   subtitle,
   thinkingLabel,
   title,
@@ -165,6 +193,9 @@ export function ProjectChatMainPanel({
         onRebuildMemory={onRebuildMemory}
         onToggleSidebar={onToggleSidebar}
         onKnowledgeScopeChange={onKnowledgeScopeChange}
+        models={models}
+        selectedModel={selectedModel}
+        onModelChange={onModelChange}
         skillSaveControl={
           activeConversation?.id && selectedSkillId ? (
             <div className="inline-flex items-center gap-2">
@@ -241,6 +272,12 @@ export function ProjectChatMainPanel({
           onQuickPrompt={onQuickPrompt}
           onApplyStakeholders={onApplyStakeholders}
           onSaveMessage={onSaveMessage}
+          isStreamingTruncated={isStreamingTruncated}
+          onContinue={onContinue}
+          planResult={planResult}
+          isGeneratingPlan={isGeneratingPlan}
+          onExecutePlan={onExecutePlan}
+          onCancelPlan={onCancelPlan}
         />
 
       </div>
@@ -249,6 +286,9 @@ export function ProjectChatMainPanel({
         value={inputValue}
         isLoading={isLoading}
         isFullscreen={isFullscreen}
+        projectId={projectId}
+        isBackgroundMode={isBackgroundMode}
+        onToggleBackgroundMode={onToggleBackgroundMode}
         contextControls={
           <div className="mx-auto mb-2 flex max-w-4xl items-center gap-1.5">
             <ContextPill

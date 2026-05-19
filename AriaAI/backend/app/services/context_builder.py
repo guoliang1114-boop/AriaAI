@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,7 @@ from sqlmodel import Session, select
 from app.config import UPLOADS_DIR
 from app.models.db import (
     ClientRecord,
+    ClientStakeholder,
     GeneratedFile,
     KnowledgeDocument,
     Milestone,
@@ -27,14 +29,15 @@ from app.services.stakeholder_contexts import (
     find_client_by_name,
     format_client_stakeholders_for_prompt,
     list_client_stakeholder_dicts,
+    serialize_client_stakeholder,
 )
 from app.services.time_utils import utc_now_naive
 from app.services.tool_executor import format_tools_for_claude
 from app.tools import project_markdown as _project_markdown  # noqa: F401 - register project Markdown tools
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
-MAX_FILE_CONTENT_CHARS = 40000  # cap total injected content to ~10k tokens
-MAX_SINGLE_FILE_CHARS = 8000
+MAX_FILE_CONTENT_CHARS = int(os.getenv("ARIA_MAX_FILE_CONTEXT_CHARS", "120000"))
+MAX_SINGLE_FILE_CHARS = int(os.getenv("ARIA_MAX_SINGLE_FILE_CHARS", "24000"))
 MAX_PROJECT_NOTES_CHARS = 6000
 MAX_PROJECT_TODOS = 12
 MAX_PROJECT_ARTIFACTS = 8
@@ -744,6 +747,7 @@ def build_project_context(
     project_id: int,
     file_ids: Optional[list[int]] = None,
     content: str = "",
+    mention_context: Optional[dict] = None,
 ) -> str:
     """Build context for a specific project including files, milestones, financials."""
     project = session.get(Project, project_id)
@@ -766,13 +770,45 @@ def build_project_context(
     if project.contract_amount:
         lines.append(f"**Contract Amount:** ¥{project.contract_amount:,.0f}")
     client = find_client_by_name(session, project.client)
+    mention = mention_context or {}
+    mentioned_stakeholder_ids = mention.get("stakeholder_ids") or []
+    mentioned_milestone_ids = mention.get("milestone_ids") or []
+
     if client and client.id is not None:
+        all_stakeholders = list_client_stakeholder_dicts(session, client.id)
+        # If specific stakeholders are mentioned, bring them to the front
+        if mentioned_stakeholder_ids and all_stakeholders:
+            prioritized = []
+            rest = []
+            for s in all_stakeholders:
+                if s.get("id") in mentioned_stakeholder_ids:
+                    prioritized.append(s)
+                else:
+                    rest.append(s)
+            all_stakeholders = prioritized + rest
         stakeholder_context = format_client_stakeholders_for_prompt(
-            list_client_stakeholder_dicts(session, client.id),
+            all_stakeholders,
             title="**Structured Client Stakeholders**",
         )
         if stakeholder_context:
             lines.append(f"\n{stakeholder_context}")
+    
+    # Mentioned stakeholders get extra focus
+    if mentioned_stakeholder_ids and client and client.id is not None:
+        focused = session.exec(
+            select(ClientStakeholder).where(
+                ClientStakeholder.id.in_(mentioned_stakeholder_ids),
+                ClientStakeholder.client_id == client.id,
+            )
+        ).all()
+        if focused:
+            focused_dicts = [serialize_client_stakeholder(s) for s in focused]
+            focus_context = format_client_stakeholders_for_prompt(
+                focused_dicts,
+                title="**Focused Stakeholders (mentioned by user)**",
+            )
+            if focus_context:
+                lines.append(f"\n{focus_context}")
 
     # Prefer structured project memory over legacy free-form summary
     memory_context = _format_project_memory_for_prompt(project)
@@ -795,12 +831,23 @@ def build_project_context(
         select(Milestone).where(Milestone.project_id == project.id)
     ).all()
     if milestones:
+        # Prioritize mentioned milestones
+        if mentioned_milestone_ids:
+            prioritized = []
+            rest = []
+            for m in milestones:
+                if m.id in mentioned_milestone_ids:
+                    prioritized.append(m)
+                else:
+                    rest.append(m)
+            milestones = prioritized + rest
         lines.append("\n**Milestones:**")
         for m in milestones:
             status_icon = "✓" if m.is_done else "○"
             due = f" (due: {m.due_date})" if m.due_date else ""
             priority = f" [{m.priority} priority]" if m.priority == "high" else ""
-            lines.append(f"  {status_icon} {m.title}{priority}{due}")
+            mention_marker = " **[User Mentioned]**" if m.id in mentioned_milestone_ids else ""
+            lines.append(f"  {status_icon} {m.title}{priority}{due}{mention_marker}")
 
     todos = session.exec(
         select(ProjectTodo)
@@ -1002,6 +1049,7 @@ def build_chat_context(
     file_ids: Optional[list[int]] = None,
     content: str = "",
     default_max_tokens: int = 4096,
+    mention_context: Optional[dict] = None,
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG."""
     # Build skill context
@@ -1021,13 +1069,13 @@ def build_chat_context(
         if not portfolio_context and (project_id is None or normalized_scope == "global"):
             workspace_inventory_context = build_workspace_project_inventory_context(session, content)
     if current_project_only and project_id:
-        project_context = build_project_context(session, project_id, file_ids, content=content)
+        project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
     elif portfolio_context:
         project_context = portfolio_context
     elif workspace_inventory_context:
         project_context = workspace_inventory_context
     elif project_id:
-        project_context = build_project_context(session, project_id, file_ids, content=content)
+        project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
     else:
         project_context = build_lightweight_workspace_context(session)
 

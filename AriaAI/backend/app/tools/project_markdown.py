@@ -196,11 +196,11 @@ async def update_project_markdown_document(
         if project_file.file_type.lower() != "md":
             raise HTTPException(400, "Only markdown documents are supported")
 
+        original_content = read_project_document_content(project_file, uploads_dir=UPLOADS_DIR)
         next_content = content
         if mode == "append":
-            existing = read_project_document_content(project_file, uploads_dir=UPLOADS_DIR)
-            separator = "\n\n" if existing and not existing.endswith("\n") else "\n"
-            next_content = f"{existing}{separator}{content}"
+            separator = "\n\n" if original_content and not original_content.endswith("\n") else "\n"
+            next_content = f"{original_content}{separator}{content}"
 
         updated = update_project_document_record(
             session,
@@ -224,6 +224,8 @@ async def update_project_markdown_document(
             "path": updated["path"],
             "size_bytes": updated["size_bytes"],
             "message": f"Updated {updated['name']}",
+            "original_content": original_content,
+            "new_content": next_content,
         }
 
 

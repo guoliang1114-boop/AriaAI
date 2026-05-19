@@ -1,14 +1,15 @@
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { BookOpen, FileText, Loader2, Sparkles, Wrench } from "lucide-react";
+import { BookOpen, FileText, Loader2, Play, Sparkles, Wrench } from "lucide-react";
 
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
+import type { ChatPlanResponse, GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
 import type { ProjectQuickPrompt } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatEmptyState } from "./ProjectChatEmptyState";
 import { ProjectChatMessageBubble } from "./ProjectChatMessageBubble";
+import { ProjectChatPlanCard } from "./ProjectChatPlanCard";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 
 type ChatMessage = Message;
@@ -16,7 +17,9 @@ type ChatMessage = Message;
 const ChatStreamingMessage = memo<{
   artifacts: GeneratedArtifact[];
   content: string;
+  isTruncated: boolean;
   isZh: boolean;
+  onContinue?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onOpenTasks?: () => void;
@@ -24,7 +27,7 @@ const ChatStreamingMessage = memo<{
   references: Reference[];
   status: string;
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isZh, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
+}>(({ artifacts, content, isTruncated, isZh, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -49,6 +52,17 @@ const ChatStreamingMessage = memo<{
               </div>
             ) : null}
             <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
+            {isTruncated && onContinue && (
+              <div className="mt-3">
+                <button
+                  onClick={onContinue}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/10"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  {isZh ? "继续生成" : "Continue generating"}
+                </button>
+              </div>
+            )}
           </div>
           {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
             <div className="mt-3 space-y-2 w-full max-w-3xl">
@@ -114,6 +128,12 @@ type ProjectChatMessagesProps = {
   onQuickPrompt: (content: string) => void;
   onApplyStakeholders?: (message: Message) => void;
   onSaveMessage: (messageId: number) => void;
+  isStreamingTruncated?: boolean;
+  onContinue?: () => void;
+  planResult?: ChatPlanResponse | null;
+  isGeneratingPlan?: boolean;
+  onExecutePlan?: () => void;
+  onCancelPlan?: () => void;
 };
 
 export function ProjectChatMessages({
@@ -137,6 +157,12 @@ export function ProjectChatMessages({
   onQuickPrompt,
   onApplyStakeholders,
   onSaveMessage,
+  isStreamingTruncated,
+  onContinue,
+  planResult,
+  isGeneratingPlan,
+  onExecutePlan,
+  onCancelPlan,
 }: ProjectChatMessagesProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
@@ -186,6 +212,7 @@ export function ProjectChatMessages({
               onOpenArtifact={onOpenArtifact}
               onOpenTasks={onOpenTasks}
               onApplyStakeholders={onApplyStakeholders}
+              onContinue={msg.role === "assistant" && !isLoading ? onContinue : undefined}
               projectId={projectId}
               onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
             />
@@ -194,7 +221,9 @@ export function ProjectChatMessages({
             <ChatStreamingMessage
               artifacts={streamingArtifacts}
               content={streamingContent}
+              isTruncated={!!isStreamingTruncated}
               isZh={isZh}
+              onContinue={onContinue}
               onDownloadArtifact={onDownloadArtifact}
               onOpenArtifact={onOpenArtifact}
               onOpenTasks={onOpenTasks}
@@ -202,6 +231,14 @@ export function ProjectChatMessages({
               references={streamingReferences}
               status={streamingStatus}
               toolCalls={streamingToolCalls}
+            />
+          )}
+          {planResult && onExecutePlan && onCancelPlan && (
+            <ProjectChatPlanCard
+              plan={planResult}
+              isGenerating={isGeneratingPlan}
+              onExecute={onExecutePlan}
+              onCancel={onCancelPlan}
             />
           )}
           {isLoading && !streamingContent && !streamingStatus && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (

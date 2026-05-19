@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   Copy,
   FileText,
+  GitCompare,
   Loader2,
+  Play,
   Save,
   Sparkles,
   Users,
@@ -16,6 +18,7 @@ import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
 import { api } from "../../api/client";
 import { getProjectChatCopy } from "./projectChatCopy";
+import { MarkdownDiffViewer } from "./MarkdownDiffViewer";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
@@ -63,15 +66,17 @@ interface ProjectChatMessageBubbleProps {
   onOpenTasks?: () => void;
   onApplyStakeholders?: (message: Message) => void;
   onSaveToNotes?: () => void;
+  onContinue?: () => void;
   projectId: number;
 }
 
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
-  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onOpenArtifact, onOpenTasks, onSaveToNotes, projectId }) => {
+  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onOpenArtifact, onOpenTasks, onSaveToNotes, onContinue, projectId }) => {
     const { t, i18n } = useTranslation();
     const { resolvedTimeZone } = useAppTimeZone();
     const [savingMarkdownIndex, setSavingMarkdownIndex] = useState<number | null>(null);
     const [savedMarkdownIndexes, setSavedMarkdownIndexes] = useState<Set<number>>(new Set());
+    const [diffViewerOpen, setDiffViewerOpen] = useState<number | null>(null);
     const isUser = msg.role === "user";
     const isZh = i18n.language.startsWith("zh");
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
@@ -92,6 +97,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
         .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
     );
     const pendingMarkdownSaves = metadata.pending_markdown_saves || [];
+    const isTruncated = metadata.truncated === true;
 
     const confirmMarkdownSave = async (pendingIndex: number) => {
       setSavingMarkdownIndex(pendingIndex);
@@ -222,11 +228,37 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
           ) : null}
 
           {!isUser && pendingMarkdownSaves.some((item, index) => item?.saved || savedMarkdownIndexes.has(index)) ? (
-            <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {isZh ? "已写入项目文件" : "Saved to project file"}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {isZh ? "已写入项目文件" : "Saved to project file"}
+              </div>
+              {pendingMarkdownSaves.map((item, index) =>
+                item && (item.saved || savedMarkdownIndexes.has(index)) && item.original_content ? (
+                  <button
+                    key={`diff-${index}`}
+                    onClick={() => setDiffViewerOpen(index)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-primary/30 hover:text-primary"
+                  >
+                    <GitCompare className="h-3.5 w-3.5" />
+                    {isZh ? "查看变更" : "View diff"}
+                  </button>
+                ) : null,
+              )}
             </div>
           ) : null}
+
+          {!isUser && isTruncated && onContinue && (
+            <div className="mt-3">
+              <button
+                onClick={onContinue}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/10"
+              >
+                <Play className="h-3.5 w-3.5" />
+                {isZh ? "继续生成" : "Continue generating"}
+              </button>
+            </div>
+          )}
 
           <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
             <span className="text-[11px] text-gray-300 px-0.5">
@@ -245,6 +277,15 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             ) : null}
           </div>
         </div>
+        {diffViewerOpen !== null && pendingMarkdownSaves[diffViewerOpen]?.original_content ? (
+          <MarkdownDiffViewer
+            oldContent={pendingMarkdownSaves[diffViewerOpen].original_content || ""}
+            newContent={pendingMarkdownSaves[diffViewerOpen].content || ""}
+            fileName={pendingMarkdownSaves[diffViewerOpen].file_name || undefined}
+            isZh={isZh}
+            onClose={() => setDiffViewerOpen(null)}
+          />
+        ) : null}
       </div>
     );
   },
@@ -256,5 +297,6 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     prev.projectId === next.projectId &&
     prev.onApplyStakeholders === next.onApplyStakeholders &&
     prev.onDownloadArtifact === next.onDownloadArtifact &&
-    prev.onSaveToNotes === next.onSaveToNotes,
+    prev.onSaveToNotes === next.onSaveToNotes &&
+    prev.onContinue === next.onContinue,
 );

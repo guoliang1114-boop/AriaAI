@@ -27,6 +27,7 @@ import {
   upsertWorkflowStep,
   workflowStepFromTask,
 } from "./projectChatWorkflow";
+import { parseMentions } from "./projectChatMentions";
 
 
 function buildAssistantMessage({
@@ -97,6 +98,7 @@ type UseProjectChatComposerParams = {
   selectedSkillId: number | null;
   forceSkill: boolean;
   knowledgeScope: "project" | "client" | "global";
+  selectedModel?: string;
   setMessages: Dispatch<SetStateAction<Message[]>>;
   createConversation: (firstMessage?: string, skillId?: number | null) => Promise<number | null>;
   fetchMessages: (conversationId: number) => Promise<void>;
@@ -112,6 +114,7 @@ export function useProjectChatComposer({
   selectedSkillId,
   forceSkill,
   knowledgeScope,
+  selectedModel,
   setMessages,
   createConversation,
   fetchMessages,
@@ -126,6 +129,7 @@ export function useProjectChatComposer({
   const [streamingReferences, setStreamingReferences] = useState<Reference[]>([]);
   const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallEvent[]>([]);
   const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
+  const [streamingTruncated, setStreamingTruncated] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const resetStreamingContent = useCallback(() => {
@@ -134,6 +138,7 @@ export function useProjectChatComposer({
     setStreamingReferences([]);
     setStreamingToolCalls([]);
     setStreamingArtifacts([]);
+    setStreamingTruncated(false);
   }, []);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -172,6 +177,14 @@ export function useProjectChatComposer({
     let serverPersistedAssistant = false;
     let latestTaskRun: TaskRun | null = null;
     let latestTaskType = "";
+    let wasTruncated = false;
+
+    const mentions = parseMentions(trimmed);
+    const mentionContext = mentions.length > 0 ? {
+      file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
+      stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
+      milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
+    } : undefined;
 
     try {
       abortControllerRef.current = new AbortController();
@@ -188,6 +201,8 @@ export function useProjectChatComposer({
           skill_id: skillId,
           force_skill: !!skillId,
           knowledge_scope: knowledgeScope,
+          model: selectedModel || undefined,
+          mention_context: mentionContext,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -341,6 +356,9 @@ export function useProjectChatComposer({
               collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
               setStreamingArtifacts(collectedArtifacts);
             }
+          } else if (payload.type === "truncated") {
+            wasTruncated = true;
+            setStreamingTruncated(true);
           } else if (payload.type === "error") {
             throw new Error(payload.message || payload.error || "Chat failed");
           }
@@ -348,11 +366,13 @@ export function useProjectChatComposer({
       }
 
       const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
+      const isTruncated = wasTruncated;
       setStreamingContent("");
       setStreamingStatus("");
       setStreamingToolCalls([]);
       setStreamingReferences([]);
       setStreamingArtifacts([]);
+      setStreamingTruncated(false);
       if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
         const assistantMessage = buildAssistantMessage({
           artifacts: collectedArtifacts,
@@ -364,6 +384,12 @@ export function useProjectChatComposer({
           taskRun: serverPersistedAssistant ? latestTaskRun : null,
           taskType: latestTaskType,
         });
+        if (isTruncated) {
+          assistantMessage.metadata_json = JSON.stringify({
+            ...JSON.parse(assistantMessage.metadata_json || "{}"),
+            truncated: true,
+          });
+        }
         setMessages((prev) => [...prev, assistantMessage]);
       } else {
         await fetchMessages(conversationId);
@@ -380,6 +406,7 @@ export function useProjectChatComposer({
         setStreamingContent("");
         setStreamingStatus("");
         setStreamingToolCalls([]);
+        setStreamingTruncated(false);
         if (fullContent.trim()) {
           const assistantMessage = buildAssistantMessage({
             artifacts: collectedArtifacts,
@@ -398,6 +425,7 @@ export function useProjectChatComposer({
       setStreamingContent("");
       setStreamingStatus("");
       setStreamingToolCalls([]);
+      setStreamingTruncated(false);
       onSendError();
       await fetchMessages(conversationId);
       return false;
@@ -417,6 +445,7 @@ export function useProjectChatComposer({
     resetStreamingContent,
     scrollToBottom,
     selectedSkillId,
+    selectedModel,
     forceSkill,
     setMessages,
   ]);
@@ -425,6 +454,102 @@ export function useProjectChatComposer({
     abortControllerRef.current?.abort();
   }, []);
 
+  const sendMessageAsync = useCallback(async (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return false;
+
+    let conversationId = activeConvId;
+    const skillId = forceSkill ? selectedSkillId || undefined : undefined;
+
+    if (!conversationId) {
+      conversationId = await createConversation(trimmed, skillId || null);
+      if (!conversationId) {
+        return false;
+      }
+    }
+
+    const tempUserMsg: Message = {
+      id: Date.now(),
+      conversation_id: conversationId,
+      role: "user",
+      content: trimmed,
+      metadata_json: "{}",
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMsg]);
+    isNearBottomRef.current = true;
+    setTimeout(() => scrollToBottom(true), 0);
+
+    const mentions = parseMentions(trimmed);
+    const mentionContext = mentions.length > 0 ? {
+      file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
+      stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
+      milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
+    } : undefined;
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/chat/send-async`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth-Token": localStorage.getItem("authToken") || "",
+        },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          content: trimmed,
+          project_id: projectId,
+          skill_id: skillId,
+          force_skill: !!skillId,
+          knowledge_scope: knowledgeScope,
+          model: selectedModel || undefined,
+          mention_context: mentionContext,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Background request failed: ${response.status}`);
+      }
+      const result = await response.json().catch(() => null) as { conversation_id?: number; task_run_id?: number; status?: string } | null;
+      const backgroundMessage = buildAssistantMessage({
+        artifacts: [],
+        content: result?.task_run_id
+          ? `已转入后台执行。任务记录 #${result.task_run_id} 已创建，你可以稍后回到这个对话查看结果。`
+          : "已转入后台执行。你可以稍后回到这个对话查看结果；任务完成后会写入同一条对话历史。",
+        conversationId: result?.conversation_id || conversationId,
+        projectId,
+        references: [],
+        toolCalls: [
+          {
+            tool_name: "后台任务",
+            status: "running",
+            message: result?.task_run_id
+              ? `请求已提交，后台任务 #${result.task_run_id} 正在执行。`
+              : "请求已提交，正在后台执行。",
+          },
+        ],
+      });
+      setMessages((prev) => [...prev, backgroundMessage]);
+      void fetchConversations();
+      return true;
+    } catch (error) {
+      console.error("Failed to send async message:", error);
+      onSendError();
+      return false;
+    }
+  }, [
+    activeConvId,
+    createConversation,
+    fetchConversations,
+    forceSkill,
+    knowledgeScope,
+    onSendError,
+    projectId,
+    scrollToBottom,
+    selectedSkillId,
+    selectedModel,
+    setMessages,
+    isNearBottomRef,
+  ]);
+
   return {
     isLoading,
     streamingArtifacts,
@@ -432,8 +557,10 @@ export function useProjectChatComposer({
     streamingStatus,
     streamingReferences,
     streamingToolCalls,
+    streamingTruncated,
     resetStreamingContent,
     sendMessage,
+    sendMessageAsync,
     stopGeneration,
   };
 }

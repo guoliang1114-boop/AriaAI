@@ -3,7 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class MentionContext(BaseModel):
+    file_ids: List[int] = Field(default_factory=list)
+    stakeholder_ids: List[int] = Field(default_factory=list)
+    milestone_ids: List[int] = Field(default_factory=list)
 
 
 class SendMessageRequest(BaseModel):
@@ -15,6 +21,8 @@ class SendMessageRequest(BaseModel):
     knowledge_scope: str = "project"
     rag_doc_ids: List[int] = []
     file_ids: List[int] = []
+    model: Optional[str] = None
+    mention_context: Optional[MentionContext] = None
 
 
 class ConversationOut(BaseModel):

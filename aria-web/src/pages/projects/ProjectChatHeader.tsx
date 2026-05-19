@@ -22,6 +22,9 @@ type ProjectChatHeaderProps = {
   skillControl?: React.ReactNode;
   skillSaveControl?: React.ReactNode;
   taskControl?: React.ReactNode;
+  models?: Array<{ id: string; name: string; provider: string; available: boolean }>;
+  selectedModel?: string;
+  onModelChange?: (modelId: string) => void;
   onRebuildMemory: () => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -41,6 +44,9 @@ export function ProjectChatHeader({
   skillControl,
   skillSaveControl,
   taskControl,
+  models,
+  selectedModel,
+  onModelChange,
   onToggleSidebar,
   onKnowledgeScopeChange,
 }: ProjectChatHeaderProps) {
@@ -111,6 +117,22 @@ export function ProjectChatHeader({
               {skillControl}
               {skillSaveControl}
               {taskControl}
+              {models && models.length > 0 && onModelChange ? (
+                <>
+                  <span className="text-xs text-gray-400">{isZh ? "模型" : "Model"}</span>
+                  <select
+                    value={selectedModel || ""}
+                    onChange={(event) => onModelChange(event.target.value)}
+                    className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id} disabled={!m.available}>
+                        {m.name} {!m.available ? (isZh ? "(未配置)" : "(unavailable)") : ""}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
               <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
               <select
                 value={knowledgeScope}

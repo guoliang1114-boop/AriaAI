@@ -5,6 +5,8 @@ import { Loader2, Users, X } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type {
+  ChatModel,
+  ChatPlanResponse,
   GeneratedArtifact,
   Project,
   ProjectFile,
@@ -193,6 +195,22 @@ export function ProjectChatTab({
     return Number.isFinite(stored) && stored >= 320 ? stored : 440;
   });
   const [isResizingPreview, setIsResizingPreview] = useState(false);
+  const [chatModels, setChatModels] = useState<ChatModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("aria-preferred-model") || "";
+  });
+  const [isBackgroundMode, setIsBackgroundMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("aria-chat-background-mode") === "true";
+  });
+  const [isPlanMode, setIsPlanMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("aria-chat-plan-mode") === "true";
+  });
+  const [planResult, setPlanResult] = useState<ChatPlanResponse | null>(null);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [planPendingContent, setPlanPendingContent] = useState("");
   const autoRefreshAttemptedRef = useRef("");
   const processedSkillRef = useRef<string | null>(null);
   const processedLaunchRef = useRef<string | null>(null);
@@ -248,8 +266,10 @@ export function ProjectChatTab({
     streamingStatus,
     streamingReferences,
     streamingToolCalls,
+    streamingTruncated,
     resetStreamingContent,
     sendMessage,
+    sendMessageAsync,
     stopGeneration,
   } = useProjectChatComposer({
     projectId: project.id,
@@ -257,6 +277,7 @@ export function ProjectChatTab({
     selectedSkillId,
     forceSkill: !!selectedSkillId && skillArmedRef.current,
     knowledgeScope: panel.knowledgeScope,
+    selectedModel,
     setMessages,
     createConversation,
     fetchMessages,
@@ -683,6 +704,49 @@ export function ProjectChatTab({
   };
 
   useEffect(() => {
+    let cancelled = false;
+    const loadModels = async () => {
+      try {
+        const data = await api.get<ChatModel[]>("/chat/models");
+        if (!cancelled) {
+          setChatModels(data);
+          // Auto-select first available if none selected
+          if (!selectedModel) {
+            const firstAvailable = data.find((m) => m.available);
+            if (firstAvailable) {
+              setSelectedModel(firstAvailable.id);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load chat models:", error);
+      }
+    };
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedModel && typeof window !== "undefined") {
+      window.localStorage.setItem("aria-preferred-model", selectedModel);
+    }
+  }, [selectedModel]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("aria-chat-background-mode", String(isBackgroundMode));
+    }
+  }, [isBackgroundMode]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("aria-chat-plan-mode", String(isPlanMode));
+    }
+  }, [isPlanMode]);
+
+  useEffect(() => {
     if (!memoryStatus?.memory_stale || isLoadingMemoryStatus || isRebuildingMemory) {
       return;
     }
@@ -857,7 +921,48 @@ export function ProjectChatTab({
   };
 
   const handleSendMessage = async (content: string) => {
-    const sent = await sendMessage(content);
+    if (isPlanMode && !planResult) {
+      // Generate plan instead of sending
+      setIsGeneratingPlan(true);
+      setPlanPendingContent(content);
+      let conversationId = activeConvId;
+      const skillId = !!selectedSkillId && skillArmedRef.current ? selectedSkillId || undefined : undefined;
+      if (!conversationId) {
+        conversationId = await createConversation(content, skillId || null);
+        if (!conversationId) {
+          setIsGeneratingPlan(false);
+          return false;
+        }
+      }
+      const mentions = (await import("./projectChatMentions")).parseMentions(content);
+      const mentionContext = mentions.length > 0 ? {
+        file_ids: mentions.filter((m: { type: string }) => m.type === "file").map((m: { id: number }) => m.id),
+        stakeholder_ids: mentions.filter((m: { type: string }) => m.type === "stakeholder").map((m: { id: number }) => m.id),
+        milestone_ids: mentions.filter((m: { type: string }) => m.type === "milestone").map((m: { id: number }) => m.id),
+      } : undefined;
+      try {
+        const res = await api.post<ChatPlanResponse>("/chat/plan", {
+          conversation_id: conversationId,
+          content,
+          project_id: project.id,
+          skill_id: skillId,
+          force_skill: !!skillId,
+          knowledge_scope: panel.knowledgeScope,
+          model: selectedModel || undefined,
+          mention_context: mentionContext,
+        });
+        setPlanResult(res);
+      } catch (error) {
+        console.error("Failed to generate plan:", error);
+        toast.error(isZh ? "制定计划失败" : "Failed to generate plan");
+      } finally {
+        setIsGeneratingPlan(false);
+      }
+      return true;
+    }
+    const sent = isBackgroundMode
+      ? await sendMessageAsync(content)
+      : await sendMessage(content);
     if (sent && selectedSkillId && skillArmedRef.current) {
       setSelectedSkillId(null);
       skillArmedRef.current = false;
@@ -878,6 +983,8 @@ export function ProjectChatTab({
     setSelectedSkillId(null);
     skillArmedRef.current = false;
     processedSkillRef.current = null;
+    setPlanResult(null);
+    setPlanPendingContent("");
     startNewChat();
   };
 
@@ -885,6 +992,8 @@ export function ProjectChatTab({
     setSelectedSkillId(null);
     skillArmedRef.current = false;
     processedSkillRef.current = null;
+    setPlanResult(null);
+    setPlanPendingContent("");
     setActiveConvId(conversationId);
   };
 
@@ -968,6 +1077,31 @@ export function ProjectChatTab({
             onStop={stopGeneration}
             onSkillChange={handleSkillChange}
             onToggleSidebar={() => panel.setIsSidebarOpen(!panel.isSidebarOpen)}
+            models={chatModels}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            isBackgroundMode={isBackgroundMode}
+            onToggleBackgroundMode={() => setIsBackgroundMode((v) => !v)}
+            isPlanMode={isPlanMode}
+            onTogglePlanMode={() => {
+              setIsPlanMode((v) => !v);
+              if (planResult) setPlanResult(null);
+            }}
+            isStreamingTruncated={streamingTruncated}
+            onContinue={() => void sendMessage(isZh ? "继续" : "Continue")}
+            planResult={planResult}
+            isGeneratingPlan={isGeneratingPlan}
+            onExecutePlan={() => {
+              const content = planPendingContent;
+              setPlanResult(null);
+              setPlanPendingContent("");
+              setIsPlanMode(false);
+              void handleSendMessage(content);
+            }}
+            onCancelPlan={() => {
+              setPlanResult(null);
+              setPlanPendingContent("");
+            }}
             projectClientName={project.client}
             projectId={project.id}
             quickPrompts={quickPrompts}

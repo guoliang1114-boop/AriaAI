@@ -807,8 +807,16 @@ export interface MessageMetadata {
     folder_id?: number | null
     saved?: boolean
     saved_result?: Record<string, unknown>
+    original_content?: string
   }>
   project_id?: number
+  truncated?: boolean
+}
+
+export interface MentionContext {
+  file_ids?: number[]
+  stakeholder_ids?: number[]
+  milestone_ids?: number[]
 }
 
 export interface SendMessageRequest {
@@ -820,10 +828,30 @@ export interface SendMessageRequest {
   knowledge_scope?: 'project' | 'client' | 'global'
   rag_doc_ids?: number[]
   file_ids?: number[]
+  model?: string
+  mention_context?: MentionContext
+}
+
+export interface ChatModel {
+  id: string
+  name: string
+  provider: string
+  available: boolean
+}
+
+export interface PlannedTool {
+  name: string
+  description: string
+  input_summary: string
+}
+
+export interface ChatPlanResponse {
+  plan_text: string
+  planned_tools: PlannedTool[]
 }
 
 export interface StreamEvent {
-  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'task_run' | 'done' | 'error'
+  type: 'conversation_id' | 'chunk' | 'text' | 'status' | 'references' | 'tool_executing' | 'tool_result' | 'task_run' | 'truncated' | 'done' | 'error'
   id?: number
   content?: string
   stage?: string
@@ -842,6 +870,7 @@ export interface StreamEvent {
   task_run_id?: number
   task_type?: string
   error?: string
+  can_continue?: boolean
 }
 
 // Knowledge Base
