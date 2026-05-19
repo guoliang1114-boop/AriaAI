@@ -8,19 +8,19 @@ type DownloadArtifactOptions = {
   path?: string;
 };
 
-function buildDownloadUrl({ artifact, artifactId, path }: DownloadArtifactOptions) {
+export function buildDownloadUrl({ artifact, artifactId, path }: DownloadArtifactOptions) {
+  const resolvedPath = path ?? artifact?.path;
+  if (resolvedPath) {
+    const params = new URLSearchParams({ path: resolvedPath });
+    return `${getApiBaseUrl()}/artifacts/download-by-path?${params.toString()}`;
+  }
+
   const resolvedId = artifactId ?? artifact?.id;
   if (resolvedId) {
     return `${getApiBaseUrl()}/artifacts/${resolvedId}/download`;
   }
 
-  const resolvedPath = path ?? artifact?.path;
-  if (!resolvedPath) {
-    throw new Error("Missing artifact path");
-  }
-
-  const params = new URLSearchParams({ path: resolvedPath });
-  return `${getApiBaseUrl()}/artifacts/download-by-path?${params.toString()}`;
+  throw new Error("Missing artifact path");
 }
 
 function resolveFilename({ artifact, fileName, path }: DownloadArtifactOptions) {
