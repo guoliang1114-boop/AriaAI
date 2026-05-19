@@ -13,13 +13,14 @@ import {
   Wrench,
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { GeneratedArtifact, Message, MessageMetadata, Reference, TaskRun, TaskRunEvent, TaskRunStep, ToolCallEvent } from "../../types/api";
+import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
 import { api } from "../../api/client";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { formatTimeOnly } from "../../utils/timezone";
+import { artifactFromTaskRunArtifact, mergeArtifacts, workflowStepsFromTask } from "./projectChatWorkflow";
 
 const MessageCopyButton = memo(({ text, title }: { text: string; title: string }) => {
   const [copied, setCopied] = useState(false);
@@ -54,81 +55,6 @@ const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title
   );
 });
 
-function taskEventDetail(event: TaskRunEvent) {
-  const message = event.message || event.event_type || "任务状态更新";
-  const time = event.created_at ? new Date(event.created_at) : null;
-  const timeText = time && !Number.isNaN(time.getTime())
-    ? time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "";
-  return `${timeText ? `[${timeText}] ` : ""}${message}`;
-}
-
-function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunEvent[] = []): ToolCallEvent {
-  const status: ToolCallEvent["status"] =
-    step.status === "completed" || step.status === "skipped"
-      ? "completed"
-      : step.status === "failed" || step.status === "canceled"
-        ? "error"
-        : step.status === "running"
-          ? "running"
-          : "pending";
-  return {
-    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
-    status,
-    message:
-      step.status === "skipped"
-        ? step.error_message || "该步骤已跳过。"
-        : status === "completed"
-          ? "该步骤已完成。"
-          : status === "error"
-            ? step.error_message || "该步骤已停止，请打开任务面板处理。"
-            : status === "running"
-              ? "该步骤正在执行。"
-              : "该步骤等待前序步骤完成。",
-    error: status === "error" ? step.error_message : undefined,
-    details: events.filter((event) => event.step_id === step.id).map(taskEventDetail),
-    step_index: step.sort_order,
-    step_total: total,
-    step_title: step.title || step.key,
-  };
-}
-
-function workflowStepsFromTask(task?: TaskRun): ToolCallEvent[] {
-  const steps = task?.steps || [];
-  if (!steps.length) return [];
-  return steps.map((step) => workflowStepFromTask(step, steps.length, task?.events || []));
-}
-
-function artifactFromTaskArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
-  if (!artifact?.name || !artifact.file_type) return null;
-  return {
-    id: artifact.id,
-    name: artifact.name,
-    file_type: artifact.file_type,
-    path: artifact.path || "",
-    project_file_id: artifact.project_file_id,
-    description:
-      typeof artifact.metadata?.content === "string"
-        ? artifact.metadata.content
-        : typeof artifact.metadata?.summary === "string"
-          ? artifact.metadata.summary
-          : typeof artifact.metadata?.message === "string"
-            ? artifact.metadata.message
-            : "",
-  };
-}
-
-function mergeArtifacts(primary: GeneratedArtifact[], fallback: GeneratedArtifact[]) {
-  return [...primary, ...fallback].reduce<GeneratedArtifact[]>((items, artifact) => {
-    const key = artifact.path || `${artifact.file_type}:${artifact.id ?? artifact.name}`;
-    const exists = items.some((item) => {
-      const itemKey = item.path || `${item.file_type}:${item.id ?? item.name}`;
-      return itemKey === key;
-    });
-    return exists ? items : [...items, artifact];
-  }, []);
-}
-
 interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
   msg: Message;
@@ -162,7 +88,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const artifacts: GeneratedArtifact[] = mergeArtifacts(
       metadata.artifacts || [],
       (metadata.task_run?.artifacts || [])
-        .map(artifactFromTaskArtifact)
+        .map(artifactFromTaskRunArtifact)
         .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
     );
     const pendingMarkdownSaves = metadata.pending_markdown_saves || [];

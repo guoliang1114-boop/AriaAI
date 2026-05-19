@@ -1434,6 +1434,7 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
     project = context.get("project") or {}
     memory = context.get("memory") or {}
     client_memory = context.get("client_memory") or {}
+    stakeholders = context.get("stakeholders") or []
 
     def list_block(title: str, values: list[Any] | None, fallback: str) -> str:
         items = [str(item).strip() for item in (values or []) if str(item).strip()]
@@ -1441,9 +1442,95 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
             items = [fallback]
         return f"## {title}\n" + "\n".join(f"- {item}" for item in items[:8])
 
+    def clean_heading(value: str) -> str:
+        heading = re.sub(r"\s+", "", str(value or "").strip())
+        heading = re.sub(r"^(请)?(输出|包含|包括|提供|生成|整理)[:：]?", "", heading)
+        return heading.strip(" ：:，,。；;、")
+
+    def extract_requested_headings(text: str) -> list[str]:
+        requested: list[str] = []
+        pattern = r"(?:^|[：:；;，,\n]\s*)(?:\d{1,2}|[一二三四五六七八九十])\s*[）).、]\s*([^；;\n]+)"
+        for match in re.finditer(pattern, text):
+            heading = clean_heading(match.group(1))
+            if 2 <= len(heading) <= 28 and heading not in requested:
+                requested.append(heading)
+        return requested[:8]
+
+    def context_sentence() -> str:
+        brief = str(memory.get("project_brief") or project.get("description") or "").strip()
+        objective = str(memory.get("current_objective") or "").strip()
+        return brief or objective or "本次会议需要围绕项目目标、客户关注和后续推进方式达成共识。"
+
+    def agenda_items() -> list[str]:
+        items = [
+            "确认会议目标和预期产出：对齐本次沟通需要形成的判断、边界和后续动作。",
+            "回顾项目背景与当前判断：先讲清楚业务进入机会、客户已有共识和仍需验证的假设。",
+            "聚焦关键分歧和敏感点：围绕品牌调性、渠道复用、投入产出和试错路径逐项讨论。",
+            "明确后续推进机制：确定责任人、资料补充、验证节奏和下一次决策节点。",
+        ]
+        open_questions = [str(item).strip() for item in (memory.get("open_questions") or []) if str(item).strip()]
+        return (items + open_questions)[:6]
+
+    def stakeholder_lines() -> list[str]:
+        values: list[str] = []
+        for item in stakeholders[:5]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("role") or "").strip()
+            role = str(item.get("role") or item.get("influence_type") or "").strip()
+            note = str(item.get("note") or item.get("concern") or "").strip()
+            if name:
+                values.append(f"{name}{f'（{role}）' if role and role != name else ''}：先回应其核心关切，再用事实和下一步验证动作承接。{note}")
+        if values:
+            return values
+        return [
+            "战略/新业务负责人：强调机会判断、验证路径和阶段性投入边界，避免直接承诺最终结论。",
+            "品牌与渠道相关负责人：使用“品牌调性一致性、渠道复用、风险可控”的表达，先降低对主品牌稀释的担忧。",
+            "高管/决策层：突出投入产出、试错成本和决策所需证据，让讨论落到可审批的下一步。",
+        ]
+
+    def action_items() -> list[str]:
+        next_actions = [str(item).strip() for item in (memory.get("next_actions") or []) if str(item).strip()]
+        defaults = [
+            "会后 24 小时内输出会议纪要，标注已达成共识、待确认问题和责任人。",
+            "补齐业务进入假设所需资料，包括赛道规模、客户资产、竞品路径和初步商业验证口径。",
+            "约定下一次推进会时间，并在会前完成关键假设和风险清单更新。",
+        ]
+        return (next_actions + defaults)[:6]
+
+    def default_section_content(heading: str) -> str:
+        normalized = clean_heading(heading)
+        if "开场" in normalized or "话术" in normalized:
+            return (
+                f"各位好，今天我们围绕「{project.get('name') or '本项目'}」做一次聚焦沟通。"
+                f"我们的目标不是先下结论，而是把当前判断、关键分歧和后续验证动作讲清楚。"
+                f"我会先用几分钟对齐背景，再按议题逐项讨论，最后确认会后行动清单。"
+            )
+        if "议题" in normalized or "顺序" in normalized or "流程" in normalized:
+            return "\n".join(f"{index}. {item}" for index, item in enumerate(agenda_items(), start=1))
+        if "关键人" in normalized or "干系人" in normalized or "表达" in normalized:
+            return "\n".join(f"- {item}" for item in stakeholder_lines())
+        if "行动" in normalized or "清单" in normalized or "会后" in normalized:
+            return "\n".join(f"- [ ] {item}" for item in action_items())
+        if "背景" in normalized:
+            return context_sentence()
+        if "风险" in normalized:
+            risks = [str(item).strip() for item in (memory.get("key_risks") or []) if str(item).strip()]
+            concerns = [str(item).strip() for item in (client_memory.get("sensitive_topics") or []) if str(item).strip()]
+            values = risks + concerns
+            return "\n".join(f"- {item}" for item in values[:6]) if values else "暂无结构化风险，建议在会上主动确认客户关注和内部决策约束。"
+        return f"围绕「{project.get('name') or '本项目'}」补充该部分内容。参考背景：{context_sentence()}"
+
     project_name = str(project.get("name") or "").strip()
     normalized_goal = re.sub(r"\s+", " ", goal.strip())
-    if "客户会议" in normalized_goal or "会议" in normalized_goal:
+    requested_headings = extract_requested_headings(normalized_goal)
+    if requested_headings:
+        title_core = (
+            "客户会议准备"
+            if any("会议" in heading or "开场" in heading or "议题" in heading for heading in requested_headings)
+            else "项目文本交付"
+        )
+    elif "客户会议" in normalized_goal or "会议" in normalized_goal:
         title_core = "客户会议准备"
     elif "风险" in normalized_goal:
         title_core = "项目风险清单"
@@ -1453,21 +1540,29 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         title_core = normalized_goal[:36] or "项目文本交付"
     title = f"{project_name}-{title_core}" if project_name and project_name not in title_core else title_core
     title = title[:80] or "项目文本交付"
-    sections = [
-        f"# {title}",
-        f"## 项目背景\n{memory.get('project_brief') or project.get('description') or '暂无项目背景，建议补充项目空间资料。'}",
-        f"## 当前目标\n{memory.get('current_objective') or goal}",
-        list_block("关键风险", memory.get("key_risks"), "暂无结构化风险。"),
-        list_block("开放问题", memory.get("open_questions"), "暂无开放问题。"),
-        list_block("客户关注", client_memory.get("sensitive_topics"), "暂无客户侧敏感点。"),
-        list_block("下一步动作", memory.get("next_actions"), "确认责任人、时间节点和后续资料补充。"),
-    ]
-    content = "\n\n".join(sections)
+    if requested_headings:
+        body_sections = [f"## {heading}\n{default_section_content(heading)}" for heading in requested_headings]
+        content = "\n\n".join([f"# {title}", *body_sections])
+        missing = [heading for heading in requested_headings if f"## {heading}" not in content]
+        if missing:
+            raise ValueError(f"Text artifact missing requested sections: {', '.join(missing)}")
+    else:
+        sections = [
+            f"# {title}",
+            f"## 项目背景\n{memory.get('project_brief') or project.get('description') or '暂无项目背景，建议补充项目空间资料。'}",
+            f"## 当前目标\n{memory.get('current_objective') or goal}",
+            list_block("关键风险", memory.get("key_risks"), "暂无结构化风险。"),
+            list_block("开放问题", memory.get("open_questions"), "暂无开放问题。"),
+            list_block("客户关注", client_memory.get("sensitive_topics"), "暂无客户侧敏感点。"),
+            list_block("下一步动作", memory.get("next_actions"), "确认责任人、时间节点和后续资料补充。"),
+        ]
+        content = "\n\n".join(sections)
     return {
         "title": title,
         "file_type": "md",
         "content": content,
         "summary": f"已生成 Markdown 交付：{title}",
+        "text_spec": {"sections": requested_headings, "strict_sections": bool(requested_headings)},
     }
 
 

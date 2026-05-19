@@ -398,6 +398,19 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
         assert (tmp_path / project_files[0].path).is_file()
         metadata = json.loads(artifacts[0].metadata_json)
         assert "客户会议准备" in metadata["title"]
+        assert metadata["text_spec"]["strict_sections"] is True
+        assert metadata["text_spec"]["sections"] == [
+            "开场话术",
+            "关键议题顺序",
+            "每个关键人应关注的表达方式",
+            "会后行动清单",
+        ]
+        assert "## 开场话术" in metadata["content"]
+        assert "## 关键议题顺序" in metadata["content"]
+        assert "## 每个关键人应关注的表达方式" in metadata["content"]
+        assert "## 会后行动清单" in metadata["content"]
+        assert "## 项目背景" not in metadata["content"]
+        assert "## 关键风险" not in metadata["content"]
         assert metadata["project_file_id"] == project_files[0].id
         assert metadata["path"] == project_files[0].path
         assert metadata["content"].startswith("#")

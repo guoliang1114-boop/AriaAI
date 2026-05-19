@@ -5,6 +5,7 @@ import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
 import type { GeneratedArtifact, TaskRun, TaskRunEvent, TaskRunStep } from "../../types/api";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
+import { artifactFromTaskRunArtifact } from "./projectChatWorkflow";
 
 type ProjectTaskRunsDrawerProps = {
   isOpen: boolean;
@@ -62,24 +63,6 @@ function eventText(event: TaskRunEvent) {
   if (typeof payload.file_name === "string" && payload.file_name) details.push(payload.file_name);
   if (typeof payload.name === "string" && payload.name) details.push(payload.name);
   return `${event.message || event.event_type}${details.length ? `（${details.join("；")}）` : ""}`;
-}
-
-function artifactFromTaskArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact {
-  return {
-    id: artifact.id,
-    name: artifact.name,
-    file_type: artifact.file_type,
-    path: artifact.path,
-    project_file_id: artifact.project_file_id,
-    description:
-      typeof artifact.metadata?.content === "string"
-        ? artifact.metadata.content
-        : typeof artifact.metadata?.summary === "string"
-          ? artifact.metadata.summary
-          : typeof artifact.metadata?.message === "string"
-            ? artifact.metadata.message
-            : "",
-  };
 }
 
 function StepRow({ events, isZh, step }: { events: TaskRunEvent[]; isZh: boolean; step: TaskRunStep }) {
@@ -361,15 +344,18 @@ export function ProjectTaskRunsDrawer({
                 {(selectedTask.artifacts || []).length ? (
                   <section className="space-y-2">
                     <h4 className="text-sm font-semibold text-slate-700">{isZh ? "生成物" : "Artifacts"}</h4>
-                    {(selectedTask.artifacts || []).map((artifact) => (
-                      <ProjectChatArtifactCard
-                        key={artifact.id || artifact.path}
-                        artifact={artifactFromTaskArtifact(artifact)}
-                        isZh={isZh}
-                        onDownload={onDownloadArtifact}
-                        onOpen={onOpenArtifact}
-                      />
-                    ))}
+                    {(selectedTask.artifacts || [])
+                      .map(artifactFromTaskRunArtifact)
+                      .filter((artifact): artifact is GeneratedArtifact => Boolean(artifact))
+                      .map((artifact) => (
+                        <ProjectChatArtifactCard
+                          key={artifact.id || artifact.path}
+                          artifact={artifact}
+                          isZh={isZh}
+                          onDownload={onDownloadArtifact}
+                          onOpen={onOpenArtifact}
+                        />
+                      ))}
                   </section>
                 ) : null}
 

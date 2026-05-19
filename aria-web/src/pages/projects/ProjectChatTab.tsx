@@ -16,9 +16,6 @@ import type {
   MessageMetadata,
   Skill,
   TaskRun,
-  TaskRunEvent,
-  TaskRunStep,
-  ToolCallEvent,
 } from "../../types/api";
 import { downloadArtifact } from "./downloadArtifact";
 import { downloadProjectFile } from "./downloadProjectFile";
@@ -43,6 +40,7 @@ import {
   type ProjectFileUploadError,
   uploadProjectFiles,
 } from "./uploadProjectFiles";
+import { workflowStepFromTask } from "./projectChatWorkflow";
 
 type StakeholderCandidate = {
   name: string;
@@ -51,47 +49,6 @@ type StakeholderCandidate = {
   relationship_status?: string;
   note?: string;
 };
-
-function taskEventDetail(event: TaskRunEvent) {
-  const message = event.message || event.event_type || "任务状态更新";
-  const time = event.created_at ? new Date(event.created_at) : null;
-  const timeText = time && !Number.isNaN(time.getTime())
-    ? time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "";
-  return `${timeText ? `[${timeText}] ` : ""}${message}`;
-}
-
-function workflowStepFromTask(step: TaskRunStep, total: number, events: TaskRunEvent[] = []): ToolCallEvent {
-  const status: ToolCallEvent["status"] =
-    step.status === "completed" || step.status === "skipped"
-      ? "completed"
-      : step.status === "failed"
-        ? "error"
-        : step.status === "pending"
-          ? "pending"
-          : step.status === "running"
-          ? "running"
-          : step.status === "canceled"
-            ? "error"
-            : "pending";
-  return {
-    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
-    status,
-    message:
-      step.status === "skipped"
-        ? step.error_message || "该步骤已跳过。"
-        : status === "completed"
-          ? "该步骤已完成。"
-          : status === "error"
-            ? step.error_message || "该步骤已停止，请打开任务面板处理。"
-            : "该步骤正在执行或等待执行。",
-    error: status === "error" ? step.error_message : undefined,
-    details: events.filter((event) => event.step_id === step.id).map(taskEventDetail),
-    step_index: step.sort_order,
-    step_total: total,
-    step_title: step.title || step.key,
-  };
-}
 
 const NON_PERSON_STAKEHOLDER_TERMS = [
   "数据",

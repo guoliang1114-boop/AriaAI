@@ -833,7 +833,7 @@ export interface StreamEvent {
   step_index?: number
   step_total?: number
   step_title?: string
-  step_status?: 'running' | 'completed' | 'error'
+  step_status?: 'pending' | 'running' | 'completed' | 'error'
   total?: number
   current?: number
   result?: Record<string, unknown>

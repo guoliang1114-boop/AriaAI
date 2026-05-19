@@ -16,10 +16,17 @@ import type {
   StreamEvent,
   TaskRun,
   TaskRunArtifact,
-  TaskRunEvent,
   TaskRunStep,
   ToolCallEvent,
 } from "../../types/api";
+import {
+  artifactFromResult,
+  artifactFromTaskRunArtifact,
+  attachToolDetailToActiveStep,
+  upsertArtifacts,
+  upsertWorkflowStep,
+  workflowStepFromTask,
+} from "./projectChatWorkflow";
 
 
 function buildAssistantMessage({
@@ -71,145 +78,6 @@ function summarizeToolResult(result: Record<string, unknown>, fallbackMessage?: 
   return fallbackMessage || "";
 }
 
-function artifactFromResult(result: Record<string, unknown>): GeneratedArtifact | null {
-  const output = typeof result.output === "object" && result.output !== null
-    ? (result.output as Record<string, unknown>)
-    : null;
-  const source = output && !result.file_path && !result.path ? output : result;
-  const path = typeof source.file_path === "string" ? source.file_path : typeof source.path === "string" ? source.path : "";
-  const name = typeof source.file_name === "string" ? source.file_name : typeof source.name === "string" ? source.name : "";
-  const fileType = typeof source.file_type === "string" ? source.file_type : "";
-
-  if (!path || !name || !fileType) {
-    return null;
-  }
-
-  return {
-    name,
-    file_type: fileType,
-    path,
-    project_file_id: typeof source.project_file_id === "number" ? source.project_file_id : typeof source.id === "number" ? source.id : undefined,
-    description: typeof source.note === "string" ? source.note : typeof source.message === "string" ? source.message : "",
-  };
-}
-
-function artifactFromTaskRunArtifact(artifact: NonNullable<TaskRun["artifacts"]>[number]): GeneratedArtifact | null {
-  if (!artifact?.name || !artifact.file_type) return null;
-  return {
-    id: artifact.id,
-    name: artifact.name,
-    file_type: artifact.file_type,
-    path: artifact.path || "",
-    project_file_id: artifact.project_file_id,
-    description:
-      typeof artifact.metadata?.content === "string"
-        ? artifact.metadata.content
-        : typeof artifact.metadata?.summary === "string"
-          ? artifact.metadata.summary
-          : typeof artifact.metadata?.message === "string"
-            ? artifact.metadata.message
-            : "",
-  };
-}
-
-function formatTaskEventTime(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(11, 19);
-  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function payloadSummary(payload?: Record<string, unknown>) {
-  if (!payload) return "";
-  const details: string[] = [];
-  const project = payload.project;
-  if (project && typeof project === "object") {
-    const record = project as Record<string, unknown>;
-    const name = typeof record.name === "string" ? record.name : "";
-    const client = typeof record.client === "string" ? record.client : "";
-    if (name || client) details.push(`项目：${[name, client].filter(Boolean).join(" / ")}`);
-  }
-  if (typeof payload.task_type === "string") details.push(`任务类型：${payload.task_type}`);
-  if (typeof payload.file_type === "string") details.push(`文件类型：${payload.file_type.toUpperCase()}`);
-  if (typeof payload.file_name === "string") details.push(`文件：${payload.file_name}`);
-  if (typeof payload.name === "string") details.push(`文件：${payload.name}`);
-  if (typeof payload.slide_count === "number") details.push(`页数：${payload.slide_count}`);
-  if (Array.isArray(payload.sheets)) {
-    const sheetNames = payload.sheets
-      .map((sheet) => (sheet && typeof sheet === "object" ? (sheet as Record<string, unknown>).name : sheet))
-      .filter((item): item is string => typeof item === "string" && item.length > 0);
-    if (sheetNames.length) details.push(`工作表：${sheetNames.join("、")}`);
-  }
-  if (typeof payload.error_code === "string" && payload.error_code) details.push(`错误：${payload.error_code}`);
-  if (typeof payload.retryable === "boolean") details.push(payload.retryable ? "可重试" : "不可重试");
-  if (typeof payload.message === "string" && payload.message) details.push(payload.message);
-  return details.join("；");
-}
-
-function taskEventDetail(event: TaskRunEvent) {
-  const time = formatTaskEventTime(event.created_at);
-  const message = event.message || event.event_type || "任务状态更新";
-  const payload = payloadSummary(event.payload);
-  return `${time ? `[${time}] ` : ""}${message}${payload ? `（${payload}）` : ""}`;
-}
-
-function stepOutputDetails(output?: Record<string, unknown>) {
-  if (!output) return [];
-  const details: string[] = [];
-  if (typeof output.project_name === "string" || typeof output.client === "string") {
-    details.push(`上下文：${[output.project_name, output.client].filter(Boolean).join(" / ")}`);
-  }
-  if (typeof output.file_type === "string") details.push(`输出类型：${output.file_type.toUpperCase()}`);
-  if (typeof output.file_name === "string") details.push(`输出文件：${output.file_name}`);
-  if (typeof output.title === "string") details.push(`标题：${output.title}`);
-  if (Array.isArray(output.sheets)) {
-    const sheetNames = output.sheets
-      .map((sheet) => (sheet && typeof sheet === "object" ? (sheet as Record<string, unknown>).name : sheet))
-      .filter((item): item is string => typeof item === "string" && item.length > 0);
-    if (sheetNames.length) details.push(`工作表：${sheetNames.join("、")}`);
-  }
-  if (typeof output.sections_count === "number") details.push(`章节数：${output.sections_count}`);
-  if (typeof output.slide_count === "number") details.push(`页数：${output.slide_count}`);
-  return details;
-}
-
-function workflowStepFromTask(
-  step: NonNullable<TaskRun["steps"]>[number],
-  total: number,
-  events: TaskRunEvent[] = [],
-): ToolCallEvent {
-  const status: ToolCallEvent["status"] =
-    step.status === "completed" || step.status === "skipped"
-      ? "completed"
-      : step.status === "failed"
-        ? "error"
-        : step.status === "running"
-          ? "running"
-          : "pending";
-  const eventDetails = events
-    .filter((event) => event.step_id === step.id)
-    .map(taskEventDetail)
-    .filter(Boolean);
-  const details = [...stepOutputDetails(step.output), ...eventDetails];
-  return {
-    tool_name: `步骤 ${step.sort_order}/${total}：${step.title || step.key}`,
-    status,
-    message:
-      status === "completed"
-        ? "该步骤已完成。"
-        : status === "error"
-          ? step.error_message || "该步骤执行失败，可稍后从任务记录重试。"
-          : status === "running"
-            ? "该步骤正在执行。"
-            : "该步骤等待前序步骤完成。",
-    error: status === "error" ? step.error_message : undefined,
-    step_index: step.sort_order,
-    step_total: total,
-    step_title: step.title || step.key,
-    details,
-  };
-}
-
 function buildArtifactFallbackContent(artifacts: GeneratedArtifact[], isZh = true) {
   if (artifacts.length === 0) return "";
   const names = artifacts.map((artifact) => artifact.name).filter(Boolean).join(isZh ? "、" : ", ");
@@ -221,38 +89,6 @@ function buildArtifactFallbackContent(artifacts: GeneratedArtifact[], isZh = tru
   return names
     ? `Generated attachment: ${names}. You can open or download it from the file card in this reply.`
     : "Generated an attachment. You can open or download it from the file card in this reply.";
-}
-
-function upsertWorkflowStep(
-  steps: ToolCallEvent[],
-  next: ToolCallEvent,
-) {
-  if (!next.step_index) return [...steps, next];
-  const existingIndex = steps.findIndex((item) => item.step_index === next.step_index);
-  if (existingIndex === -1) return [...steps, next];
-  return steps.map((item, index) =>
-    index === existingIndex
-      ? {
-          ...item,
-          ...next,
-          summary: next.summary ?? item.summary,
-          error: next.error ?? item.error,
-          details: next.details ?? item.details,
-        }
-      : item,
-  );
-}
-
-function upsertArtifacts(current: GeneratedArtifact[], incoming: GeneratedArtifact[]) {
-  return incoming.reduce<GeneratedArtifact[]>((items, artifact) => {
-    const artifactKey = artifact.path || `${artifact.file_type}:${artifact.id ?? artifact.name}`;
-    const exists = items.some((item) => {
-      const itemKey = item.path || `${item.file_type}:${item.id ?? item.name}`;
-      return itemKey === artifactKey;
-    });
-    if (exists) return items;
-    return [...items, artifact];
-  }, current);
 }
 
 type UseProjectChatComposerParams = {
@@ -438,16 +274,10 @@ export function useProjectChatComposer({
               setStreamingArtifacts(collectedArtifacts);
             }
           } else if (payload.type === "tool_executing" && payload.tool_name) {
-            if (collectedToolCalls.some((call) => call.step_index === 3)) {
-              const stepCall: ToolCallEvent = {
-                tool_name: "步骤 3/4：执行 Skill / 工具",
-                status: "running",
-                message: payload.message || `正在调用 ${payload.tool_name}`,
-                step_index: 3,
-                step_total: 4,
-                step_title: "执行 Skill / 工具",
-              };
-              collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
+            const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
+            const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+            if (hasActiveWorkflowStep) {
+              collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
               setStreamingToolCalls(collectedToolCalls);
               continue;
             }
@@ -465,36 +295,30 @@ export function useProjectChatComposer({
             ]);
           } else if (payload.type === "tool_result" && payload.result) {
             const result = payload.result;
+            const resultStatus: ToolCallEvent["status"] =
+              result.status === "error" || result.success === false ? "error" : "completed";
+            const resultSummary = summarizeToolResult(result);
             const toolName =
               typeof result.tool_name === "string"
                 ? result.tool_name
                 : collectedToolCalls[collectedToolCalls.length - 1]?.tool_name || "tool";
             const completedCall: ToolCallEvent = {
               tool_name: toolName,
-              status:
-                result.status === "error" || result.success === false ? "error" : "completed",
-              summary: summarizeToolResult(result),
+              status: resultStatus,
+              summary: resultSummary,
               error: typeof result.error === "string" ? result.error : undefined,
             };
-            collectedToolCalls = [
-              ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
-              completedCall,
-            ];
-            if (collectedToolCalls.some((call) => call.step_index === 3)) {
-              const stepCall: ToolCallEvent = {
-                tool_name: "步骤 3/4：执行 Skill / 工具",
-                status: completedCall.status,
-                message: completedCall.status === "error" ? "工具执行失败，正在整理可恢复信息。" : "工具执行完成，结果已返回。",
-                summary: completedCall.summary,
-                error: completedCall.error,
-                step_index: 3,
-                step_total: 4,
-                step_title: "执行 Skill / 工具",
-              };
-              collectedToolCalls = upsertWorkflowStep(
-                collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== completedCall.status),
-                stepCall,
-              );
+            const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+            if (hasActiveWorkflowStep) {
+              const detail = resultStatus === "error"
+                ? `工具 ${toolName} 执行失败${completedCall.error ? `：${completedCall.error}` : ""}`
+                : `工具 ${toolName} 执行完成${resultSummary ? `：${resultSummary}` : ""}`;
+              collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, detail, resultStatus === "error" ? "error" : undefined);
+            } else {
+              collectedToolCalls = [
+                ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
+                completedCall,
+              ];
             }
             setStreamingToolCalls(collectedToolCalls);
 
