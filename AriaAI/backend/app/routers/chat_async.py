@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -16,6 +18,7 @@ from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_streaming import prepare_chat_runtime, stream_chat_events
 from app.services.time_utils import utc_now_naive
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # In-memory registry of running background chat tasks
@@ -145,9 +148,7 @@ async def _execute_chat_in_background(runtime, req: SendMessageRequest, bind, ta
         _mark_background_chat_run(bind, task_run_id, "canceled", "后台对话任务已取消")
         raise
     except Exception as exc:
-        import traceback
-
-        print(f"[background_chat error] {exc}\n{traceback.format_exc()}", flush=True)
+        logger.error(f"[background_chat error] {exc}\n{traceback.format_exc()}")
         _background_chat_status[runtime.conv_id] = {
             "status": "failed",
             "task_run_id": str(task_run_id or ""),

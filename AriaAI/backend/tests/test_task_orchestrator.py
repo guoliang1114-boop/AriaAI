@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from sqlmodel import Session, SQLModel, select
 
@@ -74,6 +75,8 @@ def test_detect_project_task_type_routes_ppt_creation_requests():
 
 def test_rule_router_routes_markdown_artifacts():
     assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
+    assert detect_project_task_type("这个故事线 不行 至少有 10个章节 需要1级和2级目录") == "create_text_artifact"
+    assert detect_project_task_type("帮我做一个 MECE 问题树，拆成一级和二级议题") == "create_text_artifact"
 
 
 def test_router_keeps_diagnostic_chat_as_direct_answer():
@@ -465,10 +468,65 @@ def test_text_artifact_storyline_request_uses_storyline_structure():
         "给我准备一个和客户沟通的初步大纲storyline",
     )
 
-    assert "## 一句话沟通主线" in result["content"]
-    assert "## Storyline 结构" in result["content"]
+    assert result["title"] == "东阿阿胶新业务进入机会和策略-客户战略沟通故事线大纲"
+    assert "# 01. 项目背景与沟通目标" in result["content"]
+    assert "## 1.1 为什么现在讨论" in result["content"]
+    assert "## 10.1 24 小时内输出会议纪要" in result["content"]
     assert "## 项目背景" not in result["content"]
     assert "关键风险" not in result["content"]
+
+
+def test_text_artifact_storyline_respects_requested_chapter_count_and_hierarchy():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {"project_brief": "探索功能性护肤品新业务进入机会。"},
+        "client_memory": {},
+        "stakeholders": [],
+    }
+
+    result = task_orchestrator._build_text_artifact(
+        context,
+        "这个故事线 不行 至少有 10个章节 需要1级和2级目录",
+    )
+
+    h1_chapters = [
+        line for line in result["content"].splitlines()
+        if re.match(r"^# \d{2}\. ", line)
+    ]
+    h2_items = [
+        line for line in result["content"].splitlines()
+        if re.match(r"^## \d+\.\d+ ", line)
+    ]
+
+    assert result["title"] == "东阿阿胶新业务进入机会和策略-客户战略沟通故事线大纲"
+    assert len(h1_chapters) >= 10
+    assert len(h2_items) >= 20
+    assert result["text_spec"]["chapter_count"] == 10
+    assert result["text_spec"]["hierarchy"] == "h1_h2"
+    assert "这个故事线 不行" not in result["title"]
+    assert result["text_spec"]["capability_id"] == "consulting_storyline"
+    assert "必须有一级和二级目录" in result["text_spec"]["quality_rules"]
+
+
+def test_text_artifact_uses_consulting_capability_catalog_for_issue_tree():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {"project_brief": "探索功能性护肤品新业务进入机会。"},
+        "client_memory": {},
+        "stakeholders": [],
+    }
+
+    result = task_orchestrator._build_text_artifact(
+        context,
+        "帮我做一个 MECE 问题树，拆成一级和二级议题",
+    )
+
+    assert result["title"] == "东阿阿胶新业务进入机会和策略-问题树拆解"
+    assert result["text_spec"]["capability_id"] == "issue_tree"
+    assert "## 核心问题" in result["content"]
+    assert "## 一级议题" in result["content"]
+    assert "## 二级议题" in result["content"]
+    assert "层级互斥且穷尽" in result["text_spec"]["quality_rules"]
 
 
 def test_execute_task_run_fails_only_current_step(monkeypatch):

@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import Skill
+from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
 from app.tools import registry as tool_registry
@@ -28,6 +29,8 @@ OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES = [
     "write_project_office_document",
     "manage_project_folders",
 ]
+CONSULTING_CAPABILITY_SKILL_PREFIX = "顾问能力｜"
+CONSULTING_CAPABILITY_PROMPT_MARKER_PREFIX = "consulting-capability:"
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 
 _skills_cache = TTLCache()
@@ -1182,6 +1185,90 @@ GSTACK_PRO_SKILLS = [
 ]
 
 
+def _consulting_capability_skill_category(capability: ConsultingCapability) -> str:
+    if capability.id in {"issue_tree", "hypothesis_tree", "opportunity_assessment", "strategic_options"}:
+        return "战略与增长"
+    if capability.id in {"client_meeting_brief", "consulting_storyline", "interview_guide", "research_plan", "implementation_plan"}:
+        return "提案与项目交付"
+    return "提案与项目交付"
+
+
+def _consulting_capability_skill_prompt(capability: ConsultingCapability) -> str:
+    sections = "\n".join(f"- {section}" for section in capability.default_sections)
+    rules = "\n".join(f"- {rule}" for rule in capability.quality_rules) or "- 结论先行，结构清晰，避免泛化空话。"
+    hierarchy_rule = ""
+    if capability.requires_hierarchy:
+        hierarchy_rule = (
+            f"\n- 该能力默认至少输出 {capability.default_chapter_count or 10} 个一级章节；"
+            "每个一级章节必须包含二级目录和说明。"
+        )
+    return (
+        f"你是一位资深管理咨询顾问，正在执行 Aria 内置顾问能力。"
+        f"能力标识：{CONSULTING_CAPABILITY_PROMPT_MARKER_PREFIX}{capability.id}\n\n"
+        f"## 能力名称\n{capability.name}\n\n"
+        f"## 使用场景\n{capability.description}\n\n"
+        "## 工作方式\n"
+        "1. 先判断用户是否在要求交付物、结构化大纲、会议材料、分析框架或项目推进材料。\n"
+        "2. 如果用户给了明确模块、章节数、页数、目录层级或格式要求，必须优先服从用户要求。\n"
+        "3. 如果用户是在迭代已有材料，例如“这个不行”“重构”“至少多少章节”，先保留项目背景和客户语境，再重新组织结构。\n"
+        "4. 输出要像顾问交付物，不要只做聊天式解释；标题要干净，不要把用户的批评语写进标题。\n"
+        "5. 如果信息不足，用合理假设补齐，并用“待验证”标注，不要因为缺资料而停止。\n\n"
+        "## 标准执行步骤\n"
+        "无论用户选择哪个顾问能力，都必须至少按以下四步组织工作和进度表达：\n"
+        "步骤 1/4：收集上下文。读取项目、客户、历史材料、用户要求、约束、已知事实和待验证问题。\n"
+        "步骤 2/4：规划结构。把用户要求转成清晰的交付物结构、章节、模块、判断框架或分析维度。\n"
+        "步骤 3/4：生成内容。按规划结构撰写完整内容，优先满足用户指定模块、章节数、目录层级和输出格式。\n"
+        "步骤 4/4：校验并交付。检查是否覆盖要求、标题是否干净、结构是否完整、行动项是否可执行，并给出最终交付说明。\n\n"
+        "## 默认结构\n"
+        f"{sections}\n"
+        f"{hierarchy_rule}\n\n"
+        "## 质量规则\n"
+        f"{rules}\n\n"
+        "## 输出格式\n"
+        "- 默认使用 Markdown。\n"
+        "- 章节标题要清晰，可直接复制进项目空间。\n"
+        "- 行动项必须包含对象、动作、时间或下一步验证方式。\n"
+        "- 不输出工具 JSON，不暴露内部推理。"
+    )
+
+
+def _consulting_capability_user_template(capability: ConsultingCapability) -> str:
+    section_lines = "\n".join(f"- {section}：" for section in capability.default_sections[:6])
+    extra = "\n一级章节数量要求：\n二级目录要求：\n" if capability.requires_hierarchy else ""
+    return (
+        f"请使用「{capability.name}」能力，帮我生成一份顾问式交付内容。\n\n"
+        "项目 / 客户背景：\n"
+        "目标受众：\n"
+        "本次要解决的问题：\n"
+        f"{extra}"
+        "必须包含的模块：\n"
+        f"{section_lines}\n\n"
+        "已有材料或关键事实：\n"
+        "输出要求（语气、长度、格式）："
+    )
+
+
+def _build_consulting_capability_skill_defs() -> list[dict[str, Any]]:
+    skill_defs: list[dict[str, Any]] = []
+    for capability in CONSULTING_CAPABILITIES:
+        skill_defs.append(
+            {
+                "name": f"{CONSULTING_CAPABILITY_SKILL_PREFIX}{capability.name}",
+                "category": _consulting_capability_skill_category(capability),
+                "description": capability.description,
+                "system_prompt": _consulting_capability_skill_prompt(capability),
+                "user_template": _consulting_capability_user_template(capability),
+                "estimated_time": "~8 min" if capability.artifact_kind == "md" else "~15 min",
+                "max_tokens": 16384,
+                "tools": [],
+            }
+        )
+    return skill_defs
+
+
+CONSULTING_CAPABILITY_SKILLS = _build_consulting_capability_skill_defs()
+
+
 def ensure_builtin_pro_skills(session: Session) -> int:
     """Create missing built-in pro skills without overwriting user edits."""
     from app.tools import registry as _registry
@@ -1201,6 +1288,12 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
         OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_PROMPT_MARKER,
     }
+    prompt_markers.update(
+        {
+            skill_def["name"]: f"{CONSULTING_CAPABILITY_PROMPT_MARKER_PREFIX}{capability.id}"
+            for skill_def, capability in zip(CONSULTING_CAPABILITY_SKILLS, CONSULTING_CAPABILITIES)
+        }
+    )
     template_tool_names = {
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_TOOL_NAMES,
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
@@ -1214,7 +1307,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         if obsolete_skill is not None:
             session.delete(obsolete_skill)
             changed += 1
-    for skill_def in GSTACK_PRO_SKILLS:
+    for skill_def in [*GSTACK_PRO_SKILLS, *CONSULTING_CAPABILITY_SKILLS]:
         existing_skill = existing.get(skill_def["name"])
         if existing_skill:
             patched = False
@@ -1273,7 +1366,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
 @router.post("/migrate-categories")
 def migrate_categories(session: Session = Depends(get_session)):
     """Update existing skill categories from old format to 9 business domains. Idempotent."""
-    name_to_domain = {s["name"]: s["category"] for s in DEFAULT_SKILLS + GSTACK_PRO_SKILLS}
+    name_to_domain = {s["name"]: s["category"] for s in DEFAULT_SKILLS + GSTACK_PRO_SKILLS + CONSULTING_CAPABILITY_SKILLS}
     old_formats = {"quick_tool", "deep_task", "guided_workflow", "Quick Tool", "Deep Task", "Guided Workflow"}
     updated = 0
     for skill in session.exec(select(Skill)).all():

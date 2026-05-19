@@ -69,6 +69,76 @@ route_project_task_request(content)
 |---|---|
 | `create_text_artifact` | 仅文本交付，不生成 Office 文件 |
 
+## 3.1 顾问通用能力目录
+
+为了避免继续用零散关键词打补丁，项目对话现在引入顾问能力目录：
+
+```text
+AriaAI/backend/app/services/consulting_capabilities.py
+```
+
+这个目录用于描述“用户要的是什么顾问交付物”，而不是直接写死某一句话。每个能力包含：
+
+- `id`：稳定能力标识
+- `artifact_kind`：默认输出类型，例如 MD、PPTX、XLSX
+- `trigger_terms`：用于 Router 的触发线索
+- `default_title`：干净的交付物标题
+- `default_sections`：默认结构
+- `quality_rules`：生成后的质量要求
+
+当前沉淀的高频顾问能力：
+
+| capability_id | 场景 | 默认输出 | 说明 |
+|---|---|---|---|
+| `client_meeting_brief` | 客户会议准备 | MD | 开场话术、议题顺序、关键人表达、会后行动 |
+| `consulting_storyline` | 咨询故事线 / 一级二级目录 | MD | 至少 10 章的结构化叙事大纲 |
+| `interview_guide` | 访谈提纲 | MD | 访谈对象、目标、问题、追问、记录方式 |
+| `issue_tree` | 问题树 / MECE 拆解 | MD | 核心问题、一级议题、二级议题、验证点 |
+| `hypothesis_tree` | 假设树 | MD | 核心判断、关键假设、证据、判定标准 |
+| `research_plan` | 桌面研究计划 | MD | 研究问题、信息源、验证路径、输出格式 |
+| `opportunity_assessment` | 机会评估 | MD | 赛道吸引力、客户适配度、进入难度、验证成本 |
+| `strategic_options` | 战略选项 | MD | 方案 A/B/C、比较维度、推荐路径 |
+| `implementation_plan` | 落地计划 | MD | 阶段、里程碑、责任、依赖、风险、KPI |
+
+Router 会先匹配能力目录，再决定是否创建 `create_text_artifact`。例如：
+
+- “这个故事线不行，至少 10 个章节，需要一级和二级目录”会识别为 `consulting_storyline`。
+- “帮我做一个 MECE 问题树，拆成一级和二级议题”会识别为 `issue_tree`。
+- “请严格输出开场话术、关键议题顺序、关键人表达方式、会后行动清单”会识别为 `client_meeting_brief`。
+
+能力目录只负责“识别和结构约束”，具体执行仍由 Orchestrator + Executor 完成。
+
+这些成熟能力也会作为内置 Skills 出现在 `/skills` 页面。部署后执行：
+
+```text
+POST /api/skills/seed-pro
+```
+
+会自动补齐以下 Skills，名称统一使用 `顾问能力｜` 前缀，避免和用户自建 Skill 冲突：
+
+- `顾问能力｜客户会议准备`
+- `顾问能力｜咨询故事线大纲`
+- `顾问能力｜访谈提纲`
+- `顾问能力｜问题树拆解`
+- `顾问能力｜假设树`
+- `顾问能力｜桌面研究计划`
+- `顾问能力｜机会评估`
+- `顾问能力｜战略选项设计`
+- `顾问能力｜落地计划`
+
+这些 Skills 适合用户主动选择使用；而在项目对话里，Router 仍会根据用户输入自动识别相同能力并进入对应的 Orchestrator 流程。
+
+每个 `顾问能力｜...` Skill 都必须至少包含统一四步：
+
+```text
+步骤 1/4：收集上下文
+步骤 2/4：规划结构
+步骤 3/4：生成内容
+步骤 4/4：校验并交付
+```
+
+具体能力可以在这四步下扩展更多细节，但不能跳过这些基本步骤。
+
 ## 4. 执行流程
 
 以“我想要准备一个访谈的 Excel”为例：

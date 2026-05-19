@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useRef,
-  useState,
-  type Dispatch,
-  type MutableRefObject,
-  type SetStateAction,
-} from "react";
+import { useCallback, useRef } from "react";
 
 import { getApiBaseUrl } from "../../config/api";
 import type {
@@ -13,12 +6,13 @@ import type {
   Message,
   MessageMetadata,
   Reference,
-  StreamEvent,
   TaskRun,
   TaskRunArtifact,
   TaskRunStep,
   ToolCallEvent,
 } from "../../types/api";
+import type { StreamEvent } from "../../types/chat";
+import { useChatStreamStore } from "../../stores/chatStreamStore";
 import {
   artifactFromResult,
   artifactFromTaskRunArtifact,
@@ -28,7 +22,6 @@ import {
   workflowStepFromTask,
 } from "./projectChatWorkflow";
 import { parseMentions } from "./projectChatMentions";
-
 
 function buildAssistantMessage({
   artifacts,
@@ -98,12 +91,12 @@ type UseProjectChatComposerParams = {
   selectedSkillId: number | null;
   forceSkill: boolean;
   knowledgeScope: "project" | "client" | "global";
-  selectedModel?: string;
-  setMessages: Dispatch<SetStateAction<Message[]>>;
+  selectedModel: string;
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   createConversation: (firstMessage?: string, skillId?: number | null) => Promise<number | null>;
   fetchMessages: (conversationId: number) => Promise<void>;
   fetchConversations: () => Promise<void>;
-  isNearBottomRef: MutableRefObject<boolean>;
+  isNearBottomRef: React.MutableRefObject<boolean>;
   scrollToBottom: (smooth?: boolean) => void;
   onSendError: () => void;
 };
@@ -123,458 +116,454 @@ export function useProjectChatComposer({
   scrollToBottom,
   onSendError,
 }: UseProjectChatComposerParams) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [streamingStatus, setStreamingStatus] = useState("");
-  const [streamingReferences, setStreamingReferences] = useState<Reference[]>([]);
-  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCallEvent[]>([]);
-  const [streamingArtifacts, setStreamingArtifacts] = useState<GeneratedArtifact[]>([]);
-  const [streamingTruncated, setStreamingTruncated] = useState(false);
+  const streamStore = useChatStreamStore();
   const abortControllerRef = useRef<AbortController | null>(null);
   const abortControllerAsyncRef = useRef<AbortController | null>(null);
 
   const resetStreamingContent = useCallback(() => {
-    setStreamingContent("");
-    setStreamingStatus("");
-    setStreamingReferences([]);
-    setStreamingToolCalls([]);
-    setStreamingArtifacts([]);
-    setStreamingTruncated(false);
-  }, []);
+    streamStore.reset();
+  }, [streamStore]);
 
-  const sendMessage = useCallback(async (content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return false;
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return false;
 
-    let conversationId = activeConvId;
-    const skillId = forceSkill ? selectedSkillId || undefined : undefined;
-    setIsLoading(true);
-    resetStreamingContent();
+      let conversationId = activeConvId;
+      const skillId = forceSkill ? selectedSkillId || undefined : undefined;
+      streamStore.setIsLoading(true);
+      streamStore.reset();
 
-    if (!conversationId) {
-      conversationId = await createConversation(trimmed, skillId || null);
       if (!conversationId) {
-        setIsLoading(false);
-        return false;
+        conversationId = await createConversation(trimmed, skillId || null);
+        if (!conversationId) {
+          streamStore.setIsLoading(false);
+          return false;
+        }
       }
-    }
 
-    const tempUserMsg: Message = {
-      id: Date.now(),
-      conversation_id: conversationId,
-      role: "user",
-      content: trimmed,
-      metadata_json: "{}",
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, tempUserMsg]);
-    isNearBottomRef.current = true;
-    setTimeout(() => scrollToBottom(true), 0);
+      const tempUserMsg: Message = {
+        id: Date.now(),
+        conversation_id: conversationId,
+        role: "user",
+        content: trimmed,
+        metadata_json: "{}",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, tempUserMsg]);
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 0);
 
-    let fullContent = "";
-    let collectedReferences: Reference[] = [];
-    let collectedToolCalls: ToolCallEvent[] = [];
-    let collectedArtifacts: GeneratedArtifact[] = [];
-    let serverPersistedAssistant = false;
-    let latestTaskRun: TaskRun | null = null;
-    let latestTaskType = "";
-    let wasTruncated = false;
+      let fullContent = "";
+      let collectedReferences: Reference[] = [];
+      let collectedToolCalls: ToolCallEvent[] = [];
+      let collectedArtifacts: GeneratedArtifact[] = [];
+      let serverPersistedAssistant = false;
+      let latestTaskRun: TaskRun | null = null;
+      let latestTaskType = "";
+      let wasTruncated = false;
 
-    const mentions = parseMentions(trimmed);
-    const mentionContext = mentions.length > 0 ? {
-      file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
-      stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
-      milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
-    } : undefined;
+      const mentions = parseMentions(trimmed);
+      const mentionContext =
+        mentions.length > 0
+          ? {
+              file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
+              stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
+              milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
+            }
+          : undefined;
 
-    try {
-      abortControllerRef.current = new AbortController();
-      const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Auth-Token": localStorage.getItem("authToken") || "",
-        },
-        body: JSON.stringify({
-          conversation_id: conversationId,
-          content: trimmed,
-          project_id: projectId,
-          skill_id: skillId,
-          force_skill: !!skillId,
-          knowledge_scope: knowledgeScope,
-          model: selectedModel || undefined,
-          mention_context: mentionContext,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
+      try {
+        abortControllerRef.current = new AbortController();
+        const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Auth-Token": localStorage.getItem("authToken") || "",
+          },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            content: trimmed,
+            project_id: projectId,
+            skill_id: skillId,
+            force_skill: !!skillId,
+            knowledge_scope: knowledgeScope,
+            model: selectedModel || undefined,
+            mention_context: mentionContext,
+          }),
+          signal: abortControllerRef.current.signal,
+        });
 
-      if (!response.ok) throw new Error("Failed to send message");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
+        if (!response.ok) throw new Error("Failed to send message");
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (abortControllerRef.current?.signal.aborted) break;
-        buffer += decoder.decode(value, { stream: true });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (abortControllerRef.current?.signal.aborted) break;
+          buffer += decoder.decode(value, { stream: true });
 
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
+          const events = buffer.split("\n\n");
+          buffer = events.pop() || "";
 
-        for (const event of events) {
-          const line = event
-            .split("\n")
-            .map((item) => item.trim())
-            .find((item) => item.startsWith("data: "));
-          if (!line) continue;
+          for (const event of events) {
+            const line = event
+              .split("\n")
+              .map((item) => item.trim())
+              .find((item) => item.startsWith("data: "));
+            if (!line) continue;
 
-          let payload: StreamEvent;
-          try {
-            payload = JSON.parse(line.replace(/^data:\s*/, "")) as StreamEvent;
-          } catch (error) {
-            console.error("Failed to parse stream event:", error);
-            continue;
-          }
-
-          if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
-            fullContent += payload.content;
-            setStreamingContent(fullContent);
-            setStreamingStatus("");
-          } else if (payload.type === "status" && payload.message) {
-            if (payload.step_index) {
-              const stepCall: ToolCallEvent = {
-                tool_name: payload.step_title
-                  ? `步骤 ${payload.step_index}/${payload.step_total || 4}：${payload.step_title}`
-                  : `步骤 ${payload.step_index}/${payload.step_total || 4}`,
-                status: payload.step_status || "running",
-                message: payload.message,
-                step_index: payload.step_index,
-                step_total: payload.step_total,
-                step_title: payload.step_title,
-              };
-              collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
-              setStreamingToolCalls(collectedToolCalls);
+            let payload: StreamEvent;
+            try {
+              payload = JSON.parse(line.replace(/^data:\s*/, "")) as StreamEvent;
+            } catch (error) {
+              console.error("Failed to parse stream event:", error);
               continue;
             }
-            setStreamingStatus(payload.message);
-            if (payload.stage === "saving" || payload.stage === "finalizing") {
-              setStreamingToolCalls((prev) => prev.filter((call) => call.status !== "running"));
-            }
-          } else if (payload.type === "references") {
-            collectedReferences = payload.references || [];
-            setStreamingReferences(collectedReferences);
-          } else if (payload.type === "task_run" && payload.task) {
-            const task = payload.task as TaskRun;
-            latestTaskRun = task;
-            latestTaskType = task.task_type || latestTaskType;
-            const steps = task.steps || [];
-            const taskEvents = task.events || [];
-            if (steps.length > 0) {
-              collectedToolCalls = steps
-                .reduce<ToolCallEvent[]>(
-                  (items: ToolCallEvent[], step: TaskRunStep) => upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
+
+            if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
+              fullContent += payload.content;
+              streamStore.appendText(payload.content);
+              streamStore.setStatus("");
+            } else if (payload.type === "status" && payload.message) {
+              if (payload.step_index) {
+                const stepCall: ToolCallEvent = {
+                  tool_name: payload.step_title
+                    ? `步骤 ${payload.step_index}/${payload.step_total || 4}：${payload.step_title}`
+                    : `步骤 ${payload.step_index}/${payload.step_total || 4}`,
+                  status: payload.step_status || "running",
+                  message: payload.message,
+                  step_index: payload.step_index,
+                  step_total: payload.step_total,
+                  step_title: payload.step_title,
+                };
+                collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
+                streamStore.setStreamingToolCalls(collectedToolCalls);
+                continue;
+              }
+              streamStore.setStatus(payload.message);
+              if (payload.stage === "saving" || payload.stage === "finalizing") {
+                streamStore.setStreamingToolCalls(collectedToolCalls.filter((call) => call.status !== "running"));
+              }
+            } else if (payload.type === "references") {
+              collectedReferences = payload.references || [];
+              streamStore.setReferences(collectedReferences);
+            } else if (payload.type === "task_run" && payload.task) {
+              const task = payload.task as TaskRun;
+              latestTaskRun = task;
+              latestTaskType = task.task_type || latestTaskType;
+              const steps = task.steps || [];
+              const taskEvents = task.events || [];
+              if (steps.length > 0) {
+                collectedToolCalls = steps.reduce<ToolCallEvent[]>(
+                  (items: ToolCallEvent[], step: TaskRunStep) =>
+                    upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
                   collectedToolCalls,
                 );
-              setStreamingToolCalls(collectedToolCalls);
-            }
-            if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
-              collectedArtifacts = upsertArtifacts(
-                collectedArtifacts,
-                task.artifacts
-                  .map((artifact: TaskRunArtifact) => artifactFromTaskRunArtifact(artifact))
-                  .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
-              );
-              setStreamingArtifacts(collectedArtifacts);
-            }
-          } else if (payload.type === "tool_executing" && payload.tool_name) {
-            const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
-            const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
-            if (hasActiveWorkflowStep) {
-              collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
-              setStreamingToolCalls(collectedToolCalls);
-              continue;
-            }
-            const runningCall: ToolCallEvent = {
-              tool_name: payload.tool_name,
-              status: "running",
-              message: payload.message,
-            };
-            collectedToolCalls = [
-              ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
-              runningCall,
-            ];
-            setStreamingToolCalls([
-              ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
-            ]);
-          } else if (payload.type === "tool_result" && payload.result) {
-            const result = payload.result;
-            const resultStatus: ToolCallEvent["status"] =
-              result.status === "error" || result.success === false ? "error" : "completed";
-            const resultSummary = summarizeToolResult(result);
-            const toolName =
-              typeof result.tool_name === "string"
-                ? result.tool_name
-                : collectedToolCalls[collectedToolCalls.length - 1]?.tool_name || "tool";
-            const completedCall: ToolCallEvent = {
-              tool_name: toolName,
-              status: resultStatus,
-              summary: resultSummary,
-              error: typeof result.error === "string" ? result.error : undefined,
-            };
-            const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
-            if (hasActiveWorkflowStep) {
-              const detail = resultStatus === "error"
-                ? `工具 ${toolName} 执行失败${completedCall.error ? `：${completedCall.error}` : ""}`
-                : `工具 ${toolName} 执行完成${resultSummary ? `：${resultSummary}` : ""}`;
-              collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, detail, resultStatus === "error" ? "error" : undefined);
-            } else {
+                streamStore.setStreamingToolCalls(collectedToolCalls);
+              }
+              if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
+                collectedArtifacts = upsertArtifacts(
+                  collectedArtifacts,
+                  task.artifacts
+                    .map((artifact: TaskRunArtifact) => artifactFromTaskRunArtifact(artifact))
+                    .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
+                );
+                streamStore.setStreamingArtifacts(collectedArtifacts);
+              }
+            } else if (payload.type === "tool_executing" && payload.tool_name) {
+              const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
+              const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+              if (hasActiveWorkflowStep) {
+                collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
+                streamStore.setStreamingToolCalls(collectedToolCalls);
+                continue;
+              }
+              const runningCall: ToolCallEvent = {
+                tool_name: payload.tool_name,
+                status: "running",
+                message: payload.message,
+              };
               collectedToolCalls = [
-                ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
-                completedCall,
+                ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
+                runningCall,
               ];
-            }
-            setStreamingToolCalls(collectedToolCalls);
+              streamStore.setStreamingToolCalls([
+                ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+              ]);
+            } else if (payload.type === "tool_result" && payload.result) {
+              const result = payload.result;
+              const resultStatus: ToolCallEvent["status"] =
+                result.status === "error" || result.success === false ? "error" : "completed";
+              const resultSummary = summarizeToolResult(result);
+              const toolName =
+                typeof result.tool_name === "string"
+                  ? result.tool_name
+                  : collectedToolCalls[collectedToolCalls.length - 1]?.tool_name || "tool";
+              const completedCall: ToolCallEvent = {
+                tool_name: toolName,
+                status: resultStatus,
+                summary: resultSummary,
+                error: typeof result.error === "string" ? result.error : undefined,
+              };
+              const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+              if (hasActiveWorkflowStep) {
+                const detail =
+                  resultStatus === "error"
+                    ? `工具 ${toolName} 执行失败${completedCall.error ? `：${completedCall.error}` : ""}`
+                    : `工具 ${toolName} 执行完成${resultSummary ? `：${resultSummary}` : ""}`;
+                collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, detail, resultStatus === "error" ? "error" : undefined);
+              } else {
+                collectedToolCalls = [
+                  ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
+                  completedCall,
+                ];
+              }
+              streamStore.setStreamingToolCalls(collectedToolCalls);
 
-            const artifact = artifactFromResult(result);
-            if (artifact) {
-              collectedArtifacts = upsertArtifacts(collectedArtifacts, [artifact]);
-              setStreamingArtifacts(collectedArtifacts);
+              const artifact = artifactFromResult(result);
+              if (artifact) {
+                collectedArtifacts = upsertArtifacts(collectedArtifacts, [artifact]);
+                streamStore.setStreamingArtifacts(collectedArtifacts);
+              }
+            } else if (payload.type === "done") {
+              if (payload.task_run_id || payload.task_type || payload.task) {
+                serverPersistedAssistant = true;
+              }
+              if (payload.task && typeof payload.task === "object") {
+                latestTaskRun = payload.task as TaskRun;
+              }
+              if (typeof payload.task_type === "string") {
+                latestTaskType = payload.task_type;
+              }
+              if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
+                collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
+                streamStore.setStreamingArtifacts(collectedArtifacts);
+              }
+            } else if (payload.type === "truncated") {
+              wasTruncated = true;
+              streamStore.setTruncated(true);
+            } else if (payload.type === "error") {
+              throw new Error(payload.message || payload.error || "Chat failed");
             }
-          } else if (payload.type === "done") {
-            if (payload.task_run_id || payload.task_type || payload.task) {
-              serverPersistedAssistant = true;
-            }
-            if (payload.task && typeof payload.task === "object") {
-              latestTaskRun = payload.task as TaskRun;
-            }
-            if (typeof payload.task_type === "string") {
-              latestTaskType = payload.task_type;
-            }
-            if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
-              collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
-              setStreamingArtifacts(collectedArtifacts);
-            }
-          } else if (payload.type === "truncated") {
-            wasTruncated = true;
-            setStreamingTruncated(true);
-          } else if (payload.type === "error") {
-            throw new Error(payload.message || payload.error || "Chat failed");
           }
         }
-      }
 
-      const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
-      const isTruncated = wasTruncated;
-      setStreamingContent("");
-      setStreamingStatus("");
-      setStreamingToolCalls([]);
-      setStreamingReferences([]);
-      setStreamingArtifacts([]);
-      setStreamingTruncated(false);
-      if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
-        const assistantMessage = buildAssistantMessage({
-          artifacts: collectedArtifacts,
-          content: finalContent,
-          conversationId,
-          projectId,
-          references: collectedReferences,
-          toolCalls: collectedToolCalls,
-          taskRun: serverPersistedAssistant ? latestTaskRun : null,
-          taskType: latestTaskType,
-        });
-        if (isTruncated) {
-          assistantMessage.metadata_json = JSON.stringify({
-            ...JSON.parse(assistantMessage.metadata_json || "{}"),
-            truncated: true,
-          });
-        }
-        setMessages((prev) => [...prev, assistantMessage]);
-      } else {
-        await fetchMessages(conversationId);
-      }
-      void fetchConversations();
-      return true;
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        const stoppedToolCalls = collectedToolCalls.map((call) =>
-          call.status === "running"
-            ? { ...call, status: "error" as const, error: "Generation stopped" }
-            : call,
-        );
-        setStreamingContent("");
-        setStreamingStatus("");
-        setStreamingToolCalls([]);
-        setStreamingTruncated(false);
-        if (fullContent.trim()) {
+        const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
+        const isTruncated = wasTruncated;
+        streamStore.reset();
+        if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
           const assistantMessage = buildAssistantMessage({
             artifacts: collectedArtifacts,
-            content: fullContent,
+            content: finalContent,
             conversationId,
             projectId,
             references: collectedReferences,
-            toolCalls: stoppedToolCalls,
+            toolCalls: collectedToolCalls,
+            taskRun: serverPersistedAssistant ? latestTaskRun : null,
+            taskType: latestTaskType,
           });
+          if (isTruncated) {
+            assistantMessage.metadata_json = JSON.stringify({
+              ...JSON.parse(assistantMessage.metadata_json || "{}"),
+              truncated: true,
+            });
+          }
           setMessages((prev) => [...prev, assistantMessage]);
+        } else {
+          await fetchMessages(conversationId);
         }
         void fetchConversations();
+        return true;
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          const stoppedToolCalls = collectedToolCalls.map((call) =>
+            call.status === "running"
+              ? { ...call, status: "error" as const, error: "Generation stopped" }
+              : call,
+          );
+          streamStore.reset();
+          if (fullContent.trim()) {
+            const assistantMessage = buildAssistantMessage({
+              artifacts: collectedArtifacts,
+              content: fullContent,
+              conversationId,
+              projectId,
+              references: collectedReferences,
+              toolCalls: stoppedToolCalls,
+            });
+            setMessages((prev) => [...prev, assistantMessage]);
+          }
+          void fetchConversations();
+          return false;
+        }
+        console.error("Failed to send message:", error);
+        streamStore.reset();
+        onSendError();
+        await fetchMessages(conversationId);
         return false;
+      } finally {
+        abortControllerRef.current = null;
+        streamStore.setIsLoading(false);
       }
-      console.error("Failed to send message:", error);
-      setStreamingContent("");
-      setStreamingStatus("");
-      setStreamingToolCalls([]);
-      setStreamingTruncated(false);
-      onSendError();
-      await fetchMessages(conversationId);
-      return false;
-    } finally {
-      abortControllerRef.current = null;
-      setIsLoading(false);
-    }
-  }, [
-    activeConvId,
-    createConversation,
-    fetchConversations,
-    fetchMessages,
-    isNearBottomRef,
-    knowledgeScope,
-    onSendError,
-    projectId,
-    resetStreamingContent,
-    scrollToBottom,
-    selectedSkillId,
-    selectedModel,
-    forceSkill,
-    setMessages,
-  ]);
+    },
+    [
+      activeConvId,
+      createConversation,
+      fetchConversations,
+      fetchMessages,
+      isNearBottomRef,
+      knowledgeScope,
+      onSendError,
+      projectId,
+      resetStreamingContent,
+      scrollToBottom,
+      selectedSkillId,
+      selectedModel,
+      forceSkill,
+      setMessages,
+      streamStore,
+    ],
+  );
 
   const stopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerAsyncRef.current?.abort();
   }, []);
 
-  const sendMessageAsync = useCallback(async (content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return false;
+  const sendMessageAsync = useCallback(
+    async (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return false;
 
-    let conversationId = activeConvId;
-    const skillId = forceSkill ? selectedSkillId || undefined : undefined;
+      let conversationId = activeConvId;
+      const skillId = forceSkill ? selectedSkillId || undefined : undefined;
 
-    if (!conversationId) {
-      conversationId = await createConversation(trimmed, skillId || null);
       if (!conversationId) {
-        return false;
+        conversationId = await createConversation(trimmed, skillId || null);
+        if (!conversationId) {
+          return false;
+        }
       }
-    }
 
-    const tempUserMsg: Message = {
-      id: Date.now(),
-      conversation_id: conversationId,
-      role: "user",
-      content: trimmed,
-      metadata_json: "{}",
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, tempUserMsg]);
-    isNearBottomRef.current = true;
-    setTimeout(() => scrollToBottom(true), 0);
+      const tempUserMsg: Message = {
+        id: Date.now(),
+        conversation_id: conversationId,
+        role: "user",
+        content: trimmed,
+        metadata_json: "{}",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, tempUserMsg]);
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 0);
 
-    const mentions = parseMentions(trimmed);
-    const mentionContext = mentions.length > 0 ? {
-      file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
-      stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
-      milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
-    } : undefined;
+      const mentions = parseMentions(trimmed);
+      const mentionContext =
+        mentions.length > 0
+          ? {
+              file_ids: mentions.filter((m) => m.type === "file").map((m) => m.id),
+              stakeholder_ids: mentions.filter((m) => m.type === "stakeholder").map((m) => m.id),
+              milestone_ids: mentions.filter((m) => m.type === "milestone").map((m) => m.id),
+            }
+          : undefined;
 
-    abortControllerAsyncRef.current = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      abortControllerAsyncRef.current?.abort();
-    }, 30000);
+      abortControllerAsyncRef.current = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        abortControllerAsyncRef.current?.abort();
+      }, 30000);
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/chat/send-async`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Auth-Token": localStorage.getItem("authToken") || "",
-        },
-        body: JSON.stringify({
-          conversation_id: conversationId,
-          content: trimmed,
-          project_id: projectId,
-          skill_id: skillId,
-          force_skill: !!skillId,
-          knowledge_scope: knowledgeScope,
-          model: selectedModel || undefined,
-          mention_context: mentionContext,
-        }),
-        signal: abortControllerAsyncRef.current.signal,
-      });
-      window.clearTimeout(timeoutId);
-      if (!response.ok) {
-        throw new Error(`Background request failed: ${response.status}`);
-      }
-      const result = await response.json().catch(() => null) as { conversation_id?: number; task_run_id?: number; status?: string } | null;
-      const backgroundMessage = buildAssistantMessage({
-        artifacts: [],
-        content: result?.task_run_id
-          ? `已转入后台执行。任务记录 #${result.task_run_id} 已创建，你可以稍后回到这个对话查看结果。`
-          : "已转入后台执行。你可以稍后回到这个对话查看结果；任务完成后会写入同一条对话历史。",
-        conversationId: result?.conversation_id || conversationId,
-        projectId,
-        references: [],
-        toolCalls: [
-          {
-            tool_name: "后台任务",
-            status: "running",
-            message: result?.task_run_id
-              ? `请求已提交，后台任务 #${result.task_run_id} 正在执行。`
-              : "请求已提交，正在后台执行。",
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/chat/send-async`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Auth-Token": localStorage.getItem("authToken") || "",
           },
-        ],
-      });
-      setMessages((prev) => [...prev, backgroundMessage]);
-      void fetchConversations();
-      return true;
-    } catch (error) {
-      window.clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === "AbortError") {
-        console.error("Background request timed out after 30s");
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            content: trimmed,
+            project_id: projectId,
+            skill_id: skillId,
+            force_skill: !!skillId,
+            knowledge_scope: knowledgeScope,
+            model: selectedModel || undefined,
+            mention_context: mentionContext,
+          }),
+          signal: abortControllerAsyncRef.current.signal,
+        });
+        window.clearTimeout(timeoutId);
+        if (!response.ok) {
+          throw new Error(`Background request failed: ${response.status}`);
+        }
+        const result = (await response.json().catch(() => null)) as {
+          conversation_id?: number;
+          task_run_id?: number;
+          status?: string;
+        } | null;
+        const backgroundMessage = buildAssistantMessage({
+          artifacts: [],
+          content: result?.task_run_id
+            ? `已转入后台执行。任务记录 #${result.task_run_id} 已创建，你可以稍后回到这个对话查看结果。`
+            : "已转入后台执行。你可以稍后回到这个对话查看结果；任务完成后会写入同一条对话历史。",
+          conversationId: result?.conversation_id || conversationId,
+          projectId,
+          references: [],
+          toolCalls: [
+            {
+              tool_name: "后台任务",
+              status: "running",
+              message: result?.task_run_id
+                ? `请求已提交，后台任务 #${result.task_run_id} 正在执行。`
+                : "请求已提交，正在后台执行。",
+            },
+          ],
+        });
+        setMessages((prev) => [...prev, backgroundMessage]);
+        void fetchConversations();
+        return true;
+      } catch (error) {
+        window.clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === "AbortError") {
+          console.error("Background request timed out after 30s");
+          onSendError();
+          return false;
+        }
+        console.error("Failed to send async message:", error);
         onSendError();
         return false;
+      } finally {
+        abortControllerAsyncRef.current = null;
       }
-      console.error("Failed to send async message:", error);
-      onSendError();
-      return false;
-    } finally {
-      abortControllerAsyncRef.current = null;
-    }
-  }, [
-    activeConvId,
-    createConversation,
-    fetchConversations,
-    forceSkill,
-    knowledgeScope,
-    onSendError,
-    projectId,
-    scrollToBottom,
-    selectedSkillId,
-    selectedModel,
-    setMessages,
-    isNearBottomRef,
-  ]);
+    },
+    [
+      activeConvId,
+      createConversation,
+      fetchConversations,
+      forceSkill,
+      knowledgeScope,
+      onSendError,
+      projectId,
+      scrollToBottom,
+      selectedSkillId,
+      selectedModel,
+      setMessages,
+      isNearBottomRef,
+    ],
+  );
 
   return {
-    isLoading,
-    streamingArtifacts,
-    streamingContent,
-    streamingStatus,
-    streamingReferences,
-    streamingToolCalls,
-    streamingTruncated,
+    isLoading: streamStore.isLoading,
+    streamingArtifacts: streamStore.streamingArtifacts,
+    streamingContent: streamStore.streamingContent,
+    streamingStatus: streamStore.streamingStatus,
+    streamingReferences: streamStore.streamingReferences,
+    streamingToolCalls: streamStore.streamingToolCalls,
+    streamingTruncated: streamStore.streamingTruncated,
     resetStreamingContent,
     sendMessage,
     sendMessageAsync,

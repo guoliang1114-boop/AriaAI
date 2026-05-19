@@ -20,6 +20,11 @@ from app.config import UPLOADS_DIR
 from app.database import engine
 from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.routers.projects_deps import _build_project_briefing
+from app.services.consulting_capabilities import (
+    ConsultingCapability,
+    match_consulting_capability,
+    should_create_text_artifact_for_capability,
+)
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
@@ -124,6 +129,7 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     normalized = (content or "").strip().lower()
     if not normalized:
         return TaskRoute(None, reason="empty")
+    consulting_capability = match_consulting_capability(content)
     wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
     wants_excel = any(term in normalized for term in _EXCEL_INTENT_TERMS)
     wants_pdf = any(term in normalized for term in _PDF_INTENT_TERMS)
@@ -137,6 +143,14 @@ def _rule_based_task_route(content: str) -> TaskRoute:
         return TaskRoute("generate_project_pdf", confidence=0.86, reason="rule:pdf", output_kind="pdf")
     if wants_docx and wants_create:
         return TaskRoute("generate_project_docx", confidence=0.82, reason="rule:docx", output_kind="docx")
+    if should_create_text_artifact_for_capability(content, consulting_capability):
+        return TaskRoute(
+            "create_text_artifact",
+            confidence=0.78,
+            reason=f"capability:{consulting_capability.id if consulting_capability else 'text'}",
+            title=consulting_capability.default_title if consulting_capability else "",
+            output_kind="md",
+        )
     text_deliverable_terms = ("整理", "梳理", "总结", "形成", "准备", "起草", "写", "输出", "清单", "要点", "分析", "计划", "建议", "复盘")
     question_prefixes = ("为什么", "怎么", "如何", "是否", "是不是", "解释", "介绍一下", "这个", "你觉得")
     wants_text_artifact = wants_create and any(term in normalized for term in text_deliverable_terms)
@@ -390,6 +404,24 @@ def _dedupe_nonempty(items: list[Any] | tuple[Any, ...] | None, *, limit: int | 
         if limit and len(values) >= limit:
             break
     return values
+
+
+def _extract_requested_chapter_count(text: str, *, default: int = 0) -> int:
+    value = text or ""
+    patterns = (
+        r"(?:至少|不少于|不低于|超过|大于|more\s+than|at\s+least)\s*(\d{1,2})\s*(?:个)?\s*(?:章节|章|部分|目录|chapter|chapters)",
+        r"(\d{1,2})\s*(?:个)?\s*(?:章节|章|部分|目录|chapter|chapters)\s*(?:以上|起|至少|\+|plus|or\s+more)?",
+    )
+    matches: list[int] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, value, flags=re.IGNORECASE):
+            try:
+                matches.append(int(match.group(1)))
+            except (TypeError, ValueError):
+                continue
+    if not matches:
+        return default
+    return max(1, min(max(matches), 30))
 
 
 def _record_event(
@@ -1698,6 +1730,163 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         ]
         return _dedupe_nonempty(next_actions + defaults, limit=8)
 
+    def build_capability_sections(capability: ConsultingCapability, headings: list[str] | None = None) -> str:
+        selected_headings = headings or list(capability.default_sections)
+        lines = [f"# {title}"]
+        for heading in selected_headings:
+            lines.append("")
+            lines.append(f"## {heading}")
+            lines.append(default_section_content(heading))
+        return "\n".join(lines).strip()
+
+    def build_storyline_outline(chapter_count: int) -> str:
+        project_label = project.get("name") or "本项目"
+        client_label = project.get("client") or "客户"
+
+        def subsection_content(item: str) -> str:
+            if "为什么" in item or "动因" in item or "背景" in item:
+                return f"说明{client_label}当前为什么需要讨论该议题，并把讨论落到「{project_label}」的业务进入判断上。"
+            if "品牌" in item or "渠道" in item or "资产" in item:
+                return "评估东阿阿胶现有品牌信任、渠道触点、会员资产和组织能力能否低成本迁移到新业务。"
+            if "机会" in item or "赛道" in item or "市场" in item:
+                return "从规模、增速、利润池、竞争密度和监管边界拆解机会质量，并标注哪些判断仍需要数据验证。"
+            if "目标" in item or "获得什么" in item:
+                return "明确本次沟通要形成的共识、待验证问题和下一步决策输入，避免会议只停留在泛泛交流。"
+            if "风险" in item or "分歧" in item or "敏感" in item:
+                return "把潜在阻力前置讨论，区分必须规避的红线、可以试点验证的不确定性和需要管理层拍板的问题。"
+            if "路径" in item or "方案" in item or "选项" in item:
+                return "给出可比较的进入路径，并明确每条路径的适用条件、资源要求、优势、风险和停止条件。"
+            if "访谈" in item or "资料" in item or "证据" in item:
+                return "列清需要补充的客户输入、外部资料和关键人访谈问题，让下一阶段工作有明确抓手。"
+            if "行动" in item or "会后" in item or "交付" in item or "责任" in item:
+                return "把讨论转成责任人、时间节点、交付物和下一次会议安排，确保会后可以持续推进。"
+            if "决策" in item or "指标" in item or "看板" in item:
+                return "定义管理层可以使用的判断标准，把机会判断转化为推进、补充验证、暂停或退出的决策。"
+            return "说明本小节的核心判断、所需证据、客户需要确认的问题，以及进入下一阶段前必须完成的动作。"
+
+        chapters = [
+            (
+                "项目背景与沟通目标",
+                [
+                    f"为什么现在讨论「{project_label}」",
+                    f"{client_label}希望通过本次沟通获得什么判断",
+                    "本材料要解决的核心问题和不解决的问题",
+                ],
+            ),
+            (
+                "客户现状与战略动因",
+                [
+                    "客户增长压力与新业务孵化职责",
+                    "功能性护肤品/医美抗衰方向的战略相关性",
+                    "现有品牌、渠道和组织能力的可迁移资产",
+                ],
+            ),
+            (
+                "赛道机会与市场吸引力",
+                [
+                    "目标赛道的增长逻辑、利润池和竞争密度",
+                    "消费者需求场景与购买触发因素",
+                    "监管、功效表达和渠道变化带来的窗口期",
+                ],
+            ),
+            (
+                "东阿阿胶的适配度假设",
+                [
+                    "品牌信任资产能否迁移到新赛道",
+                    "渠道、会员、终端资源能否复用",
+                    "产品、供应链和合规能力的承接边界",
+                ],
+            ),
+            (
+                "进入机会的初步判断框架",
+                [
+                    "用赛道吸引力、客户适配度、进入难度、验证成本四象限判断",
+                    "区分可优先进入、需要观察、暂不进入的机会类型",
+                    "把每个机会拆成事实、假设、证据和待验证问题",
+                ],
+            ),
+            (
+                "关键分歧与敏感风险",
+                [
+                    "品牌调性和主品牌稀释风险",
+                    "投入产出、试错成本和组织资源占用",
+                    "供应链、合规和消费者教育成本",
+                ],
+            ),
+            (
+                "进入路径与方案选项",
+                [
+                    "路径 A：自有品牌延伸，适合沉淀长期资产",
+                    "路径 B：联合品牌/渠道试点，适合降低初期风险",
+                    "路径 C：概念验证和小样测试，适合快速学习",
+                ],
+            ),
+            (
+                "最小验证计划",
+                [
+                    "关键人访谈：战略、品牌、渠道、产品/合规和管理层",
+                    "桌面研究：赛道、竞品、渠道、价格带和监管口径",
+                    "试点设计：样本、预算、指标和停止条件",
+                ],
+            ),
+            (
+                "客户会议沟通方式",
+                [
+                    "开场先说明这是共同验证框架，不是最终结论",
+                    "用问题牵引客户表达，避免过早销售方案",
+                    "对不同关键人使用不同表达重点",
+                ],
+            ),
+            (
+                "会后行动与下一阶段交付",
+                [
+                    "24 小时内输出会议纪要、共识、分歧和资料缺口",
+                    "3-5 个工作日内补齐资料并形成机会判断框架",
+                    "下一次会议进入路径选择、风险评估和试点决策",
+                ],
+            ),
+        ]
+        extra_topics = [
+            "证据体系与资料清单",
+            "管理层决策看板",
+            "项目组织与协同机制",
+            "阶段门与退出条件",
+            "最终汇报结构",
+            "预算与资源测算",
+            "竞品案例对标",
+            "消费者验证设计",
+            "试点复盘机制",
+            "长期能力沉淀",
+        ]
+        while len(chapters) < chapter_count:
+            extra_title = extra_topics[(len(chapters) - 10) % len(extra_topics)]
+            chapters.append(
+                (
+                    extra_title,
+                    [
+                        f"本章要回答的核心管理问题：{extra_title}如何支撑进入判断",
+                        "需要补齐的事实、数据和客户输入",
+                        "可交付结论、责任人和后续动作",
+                    ],
+                )
+            )
+
+        lines = [f"# {title}", ""]
+        lines.extend(
+            [
+                "## 使用说明",
+                "以下结构按一级目录和二级目录组织。一级目录对应客户沟通的主要章节，二级目录对应每章需要展开的判断点、证据和行动。",
+                "",
+            ]
+        )
+        for index, (chapter_title, sub_items) in enumerate(chapters[:chapter_count], start=1):
+            lines.append(f"# {index:02d}. {chapter_title}")
+            for sub_index, item in enumerate(sub_items, start=1):
+                lines.append(f"## {index}.{sub_index} {item}")
+                lines.append(subsection_content(item))
+            lines.append("")
+        return "\n".join(lines).strip()
+
     def default_section_content(heading: str) -> str:
         normalized = clean_heading(heading)
         if "开场" in normalized or "话术" in normalized:
@@ -1723,13 +1912,23 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
 
     project_name = str(project.get("name") or "").strip()
     normalized_goal = re.sub(r"\s+", " ", goal.strip())
+    capability = match_consulting_capability(normalized_goal)
     requested_headings = extract_requested_headings(normalized_goal)
+    is_storyline_request = bool(capability and capability.id == "consulting_storyline")
+    requested_chapter_count = _extract_requested_chapter_count(
+        normalized_goal,
+        default=(capability.default_chapter_count if capability and capability.requires_hierarchy and ("章节" in normalized_goal or "目录" in normalized_goal) else 0),
+    )
     if requested_headings:
         title_core = (
             "客户会议准备"
             if any("会议" in heading or "开场" in heading or "议题" in heading for heading in requested_headings)
             else "项目文本交付"
         )
+    elif is_storyline_request:
+        title_core = capability.default_title if capability else "客户战略沟通故事线大纲"
+    elif capability:
+        title_core = capability.default_title
     elif "客户会议" in normalized_goal or "会议" in normalized_goal:
         title_core = "客户会议准备"
     elif "风险" in normalized_goal:
@@ -1746,21 +1945,10 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         missing = [heading for heading in requested_headings if f"## {heading}" not in content]
         if missing:
             raise ValueError(f"Text artifact missing requested sections: {', '.join(missing)}")
-    elif any(token in normalized_goal.lower() for token in ("storyline", "大纲", "沟通框架", "沟通方案")):
-        content = "\n\n".join(
-            [
-                f"# {title}",
-                f"## 一句话沟通主线\n本次沟通建议围绕「{project.get('name') or '本项目'}」先建立共同判断语言：为什么看这个机会、东阿阿胶有哪些可迁移资产、哪些风险必须先验证、下一阶段如何低成本推进。",
-                "## Storyline 结构\n"
-                "1. 背景校准：从客户增长诉求和新业务孵化职责切入，说明为什么此时讨论功能性护肤品/医美抗衰机会。\n"
-                "2. 机会假设：拆解赛道吸引力、品牌适配度、渠道复用空间和产品可信度。\n"
-                "3. 关键分歧：把品牌调性、投入产出、组织承接、合规和供应链边界作为需要共同验证的问题。\n"
-                "4. 进入路径：给出自有品牌延伸、联合试点、概念验证三类路径，并说明适用条件。\n"
-                "5. 行动闭环：明确资料清单、关键人访谈、时间表和下一次决策点。",
-                f"## 客户关注与表达方式\n{default_section_content('每个关键人应关注的表达方式')}",
-                "## 会后推进动作\n" + "\n".join(f"- [ ] {item}" for item in action_items()),
-            ]
-        )
+    elif is_storyline_request:
+        content = build_storyline_outline(max(requested_chapter_count, 10))
+    elif capability:
+        content = build_capability_sections(capability)
     else:
         sections = [
             f"# {title}",
@@ -1777,7 +1965,15 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         "file_type": "md",
         "content": content,
         "summary": f"已生成 Markdown 交付：{title}",
-        "text_spec": {"sections": requested_headings, "strict_sections": bool(requested_headings)},
+        "text_spec": {
+            "sections": requested_headings,
+            "capability_id": capability.id if capability else "",
+            "capability_name": capability.name if capability else "",
+            "quality_rules": list(capability.quality_rules) if capability else [],
+            "strict_sections": bool(requested_headings),
+            "chapter_count": requested_chapter_count or None,
+            "hierarchy": "h1_h2" if is_storyline_request else "",
+        },
     }
 
 

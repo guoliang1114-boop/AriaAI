@@ -1,9 +1,10 @@
 """Integration tests for skills router — CRUD endpoints."""
+import json
 import unittest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, select
 
 from app.models.db import User, Skill
 from app.routers import skills as skills_module
@@ -137,3 +138,36 @@ class SkillsCrudTestCase(unittest.TestCase):
         })
         self.assertIn(resp.status_code, [200, 201])
         self.assertEqual(resp.json()["name"], "Tool Skill")
+
+    def test_seed_pro_adds_consulting_capability_skills(self):
+        with Session(self.engine) as session:
+            first_count = skills_module.ensure_builtin_pro_skills(session)
+            second_count = skills_module.ensure_builtin_pro_skills(session)
+            skills = session.exec(
+                select(Skill).where(Skill.name.startswith(skills_module.CONSULTING_CAPABILITY_SKILL_PREFIX))
+            ).all()
+
+        self.assertGreaterEqual(first_count, len(skills_module.CONSULTING_CAPABILITY_SKILLS))
+        self.assertEqual(second_count, 0)
+        names = {skill.name for skill in skills}
+        self.assertIn("顾问能力｜客户会议准备", names)
+        self.assertIn("顾问能力｜咨询故事线大纲", names)
+        self.assertIn("顾问能力｜问题树拆解", names)
+
+        storyline = next(skill for skill in skills if skill.name == "顾问能力｜咨询故事线大纲")
+        self.assertEqual(storyline.category, "提案与项目交付")
+        self.assertIn("consulting-capability:consulting_storyline", storyline.system_prompt)
+        self.assertIn("至少输出 10 个一级章节", storyline.system_prompt)
+        self.assertEqual(storyline.max_tokens, 16384)
+        self.assertEqual(storyline.tools, [])
+        self.assertEqual(json.loads(storyline.tools_definition_json), [])
+
+        required_steps = [
+            "步骤 1/4：收集上下文",
+            "步骤 2/4：规划结构",
+            "步骤 3/4：生成内容",
+            "步骤 4/4：校验并交付",
+        ]
+        for skill in skills:
+            for step in required_steps:
+                self.assertIn(step, skill.system_prompt, skill.name)
