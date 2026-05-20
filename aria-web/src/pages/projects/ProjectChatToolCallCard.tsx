@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Clock3, Loader2, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, Loader2, MessageSquareText, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
 interface ProjectChatToolCallCardProps {
@@ -50,6 +50,7 @@ export function ProjectChatToolCallCard({
   onOpenTasks,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
+  const isStatusProgress = Boolean(call.status_stage);
   const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
   const [expanded, setExpanded] = useState(() => {
     if (typeof window === "undefined") return call.status === "running" || call.status === "error";
@@ -169,7 +170,7 @@ export function ProjectChatToolCallCard({
     <div className={`rounded-xl border px-3.5 py-3 ${STATUS_STYLES[call.status]}`}>
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-white/80">
-          <Wrench className="h-4 w-4" />
+          {isStatusProgress ? <MessageSquareText className="h-4 w-4" /> : <Wrench className="h-4 w-4" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -196,6 +197,15 @@ export function ProjectChatToolCallCard({
           {call.message ? <p className="mt-1 text-xs text-gray-600">{call.message}</p> : null}
           {call.summary ? <p className="mt-1 text-xs text-gray-600">{call.summary}</p> : null}
           {call.error ? <p className="mt-1 text-xs text-rose-600">{call.error}</p> : null}
+          {call.details?.length ? (
+            <div className="mt-2 space-y-1 border-t border-white/70 pt-1.5">
+              {call.details.map((detail, index) => (
+                <p key={`${call.status_stage || call.tool_name}-${index}`} className="text-[11px] leading-relaxed text-gray-500">
+                  {detail}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
