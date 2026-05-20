@@ -264,12 +264,14 @@ _READ_MAX_CHARS = 12000
 async def read_project_markdown_document(
     *,
     project_id: int,
-    action: Literal["list", "read"],
+    action: Literal["list", "read"] | None = None,
     file_id: int | None = None,
     file_name: str | None = None,
 ) -> dict:
     if not project_id:
         raise HTTPException(400, "Project id is required")
+    if not action:
+        action = "read" if file_id is not None or file_name else "list"
 
     with Session(engine) as session:
         if action == "list":

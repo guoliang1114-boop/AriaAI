@@ -13,7 +13,7 @@ from app.models.db import Project, ProjectFolder
 from app.services.context_builder import build_chat_context, _safe_project_file_path
 from app.tools import registry
 from app.tools import project_markdown as project_markdown_tool
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 from tests.test_database import create_test_engine, drop_all_tables
 
 
@@ -205,6 +205,35 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("Markdown content is required", result["error"])
         self.assertNotIn("missing 2 required keyword-only arguments", result["error"])
+
+    def test_read_tool_defaults_missing_action_to_safe_mode(self):
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            created = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "create",
+                        "file_name": "read-default.md",
+                        "content": "# Read default\n\nContent",
+                    },
+                )
+            )
+            file_id = created["output"]["id"]
+            listed = asyncio.run(registry.execute(READ_MARKDOWN_TOOL_NAME, {"project_id": project_id}))
+            read = asyncio.run(registry.execute(READ_MARKDOWN_TOOL_NAME, {"project_id": project_id, "file_id": file_id}))
+
+        self.assertEqual(listed["status"], "success")
+        self.assertEqual(listed["output"]["count"], 1)
+        self.assertEqual(read["status"], "success")
+        self.assertEqual(read["output"]["id"], file_id)
+        self.assertIn("Content", read["output"]["content"])
 
 
 class SafeProjectFilePathTestCase(unittest.TestCase):

@@ -4318,6 +4318,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         office_call = [call for call in execute_mock.await_args_list if call.args[0] == "write_project_office_document"][0]
+        read_call = [call for call in execute_mock.await_args_list if call.args[0] == "read_project_markdown_document"][0]
+        self.assertEqual(read_call.args[1]["action"], "read")
         office_input = office_call.args[1]
         self.assertEqual(office_input["project_id"], project_id)
         self.assertEqual(office_input["file_type"], "xlsx")

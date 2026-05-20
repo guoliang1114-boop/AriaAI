@@ -26,12 +26,21 @@ from app.services.chat.workflow import workflow_status
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, "read_project_markdown_document"})
+_PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+
+
+def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
+    repaired = dict(tool_input or {})
+    changes: list[str] = []
+    if tool_name == READ_MARKDOWN_TOOL_NAME and not repaired.get("action"):
+        repaired["action"] = "read" if repaired.get("file_id") is not None or repaired.get("file_name") else "list"
+        changes.append(f"补齐 Markdown 读取动作：{repaired['action']}")
+    return repaired, changes
 
 
 async def run_p3_followup(
@@ -197,6 +206,17 @@ async def run_p3_followup(
             )
             if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
+                tool_input, repaired_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
+                if repaired_changes:
+                    yield sse_event(
+                        workflow_status(
+                            step_index=3,
+                            step_total=4,
+                            title="执行 Skill / 工具",
+                            stage="tools",
+                            message=f"第 3 步：已补齐后续 Markdown 工具参数（{'；'.join(repaired_changes)}）。",
+                        )
+                    )
             if tool_name in _PROJECT_OFFICE_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)
