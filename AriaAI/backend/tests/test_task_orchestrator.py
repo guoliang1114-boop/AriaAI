@@ -92,6 +92,7 @@ def test_router_keeps_structured_memory_overview_as_direct_answer():
 
     assert route.task_type is None
     assert route.reason == "rule:direct_memory_summary"
+    assert route.response_mode == "direct"
 
 
 def test_router_allows_memory_summary_when_user_explicitly_asks_for_file():
@@ -99,6 +100,57 @@ def test_router_allows_memory_summary_when_user_explicitly_asks_for_file():
     route = asyncio.run(route_project_task_request(content))
 
     assert route.task_type == "create_text_artifact"
+
+
+def test_structured_router_respects_direct_response_mode_even_with_task_type():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "response_mode": "direct",
+                "task_type": "create_text_artifact",
+                "confidence": 0.92,
+                "reason": "concise answer only",
+                "output_kind": "chat",
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(route_project_task_request("这个项目风险是什么？", llm_complete=fake_complete, model="test"))
+
+    assert route.task_type is None
+    assert route.response_mode == "direct"
+    assert route.output_kind == "chat"
+
+
+def test_structured_router_infers_markdown_artifact_from_response_mode_and_output_kind():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "response_mode": "artifact",
+                "task_type": None,
+                "confidence": 0.9,
+                "reason": "explicit markdown deliverable",
+                "output_kind": "md",
+                "title": "项目概览摘要",
+                "plan_steps": [
+                    {"key": "collect", "title": "收集上下文", "step_type": "collect_project_context"},
+                    {"key": "draft", "title": "生成文本", "step_type": "draft_text_artifact"},
+                    {"key": "finish", "title": "整理结果", "step_type": "summarize_result", "retryable": False},
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(route_project_task_request("请生成一份项目概览摘要", llm_complete=fake_complete, model="test"))
+
+    assert route.task_type == "create_text_artifact"
+    assert route.response_mode == "artifact"
+    assert route.output_kind == "md"
+    assert [step.step_type for step in route.plan_steps] == [
+        "collect_project_context",
+        "draft_text_artifact",
+        "summarize_result",
+    ]
 
 
 def test_ppt_slide_count_request_is_extracted_and_used():

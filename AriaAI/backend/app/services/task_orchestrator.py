@@ -66,6 +66,24 @@ class TaskRoute:
     title: str = ""
     output_kind: str = ""
     plan_steps: tuple[StepSpec, ...] = ()
+    response_mode: str = "direct"
+
+
+@dataclass(frozen=True)
+class RouterDecision:
+    """Structured intent decision before any durable task is created."""
+
+    response_mode: str
+    task_type: str | None = None
+    confidence: float = 0.0
+    reason: str = ""
+    title: str = ""
+    output_kind: str = "chat"
+    plan_steps: tuple[StepSpec, ...] = ()
+
+
+DIRECT_RESPONSE_MODES = {"direct", "answer", "analyze", "chat"}
+TASK_RESPONSE_MODES = {"artifact", "orchestrated", "workflow", "edit"}
 
 
 GENERATE_CLIENT_PPT_STEPS = [
@@ -126,12 +144,46 @@ def detect_project_task_type(content: str) -> str | None:
     return _rule_based_task_route(content).task_type
 
 
-def _rule_based_task_route(content: str) -> TaskRoute:
+def _task_route_from_decision(decision: RouterDecision) -> TaskRoute:
+    if decision.response_mode in DIRECT_RESPONSE_MODES:
+        return TaskRoute(
+            None,
+            confidence=decision.confidence,
+            reason=decision.reason,
+            title=decision.title,
+            output_kind=decision.output_kind or "chat",
+            plan_steps=(),
+            response_mode=decision.response_mode,
+        )
+    task_type = decision.task_type if decision.task_type in SUPPORTED_TASK_TYPES else None
+    if not task_type:
+        return TaskRoute(
+            None,
+            confidence=decision.confidence,
+            reason=decision.reason or "structured:no_task",
+            output_kind=decision.output_kind,
+            response_mode=decision.response_mode,
+        )
+    return TaskRoute(
+        task_type,
+        confidence=decision.confidence,
+        reason=decision.reason,
+        title=decision.title,
+        output_kind=decision.output_kind,
+        plan_steps=decision.plan_steps,
+        response_mode=decision.response_mode,
+    )
+
+
+def _rule_based_router_decision(content: str) -> RouterDecision:
     normalized = (content or "").strip().lower()
     if not normalized:
-        return TaskRoute(None, reason="empty")
+        return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
     if _looks_like_direct_memory_summary(content):
-        return TaskRoute(None, confidence=0.94, reason="rule:direct_memory_summary")
+        return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
+    if _looks_like_direct_diagnostic(content):
+        return RouterDecision("analyze", confidence=0.95, reason="rule:direct_diagnostic", output_kind="chat")
+
     consulting_capability = match_consulting_capability(content)
     wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
     wants_excel = any(term in normalized for term in _EXCEL_INTENT_TERMS)
@@ -140,29 +192,35 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     wants_docx = any(term in normalized for term in _DOCX_INTENT_TERMS)
     wants_create = any(term in normalized for term in _CREATE_INTENT_TERMS)
     if wants_ppt and wants_create:
-        return TaskRoute("generate_client_ppt", confidence=0.86, reason="rule:ppt", output_kind="pptx")
+        return RouterDecision("artifact", "generate_client_ppt", 0.86, "rule:ppt", output_kind="pptx")
     if wants_excel and wants_create:
-        return TaskRoute("generate_project_excel", confidence=0.86, reason="rule:excel", output_kind="xlsx")
+        return RouterDecision("artifact", "generate_project_excel", 0.86, "rule:excel", output_kind="xlsx")
     if wants_pdf and wants_create:
-        return TaskRoute("generate_project_pdf", confidence=0.86, reason="rule:pdf", output_kind="pdf")
+        return RouterDecision("artifact", "generate_project_pdf", 0.86, "rule:pdf", output_kind="pdf")
     if wants_markdown and wants_create:
-        return TaskRoute("create_text_artifact", confidence=0.84, reason="rule:markdown", output_kind="md")
+        return RouterDecision("artifact", "create_text_artifact", 0.84, "rule:markdown", output_kind="md")
     if wants_docx and wants_create:
-        return TaskRoute("generate_project_docx", confidence=0.82, reason="rule:docx", output_kind="docx")
+        return RouterDecision("artifact", "generate_project_docx", 0.82, "rule:docx", output_kind="docx")
     if should_create_text_artifact_for_capability(content, consulting_capability):
-        return TaskRoute(
+        return RouterDecision(
+            "artifact",
             "create_text_artifact",
-            confidence=0.78,
-            reason=f"capability:{consulting_capability.id if consulting_capability else 'text'}",
+            0.78,
+            f"capability:{consulting_capability.id if consulting_capability else 'text'}",
             title=consulting_capability.default_title if consulting_capability else "",
             output_kind="md",
         )
+
     text_deliverable_terms = ("整理", "梳理", "总结", "形成", "准备", "起草", "写", "输出", "清单", "要点", "分析", "计划", "建议", "复盘")
     question_prefixes = ("为什么", "怎么", "如何", "是否", "是不是", "解释", "介绍一下", "这个", "你觉得")
     wants_text_artifact = wants_create and any(term in normalized for term in text_deliverable_terms)
     if wants_text_artifact and not normalized.startswith(question_prefixes):
-        return TaskRoute("create_text_artifact", confidence=0.68, reason="rule:text_artifact", output_kind="md")
-    return TaskRoute(None, reason="rule:no_task")
+        return RouterDecision("artifact", "create_text_artifact", 0.68, "rule:text_artifact", output_kind="md")
+    return RouterDecision("direct", confidence=0.75, reason="rule:no_task", output_kind="chat")
+
+
+def _rule_based_task_route(content: str) -> TaskRoute:
+    return _task_route_from_decision(_rule_based_router_decision(content))
 
 
 def _looks_like_direct_diagnostic(content: str) -> bool:
@@ -197,6 +255,71 @@ def _looks_like_direct_memory_summary(content: str) -> bool:
         any(term in text for term in summary_terms)
         and any(term in text for term in memory_terms)
         and (any(term in text for term in concise_terms) or "风险" in text or "下一步" in text)
+    )
+
+
+def _normalize_response_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    aliases = {
+        "": "direct",
+        "chat_only": "direct",
+        "chat": "direct",
+        "answer": "direct",
+        "analysis": "analyze",
+        "file": "artifact",
+        "deliverable": "artifact",
+        "task": "orchestrated",
+        "workflow_task": "orchestrated",
+    }
+    return aliases.get(mode, mode)
+
+
+def _infer_task_type_from_output_kind(output_kind: str) -> str | None:
+    kind = (output_kind or "").strip().lower().lstrip(".")
+    if kind == "ppt":
+        kind = "pptx"
+    if kind in {"xls", "spreadsheet"}:
+        kind = "xlsx"
+    if kind in {"markdown", "txt", "text"}:
+        kind = "md"
+    return {
+        "pptx": "generate_client_ppt",
+        "xlsx": "generate_project_excel",
+        "docx": "generate_project_docx",
+        "pdf": "generate_project_pdf",
+        "md": "create_text_artifact",
+    }.get(kind)
+
+
+def _decision_from_llm_payload(data: dict[str, Any], task_type: str | None) -> RouterDecision:
+    output_kind = str(data.get("output_kind") or ("chat" if not task_type else "")).strip().lower()
+    raw_response_mode = data.get("response_mode")
+    response_mode = (
+        _normalize_response_mode(raw_response_mode)
+        if raw_response_mode is not None
+        else ("artifact" if task_type or output_kind in {"md", "markdown", "pptx", "xlsx", "docx", "pdf"} else "direct")
+    )
+    if response_mode in DIRECT_RESPONSE_MODES:
+        return RouterDecision(
+            response_mode,
+            None,
+            confidence=float(data.get("confidence") or 0),
+            reason=str(data.get("reason") or "llm:direct"),
+            title=str(data.get("title") or "").strip(),
+            output_kind=output_kind or "chat",
+        )
+    if response_mode not in TASK_RESPONSE_MODES:
+        response_mode = "artifact" if task_type or output_kind in {"md", "markdown", "pptx", "xlsx", "docx", "pdf"} else "direct"
+    if not task_type:
+        task_type = _infer_task_type_from_output_kind(output_kind)
+    return RouterDecision(
+        response_mode,
+        task_type,
+        confidence=float(data.get("confidence") or 0),
+        reason=str(data.get("reason") or "llm"),
+        title=str(data.get("title") or "").strip(),
+        output_kind=output_kind,
+        plan_steps=_normalize_planned_steps(data.get("plan_steps"), task_type or ""),
     )
 
 
@@ -251,24 +374,28 @@ async def route_project_task_request(
     model: str = "",
 ) -> TaskRoute:
     fallback = _rule_based_task_route(content)
-    if fallback.reason == "rule:direct_memory_summary":
+    if fallback.response_mode in DIRECT_RESPONSE_MODES and fallback.confidence >= 0.9:
         return fallback
-    if fallback.task_type is None and _looks_like_direct_diagnostic(content):
-        return TaskRoute(None, confidence=0.95, reason="rule:direct_diagnostic")
     if llm_complete is None:
         return fallback
     system = (
         "You are an intent router for a project assistant. Return only JSON. "
-        "Decide whether a user message needs a durable task. Ordinary questions should use task_type null. "
+        "First decide response_mode, then task_type. "
+        "response_mode must be one of: direct, analyze, artifact, orchestrated, edit. "
+        "Use direct/analyze for ordinary questions, explanations, concise summaries, diagnostics, or project-memory overview answers. "
+        "Only use artifact/orchestrated/edit when the user explicitly asks to create, save, export, download, update, or regenerate a deliverable/file, "
+        "or when a multi-step persisted workflow is clearly required. "
         "Allowed task_type values: generate_client_ppt, generate_project_excel, generate_project_docx, "
         "generate_project_pdf, create_text_artifact. Use create_text_artifact for structured Markdown "
         "deliverables that should be saved to project space rather than as an Office file. "
+        "If response_mode is direct or analyze, task_type must be null and output_kind must be chat. "
         "Include plan_steps when a task is needed. Allowed step_type values: collect_project_context, "
         "build_slide_spec, build_document_spec, write_project_office_document, draft_text_artifact, summarize_result."
     )
     prompt = {
         "user_message": content,
         "response_schema": {
+            "response_mode": "direct|analyze|artifact|orchestrated|edit",
             "task_type": "string|null",
             "confidence": "number 0-1",
             "reason": "short string",
@@ -288,23 +415,21 @@ async def route_project_task_request(
         data = _extract_json_object(raw or "") or {}
     except Exception:
         return fallback
-    task_type = data.get("task_type")
-    if task_type not in SUPPORTED_TASK_TYPES:
+    raw_task_type = data.get("task_type")
+    task_type = str(raw_task_type) if raw_task_type in SUPPORTED_TASK_TYPES else None
+    decision = _decision_from_llm_payload(data, task_type)
+    route = _task_route_from_decision(decision)
+    if route.response_mode in DIRECT_RESPONSE_MODES:
         if fallback.task_type and fallback.confidence >= 0.8:
             return fallback
-        return TaskRoute(None, confidence=float(data.get("confidence") or 0), reason=str(data.get("reason") or "llm:no_task"))
-    confidence = float(data.get("confidence") or 0)
-    if confidence < 0.55:
-        return fallback if fallback.task_type else TaskRoute(None, confidence=confidence, reason=str(data.get("reason") or "low_confidence"))
-    plan_steps = _normalize_planned_steps(data.get("plan_steps"), task_type)
-    return TaskRoute(
-        task_type=task_type,
-        confidence=confidence,
-        reason=str(data.get("reason") or "llm"),
-        title=str(data.get("title") or "").strip(),
-        output_kind=str(data.get("output_kind") or "").strip(),
-        plan_steps=plan_steps,
-    )
+        return route
+    if route.confidence < 0.55:
+        return fallback if fallback.task_type else TaskRoute(None, confidence=route.confidence, reason=route.reason or "low_confidence")
+    if not route.task_type:
+        if fallback.task_type and fallback.confidence >= 0.8:
+            return fallback
+        return TaskRoute(None, confidence=route.confidence, reason=route.reason or "structured:no_task")
+    return route
 
 
 def _json_dumps(value: Any) -> str:
