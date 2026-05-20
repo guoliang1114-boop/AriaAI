@@ -108,7 +108,7 @@ class TaskPayloadToolCallsTests(unittest.TestCase):
                         "title": "收集项目上下文",
                         "status": "completed",
                         "sort_order": 1,
-                        "output": {"project_name": "东阿阿胶", "client": "东阿阿胶股份有限公司"},
+                        "output": {"project_name": "东阿阿胶", "client": "东阿阿胶股份有限公司", "duration_ms": 42},
                     },
                     {
                         "id": 11,
@@ -125,7 +125,7 @@ class TaskPayloadToolCallsTests(unittest.TestCase):
                         "step_id": 10,
                         "event_type": "step_completed",
                         "message": "上下文已加载",
-                        "payload": {"project": {"name": "东阿阿胶", "client": "东阿阿胶股份有限公司"}},
+                        "payload": {"project": {"name": "东阿阿胶", "client": "东阿阿胶股份有限公司"}, "duration_ms": 42},
                         "created_at": "2026-05-17 14:21:29.816749",
                     },
                     {
@@ -141,6 +141,7 @@ class TaskPayloadToolCallsTests(unittest.TestCase):
 
         self.assertEqual(calls[0]["status"], "completed")
         self.assertIn("上下文：东阿阿胶 / 东阿阿胶股份有限公司", calls[0]["details"])
+        self.assertIn("耗时：42ms", calls[0]["details"])
         self.assertTrue(any("上下文已加载" in detail for detail in calls[0]["details"]))
         self.assertEqual(calls[1]["status"], "error")
         self.assertEqual(calls[1]["error"], "缺少 project_id")

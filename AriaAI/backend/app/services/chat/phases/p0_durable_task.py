@@ -7,6 +7,7 @@ of the normal chat flow.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 
 from sqlmodel import Session
@@ -40,13 +41,16 @@ async def run_p0_durable_task(
     Yields SSE events.  If a durable task is started, sets
     ``state.durable_task_completed = True`` so the orchestrator can return early.
     """
+    stream_started_at = time.perf_counter()
     task_route = None
     if req.project_id:
+        route_started_at = time.perf_counter()
         task_route = await route_project_task_request(
             req.content,
             llm_complete=runtime.llm.complete,
             model=runtime.selected_model,
         )
+        state.stage_timings["route_task_ms"] = round((time.perf_counter() - route_started_at) * 1000)
 
     durable_task_type = task_route.task_type if task_route else None
     if not durable_task_type:
@@ -129,7 +133,7 @@ async def run_p0_durable_task(
             "task_type": durable_task_type,
             "stage_timings": {
                 **state.stage_timings,
-                "total_stream_ms": 0,  # will be overwritten by orchestrator
+                "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
             },
         }
 
@@ -161,7 +165,7 @@ async def run_p0_durable_task(
             {
                 "type": "timing",
                 "key": "total_stream_ms",
-                "duration_ms": 0,
+                "duration_ms": metadata["stage_timings"]["total_stream_ms"],
             }
         )
 

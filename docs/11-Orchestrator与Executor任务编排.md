@@ -178,6 +178,16 @@ POST /api/skills/seed-pro
 | 生成内容 | `draft_text_artifact` | 按协议生成 Markdown，并保存到项目空间 |
 | 校验并交付 | `summarize_result` | 返回交付物卡片和执行摘要 |
 
+执行时每一步都会产生三类事件：
+
+| 事件 | 说明 |
+|---|---|
+| `step_started` | 步骤开始，前端立即展示“正在执行” |
+| `step_progress` | 步骤内部进度，例如“已识别必需章节”“正在保存文件到项目空间” |
+| `step_completed` / `step_failed` | 步骤结束，记录输出、错误和 `duration_ms` |
+
+文本能力任务会优先走高置信规则短路：当顾问能力目录已经明确命中且置信度达到阈值时，不再额外调用 LLM Router。LLM Router 仍用于规则无法覆盖的边缘场景，以及 PPT、Excel、Word 等复杂交付物的动态步骤补充。
+
 ## 4. 执行流程
 
 以“我想要准备一个访谈的 Excel”为例：

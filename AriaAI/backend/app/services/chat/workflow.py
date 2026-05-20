@@ -83,6 +83,16 @@ def _task_event_payload_summary(payload: dict | None) -> str:
     if file_name:
         details.append(f"文件：{file_name}")
 
+    required_sections = payload.get("required_sections")
+    if isinstance(required_sections, list):
+        section_names = [str(item).strip() for item in required_sections if str(item).strip()]
+        if section_names:
+            details.append(f"必需章节：{'、'.join(section_names[:6])}")
+
+    duration_ms = payload.get("duration_ms")
+    if isinstance(duration_ms, int):
+        details.append(f"耗时：{duration_ms}ms")
+
     slide_count = payload.get("slide_count")
     if isinstance(slide_count, int):
         details.append(f"页数：{slide_count}")
@@ -147,6 +157,22 @@ def task_step_output_details(output: dict | None) -> list[str]:
     sections_count = output.get("sections_count")
     if isinstance(sections_count, int):
         details.append(f"章节数：{sections_count}")
+
+    required_sections = output.get("required_sections")
+    if isinstance(required_sections, list):
+        section_names = [str(item).strip() for item in required_sections if str(item).strip()]
+        if section_names:
+            details.append(f"必需章节：{'、'.join(section_names[:6])}")
+
+    text_spec = output.get("text_spec")
+    if isinstance(text_spec, dict):
+        spec_sections = text_spec.get("sections")
+        if isinstance(spec_sections, list) and spec_sections:
+            details.append(f"校验章节：{'、'.join(str(item) for item in spec_sections[:6])}")
+
+    duration_ms = output.get("duration_ms")
+    if isinstance(duration_ms, int):
+        details.append(f"耗时：{duration_ms}ms")
 
     slide_count = output.get("slide_count")
     if isinstance(slide_count, int):

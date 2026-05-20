@@ -90,7 +90,11 @@ def test_rule_router_routes_markdown_artifacts():
 
 
 def test_consulting_capability_route_overrides_llm_direct_misclassification():
+    called = False
+
     async def fake_complete(*args, **kwargs):
+        nonlocal called
+        called = True
         return json.dumps(
             {
                 "response_mode": "direct",
@@ -111,6 +115,7 @@ def test_consulting_capability_route_overrides_llm_direct_misclassification():
     assert route.task_type == "create_text_artifact"
     assert route.response_mode == "artifact"
     assert route.reason == "capability:client_meeting_brief"
+    assert called is False
 
 
 def test_high_confidence_rule_route_overrides_wrong_llm_artifact_type():
@@ -551,6 +556,7 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
         assert task.status == "completed"
         assert [step.key for step in steps] == ["collect_context", "plan_text_artifact", "draft_text_artifact", "summarize_result"]
         assert artifacts and artifacts[0].file_type == "md"
+        events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id).order_by(TaskEvent.created_at)).all()
         assert artifacts[0].project_file_id
         assert artifacts[0].path
         assert project_files and project_files[0].file_type == "md"
@@ -584,6 +590,9 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
             "每个关键人应关注的表达方式",
             "会后行动清单",
         ]
+        assert any(event.event_type == "step_progress" for event in events)
+        assert any("正在识别交付类型" in event.message for event in events)
+        assert all((step.output_json and json.loads(step.output_json).get("duration_ms") is not None) for step in steps)
     finally:
         engine.dispose()
 

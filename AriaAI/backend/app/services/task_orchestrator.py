@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -248,6 +249,14 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     return _ensure_task_route_protocol_steps(_task_route_from_decision(_rule_based_router_decision(content)), content)
 
 
+def _is_high_confidence_text_capability_route(route: TaskRoute) -> bool:
+    return (
+        route.task_type == "create_text_artifact"
+        and route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
+        and route.reason.startswith("capability:")
+    )
+
+
 def _ensure_task_route_protocol_steps(route: TaskRoute, content: str) -> TaskRoute:
     if route.task_type != "create_text_artifact":
         return route
@@ -448,6 +457,8 @@ async def route_project_task_request(
 ) -> TaskRoute:
     fallback = _rule_based_task_route(content)
     if fallback.response_mode in DIRECT_RESPONSE_MODES and fallback.confidence >= 0.9:
+        return fallback
+    if _is_high_confidence_text_capability_route(fallback):
         return fallback
     if llm_complete is None:
         return fallback
@@ -750,6 +761,11 @@ def _summarize_event_payload(payload: dict[str, Any]) -> str:
         return "工作表：" + "、".join(sheet_names[:6])
     if payload.get("sections") is not None:
         return f"章节数：{len(payload.get('sections') or [])}"
+    if payload.get("required_sections") is not None:
+        sections = [str(section) for section in (payload.get("required_sections") or []) if str(section)]
+        return "必需章节：" + "、".join(sections[:6])
+    if payload.get("duration_ms") is not None:
+        return f"耗时：{payload.get('duration_ms')}ms"
     if payload.get("name") or payload.get("file_name"):
         return f"文件：{payload.get('name') or payload.get('file_name')}"
     if payload.get("message"):
@@ -925,6 +941,8 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
     prefix = f"第 {step.get('sort_order')} 步：{step.get('title') or step.get('key')}"
     if event_type == "step_started":
         return f"{prefix}，开始执行。"
+    if event_type == "step_progress":
+        return str((output or {}).get("message") or f"{prefix}，正在处理。")
     if event_type == "step_completed":
         if step.get("key") == "collect_context":
             project = (output or {}).get("project") or {}
@@ -937,6 +955,13 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
             return f"{prefix}，完成。已形成 {str((output or {}).get('file_type') or '').upper()} 文件结构。"
         if step.get("key") == "create_document":
             return f"{prefix}，完成。文件「{(output or {}).get('name') or (output or {}).get('file_name') or '-'}」已保存到项目空间。"
+        if step.get("step_type") == "plan_text_artifact":
+            sections = (output or {}).get("required_sections") or []
+            if sections:
+                return f"{prefix}，完成。已识别 {len(sections)} 个必需章节：{'、'.join(str(item) for item in sections[:6])}。"
+            return f"{prefix}，完成。文本交付结构已确认。"
+        if step.get("step_type") == "draft_text_artifact":
+            return f"{prefix}，完成。Markdown 交付物「{(output or {}).get('name') or (output or {}).get('title') or '-'}」已保存到项目空间。"
         return f"{prefix}，完成。"
     if event_type == "step_failed":
         return f"{prefix}，失败：{step.get('error_message') or '未知错误'}。前面已完成步骤会保留，可从这里重试。"
@@ -1046,7 +1071,7 @@ def _complete_step(session: Session, task: TaskRun, step: TaskStep, output: dict
     _record_event(session, task, step=step, event_type="step_completed", message=f"{step.title}完成", payload=output)
 
 
-def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception) -> None:
+def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception, *, duration_ms: int | None = None) -> None:
     now = utc_now_naive()
     step.status = "failed"
     step.error_code = exc.__class__.__name__
@@ -1068,7 +1093,18 @@ def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception) 
         step=step,
         event_type="step_failed",
         message=f"{step.title}失败：{exc}",
-        payload={"error_code": step.error_code, "retryable": step.retryable},
+        payload={"error_code": step.error_code, "retryable": step.retryable, "duration_ms": duration_ms},
+    )
+
+
+def _progress_step(session: Session, task: TaskRun, step: TaskStep, message: str, payload: dict | None = None) -> None:
+    _record_event(
+        session,
+        task,
+        step=step,
+        event_type="step_progress",
+        message=message,
+        payload={"message": message, **(payload or {})},
     )
 
 
@@ -1130,6 +1166,26 @@ def _previous_office_output(session: Session, task_id: int) -> dict[str, Any]:
         or _previous_step_output(session, task_id, "create_document")
         or _previous_step_output_by_type(session, task_id, "write_project_office_document")
     )
+
+
+def _step_progress_payload(task: TaskRun, step: TaskStep) -> dict[str, Any]:
+    task_input = _json_loads(task.input_json)
+    if step.step_type == "collect_project_context":
+        return {"message": "正在读取项目背景、结构化记忆、客户信息和近期上下文。"}
+    if step.step_type == "plan_text_artifact":
+        return {"message": "正在识别交付类型、必需章节和输出结构约束。"}
+    if step.step_type == "draft_text_artifact":
+        return {"message": "正在按规划结构生成内容，并在保存前校验章节完整性。"}
+    if step.step_type == "build_slide_spec":
+        return {"message": "正在生成 PPT 故事线、页数结构和每页要点。"}
+    if step.step_type == "build_document_spec":
+        file_type = str(task_input.get("file_type") or _document_file_type_for_task(task.task_type)).upper()
+        return {"message": f"正在规划 {file_type} 文件结构和内容字段。"}
+    if step.step_type == "write_project_office_document":
+        return {"message": "正在生成文件并保存到项目空间。"}
+    if step.step_type == "summarize_result":
+        return {"message": "正在整理最终说明、生成物链接和任务记录。"}
+    return {"message": "正在处理当前步骤。"}
 
 
 def _build_client_ppt_slides(
@@ -2455,15 +2511,27 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
             "message": task_step_log_message("step_started", _serialize_step(step)),
             "task": serialize_task_run(session, task, include_events=True),
         }
+        progress_payload = _step_progress_payload(task, step)
+        _progress_step(session, task, step, str(progress_payload.get("message") or ""), progress_payload)
+        yield {
+            "event_type": "step_progress",
+            "step": _serialize_step(step),
+            "message": task_step_log_message("step_progress", _serialize_step(step), progress_payload),
+            "task": serialize_task_run(session, task, include_events=True),
+            "payload": progress_payload,
+        }
+        step_started_at = time.perf_counter()
         try:
             output = await _execute_step(session, task, step)
         except Exception as exc:
-            _fail_step(session, task, step, exc)
+            duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+            _fail_step(session, task, step, exc, duration_ms=duration_ms)
             yield {
                 "event_type": "step_failed",
                 "step": _serialize_step(step),
                 "message": task_step_log_message("step_failed", _serialize_step(step)),
                 "task": serialize_task_run(session, task, include_events=True),
+                "duration_ms": duration_ms,
             }
             return
         session.refresh(task)
@@ -2476,12 +2544,16 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
                 "task": serialize_task_run(session, task, include_events=True),
             }
             return
+        duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+        if isinstance(output, dict):
+            output = {**output, "duration_ms": duration_ms}
         _complete_step(session, task, step, output)
         yield {
             "event_type": "step_completed",
             "step": _serialize_step(step),
             "message": task_step_log_message("step_completed", _serialize_step(step), output),
             "task": serialize_task_run(session, task, include_events=True),
+            "duration_ms": duration_ms,
         }
 
     now = utc_now_naive()

@@ -42,6 +42,7 @@
 | 网络错误清空已接收内容 | 已修复 | 非主动取消的流式错误会保留已收到文本、工具步骤和附件，并标记 `stream_interrupted`。 |
 | 客户会议准备被 LLM Router 误判为普通对话 | 已修复 | 明确命中咨询能力目录的结构化交付请求会强制保留规则路由，不再被 LLM 的 direct 误判覆盖。 |
 | 文本交付物缺少统一能力协议 | 已修复 | 顾问能力命中后会生成 `CapabilityProtocol`，统一 required_sections、output_schema、quality_rules，并在保存前做结构校验。 |
+| 执行中缺少可见进度和耗时 | 已修复 | Durable task 每一步会发送 `step_progress`，并在步骤输出中记录 `duration_ms`；高置信文本能力命中会短路 LLM Router。 |
 
 历史验证：
 
@@ -78,9 +79,10 @@ PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
   AriaAI/backend/tests/test_task_orchestrator.py::test_high_confidence_rule_route_overrides_wrong_llm_artifact_type \
   AriaAI/backend/tests/test_task_orchestrator.py::test_text_artifact_plan_exposes_capability_protocol \
   AriaAI/backend/tests/test_task_orchestrator.py::test_text_artifact_storyline_respects_requested_chapter_count_and_hierarchy \
-  AriaAI/backend/tests/test_task_orchestrator.py::test_execute_text_artifact_task_records_markdown_project_file -q
+  AriaAI/backend/tests/test_task_orchestrator.py::test_execute_text_artifact_task_records_markdown_project_file \
+  AriaAI/backend/tests/test_chat_streaming.py::TaskPayloadToolCallsTests::test_builds_collapsible_step_details_from_task_events -q
 
-# 6 passed
+# 7 passed
 ```
 
 最新验证：
