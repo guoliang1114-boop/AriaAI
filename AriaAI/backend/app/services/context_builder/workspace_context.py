@@ -133,10 +133,12 @@ def build_client_project_portfolio_context(
     session: Session,
     content: str,
     fallback_client_name: str = "",
+    *,
+    force: bool = False,
 ) -> str:
     """Build a complete per-client project inventory for portfolio questions."""
     client_name = _find_client_name_in_query(session, content) or fallback_client_name.strip()
-    if not is_client_project_portfolio_query(content) and not (client_name and _is_project_review_query(content)):
+    if not force and not is_client_project_portfolio_query(content) and not (client_name and _is_project_review_query(content)):
         return ""
     if not client_name:
         return ""
@@ -218,9 +220,9 @@ def build_client_project_portfolio_context(
     return "\n".join(lines)
 
 
-def build_workspace_project_inventory_context(session: Session, content: str) -> str:
+def build_workspace_project_inventory_context(session: Session, content: str, *, force: bool = False) -> str:
     """Build a complete workspace project inventory for all-project questions."""
-    if not is_workspace_project_inventory_query(content):
+    if not force and not is_workspace_project_inventory_query(content):
         return ""
 
     projects = session.exec(select(Project).order_by(Project.updated_at.desc())).all()

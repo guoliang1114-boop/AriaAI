@@ -101,9 +101,9 @@ def _init_default_folders(session: Session, project_id: int):
     name=PROJECT_MARKDOWN_TOOL_NAME,
     description=(
         "Create or update a Markdown document in the current project. "
-        "Call this tool whenever you need to save, modify, replace, rewrite, correct, or create any project Markdown documentation. "
-        "Do not wait for user confirmation — write the file immediately when you have the content ready. "
-        "For replace mode, provide the full final Markdown content."
+        "Use only when the user explicitly asks to save, write, create, append, replace, rewrite, or modify a project Markdown file. "
+        "Do not use for analysis-only requests such as risk identification, project summaries, recommendations, or advice. "
+        "For replace mode, provide the full final Markdown content, not a diff."
     ),
     input_schema={
         "type": "object",
@@ -239,7 +239,7 @@ _READ_MAX_CHARS = 12000
         "List or read Markdown documents in the current project. "
         "Call with action='list' to see all available MD files (returns id, name, folder, summary). "
         "Call with action='read' and a file_id or file_name to read the full content of a specific file. "
-        "IMPORTANT: Read at most 2 files per user request. After reading the target file, proceed immediately to update_project_markdown_document. Do NOT continue reading more files."
+        "Use this for read-only file questions or before an explicitly requested edit."
     ),
     input_schema={
         "type": "object",

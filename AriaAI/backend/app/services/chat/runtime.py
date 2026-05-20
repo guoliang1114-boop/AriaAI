@@ -19,8 +19,6 @@ from app.services.chat_store import (
 )
 from app.services.context_builder import (
     build_chat_context,
-    is_client_project_portfolio_query,
-    is_workspace_project_inventory_query,
 )
 from app.services.provider_selector import (
     _load_provider_module,
@@ -29,6 +27,9 @@ from app.services.provider_selector import (
 )
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
+from app.services.chat.mode_registry import ChatMode, MODE_CONFIG
+from app.services.intent_router import classify_chat_intent
+from app.services.policy_guards import filter_tools_for_policy
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -72,14 +73,14 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     return min(max_tokens, 8192)
 
 
-def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | None) -> bool:
+def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | None, chat_mode: ChatMode) -> bool:
     return (
+        chat_mode == ChatMode.STANDALONE_QA
+        and
         req.project_id is None
         and effective_skill_id is None
         and not req.rag_doc_ids
         and not req.file_ids
-        and not is_client_project_portfolio_query(req.content)
-        and not is_workspace_project_inventory_query(req.content)
         and len((req.content or "").strip()) <= 280
     )
 
@@ -91,39 +92,39 @@ def _resolve_runtime_model_and_tokens(
     effective_skill_id: int | None,
     *,
     has_deepseek_api_key: bool = False,
-    project_context: str = "",
+    chat_mode: ChatMode = ChatMode.PROJECT_DEEP_DIVE,
 ) -> tuple[str, int]:
     normalized = (selected_model or "").lower()
-    has_client_portfolio_context = project_context.startswith("# Client Project Portfolio Context")
-    has_workspace_inventory_context = project_context.startswith("# Workspace Project Inventory Context")
 
-    if has_client_portfolio_context:
+    if chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO:
         if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
             return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
         return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
 
-    if has_workspace_inventory_context:
+    if chat_mode == ChatMode.WORKSPACE_INVENTORY:
         if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
             return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
         return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
 
-    if _is_standalone_fast_path(req, effective_skill_id) and normalized.startswith("kimi-k2.6"):
+    if _is_standalone_fast_path(req, effective_skill_id, chat_mode) and normalized.startswith("kimi-k2.6"):
         return STANDALONE_FAST_PATH_MODEL, min(max_tokens, STANDALONE_FAST_PATH_MAX_TOKENS)
-
-    if is_client_project_portfolio_query(req.content):
-        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
-            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
-        return selected_model, min(max_tokens, CLIENT_PORTFOLIO_MAX_TOKENS)
-
-    if is_workspace_project_inventory_query(req.content):
-        if has_deepseek_api_key and normalized in {"kimi-k2.6", "deepseek-v4-pro"}:
-            return CLIENT_PORTFOLIO_FAST_MODEL, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
-        return selected_model, min(max_tokens, WORKSPACE_INVENTORY_MAX_TOKENS)
 
     if req.project_id is None and effective_skill_id is None:
         return selected_model, min(max_tokens, STANDALONE_CHAT_MAX_TOKENS)
 
     return selected_model, max_tokens
+
+
+def _context_mode_from_decision(chat_mode: ChatMode) -> str:
+    if chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO:
+        return "client_portfolio"
+    if chat_mode == ChatMode.WORKSPACE_INVENTORY:
+        return "workspace_inventory"
+    if chat_mode == ChatMode.PROJECT_DEEP_DIVE:
+        return "project"
+    if chat_mode == ChatMode.SKILL_EXECUTION:
+        return "skill"
+    return "workspace_brief"
 
 
 def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: bool = False) -> SkillActivationDecision:
@@ -179,15 +180,17 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     step_started_at = prepare_started_at
     prepare_metrics: dict[str, int | str] = {}
 
-    is_portfolio_query = is_client_project_portfolio_query(req.content)
-    is_workspace_inventory_query = is_workspace_project_inventory_query(req.content)
-
     # 1. Skill resolution
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     skill_decision = decide_skill_activation(req.content, skill, force_skill=req.force_skill)
     effective_skill_id = req.skill_id if skill and skill_decision.apply else None
     effective_skill = skill if effective_skill_id else None
+    intent_decision = classify_chat_intent(req, effective_skill_id=effective_skill_id)
     prepare_metrics["skill_decision"] = skill_decision.reason
+    prepare_metrics["chat_mode"] = intent_decision.chat_mode.value
+    prepare_metrics["action_policy"] = intent_decision.action_policy.value
+    prepare_metrics["intent_reason"] = intent_decision.reason
+    prepare_metrics["intent_method"] = intent_decision.method
     prepare_metrics["resolve_skill_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 2. Conversation
@@ -214,6 +217,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     # 4. Settings & context
     max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
     temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
+    context_mode = _context_mode_from_decision(intent_decision.chat_mode)
 
     step_started_at = time.perf_counter()
     chat_ctx = build_chat_context(
@@ -226,13 +230,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         content=req.content,
         default_max_tokens=max_tokens,
         mention_context=req.mention_context.model_dump() if req.mention_context else None,
-    )
-    expanded_query_allowed = req.project_id is None or (req.knowledge_scope or "project") != "project"
-    has_client_portfolio_context = chat_ctx.project_context.startswith("# Client Project Portfolio Context") or (
-        expanded_query_allowed and is_portfolio_query
-    )
-    has_workspace_inventory_context = chat_ctx.project_context.startswith("# Workspace Project Inventory Context") or (
-        expanded_query_allowed and is_workspace_inventory_query
+        context_mode=context_mode,
     )
     prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
@@ -252,7 +250,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.max_tokens,
         effective_skill_id,
         has_deepseek_api_key=_has_deepseek_api_key(session),
-        project_context=chat_ctx.project_context,
+        chat_mode=intent_decision.chat_mode,
     )
     provider = resolve_provider_from_model(runtime_model)
     llm = _load_provider_module(provider)
@@ -260,6 +258,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         chat_ctx.skill_prompt,
         chat_ctx.rag_context,
         chat_ctx.project_context,
+        chat_mode=intent_decision.chat_mode,
     )
     prepare_metrics["model_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["selected_model"] = selected_model
@@ -273,20 +272,14 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         for msg in history
         if msg.content.strip()
     ]
-    if has_client_portfolio_context or has_workspace_inventory_context:
-        api_messages = [{"role": "user", "content": req.content}]
+    if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
+        window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
+        api_messages = api_messages[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
-    prepare_metrics["context_mode"] = (
-        "client_portfolio"
-        if has_client_portfolio_context
-        else "workspace_inventory"
-        if has_workspace_inventory_context
-        else "project"
-        if req.project_id
-        else "workspace_brief"
-    )
+    prepare_metrics["context_mode"] = context_mode
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
+    runtime_tools = filter_tools_for_policy(chat_ctx.tools, intent_decision.action_policy)
 
     return ChatRuntime(
         conv_id=conv.id,
@@ -296,9 +289,13 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         system=system,
         api_messages=api_messages,
         rag_sources=chat_ctx.rag_sources,
-        tools=chat_ctx.tools,
+        tools=runtime_tools,
         max_tokens=_cap_max_tokens_for_model(runtime_model, runtime_max_tokens),
         temperature=temperature,
         skill_name=effective_skill.name if effective_skill else "",
         prepare_metrics=prepare_metrics,
+        chat_mode=intent_decision.chat_mode,
+        action_policy=intent_decision.action_policy,
+        intent_reason=intent_decision.reason,
+        intent_method=intent_decision.method,
     )

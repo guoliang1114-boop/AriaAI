@@ -24,18 +24,16 @@ from collections.abc import AsyncIterator
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
-from app.services.chat.runtime import prepare_chat_runtime
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
-from app.services.chat.phases import (
-    run_p0_durable_task,
-    run_p1_planning,
-    run_p2_tools,
-    run_p3_followup,
-    run_p4_persist,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def prepare_chat_runtime(*args, **kwargs):
+    from app.services.chat.runtime import prepare_chat_runtime as _prepare_chat_runtime
+
+    return _prepare_chat_runtime(*args, **kwargs)
 
 
 async def stream_chat_events(
@@ -52,6 +50,14 @@ async def stream_chat_events(
     The function signature is **100 % backward-compatible** with the old
     monolithic ``chat_streaming.py`` implementation.
     """
+    from app.services.chat.phases import (
+        run_p0_durable_task,
+        run_p1_planning,
+        run_p2_tools,
+        run_p3_followup,
+        run_p4_persist,
+    )
+
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
 

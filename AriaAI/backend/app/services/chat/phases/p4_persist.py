@@ -10,11 +10,12 @@ import time
 from collections.abc import AsyncIterator
 
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress
+from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
 from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
+from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
 
@@ -43,6 +44,7 @@ async def run_p4_persist(
     full_text = state.text_buffer.strip()
     if state.follow_up_text.strip():
         full_text = (full_text + "\n\n" + state.follow_up_text.strip()).strip()
+    full_text = _strip_internal_tool_markers(full_text)
 
     if not state.tool_use_blocks:
         yield sse_event({"type": "status", "stage": "finalizing", "message": "模型回复已整理完成。"})
@@ -139,13 +141,20 @@ async def run_p4_persist(
         )
 
     # Persist assistant message
-    need_title = persist_assistant_message(
+    need_title, assistant_message_id = persist_assistant_message(
         bind,
         runtime.conv_id,
         full_text,
         req.content,
         metadata or None,
     )
+    state.full_text = full_text
+    state.need_title = need_title
+
+    try:
+        persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
+    except Exception as exc:
+        logger.warning("[P4] failed to persist chat trace: %s", exc)
 
     logger.info(f"[chat timing] conv={runtime.conv_id} metrics={state.stage_timings}")
     yield sse_event({"type": "done", **metadata})
@@ -157,7 +166,3 @@ async def run_p4_persist(
             bind=bind,
             complete_fn=runtime.llm.complete,
         )
-
-    # Write back
-    state.full_text = full_text
-    state.need_title = need_title

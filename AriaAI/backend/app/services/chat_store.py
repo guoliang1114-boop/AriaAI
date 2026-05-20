@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import Conversation, GeneratedFile, Message, TaskRun, ToolCall
+from app.models.db import ChatTrace, Conversation, GeneratedFile, Message, TaskRun, ToolCall
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
@@ -250,8 +250,9 @@ def persist_assistant_message(
     content: str,
     user_content: str,
     metadata: Optional[dict] = None,
-) -> bool:
+) -> tuple[bool, int | None]:
     need_title = False
+    message_id: int | None = None
     with Session(bind) as new_session:
         asst_msg = Message(
             conversation_id=conv_id,
@@ -260,6 +261,8 @@ def persist_assistant_message(
             metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else "{}",
         )
         new_session.add(asst_msg)
+        new_session.flush()
+        message_id = asst_msg.id
         conv = new_session.get(Conversation, conv_id)
         if conv:
             conv.updated_at = utc_now_naive()
@@ -268,7 +271,7 @@ def persist_assistant_message(
                 need_title = True
             new_session.add(conv)
         new_session.commit()
-    return need_title
+    return need_title, message_id
 
 
 def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_cache: bool = True) -> None:
@@ -280,6 +283,8 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
         session.delete(artifact)
     for tool_call in session.exec(select(ToolCall).where(ToolCall.conversation_id == conv_id)).all():
         session.delete(tool_call)
+    for trace in session.exec(select(ChatTrace).where(ChatTrace.conversation_id == conv_id)).all():
+        session.delete(trace)
     for msg in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
         session.delete(msg)
     session.delete(conv)

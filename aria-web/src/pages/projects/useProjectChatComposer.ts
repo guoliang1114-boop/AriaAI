@@ -321,7 +321,11 @@ export function useProjectChatComposer({
             } else if (payload.type === "tool_result" && payload.result) {
               const result = payload.result;
               const resultStatus: ToolCallEvent["status"] =
-                result.status === "error" || result.success === false ? "error" : "completed";
+                result.status === "error" || result.success === false
+                  ? "error"
+                  : result.status === "skipped"
+                    ? "skipped"
+                    : "completed";
               const resultSummary = summarizeToolResult(result);
               const toolName =
                 typeof result.tool_name === "string"

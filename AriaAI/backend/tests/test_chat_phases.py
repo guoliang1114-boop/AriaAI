@@ -19,6 +19,7 @@ from app.services.chat.workflow import (
     task_step_output_details,
     task_payload_tool_calls,
 )
+from app.services.chat.mode_registry import ChatMode
 from app.services.chat.runtime import (
     _cap_max_tokens_for_model,
     decide_skill_activation,
@@ -285,19 +286,19 @@ class DummyRequest:
 class IsStandaloneFastPathTests(unittest.TestCase):
     def test_true_when_no_project_no_skill_no_rag_no_files_short_text(self):
         req = DummyRequest(content="Hi", project_id=None, skill_id=None)
-        self.assertTrue(_is_standalone_fast_path(req, None))
+        self.assertTrue(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
     def test_false_when_project_set(self):
         req = DummyRequest(content="Hi", project_id=1)
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.PROJECT_DEEP_DIVE))
 
     def test_false_when_skill_set(self):
         req = DummyRequest(content="Hi")
-        self.assertFalse(_is_standalone_fast_path(req, 1))
+        self.assertFalse(_is_standalone_fast_path(req, 1, ChatMode.SKILL_EXECUTION))
 
     def test_false_when_long_text(self):
         req = DummyRequest(content="x" * 300)
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
 
 class ShouldApplySkillTests(unittest.TestCase):
@@ -347,18 +348,18 @@ class ShouldApplySkillTests(unittest.TestCase):
 class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
     def test_no_project_no_skill_kimi_fast_path(self):
         req = DummyRequest(content="Hi")
-        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 4096, None)
-        # kimi-k2.6 triggers standalone fast path with 1536 tokens
+        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 4096, None, chat_mode=ChatMode.STANDALONE_QA)
+        # kimi-k2.6 standalone fast path caps at 1536 tokens
         self.assertEqual(tokens, 1536)
 
     def test_no_project_no_skill_other_model(self):
         req = DummyRequest(content="Hi")
-        model, tokens = _resolve_runtime_model_and_tokens(req, "claude-3", 4096, None)
+        model, tokens = _resolve_runtime_model_and_tokens(req, "claude-3", 4096, None, chat_mode=ChatMode.STANDALONE_QA)
         self.assertEqual(tokens, 2048)
 
     def test_with_project_returns_max_tokens(self):
         req = DummyRequest(content="Hi", project_id=1)
-        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 4096, None)
+        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 4096, None, chat_mode=ChatMode.PROJECT_DEEP_DIVE)
         self.assertEqual(tokens, 4096)
 
 

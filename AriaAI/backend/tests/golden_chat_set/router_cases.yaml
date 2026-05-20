@@ -1,0 +1,85 @@
+cases:
+  - id: direct_project_memory_summary
+    content: "请基于当前项目的结构化记忆，给我一个 5 条以内的项目概览摘要，覆盖当前阶段、关键进展、风险和下一步动作。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: direct_answer
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: project_risk_analysis_read_only
+    content: "请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。"
+    project_id: 26
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: read_only_tool
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: explicit_markdown_artifact
+    content: "请生成一个 md 文档，整理项目风险清单，并保存到项目空间。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: write_artifact
+    allow_tools:
+      - update_project_markdown_document
+
+  - id: standalone_chat
+    content: "你是谁？"
+    project_id: null
+    expected_chat_mode: standalone_qa
+    expected_action_policy: direct_answer
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: workspace_inventory
+    content: "帮我看一下现在全部项目的情况和风险。"
+    project_id: null
+    expected_chat_mode: workspace_inventory
+    expected_action_policy: direct_answer
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: portfolio_cross_session_context
+    content: "继续看这个客户的所有项目，帮我总结风险和下一步动作。"
+    project_id: 26
+    expected_chat_mode: cross_project_portfolio
+    expected_action_policy: read_only_tool
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: modify_existing_file_requires_modify_policy
+    content: "请把刚才的会议准备文档更新一下，追加会后行动清单。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: append
+          content: "## 会后行动清单\n- 跟进材料"
+
+  - id: destructive_action_requires_destructive_policy
+    content: "删除这个项目的旧对话记录。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: destructive_action
+    allow_tools:
+      - name: manage_project_folders
+        input:
+          action: delete
+
+  - id: explicit_skill_execution
+    content: "用这个 Skill 帮我生成客户会议准备材料，并保存到项目空间。"
+    project_id: 27
+    skill_id: 3
+    force_skill: true
+    expected_chat_mode: skill_execution
+    expected_action_policy: write_artifact
+    allow_tools:
+      - update_project_markdown_document
+
+  - id: office_generation_enters_task_orchestration
+    content: "给我准备一个客户介绍 PPT，保存到项目空间。"
+    project_id: 27
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task

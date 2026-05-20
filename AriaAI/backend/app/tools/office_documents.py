@@ -421,7 +421,8 @@ def _register_generated_project_file(
     name=WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
     description=(
         "Create a Word, Excel, PowerPoint, or PDF file and save it into the current project space. "
-        "Use DOCX/PDF for narrative documents, XLSX for tables, and PPTX for presentation slides."
+        "Use only when the user explicitly asks to create, generate, export, or save a DOCX/XLSX/PPTX/PDF deliverable. "
+        "Do not use for analysis-only chat answers. Use DOCX/PDF for narrative documents, XLSX for tables, and PPTX for presentation slides."
     ),
     input_schema={
         "type": "object",

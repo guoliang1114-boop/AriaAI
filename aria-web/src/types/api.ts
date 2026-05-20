@@ -714,7 +714,7 @@ export interface Reference {
 
 export interface ToolCallEvent {
   tool_name: string
-  status: 'pending' | 'running' | 'completed' | 'error'
+  status: 'pending' | 'running' | 'completed' | 'error' | 'blocked' | 'skipped'
   message?: string
   summary?: string
   error?: string
@@ -735,6 +735,44 @@ export interface GeneratedArtifact {
   path: string
   size_bytes?: number
   description?: string
+  created_at?: string
+}
+
+export interface ChatTracePromptLayer {
+  name: string
+  chars?: number
+  present?: boolean
+  message_count?: number
+  tool_count?: number
+  tool_names?: string[]
+  source_count?: number
+}
+
+export interface ChatTrace {
+  id?: number
+  trace_id: string
+  conversation_id: number
+  message_id?: number | null
+  project_id?: number | null
+  chat_mode: string
+  action_policy: string
+  intent_method?: string
+  intent_reason?: string
+  model_used?: string
+  prompt_layers?: ChatTracePromptLayer[]
+  tool_decisions?: ToolCallEvent[]
+  artifacts?: GeneratedArtifact[]
+  stage_timings?: Record<string, number | string>
+  fallback_events?: Array<{
+    type?: string
+    tool_name?: string
+    reason?: string
+    stage?: string
+    changes?: string[]
+    required_policy?: string
+    current_policy?: string
+  }>
+  metadata?: Record<string, unknown>
   created_at?: string
 }
 

@@ -3474,7 +3474,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext()
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3502,7 +3502,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3535,7 +3535,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: f"system:{skill_prompt}"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3571,7 +3571,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: f"system:{skill_prompt}"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3601,7 +3601,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3631,7 +3631,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3645,7 +3645,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.selected_model, chat_streaming_module.CLIENT_PORTFOLIO_FAST_MODEL)
         self.assertEqual(runtime.max_tokens, chat_streaming_module.CLIENT_PORTFOLIO_MAX_TOKENS)
 
-    def test_prepare_chat_runtime_ignores_prior_history_for_portfolio_query(self):
+    def test_prepare_chat_runtime_keeps_recent_history_for_portfolio_query(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
             session.add(Message(conversation_id=conv_id, role="user", content="old question"))
@@ -3662,7 +3662,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ):
                 mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
                 mocked_provider.return_value = SimpleNamespace(
-                    build_system_prompt=lambda skill_prompt, rag_context, project_context: "system"
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
                 )
 
                 runtime = chat_streaming_module.prepare_chat_runtime(
@@ -3673,8 +3673,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     ),
                 )
 
-        self.assertEqual(runtime.api_messages, [{"role": "user", "content": "总结金科智慧服务集团股份有限公司的全部项目情况及风险。"}])
-        self.assertEqual(runtime.prepare_metrics["history_message_count"], 1)
+        self.assertEqual(runtime.api_messages[-1], {"role": "user", "content": "总结金科智慧服务集团股份有限公司的全部项目情况及风险。"})
+        self.assertEqual(runtime.prepare_metrics["history_message_count"], 3)
 
     def test_project_chat_context_disables_global_rag_auto_trigger(self):
         with Session(self.engine) as session:
@@ -3872,6 +3872,53 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertNotIn(f"金科其他项目 {index + 1}", ctx.project_context)
             self.assertNotIn(f"其他风险 {index + 1}", ctx.project_context)
         self.assertNotIn("Other Client Project", ctx.project_context)
+
+    def test_context_mode_can_force_client_portfolio_from_current_project(self):
+        client_name = "金科智慧服务集团股份有限公司"
+        with Session(self.engine) as session:
+            current_project = Project(name="金科当前项目", client=client_name, status="delivering")
+            session.add(current_project)
+            session.add(Project(name="金科同客户项目", client=client_name, status="delivering"))
+            session.add(Project(name="Other Client Project", client="Other Client", status="delivering"))
+            session.commit()
+            session.refresh(current_project)
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=current_project.id,
+                skill_id=None,
+                knowledge_scope="project",
+                content="看一下这个客户的组合情况",
+                context_mode="client_portfolio",
+            )
+
+        self.assertIn("Client Project Portfolio Context", ctx.project_context)
+        self.assertIn("Matched projects: 2", ctx.project_context)
+        self.assertIn("金科同客户项目", ctx.project_context)
+        self.assertNotIn("Other Client Project", ctx.project_context)
+
+    def test_context_mode_project_prevents_legacy_portfolio_auto_upgrade(self):
+        client_name = "金科智慧服务集团股份有限公司"
+        with Session(self.engine) as session:
+            current_project = Project(name="金科当前项目", client=client_name, status="delivering")
+            session.add(current_project)
+            session.add(Project(name="金科同客户项目", client=client_name, status="delivering"))
+            session.commit()
+            session.refresh(current_project)
+
+            ctx = context_builder_module.build_chat_context(
+                session=session,
+                project_id=current_project.id,
+                skill_id=None,
+                knowledge_scope="global",
+                content="总结金科智慧服务集团股份有限公司的全部项目情况及风险。",
+                context_mode="project",
+            )
+
+        self.assertIn("Scope Guard", ctx.project_context)
+        self.assertIn("金科当前项目", ctx.project_context)
+        self.assertNotIn("Client Project Portfolio Context", ctx.project_context)
+        self.assertNotIn("金科同客户项目", ctx.project_context)
 
     def test_project_client_portfolio_query_can_use_current_project_client(self):
         client_name = "金科智慧服务集团股份有限公司"
@@ -4747,13 +4794,13 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             selected_model="claude-sonnet-4-6",
             llm=llm,
             system="system",
-            api_messages=[{"role": "user", "content": "read and update"}],
+            api_messages=[{"role": "user", "content": "read and update the project document"}],
             rag_sources=[],
             tools=[{"name": "read_project_markdown_document"}, {"name": "update_project_markdown_document"}],
             max_tokens=1024,
             temperature=0.7,
         )
-        req = chat_router_module.SendMessageRequest(content="read and update")
+        req = chat_router_module.SendMessageRequest(content="read and update the project document")
 
         async def mock_execute(name, input_data):
             if name == "read_project_markdown_document":
@@ -4839,6 +4886,57 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertIn("文档状态：初稿", assistant_messages[0].content)
             self.assertIn("已创建第一次沟通会详细内容文档。", assistant_messages[0].content)
             self.assertNotIn('{"type":"tool_use"', assistant_messages[0].content)
+
+    def test_stream_chat_events_ignores_unrequested_markdown_write_for_direct_risk_answer(self):
+        """Direct advisory answers must not become project document writes."""
+        conv_id = self._create_conversation()
+        llm = FakeStreamingLLM(
+            [
+                [
+                    "基于结构化记忆，主要风险是决策信息不完整，建议本周确认客户决策链。\n\n"
+                    "[TOOL_START:update_project_markdown_document]\n"
+                    '{"type":"tool_use","id":"tool-write","name":"update_project_markdown_document",'
+                    '"input":{"file_name":"项目风险清单.md","content":"# 风险清单"}}'
+                ],
+            ]
+        )
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            project_id=26,
+            selected_model="glm-5.1",
+            llm=llm,
+            system="system",
+            api_messages=[{"role": "user", "content": "识别项目风险"}],
+            rag_sources=[],
+            tools=[{"name": "update_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.7,
+            action_policy="read_only_tool",
+        )
+        req = chat_router_module.SendMessageRequest(
+            content="请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。",
+            project_id=26,
+        )
+
+        execute_mock = AsyncMock()
+        with patch("app.services.chat_streaming.registry.execute", new=execute_mock):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        joined = "".join(events)
+        execute_mock.assert_not_awaited()
+        self.assertNotIn("TOOL_START", joined)
+        self.assertNotIn('{"type":"tool_use"', joined)
+
+        with Session(self.engine) as session:
+            assistant_messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            self.assertIn("主要风险", assistant_messages[0].content)
+            self.assertNotIn("TOOL_START", assistant_messages[0].content)
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            self.assertNotIn("tool_calls", metadata)
+            self.assertNotIn("artifacts", metadata)
 
     def test_stream_chat_events_skips_invalid_tool_in_p2_without_breaking_pairing(self):
         """Invalid tool in P2 must still emit a tool_result so tool_use/tool_result pairing is preserved."""

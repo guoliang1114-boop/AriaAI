@@ -12,7 +12,13 @@ import time
 from collections.abc import AsyncIterator
 
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat_tools import ChatRuntime, _tool_start_progress_payload
+from app.services.chat_tools import (
+    ChatRuntime,
+    _summarize_tool_result,
+    _strip_internal_tool_markers,
+    _tool_start_progress_payload,
+)
+from app.services.policy_guards import policy_allows_tool
 from app.services.chat_artifacts import (
     _extract_artifact,
     _repair_digital_strategy_ppt_tool_input,
@@ -40,6 +46,9 @@ def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tup
     if tool_name == READ_MARKDOWN_TOOL_NAME and not repaired.get("action"):
         repaired["action"] = "read" if repaired.get("file_id") is not None or repaired.get("file_name") else "list"
         changes.append(f"补齐 Markdown 读取动作：{repaired['action']}")
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME and not repaired.get("mode"):
+        repaired["mode"] = "replace" if repaired.get("file_id") is not None else "create"
+        changes.append(f"补齐 Markdown 写入模式：{repaired['mode']}")
     return repaired, changes
 
 
@@ -130,14 +139,57 @@ async def run_p3_followup(
 
         if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
             tool_name = stripped[12:-1]
+            allowed, reason, required = policy_allows_tool(runtime.action_policy, tool_name, {})
+            if not allowed:
+                logger.warning(
+                    "[P3] suppressed tool progress marker by action policy. tool=%s required=%s reason=%s",
+                    tool_name,
+                    required.value,
+                    reason,
+                )
+                state.record_trace_event(
+                    "tool_marker_suppressed",
+                    stage="p3",
+                    tool_name=tool_name,
+                    reason=reason,
+                    required_policy=required.value,
+                    current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                )
+                continue
             progress_payload = _tool_start_progress_payload(tool_name)
             if progress_payload:
                 yield sse_event({"type": "tool_executing", "tool_name": tool_name, **progress_payload})
             continue
 
+        chunk = _strip_internal_tool_markers(chunk)
+        if not chunk:
+            continue
+        stripped = chunk.strip()
+
         mixed_tool_blocks, cleaned_chunk = extract_tool_use_json_blocks(chunk)
         if mixed_tool_blocks:
             for block in mixed_tool_blocks:
+                allowed, reason, required = policy_allows_tool(
+                    runtime.action_policy,
+                    str(block.get("name") or ""),
+                    block.get("input") if isinstance(block.get("input"), dict) else {},
+                )
+                if not allowed:
+                    logger.warning(
+                        "[P3] blocked follow-up tool by action policy. tool=%s required=%s reason=%s",
+                        block.get("name"),
+                        required.value,
+                        reason,
+                    )
+                    state.record_trace_event(
+                        "tool_blocked",
+                        stage="p3",
+                        tool_name=str(block.get("name") or ""),
+                        reason=reason,
+                        required_policy=required.value,
+                        current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                    )
+                    continue
                 logger.info(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}")
                 p3_tool_use_blocks.append(block)
                 yield sse_event(
@@ -208,6 +260,12 @@ async def run_p3_followup(
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 tool_input, repaired_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
                 if repaired_changes:
+                    state.record_trace_event(
+                        "tool_input_repaired",
+                        stage="p3",
+                        tool_name=tool_name,
+                        changes=repaired_changes,
+                    )
                     yield sse_event(
                         workflow_status(
                             step_index=3,
@@ -221,6 +279,12 @@ async def run_p3_followup(
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)
                 if repaired_changes:
+                    state.record_trace_event(
+                        "tool_input_repaired",
+                        stage="p3",
+                        tool_name=tool_name,
+                        changes=repaired_changes,
+                    )
                     yield sse_event(
                         workflow_status(
                             step_index=3,
@@ -230,6 +294,59 @@ async def run_p3_followup(
                             message=f"第 3 步：已补齐后续文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
                     )
+
+            allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
+            if not allowed:
+                logger.warning(
+                    "[P3] blocked re-follow-up tool by action policy. tool=%s required=%s policy=%s reason=%s",
+                    tool_name,
+                    required_policy.value,
+                    runtime.action_policy,
+                    block_reason,
+                )
+                skipped_output = {
+                    "skipped": True,
+                    "reason": block_reason,
+                    "required_policy": required_policy.value,
+                    "current_policy": str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                }
+                p3_tool_result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(skipped_output, ensure_ascii=False),
+                    }
+                )
+                state.tool_call_events.append(
+                    {
+                        "tool_name": tool_name,
+                        "status": "blocked",
+                        "message": "后续工具调用已被本轮 ActionPolicy 阻止。",
+                        "summary": block_reason,
+                        "required_policy": required_policy.value,
+                    }
+                )
+                state.record_trace_event(
+                    "tool_blocked",
+                    stage="p3",
+                    tool_name=tool_name,
+                    reason=block_reason,
+                    required_policy=required_policy.value,
+                    current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                )
+                yield sse_event(
+                    {
+                        "type": "tool_result",
+                        "result": {
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "status": "skipped",
+                            "success": True,
+                            "output": skipped_output,
+                        },
+                    }
+                )
+                continue
 
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 markdown_content = str(tool_input.get("content") or "").strip()
@@ -425,6 +542,12 @@ async def run_p3_followup(
                         logger.info(
                             f"[P3] suppressed leaked tool_use in re-follow-up: "
                             f"{block.get('name')}, id={block.get('id')}"
+                        )
+                        state.record_trace_event(
+                            "tool_block_suppressed",
+                            stage="p3_re_follow",
+                            tool_name=str(block.get("name") or ""),
+                            reason="tool_use leaked after tool execution; suppressed to keep final answer stable",
                         )
                     chunk = cleaned_chunk
                     stripped_chunk = chunk.strip()

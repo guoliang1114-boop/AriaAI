@@ -2,7 +2,16 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlmodel import SQLModel, Session
+
+from app.models.db import ChatTrace, Conversation, Message
+from app.routers import chat as chat_router_module
+from app.routers import chat_diagnostics as chat_diagnostics_router_module
 from app.services import chat_diagnostics as cd
+from app.services.time_utils import utc_now_naive
+from tests.test_database import create_test_engine, drop_all_tables
 
 
 class TestProviderConnectionTestCase(unittest.TestCase):
@@ -113,3 +122,59 @@ class RunModelTestTestCase(unittest.TestCase):
         result = self._call("hi", "claude-3-opus")
         self.assertFalse(result["success"])
         self.assertIn("failed", result["message"].lower())
+
+
+class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app = FastAPI()
+        app.include_router(chat_router_module.router)
+        app.dependency_overrides[chat_diagnostics_router_module.get_session] = override_session
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        self.client.close()
+        self.engine.dispose()
+
+    def test_get_message_trace_returns_exact_message_trace(self):
+        with Session(self.engine) as session:
+            conv = Conversation(title="Trace test")
+            session.add(conv)
+            session.flush()
+            msg = Message(conversation_id=conv.id, role="assistant", content="done")
+            session.add(msg)
+            session.flush()
+            trace = ChatTrace(
+                trace_id="trace-one",
+                conversation_id=conv.id,
+                message_id=msg.id,
+                chat_mode="project_deep_dive",
+                action_policy="read_only_tool",
+                intent_method="policy_guard",
+                intent_reason="test_reason",
+                model_used="glm-5.1",
+                prompt_layers_json='[{"name":"system","chars":12}]',
+                tool_decisions_json='[{"tool_name":"update_project_markdown_document","status":"blocked"}]',
+                stage_timings_json='{"total_stream_ms":42}',
+                created_at=utc_now_naive(),
+            )
+            session.add(trace)
+            session.commit()
+            message_id = msg.id
+
+        response = self.client.get(f"/chat/messages/{message_id}/trace")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["trace_id"], "trace-one")
+        self.assertEqual(payload["message_id"], message_id)
+        self.assertEqual(payload["chat_mode"], "project_deep_dive")
+        self.assertEqual(payload["action_policy"], "read_only_tool")
+        self.assertEqual(payload["tool_decisions"][0]["status"], "blocked")

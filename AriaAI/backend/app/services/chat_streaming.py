@@ -100,6 +100,7 @@ from app.services.chat_tools import (
     _to_user_friendly_error,
     _tool_progress_payload,
     _tool_start_progress_payload,
+    _user_requested_project_markdown_write,
 )
 
 # ---------------------------------------------------------------------------

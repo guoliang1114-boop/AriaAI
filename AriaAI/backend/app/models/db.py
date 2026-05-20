@@ -235,6 +235,58 @@ class Message(SQLModel, table=True):
         self.metadata_json = json.dumps(value, ensure_ascii=False)
 
 
+class ChatTrace(SQLModel, table=True):
+    """Append-only machine-readable trace for one chat turn."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    trace_id: str = Field(index=True)
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
+    message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+
+    chat_mode: str = Field(default="", index=True)
+    action_policy: str = Field(default="", index=True)
+    intent_method: str = ""
+    intent_reason: str = ""
+    model_used: str = ""
+
+    prompt_layers_json: str = "[]"
+    tool_decisions_json: str = "[]"
+    artifacts_json: str = "[]"
+    stage_timings_json: str = "{}"
+    fallback_events_json: str = "[]"
+    metadata_json: str = "{}"
+
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+    def get_payload(self) -> dict:
+        def parse_json(value: str, fallback):
+            try:
+                return json.loads(value or "")
+            except json.JSONDecodeError:
+                return fallback
+
+        return {
+            "id": self.id,
+            "trace_id": self.trace_id,
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "project_id": self.project_id,
+            "chat_mode": self.chat_mode,
+            "action_policy": self.action_policy,
+            "intent_method": self.intent_method,
+            "intent_reason": self.intent_reason,
+            "model_used": self.model_used,
+            "prompt_layers": parse_json(self.prompt_layers_json, []),
+            "tool_decisions": parse_json(self.tool_decisions_json, []),
+            "artifacts": parse_json(self.artifacts_json, []),
+            "stage_timings": parse_json(self.stage_timings_json, {}),
+            "fallback_events": parse_json(self.fallback_events_json, []),
+            "metadata": parse_json(self.metadata_json, {}),
+            "created_at": self.created_at,
+        }
+
+
 # ── Knowledge Base ────────────────────────────────────────────────────────────
 
 class KnowledgeDocument(SQLModel, table=True):

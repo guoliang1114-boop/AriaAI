@@ -13,18 +13,20 @@ from collections.abc import AsyncIterator
 from sqlmodel import Session
 
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.chat.mode_registry import ActionPolicy, ChatMode
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat_store import persist_assistant_message
 from app.services.task_orchestrator import (
     create_task_run,
-    route_project_task_request,
     serialize_task_run,
     stream_execute_task_run_in_session,
     task_run_chat_brief,
 )
+from app.services.intent_router import classify_chat_intent_async
 from app.services.title_generator import schedule_title_generation
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event, task_stream_flush_pause
+from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status_from_task_event, task_payload_tool_calls
 
 logger = logging.getLogger(__name__)
@@ -45,11 +47,16 @@ async def run_p0_durable_task(
     task_route = None
     if req.project_id:
         route_started_at = time.perf_counter()
-        task_route = await route_project_task_request(
-            req.content,
+        intent_decision = await classify_chat_intent_async(
+            req,
             llm_complete=runtime.llm.complete,
             model=runtime.selected_model,
         )
+        runtime.chat_mode = intent_decision.chat_mode
+        runtime.action_policy = intent_decision.action_policy
+        runtime.intent_method = intent_decision.method
+        runtime.intent_reason = intent_decision.reason
+        task_route = intent_decision.task_route
         state.stage_timings["route_task_ms"] = round((time.perf_counter() - route_started_at) * 1000)
 
     durable_task_type = task_route.task_type if task_route else None
@@ -57,6 +64,10 @@ async def run_p0_durable_task(
         return
 
     try:
+        runtime.chat_mode = ChatMode.TASK_ORCHESTRATION
+        runtime.action_policy = ActionPolicy.DURABLE_TASK
+        runtime.intent_method = task_route.method if hasattr(task_route, "method") else runtime.intent_method
+        runtime.intent_reason = task_route.reason or runtime.intent_reason
         yield sse_event(
             {
                 "type": "status",
@@ -90,7 +101,7 @@ async def run_p0_durable_task(
             yield sse_event(
                 {
                     "type": "text",
-                    "content": f"我会把这件事拆成几个可追踪步骤处理：{req.content}\n\n",
+                    "content": f"已创建可追踪任务：{req.content}\n\n我会在下方持续更新每一步进展。\n\n",
                 }
             )
             await task_stream_flush_pause()
@@ -169,7 +180,20 @@ async def run_p0_durable_task(
             }
         )
 
-        need_title = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
+        state.durable_task_completed = True
+        state.full_text = full_text
+        if artifacts:
+            state.artifacts = artifacts
+        if tool_call_events:
+            state.tool_call_events = tool_call_events
+        state.stage_timings.update(metadata["stage_timings"])
+
+        need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
+        state.need_title = need_title
+        try:
+            persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
+        except Exception as exc:
+            logger.warning("[P0] failed to persist chat trace: %s", exc)
         yield sse_event({"type": "done", **metadata})
 
         if need_title and full_text:
@@ -179,14 +203,6 @@ async def run_p0_durable_task(
                 bind=bind,
                 complete_fn=runtime.llm.complete,
             )
-
-        state.durable_task_completed = True
-        state.full_text = full_text
-        state.need_title = need_title
-        if artifacts:
-            state.artifacts = artifacts
-        if tool_call_events:
-            state.tool_call_events = tool_call_events
 
     except Exception as exc:
         logger.error(f"[durable_task_stream error] {exc}", exc_info=True)

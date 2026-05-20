@@ -16,6 +16,7 @@ from app.services.chat_tools import (
     _summarize_tool_result,
     _tool_progress_payload,
 )
+from app.services.policy_guards import policy_allows_tool
 from app.services.chat_artifacts import (
     _extract_artifact,
     _repair_digital_strategy_ppt_tool_input,
@@ -51,6 +52,9 @@ def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tup
         else:
             repaired["action"] = "list"
         changes.append(f"补齐 Markdown 读取动作：{repaired['action']}")
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME and not repaired.get("mode"):
+        repaired["mode"] = "replace" if repaired.get("file_id") is not None else "create"
+        changes.append(f"补齐 Markdown 写入模式：{repaired['mode']}")
     return repaired, changes
 
 
@@ -114,6 +118,12 @@ async def run_p2_tools(
             tool_input = {**tool_input, "project_id": runtime.project_id}
             tool_input, repaired_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
             if repaired_changes:
+                state.record_trace_event(
+                    "tool_input_repaired",
+                    stage="p2",
+                    tool_name=tool_name,
+                    changes=repaired_changes,
+                )
                 yield sse_event(
                     workflow_status(
                         step_index=3,
@@ -127,6 +137,12 @@ async def run_p2_tools(
             tool_input = {**tool_input, "project_id": runtime.project_id}
             tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)
             if repaired_changes:
+                state.record_trace_event(
+                    "tool_input_repaired",
+                    stage="p2",
+                    tool_name=tool_name,
+                    changes=repaired_changes,
+                )
                 yield sse_event(
                     workflow_status(
                         step_index=3,
@@ -136,6 +152,55 @@ async def run_p2_tools(
                         message=f"第 3 步：已补齐文件生成参数（{'；'.join(repaired_changes)}）。",
                     )
                 )
+
+        allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
+        if not allowed:
+            logger.warning(
+                "[P2] blocked tool by action policy. tool=%s required=%s policy=%s reason=%s",
+                tool_name,
+                required_policy.value,
+                runtime.action_policy,
+                block_reason,
+            )
+            skipped_output = {
+                "skipped": True,
+                "reason": block_reason,
+                "required_policy": required_policy.value,
+                "current_policy": str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+            }
+            skip_result = {
+                "type": "tool_result",
+                "tool_name": tool_name,
+                "status": "skipped",
+                "success": True,
+                "output": skipped_output,
+            }
+            state.tool_call_events.append(
+                {
+                    "tool_name": tool_name,
+                    "status": "blocked",
+                    "message": "工具调用已被本轮 ActionPolicy 阻止。",
+                    "summary": block_reason,
+                    "required_policy": required_policy.value,
+                }
+            )
+            state.record_trace_event(
+                "tool_blocked",
+                stage="p2",
+                tool_name=tool_name,
+                reason=block_reason,
+                required_policy=required_policy.value,
+                current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+            )
+            tool_result_blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": json.dumps(skipped_output, ensure_ascii=False),
+                }
+            )
+            yield sse_event({"type": "tool_result", "result": skip_result})
+            continue
 
         # ---- Markdown write tool (special inline handling) ----
         if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:

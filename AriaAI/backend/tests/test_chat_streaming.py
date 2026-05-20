@@ -32,7 +32,12 @@ from app.services.chat_streaming import (
     _tool_progress_payload,
     _tool_start_progress_payload,
     _try_extract_tool_use_json,
+    _user_requested_project_markdown_write,
 )
+from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.state import ChatSessionState
+from app.services.chat.trace import build_chat_trace_payload
+from app.services.policy_guards import classify_chat_mode_and_policy, policy_allows_tool
 from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
 
 
@@ -175,48 +180,48 @@ class CapMaxTokensForModelTests(unittest.TestCase):
 class IsStandaloneFastPathTests(unittest.TestCase):
     def test_true_when_no_project_no_skill_no_rag_no_files_short_text(self):
         req = DummyRequest(content="hello", project_id=None, skill_id=None)
-        self.assertTrue(_is_standalone_fast_path(req, None))
+        self.assertTrue(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
     def test_false_when_project_set(self):
         req = DummyRequest(content="hi", project_id=1)
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.PROJECT_DEEP_DIVE))
 
     def test_false_when_skill_set(self):
         req = DummyRequest(content="hi", skill_id=1)
-        self.assertFalse(_is_standalone_fast_path(req, 1))
+        self.assertFalse(_is_standalone_fast_path(req, 1, ChatMode.SKILL_EXECUTION))
 
     def test_false_when_rag_docs(self):
         req = DummyRequest(content="hi", rag_doc_ids=[1])
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
     def test_false_when_files(self):
         req = DummyRequest(content="hi", file_ids=[1])
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
     def test_false_when_long_text(self):
         req = DummyRequest(content="x" * 281)
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.STANDALONE_QA))
 
     def test_false_when_portfolio_query(self):
         req = DummyRequest(content="所有项目总结")
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.CROSS_PROJECT_PORTFOLIO))
 
     def test_false_when_workspace_inventory_query(self):
         req = DummyRequest(content="全部项目列表")
-        self.assertFalse(_is_standalone_fast_path(req, None))
+        self.assertFalse(_is_standalone_fast_path(req, None, ChatMode.WORKSPACE_INVENTORY))
 
 
 class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
     def test_standalone_fast_path_kimi(self):
         req = DummyRequest(content="hello")
-        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 8192, None)
+        model, tokens = _resolve_runtime_model_and_tokens(req, "kimi-k2.6", 8192, None, chat_mode=ChatMode.STANDALONE_QA)
         self.assertEqual(model, "moonshot-v1-8k")
         self.assertEqual(tokens, 1536)
 
     def test_client_portfolio_context_with_deepseek(self):
         req = DummyRequest(content="展示客户项目")
         model, tokens = _resolve_runtime_model_and_tokens(
-            req, "kimi-k2.6", 8192, None, has_deepseek_api_key=True, project_context="# Client Project Portfolio Context\n..."
+            req, "kimi-k2.6", 8192, None, has_deepseek_api_key=True, chat_mode=ChatMode.CROSS_PROJECT_PORTFOLIO
         )
         self.assertEqual(model, "deepseek-v4-flash")
         self.assertEqual(tokens, 4096)
@@ -224,7 +229,7 @@ class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
     def test_client_portfolio_context_without_deepseek(self):
         req = DummyRequest(content="展示客户项目")
         model, tokens = _resolve_runtime_model_and_tokens(
-            req, "some-model", 8192, None, has_deepseek_api_key=False, project_context="# Client Project Portfolio Context"
+            req, "some-model", 8192, None, has_deepseek_api_key=False, chat_mode=ChatMode.CROSS_PROJECT_PORTFOLIO
         )
         self.assertEqual(model, "some-model")
         self.assertEqual(tokens, 4096)
@@ -232,27 +237,27 @@ class ResolveRuntimeModelAndTokensTests(unittest.TestCase):
     def test_workspace_inventory_with_deepseek(self):
         req = DummyRequest(content="列出项目")
         model, tokens = _resolve_runtime_model_and_tokens(
-            req, "kimi-k2.6", 10000, None, has_deepseek_api_key=True, project_context="# Workspace Project Inventory Context"
+            req, "kimi-k2.6", 10000, None, has_deepseek_api_key=True, chat_mode=ChatMode.WORKSPACE_INVENTORY
         )
         self.assertEqual(model, "deepseek-v4-flash")
         self.assertEqual(tokens, 6144)
 
     def test_no_project_no_skill_defaults_2048(self):
         req = DummyRequest(content="hello")
-        model, tokens = _resolve_runtime_model_and_tokens(req, "gpt-4", 8192, None)
+        model, tokens = _resolve_runtime_model_and_tokens(req, "gpt-4", 8192, None, chat_mode=ChatMode.STANDALONE_QA)
         self.assertEqual(model, "gpt-4")
         self.assertEqual(tokens, 2048)
 
     def test_with_project_returns_max_tokens(self):
         req = DummyRequest(content="hello", project_id=1)
-        model, tokens = _resolve_runtime_model_and_tokens(req, "gpt-4", 8192, None)
+        model, tokens = _resolve_runtime_model_and_tokens(req, "gpt-4", 8192, None, chat_mode=ChatMode.PROJECT_DEEP_DIVE)
         self.assertEqual(model, "gpt-4")
         self.assertEqual(tokens, 8192)
 
     def test_portfolio_query_with_deepseek(self):
         req = DummyRequest(content="所有项目总结")
         model, tokens = _resolve_runtime_model_and_tokens(
-            req, "deepseek-v4-pro", 5000, None, has_deepseek_api_key=True
+            req, "deepseek-v4-pro", 5000, None, has_deepseek_api_key=True, chat_mode=ChatMode.CROSS_PROJECT_PORTFOLIO
         )
         self.assertEqual(model, "deepseek-v4-flash")
         self.assertEqual(tokens, 4096)
@@ -379,6 +384,103 @@ class ProjectMarkdownToolRepairTests(unittest.TestCase):
             {"project_id": 26, "file_id": 9},
         )
         self.assertEqual(repaired["action"], "read")
+
+    def test_write_markdown_defaults_to_create_when_mode_missing(self):
+        repaired, changes = _repair_project_markdown_tool_input(
+            "update_project_markdown_document",
+            {"project_id": 26, "file_name": "risk.md", "content": "# Risk"},
+        )
+        self.assertEqual(repaired["mode"], "create")
+        self.assertTrue(changes)
+
+    def test_write_markdown_defaults_to_replace_when_file_id_present(self):
+        repaired, _ = _repair_project_markdown_tool_input(
+            "update_project_markdown_document",
+            {"project_id": 26, "file_id": 9, "content": "# Risk"},
+        )
+        self.assertEqual(repaired["mode"], "replace")
+
+
+class ProjectMarkdownWriteIntentTests(unittest.TestCase):
+    def test_direct_risk_analysis_does_not_request_project_markdown_write(self):
+        self.assertFalse(
+            _user_requested_project_markdown_write("请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。")
+        )
+
+    def test_explicit_markdown_document_requests_project_markdown_write(self):
+        self.assertTrue(_user_requested_project_markdown_write("请基于当前项目生成一个 md 文档，整理项目风险清单。"))
+
+    def test_explicit_save_request_requests_project_markdown_write(self):
+        self.assertTrue(_user_requested_project_markdown_write("把这份会议纪要保存到项目空间。"))
+
+
+class ChatModeActionPolicyTests(unittest.TestCase):
+    def test_project_risk_question_defaults_to_read_only(self):
+        decision = classify_chat_mode_and_policy("识别项目风险并给出缓解动作", project_id=26)
+        self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
+        self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+
+    def test_direct_project_question_cannot_write_markdown(self):
+        allowed, reason, required = policy_allows_tool(
+            ActionPolicy.READ_ONLY_TOOL,
+            "update_project_markdown_document",
+            {"mode": "create", "content": "# Risk"},
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(required, ActionPolicy.WRITE_ARTIFACT)
+        self.assertIn("policy_blocked", reason)
+
+    def test_explicit_markdown_request_allows_create(self):
+        decision = classify_chat_mode_and_policy("请生成一个 md 文档保存项目风险清单", project_id=26)
+        self.assertEqual(decision.action_policy, ActionPolicy.WRITE_ARTIFACT)
+        allowed, _, _ = policy_allows_tool(
+            decision.action_policy,
+            "update_project_markdown_document",
+            {"mode": "create", "content": "# Risk"},
+        )
+        self.assertTrue(allowed)
+
+    def test_chat_trace_payload_records_router_and_tool_decisions(self):
+        runtime = ChatRuntime(
+            conv_id=12,
+            project_id=26,
+            selected_model="glm-5.1",
+            llm=object(),
+            system="system",
+            api_messages=[{"role": "user", "content": "hi"}],
+            rag_sources=[],
+            tools=[{"name": "read_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.2,
+            chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+            action_policy=ActionPolicy.READ_ONLY_TOOL,
+            intent_reason="rule:test",
+            intent_method="rule_first",
+        )
+        state = ChatSessionState(
+            full_text="风险摘要",
+            tool_call_events=[{"tool_name": "update_project_markdown_document", "status": "blocked"}],
+            trace_events=[
+                {
+                    "type": "tool_input_repaired",
+                    "stage": "p2",
+                    "tool_name": "read_project_markdown_document",
+                    "changes": ["补齐 Markdown 读取动作：list"],
+                }
+            ],
+            artifacts=[{"name": "风险清单.md", "file_type": "md"}],
+            stage_timings={"total_stream_ms": 42},
+        )
+
+        payload = build_chat_trace_payload(runtime, state)
+
+        self.assertEqual(payload["chat_mode"], "project_deep_dive")
+        self.assertEqual(payload["action_policy"], "read_only_tool")
+        self.assertEqual(payload["model_used"], "glm-5.1")
+        self.assertEqual(payload["tool_decisions"][0]["status"], "blocked")
+        self.assertEqual(payload["fallback_events"][0]["type"], "tool_input_repaired")
+        self.assertTrue(any(event["type"] == "tool_blocked" for event in payload["fallback_events"]))
+        self.assertEqual(payload["stage_timings"]["total_stream_ms"], 42)
 
 
 class ToUserFriendlyErrorTests(unittest.TestCase):

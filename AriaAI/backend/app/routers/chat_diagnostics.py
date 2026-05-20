@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session
+
+from app.database import get_session
 from app.routers.chat_schemas import TestConnectionRequest, TestModelRequest
+from app.services.chat.trace import get_latest_chat_trace
 from app.services.chat_diagnostics import run_model_test, test_provider_connection
 
 router = APIRouter()
@@ -23,3 +28,33 @@ async def test_model(req: TestModelRequest):
         temperature=req.temperature,
         max_tokens=req.max_tokens,
     )
+
+
+@router.get("/conversations/{conversation_id}/trace")
+def get_conversation_trace(
+    conversation_id: int,
+    message_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    """Return the latest structured trace for a conversation turn."""
+    trace = get_latest_chat_trace(session, conversation_id, message_id=message_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Chat trace not found")
+    return trace
+
+
+@router.get("/messages/{message_id}/trace")
+def get_message_trace(
+    message_id: int,
+    session: Session = Depends(get_session),
+):
+    """Return the structured trace bound to a specific assistant message."""
+    from app.models.db import Message
+
+    message = session.get(Message, message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    trace = get_latest_chat_trace(session, message.conversation_id, message_id=message_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Chat trace not found")
+    return trace

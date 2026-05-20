@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.chat.state import ChatSessionState
@@ -50,6 +51,10 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.rag_sources = None
         self.runtime.skill_name = ""
         self.runtime.prepare_metrics = {}
+        self.runtime.action_policy = "write_artifact"
+        self.runtime.chat_mode = "project_deep_dive"
+        self.runtime.intent_reason = ""
+        self.runtime.intent_method = ""
         self.bind = MagicMock()
 
         self.req = MagicMock()
@@ -257,7 +262,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
              patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
-            mock_persist.return_value = True
+            mock_persist.return_value = (True, 42)
             mock_artifacts.return_value = []
 
             events = []
@@ -283,7 +288,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
              patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
-            mock_persist.return_value = False
+            mock_persist.return_value = (False, 42)
             mock_artifacts.return_value = []
 
             events = []
@@ -299,8 +304,17 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         """P0 returns early when no durable task route is found."""
         self.req.project_id = 1
 
-        with patch("app.services.chat.phases.p0_durable_task.route_project_task_request") as mock_route:
-            mock_route.return_value = None
+        async def fake_router(*args, **kwargs):
+            return SimpleNamespace(
+                chat_mode=self.runtime.chat_mode,
+                action_policy=self.runtime.action_policy,
+                task_route=None,
+                confidence=0.72,
+                reason="test:no_task",
+                method="test",
+            )
+
+        with patch("app.services.chat.phases.p0_durable_task.classify_chat_intent_async", side_effect=fake_router):
             events = []
             async for event in run_p0_durable_task(self.runtime, self.req, self.bind, ChatSessionState()):
                 events.append(event)
@@ -344,7 +358,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.skill_name = ""
         with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
              patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
-            mock_persist.return_value = False
+            mock_persist.return_value = (False, 42)
             mock_artifacts.return_value = []
 
             events = []
@@ -392,7 +406,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.skill_name = ""
         with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
              patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
-            mock_persist.return_value = False
+            mock_persist.return_value = (False, 42)
             mock_artifacts.return_value = []
 
             events = []

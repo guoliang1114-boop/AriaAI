@@ -44,6 +44,7 @@ class ChatSessionState:
     # Tool / artifact / markdown tracking
     # ------------------------------------------------------------------
     tool_call_events: list[dict] = field(default_factory=list)
+    trace_events: list[dict] = field(default_factory=list)
     artifacts: list[dict] = field(default_factory=list)
     pending_markdown_saves: list[dict] = field(default_factory=list)
     workflow_started: bool = False
@@ -63,3 +64,7 @@ class ChatSessionState:
     # Title generation
     # ------------------------------------------------------------------
     need_title: bool = False
+
+    def record_trace_event(self, event_type: str, **payload) -> None:
+        """Record an internal decision for diagnostics without changing chat UI."""
+        self.trace_events.append({"type": event_type, **payload})

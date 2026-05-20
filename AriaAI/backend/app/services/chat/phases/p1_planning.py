@@ -13,7 +13,12 @@ import time
 from collections.abc import AsyncIterator
 
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat_tools import ChatRuntime, _tool_start_progress_payload
+from app.services.chat_tools import (
+    ChatRuntime,
+    _strip_internal_tool_markers,
+    _tool_start_progress_payload,
+)
+from app.services.policy_guards import policy_allows_tool
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event, iter_with_heartbeat
 from app.services.chat.truncation import strip_truncation_marker
@@ -121,14 +126,57 @@ async def run_p1_planning(
         stripped = chunk.strip()
         if stripped.startswith("[TOOL_START:") and stripped.endswith("]"):
             tool_name = stripped[12:-1]
+            allowed, reason, required = policy_allows_tool(runtime.action_policy, tool_name, {})
+            if not allowed:
+                logger.warning(
+                    "[P1] suppressed tool progress marker by action policy. tool=%s required=%s reason=%s",
+                    tool_name,
+                    required.value,
+                    reason,
+                )
+                state.record_trace_event(
+                    "tool_marker_suppressed",
+                    stage="p1",
+                    tool_name=tool_name,
+                    reason=reason,
+                    required_policy=required.value,
+                    current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                )
+                continue
             progress_payload = _tool_start_progress_payload(tool_name)
             if progress_payload:
                 yield sse_event({"type": "tool_executing", "tool_name": tool_name, **progress_payload})
             continue
 
+        chunk = _strip_internal_tool_markers(chunk)
+        if not chunk:
+            continue
+        stripped = chunk.strip()
+
         mixed_tool_blocks, cleaned_chunk = extract_tool_use_json_blocks(chunk)
         if mixed_tool_blocks:
             for block in mixed_tool_blocks:
+                allowed, reason, required = policy_allows_tool(
+                    runtime.action_policy,
+                    str(block.get("name") or ""),
+                    block.get("input") if isinstance(block.get("input"), dict) else {},
+                )
+                if not allowed:
+                    logger.warning(
+                        "[P1] blocked mixed-text tool by action policy. tool=%s required=%s reason=%s",
+                        block.get("name"),
+                        required.value,
+                        reason,
+                    )
+                    state.record_trace_event(
+                        "tool_blocked",
+                        stage="p1",
+                        tool_name=str(block.get("name") or ""),
+                        reason=reason,
+                        required_policy=required.value,
+                        current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                    )
+                    continue
                 logger.info(
                     f"[P1] tool_use detected in mixed text: {block.get('name')}, "
                     f"id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}"
@@ -150,6 +198,27 @@ async def run_p1_planning(
             try:
                 block = json.loads(stripped)
                 if block.get("type") == "tool_use":
+                    allowed, reason, required = policy_allows_tool(
+                        runtime.action_policy,
+                        str(block.get("name") or ""),
+                        block.get("input") if isinstance(block.get("input"), dict) else {},
+                    )
+                    if not allowed:
+                        logger.warning(
+                            "[P1] blocked JSON tool by action policy. tool=%s required=%s reason=%s",
+                            block.get("name"),
+                            required.value,
+                            reason,
+                        )
+                        state.record_trace_event(
+                            "tool_blocked",
+                            stage="p1",
+                            tool_name=str(block.get("name") or ""),
+                            reason=reason,
+                            required_policy=required.value,
+                            current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
+                        )
+                        continue
                     logger.info(
                         f"[P1] tool_use detected: {block.get('name')}, "
                         f"id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}"

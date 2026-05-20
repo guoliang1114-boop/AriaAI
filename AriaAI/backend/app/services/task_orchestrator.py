@@ -249,6 +249,18 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     return _ensure_task_route_protocol_steps(_task_route_from_decision(_rule_based_router_decision(content)), content)
 
 
+def rule_based_project_task_route(content: str) -> TaskRoute:
+    """Public deterministic task route for upstream intent routing.
+
+    ``IntentRouter`` needs a cheap, side-effect-free way to detect explicit
+    deliverable requests before it spends an LLM call on ambiguous chat-mode
+    classification.  Keep the private helper for internal composition, but
+    expose this wrapper so callers do not depend on underscored implementation
+    details.
+    """
+    return _rule_based_task_route(content)
+
+
 def _is_high_confidence_text_capability_route(route: TaskRoute) -> bool:
     return (
         route.task_type == "create_text_artifact"

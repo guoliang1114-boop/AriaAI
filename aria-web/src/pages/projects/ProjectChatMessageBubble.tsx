@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
+  Activity,
   BookOpen,
   CheckCircle2,
   Copy,
@@ -16,10 +17,12 @@ import {
 } from "lucide-react";
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { GeneratedArtifact, Message, MessageMetadata, Reference, ToolCallEvent } from "../../types/api";
+import type { ChatTrace } from "../../types/api";
 import { api } from "../../api/client";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { MarkdownDiffViewer } from "./MarkdownDiffViewer";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
+import { ProjectChatTracePanel } from "./ProjectChatTracePanel";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { formatTimeOnly } from "../../utils/timezone";
@@ -77,6 +80,9 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const [savingMarkdownIndex, setSavingMarkdownIndex] = useState<number | null>(null);
     const [savedMarkdownIndexes, setSavedMarkdownIndexes] = useState<Set<number>>(new Set());
     const [diffViewerOpen, setDiffViewerOpen] = useState<number | null>(null);
+    const [trace, setTrace] = useState<ChatTrace | null>(null);
+    const [traceLoading, setTraceLoading] = useState(false);
+    const [traceUnavailable, setTraceUnavailable] = useState(false);
     const isUser = msg.role === "user";
     const isZh = i18n.language.startsWith("zh");
     const copy = getProjectChatCopy(i18n.language.startsWith("zh"));
@@ -114,6 +120,19 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const buildReferenceHref = (reference: Reference) => {
       if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
       return `/projects/${projectId}/space`;
+    };
+
+    const loadTrace = async () => {
+      if (trace || traceLoading || traceUnavailable) return;
+      setTraceLoading(true);
+      try {
+        const data = await api.get<ChatTrace>(`/chat/messages/${msg.id}/trace`);
+        setTrace(data);
+      } catch {
+        setTraceUnavailable(true);
+      } finally {
+        setTraceLoading(false);
+      }
     };
 
     return (
@@ -196,6 +215,8 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             </div>
           )}
 
+          {!isUser && trace ? <ProjectChatTracePanel trace={trace} isZh={isZh} /> : null}
+
           {!isUser && pendingMarkdownSaves.some((item, index) => item && !item.saved && !savedMarkdownIndexes.has(index)) ? (
             <div className="mt-3 w-full max-w-3xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -265,6 +286,16 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
               {formatTimeOnly(msg.created_at, { hour: "2-digit", minute: "2-digit" }, resolvedTimeZone)}
             </span>
             {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}
+            {!isUser && !traceUnavailable ? (
+              <button
+                onClick={() => void loadTrace()}
+                className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                title={isZh ? "查看执行依据" : "View execution trace"}
+                disabled={traceLoading}
+              >
+                <Activity className={`w-3.5 h-3.5 ${traceLoading ? "animate-pulse" : ""}`} />
+              </button>
+            ) : null}
             {!isUser && onSaveToNotes && <MessageSaveButton onClick={onSaveToNotes} title={copy.saveToNotes} />}
             {onApplyStakeholders ? (
               <button

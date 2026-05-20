@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.services.chat.mode_registry import ActionPolicy, ChatMode
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 
@@ -21,6 +22,13 @@ class ChatRuntime:
     project_id: int | None = None
     skill_name: str = ""
     prepare_metrics: dict | None = None
+    chat_mode: ChatMode | str = ChatMode.STANDALONE_QA
+    # Default to the strictest policy. Real runtime always overrides via
+    # intent_decision.action_policy; this default exists only as a safety net so
+    # that any code path that forgets to set it does not silently open write tools.
+    action_policy: ActionPolicy | str = ActionPolicy.DIRECT_ANSWER
+    intent_reason: str = ""
+    intent_method: str = ""
 
 
 def _tool_progress_payload(tool_name: str, tool_input: dict) -> dict:
@@ -55,6 +63,25 @@ def _tool_start_progress_payload(tool_name: str) -> dict | None:
     if tool_name == "generate_pdf":
         return {"message": "Generating PDF..."}
     return {"message": f"Executing {tool_name}..."}
+
+
+def _user_requested_project_markdown_write(content: str) -> bool:
+    """Compatibility wrapper around the centralized Policy Guard.
+
+    Lazy import keeps the chat_tools module free of the policy_guards import
+    chain at module load time, avoiding a circular dependency between
+    ``policy_guards`` (which imports ``chat.mode_registry``, triggering
+    ``chat/__init__.py``) and ``chat_tools`` (imported by that same init).
+    """
+    from app.services.policy_guards import user_requested_project_markdown_write
+    return user_requested_project_markdown_write(content)
+
+
+def _strip_internal_tool_markers(text: str) -> str:
+    """Remove internal textual tool markers that should never be persisted."""
+    if not text:
+        return text
+    return re.sub(r"\n?\[TOOL_START:[^\]\n]+\]\s*", "\n", text)
 
 
 def _to_user_friendly_error(error_msg: str) -> str:

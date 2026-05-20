@@ -49,6 +49,7 @@ def build_chat_context(
     content: str = "",
     default_max_tokens: int = 4096,
     mention_context: Optional[dict] = None,
+    context_mode: str = "",
 ) -> ChatContext:
     """Build complete chat context including skill, project, and RAG."""
     # Merge mention_context file_ids into file_ids so @-mentioned files get injected
@@ -63,17 +64,27 @@ def build_chat_context(
     
     project = session.get(Project, project_id) if project_id else None
     normalized_scope = (knowledge_scope or "project").strip().lower()
-    current_project_only = project_id is not None and normalized_scope == "project"
+    normalized_context_mode = (context_mode or "").strip().lower()
+    explicit_context_mode = bool(normalized_context_mode)
+    force_portfolio = normalized_context_mode == "client_portfolio"
+    force_inventory = normalized_context_mode == "workspace_inventory"
+    current_project_only = project_id is not None and normalized_scope == "project" and not (force_portfolio or force_inventory)
     portfolio_context = ""
     workspace_inventory_context = ""
-    if not current_project_only:
+    if force_portfolio or (not explicit_context_mode and not current_project_only):
         portfolio_context = build_client_project_portfolio_context(
             session,
             content,
-            fallback_client_name=project.client if project and project.client and normalized_scope == "client" else "",
+            fallback_client_name=project.client if project and project.client and (force_portfolio or normalized_scope == "client") else "",
+            force=force_portfolio,
         )
-        if not portfolio_context and (project_id is None or normalized_scope == "global"):
-            workspace_inventory_context = build_workspace_project_inventory_context(session, content)
+    if force_inventory or (
+        not explicit_context_mode
+        and not portfolio_context
+        and not current_project_only
+        and (project_id is None or normalized_scope == "global")
+    ):
+        workspace_inventory_context = build_workspace_project_inventory_context(session, content, force=force_inventory)
     if current_project_only and project_id:
         project_context = build_project_context(session, project_id, file_ids, content=content, mention_context=mention_context)
     elif portfolio_context:

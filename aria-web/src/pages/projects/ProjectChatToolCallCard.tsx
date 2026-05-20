@@ -13,6 +13,8 @@ const STATUS_STYLES: Record<ToolCallEvent["status"], string> = {
   running: "border-amber-200 bg-amber-50 text-amber-700",
   completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
   error: "border-rose-200 bg-rose-50 text-rose-700",
+  blocked: "border-amber-200 bg-amber-50 text-amber-700",
+  skipped: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
 const WORKFLOW_STEP_STYLES: Record<ToolCallEvent["status"], string> = {
@@ -20,6 +22,8 @@ const WORKFLOW_STEP_STYLES: Record<ToolCallEvent["status"], string> = {
   running: "border-blue-200 bg-blue-50/80",
   completed: "border-emerald-200 bg-white",
   error: "border-rose-200 bg-rose-50/70",
+  blocked: "border-amber-200 bg-amber-50/70",
+  skipped: "border-slate-200 bg-slate-50/70",
 };
 
 const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
@@ -27,6 +31,8 @@ const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
   running: "bg-blue-600 text-white",
   completed: "bg-emerald-600 text-white",
   error: "bg-rose-600 text-white",
+  blocked: "bg-amber-500 text-white",
+  skipped: "bg-slate-400 text-white",
 };
 
 const WORKFLOW_DETAIL_PREFERENCE_KEY = "aria.projectChat.workflowStepDetailsExpanded";
@@ -42,6 +48,15 @@ function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
     return <CheckCircle2 className="h-3.5 w-3.5" />;
   }
   return <TriangleAlert className="h-3.5 w-3.5" />;
+}
+
+function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowStep = false) {
+  if (status === "pending") return isZh ? "等待中" : "Pending";
+  if (status === "running") return isZh ? (isWorkflowStep ? "进行中" : "执行中") : isWorkflowStep ? "In progress" : "Running";
+  if (status === "completed") return isZh ? "已完成" : "Done";
+  if (status === "blocked") return isZh ? "已拦截" : "Blocked";
+  if (status === "skipped") return isZh ? "已跳过" : "Skipped";
+  return isZh ? (isWorkflowStep ? "需处理" : "失败") : isWorkflowStep ? "Needs attention" : "Failed";
 }
 
 export function ProjectChatToolCallCard({
@@ -93,21 +108,7 @@ export function ProjectChatToolCallCard({
               </p>
               <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600">
                 <StatusIcon status={call.status} />
-                {call.status === "pending"
-                  ? isZh
-                    ? "等待中"
-                    : "Pending"
-                  : call.status === "running"
-                  ? isZh
-                    ? "进行中"
-                    : "In progress"
-                  : call.status === "completed"
-                    ? isZh
-                      ? "已完成"
-                      : "Done"
-                    : isZh
-                      ? "需处理"
-                      : "Needs attention"}
+                {statusLabel(call.status, isZh, true)}
               </span>
               {hasDetails ? (
                 <button
@@ -176,21 +177,7 @@ export function ProjectChatToolCallCard({
             <p className="text-sm font-medium text-gray-900">{call.tool_name}</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium">
               <StatusIcon status={call.status} />
-              {call.status === "pending"
-                ? isZh
-                  ? "等待中"
-                  : "Pending"
-                : call.status === "running"
-                ? isZh
-                  ? "执行中"
-                  : "Running"
-                : call.status === "completed"
-                  ? isZh
-                    ? "已完成"
-                    : "Done"
-                  : isZh
-                    ? "失败"
-                    : "Failed"}
+                {statusLabel(call.status, isZh)}
             </span>
           </div>
           {call.message ? <p className="mt-1 text-xs text-gray-600">{call.message}</p> : null}
