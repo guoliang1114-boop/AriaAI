@@ -29,6 +29,9 @@ class ChatRuntime:
     action_policy: ActionPolicy | str = ActionPolicy.DIRECT_ANSWER
     intent_reason: str = ""
     intent_method: str = ""
+    intent_trace: dict | None = None
+    intent_task_route: object | None = None
+    intent_prepared_async: bool = False
 
 
 def _tool_progress_payload(tool_name: str, tool_input: dict) -> dict:

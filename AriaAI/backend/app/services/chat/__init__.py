@@ -36,6 +36,12 @@ def prepare_chat_runtime(*args, **kwargs):
     return _prepare_chat_runtime(*args, **kwargs)
 
 
+async def prepare_chat_runtime_async(*args, **kwargs):
+    from app.services.chat.runtime import prepare_chat_runtime_async as _prepare_chat_runtime_async
+
+    return await _prepare_chat_runtime_async(*args, **kwargs)
+
+
 async def stream_chat_events(
     runtime: ChatRuntime,
     req: SendMessageRequest,

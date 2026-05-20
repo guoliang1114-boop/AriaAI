@@ -10,15 +10,7 @@ MAX_PROJECT_TODOS = 12
 MAX_PROJECT_ARTIFACTS = 8
 PROJECT_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document", "read_project_markdown_document"]
 PROJECT_OFFICE_TOOL_NAMES = [WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME]
-PROJECT_MARKDOWN_TOOL_PROMPT = """
-
-Project space document tools:
-- Use read tools when the user asks about existing project files or mentions a specific file.
-- Use write tools only when the user explicitly asks to create, save, export, append, replace, or modify a project document.
-- For ordinary questions, summaries, risk analysis, recommendations, or advice, answer in chat without saving a file.
-- For replace/update operations, provide the complete final content rather than a diff.
-- Never output tool-use JSON as plain text; use the function-calling API when a tool is required.
-""".strip()
+PROJECT_MARKDOWN_TOOL_PROMPT = ""
 PROJECT_FILE_QUERY_MARKERS = (
     "file",
     "files",

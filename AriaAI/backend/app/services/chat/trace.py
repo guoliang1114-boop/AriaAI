@@ -107,6 +107,7 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
             "tool_use_count": len(state.tool_use_blocks) + len(state.p3_tool_use_blocks),
             "full_text_chars": len(state.full_text or ""),
             "prepare_metrics": runtime.prepare_metrics or {},
+            "intent_trace": runtime.intent_trace or {},
         },
     }
 

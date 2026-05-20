@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from app.routers.chat_schemas import SendMessageRequest
@@ -38,6 +38,38 @@ class IntentDecision:
     confidence: float
     reason: str
     method: str
+    trace: dict[str, Any] = field(default_factory=dict)
+
+
+def _decision_trace(
+    *,
+    method: str,
+    rule: "IntentDecision | None" = None,
+    llm_payload: dict[str, Any] | None = None,
+    final_chat_mode: ChatMode | None = None,
+    final_action_policy: ActionPolicy | None = None,
+    confidence: float | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    trace: dict[str, Any] = {
+        "method": method,
+        "final_chat_mode": final_chat_mode.value if final_chat_mode else "",
+        "final_action_policy": final_action_policy.value if final_action_policy else "",
+        "confidence": confidence,
+        "reason": reason,
+    }
+    if rule:
+        trace["rule_baseline"] = {
+            "chat_mode": rule.chat_mode.value,
+            "action_policy": rule.action_policy.value,
+            "confidence": rule.confidence,
+            "reason": rule.reason,
+            "method": rule.method,
+            "task_type": getattr(rule.task_route, "task_type", None),
+        }
+    if llm_payload is not None:
+        trace["llm_payload"] = llm_payload
+    return trace
 
 
 def _json_object_from_text(text: str) -> dict[str, Any]:
@@ -112,6 +144,13 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
             confidence=task_route.confidence,
             reason=task_route.reason or "rule:durable_task",
             method="rule_task_router",
+            trace=_decision_trace(
+                method="rule_task_router",
+                final_chat_mode=ChatMode.TASK_ORCHESTRATION,
+                final_action_policy=ActionPolicy.DURABLE_TASK,
+                confidence=task_route.confidence,
+                reason=task_route.reason or "rule:durable_task",
+            ),
         )
 
     decision = classify_chat_mode_and_policy(
@@ -127,6 +166,13 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
         confidence=decision.confidence,
         reason=decision.reason,
         method=decision.method,
+        trace=_decision_trace(
+            method=decision.method,
+            final_chat_mode=decision.chat_mode,
+            final_action_policy=decision.action_policy,
+            confidence=decision.confidence,
+            reason=decision.reason,
+        ),
     )
 
 
@@ -199,7 +245,23 @@ async def classify_chat_intent_async(
     proposed_policy = _coerce_action_policy(data.get("action_policy"), rule.action_policy)
     confidence = _confidence(data.get("confidence"), rule.confidence)
     if confidence < LLM_ROUTER_MIN_CONFIDENCE:
-        return rule
+        return IntentDecision(
+            chat_mode=rule.chat_mode,
+            action_policy=rule.action_policy,
+            task_route=rule.task_route,
+            confidence=rule.confidence,
+            reason=rule.reason,
+            method=rule.method,
+            trace=_decision_trace(
+                method="llm_low_confidence_fallback",
+                rule=rule,
+                llm_payload=data,
+                final_chat_mode=rule.chat_mode,
+                final_action_policy=rule.action_policy,
+                confidence=rule.confidence,
+                reason=rule.reason,
+            ),
+        )
 
     final_policy = _clamp_policy(rule.action_policy, proposed_policy)
     if proposed_mode == ChatMode.TASK_ORCHESTRATION and final_policy != ActionPolicy.DURABLE_TASK:
@@ -219,7 +281,23 @@ async def classify_chat_intent_async(
                 "request_preview": (req.content or "")[:120],
             },
         )
-        return rule
+        return IntentDecision(
+            chat_mode=rule.chat_mode,
+            action_policy=rule.action_policy,
+            task_route=rule.task_route,
+            confidence=rule.confidence,
+            reason=rule.reason,
+            method=rule.method,
+            trace=_decision_trace(
+                method="rule_override_llm",
+                rule=rule,
+                llm_payload=data,
+                final_chat_mode=rule.chat_mode,
+                final_action_policy=rule.action_policy,
+                confidence=rule.confidence,
+                reason=rule.reason,
+            ),
+        )
 
     return IntentDecision(
         chat_mode=proposed_mode,
@@ -228,6 +306,15 @@ async def classify_chat_intent_async(
         confidence=confidence,
         reason=str(data.get("reason") or rule.reason or "llm_router"),
         method="llm_router",
+        trace=_decision_trace(
+            method="llm_router",
+            rule=rule,
+            llm_payload=data,
+            final_chat_mode=proposed_mode,
+            final_action_policy=final_policy,
+            confidence=confidence,
+            reason=str(data.get("reason") or rule.reason or "llm_router"),
+        ),
     )
 
 

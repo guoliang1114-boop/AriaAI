@@ -10,7 +10,7 @@ from sqlmodel import Session
 
 from app.database import get_session
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat_streaming import prepare_chat_runtime
+from app.services.chat_streaming import prepare_chat_runtime_async
 
 router = APIRouter()
 
@@ -81,7 +81,7 @@ async def generate_chat_plan(req: SendMessageRequest, session: Session = Depends
     The model describes the plan in natural language and may include tool_use
     JSON blocks indicating which tools it would call.
     """
-    runtime = prepare_chat_runtime(session, req)
+    runtime = await prepare_chat_runtime_async(session, req)
 
     # Embed tool definitions in the system prompt so the model knows what's available
     # without being triggered to actually call them.

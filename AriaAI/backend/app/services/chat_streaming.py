@@ -20,6 +20,7 @@ from app.tools import registry
 # Public API — new canonical location
 # ---------------------------------------------------------------------------
 from app.services.chat import prepare_chat_runtime as _prepare_chat_runtime
+from app.services.chat import prepare_chat_runtime_async as _prepare_chat_runtime_async
 from app.services.chat import stream_chat_events
 from app.services.chat.state import ChatSessionState
 
@@ -140,8 +141,26 @@ def prepare_chat_runtime(session, req):
         _chat_runtime_module.get_selected_model = original_get_model
 
 
+async def prepare_chat_runtime_async(session, req):
+    """Async compatibility wrapper that performs full pre-routing before prepare."""
+
+    original_build_context = _chat_runtime_module.build_chat_context
+    original_load_provider = _chat_runtime_module._load_provider_module
+    original_get_model = _chat_runtime_module.get_selected_model
+    try:
+        _chat_runtime_module.build_chat_context = build_chat_context
+        _chat_runtime_module._load_provider_module = _load_provider_module
+        _chat_runtime_module.get_selected_model = get_selected_model
+        return await _prepare_chat_runtime_async(session, req)
+    finally:
+        _chat_runtime_module.build_chat_context = original_build_context
+        _chat_runtime_module._load_provider_module = original_load_provider
+        _chat_runtime_module.get_selected_model = original_get_model
+
+
 __all__ = [
     "prepare_chat_runtime",
+    "prepare_chat_runtime_async",
     "stream_chat_events",
     "ChatSessionState",
 ]

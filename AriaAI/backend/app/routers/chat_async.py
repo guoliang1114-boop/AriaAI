@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import TaskEvent, TaskRun
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat_streaming import prepare_chat_runtime, stream_chat_events
+from app.services.chat_streaming import prepare_chat_runtime_async, stream_chat_events
 from app.services.time_utils import utc_now_naive
 
 logger = logging.getLogger(__name__)
@@ -168,7 +168,7 @@ async def send_message_async(req: SendMessageRequest, session: Session = Depends
     saved to the conversation once the stream completes. Poll
     /chat/conversations/{conv_id}/messages to retrieve the result.
     """
-    runtime = prepare_chat_runtime(session, req)
+    runtime = await prepare_chat_runtime_async(session, req)
     bind = session.get_bind()
     task_run = _create_background_chat_run(session, runtime, req)
 

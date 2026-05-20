@@ -10,6 +10,7 @@ from app.services.context_builder.query_classifiers import (
     is_client_project_portfolio_query,
     is_workspace_project_inventory_query,
 )
+from app.services.tool_descriptions import tool_required_policy
 from app.tools.office_documents import (
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
     READ_PROJECT_FILE_TOOL_NAME,
@@ -296,6 +297,19 @@ def classify_chat_mode_and_policy(
 
 def _required_policy_for_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> ActionPolicy:
     tool_input = tool_input or {}
+    operation = str(
+        tool_input.get("action")
+        or tool_input.get("mode")
+        or tool_input.get("file_type")
+        or tool_input.get("document_type")
+        or "default"
+    ).lower()
+    configured_policy = tool_required_policy(tool_name, operation)
+    if configured_policy:
+        try:
+            return ActionPolicy(configured_policy)
+        except ValueError:
+            pass
     if tool_name in {READ_MARKDOWN_TOOL_NAME, READ_PROJECT_FILE_TOOL_NAME}:
         return ActionPolicy.READ_ONLY_TOOL
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME:

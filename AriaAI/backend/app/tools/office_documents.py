@@ -16,6 +16,7 @@ from app.services.document_text import extract_text_from_file
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import infer_project_folder
+from app.services.tool_descriptions import tool_description
 from app.tools import registry
 from app.tools.file_generators import generate_docx, generate_pdf, generate_ppt, generate_xlsx
 
@@ -178,7 +179,8 @@ def _next_folder_sort_order(session: Session, project_id: int) -> int:
 
 @registry.register(
     name=MANAGE_PROJECT_FOLDERS_TOOL_NAME,
-    description=(
+    description=tool_description(
+        MANAGE_PROJECT_FOLDERS_TOOL_NAME,
         "Manage project space folders and file placement. "
         "Use it to list folders, create or rename folders, move generated files into the right folder, or delete empty folders."
     ),
@@ -286,7 +288,8 @@ async def manage_project_folders(
 
 @registry.register(
     name=READ_PROJECT_FILE_TOOL_NAME,
-    description=(
+    description=tool_description(
+        READ_PROJECT_FILE_TOOL_NAME,
         "List or read files in the current project. Supports PDF, DOCX, PPTX, XLSX/XLS, Markdown, text, CSV, and JSON. "
         "Use action='list' to discover files. Use action='read' with file_id or file_name to extract text for analysis."
     ),
@@ -419,7 +422,8 @@ def _register_generated_project_file(
 
 @registry.register(
     name=WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
-    description=(
+    description=tool_description(
+        WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
         "Create a Word, Excel, PowerPoint, or PDF file and save it into the current project space. "
         "Use only when the user explicitly asks to create, generate, export, or save a DOCX/XLSX/PPTX/PDF deliverable. "
         "Do not use for analysis-only chat answers. Use DOCX/PDF for narrative documents, XLSX for tables, and PPTX for presentation slides."
