@@ -147,7 +147,7 @@ export function useProjectChatComposer({
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
       resetStream();
       setStreamIsLoading(true);
-      setStreamStatus("已收到，正在处理…");
+      setStreamStatus("我已收到，会先确认需求和可用上下文；如果需要调用工具，我会把每一步进度显示在这里。");
 
       if (!conversationId) {
         conversationId = await createConversation(trimmed, skillId || null);
@@ -245,7 +245,7 @@ export function useProjectChatComposer({
               appendStreamText(payload.content);
               setStreamStatus("");
             } else if (payload.type === "status" && payload.message) {
-              if (payload.step_index) {
+              if (payload.step_index !== undefined && payload.step_index !== null) {
                 const stepCall: ToolCallEvent = {
                   tool_name: payload.step_title
                     ? `步骤 ${payload.step_index}/${payload.step_total || 4}：${payload.step_title}`
@@ -292,7 +292,9 @@ export function useProjectChatComposer({
               }
             } else if (payload.type === "tool_executing" && payload.tool_name) {
               const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
-              const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+              const hasActiveWorkflowStep = collectedToolCalls.some(
+                (call) => call.step_index !== undefined && call.step_index !== null && call.status === "running",
+              );
               if (hasActiveWorkflowStep) {
                 collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
                 setStreamToolCalls(collectedToolCalls);
@@ -325,7 +327,9 @@ export function useProjectChatComposer({
                 summary: resultSummary,
                 error: typeof result.error === "string" ? result.error : undefined,
               };
-              const hasActiveWorkflowStep = collectedToolCalls.some((call) => call.step_index && call.status === "running");
+              const hasActiveWorkflowStep = collectedToolCalls.some(
+                (call) => call.step_index !== undefined && call.step_index !== null && call.status === "running",
+              );
               if (hasActiveWorkflowStep) {
                 const detail =
                   resultStatus === "error"

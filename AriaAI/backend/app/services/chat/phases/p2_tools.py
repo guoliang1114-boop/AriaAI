@@ -35,6 +35,25 @@ _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_T
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
 
 
+def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
+    """Normalize project markdown read/write tool arguments before execution.
+
+    LLMs occasionally call ``read_project_markdown_document`` without the
+    required ``action`` field. The safest default is ``list``: it is read-only,
+    gives the model a file index, and avoids surfacing a raw Python signature
+    error to the user.
+    """
+    repaired = dict(tool_input or {})
+    changes: list[str] = []
+    if tool_name == READ_MARKDOWN_TOOL_NAME and not repaired.get("action"):
+        if repaired.get("file_id") is not None or repaired.get("file_name"):
+            repaired["action"] = "read"
+        else:
+            repaired["action"] = "list"
+        changes.append(f"补齐 Markdown 读取动作：{repaired['action']}")
+    return repaired, changes
+
+
 async def run_p2_tools(
     runtime: ChatRuntime,
     req: SendMessageRequest,
@@ -93,6 +112,17 @@ async def run_p2_tools(
         )
         if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
             tool_input = {**tool_input, "project_id": runtime.project_id}
+            tool_input, repaired_changes = _repair_project_markdown_tool_input(tool_name, tool_input)
+            if repaired_changes:
+                yield sse_event(
+                    workflow_status(
+                        step_index=3,
+                        step_total=4,
+                        title="执行 Skill / 工具",
+                        stage="tools",
+                        message=f"第 3 步：已补齐 Markdown 工具参数（{'；'.join(repaired_changes)}）。",
+                    )
+                )
         if tool_name in _PROJECT_OFFICE_TOOLS and runtime.project_id is not None:
             tool_input = {**tool_input, "project_id": runtime.project_id}
             tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)

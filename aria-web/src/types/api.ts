@@ -722,6 +722,7 @@ export interface ToolCallEvent {
   step_index?: number
   step_total?: number
   step_title?: string
+  has_recoverable_task?: boolean
 }
 
 export interface GeneratedArtifact {

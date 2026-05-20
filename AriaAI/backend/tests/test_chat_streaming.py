@@ -33,6 +33,7 @@ from app.services.chat_streaming import (
     _tool_start_progress_payload,
     _try_extract_tool_use_json,
 )
+from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
 
 
 class DummyRequest:
@@ -360,6 +361,23 @@ class ToolStartProgressPayloadTests(unittest.TestCase):
     def test_unknown_tool(self):
         result = _tool_start_progress_payload("other")
         self.assertIn("other", result["message"])
+
+
+class ProjectMarkdownToolRepairTests(unittest.TestCase):
+    def test_read_markdown_defaults_to_list_when_action_missing(self):
+        repaired, changes = _repair_project_markdown_tool_input(
+            "read_project_markdown_document",
+            {"project_id": 26},
+        )
+        self.assertEqual(repaired["action"], "list")
+        self.assertTrue(changes)
+
+    def test_read_markdown_defaults_to_read_when_file_target_present(self):
+        repaired, _ = _repair_project_markdown_tool_input(
+            "read_project_markdown_document",
+            {"project_id": 26, "file_id": 9},
+        )
+        self.assertEqual(repaired["action"], "read")
 
 
 class ToUserFriendlyErrorTests(unittest.TestCase):

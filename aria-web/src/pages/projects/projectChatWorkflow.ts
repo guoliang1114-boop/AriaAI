@@ -112,6 +112,7 @@ export function workflowStepFromTask(
     step_index: step.sort_order,
     step_total: total,
     step_title: step.title || step.key,
+    has_recoverable_task: true,
   };
 }
 
@@ -178,7 +179,7 @@ export function mergeArtifacts(primary: GeneratedArtifact[], fallback: Generated
 }
 
 export function upsertWorkflowStep(steps: ToolCallEvent[], next: ToolCallEvent) {
-  if (!next.step_index) return [...steps, next];
+  if (next.step_index === undefined || next.step_index === null) return [...steps, next];
   const existingIndex = steps.findIndex((item) => item.step_index === next.step_index);
   if (existingIndex === -1) return [...steps, next];
   return steps.map((item, index) =>
@@ -203,7 +204,7 @@ export function attachToolDetailToActiveStep(
   detail: string,
   status?: ToolCallEvent["status"],
 ) {
-  const activeIndex = calls.findIndex((call) => call.step_index && call.status === "running");
+  const activeIndex = calls.findIndex((call) => call.step_index !== undefined && call.step_index !== null && call.status === "running");
   if (activeIndex === -1) return calls;
   return calls.map((call, index) =>
     index === activeIndex

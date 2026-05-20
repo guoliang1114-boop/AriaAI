@@ -75,6 +75,7 @@ export function ProjectChatToolCallCard({
 
   if (isWorkflowStep) {
     const stepTitle = call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
+    const canOpenRecoverableTask = call.status === "error" && call.has_recoverable_task && onOpenTasks;
     return (
       <div className={`rounded-2xl border px-4 py-3.5 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}>
         <div className="flex items-start gap-3">
@@ -136,11 +137,15 @@ export function ProjectChatToolCallCard({
                 {call.status === "error" ? (
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/80 px-3 py-2">
                     <p className="text-xs leading-relaxed text-rose-700">
-                      {isZh
-                        ? "这个步骤已暂停，需要你决定下一步：从失败处重试、取消任务，或查看完整日志。"
-                        : "This step is paused. Retry from here, cancel the task, or inspect full logs."}
+                      {canOpenRecoverableTask
+                        ? isZh
+                          ? "这个步骤已暂停，需要你决定下一步：从失败处重试、取消任务，或查看完整日志。"
+                          : "This step is paused. Retry from here, cancel the task, or inspect full logs."
+                        : isZh
+                          ? "这个工具步骤遇到问题。本次对话没有创建可恢复任务，请根据上方错误调整请求后重新发送。"
+                          : "This tool step hit an issue. No recoverable task was created for this chat turn; adjust the request and send it again."}
                     </p>
-                    {onOpenTasks ? (
+                    {canOpenRecoverableTask ? (
                       <button
                         type="button"
                         onClick={onOpenTasks}
