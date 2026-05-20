@@ -1,7 +1,7 @@
 # Chat 模块全面审计报告
 
-> 审计日期：2026-05-14
-> 审计版本：`476eaa6`（`docs: add comprehensive chat module audit report`）
+> 审计日期：2026-05-20
+> 审计基线：`a6fcb8b`（`Fix project chat feedback and tool recovery cues`）+ 本报告记录的流式韧性增量修复
 > 审计范围：后端 `AriaAI/backend/app/services/chat/`、`task_orchestrator.py`、`chat_artifacts.py`、`chat_streaming.py`；前端 `aria-web/src/pages/projects/` 项目对话相关组件。
 > 审计目标：确认 Chat 功能是否仍存在补丁式逻辑、错误路由、流式输出不稳定、资源生命周期和前端交互问题，并给出可执行修复优先级。
 
@@ -9,7 +9,7 @@
 
 ## 一、执行摘要
 
-当前 Chat 模块已经完成一轮关键收敛：P0-P4 分层清晰，项目任务编排有结构化 Router，项目对话页的 Skill 误触发和 Auto-PPT 后处理补丁已经移除，项目对话页也不再把“项目关注锚点”卡片插入聊天流。
+当前 Chat 模块已经完成一轮关键收敛：P0-P4 分层清晰，项目任务编排有结构化 Router，项目对话页的 Skill 误触发和 Auto-PPT 后处理补丁已经移除，项目对话页也不再把“项目关注锚点”卡片插入聊天流。最新版本还修复了发送后无即时反馈、普通工具失败误导打开空任务面板、Markdown 读取工具缺少 `action` 参数等体验问题。
 
 但 Chat 仍有若干生产级风险，主要集中在四类：
 
@@ -25,7 +25,7 @@
 
 ## 二、已经修复的关键问题
 
-以下问题在当前版本 `876fd34` 已经修复，不应再作为当前缺陷重复记录。
+以下问题在当前版本 `a6fcb8b` 已经修复，不应再作为当前缺陷重复记录。
 
 | 问题 | 当前状态 | 说明 |
 | --- | --- | --- |
@@ -35,8 +35,13 @@
 | `_should_auto_generate_digital_strategy_ppt` | 已删除 | 不再保留数字化战略专用自动补 PPT 入口。 |
 | 项目对话页显示“项目关注锚点” | 已修复 | `ProjectAnchorsCard` 已从项目聊天主面板移除，锚点功能保留在概览/锚点管理页。 |
 | `chat_streaming.py` 旧 shim patch 不生效 | 已修复 | 新增兼容 wrapper，旧测试/旧调用 patch shim helper 时仍能生效。 |
+| 发送后长时间无可见反馈 | 已修复 | 前端发送后立即显示更明确的 AI 处理文案，避免用户误以为请求没有发出。 |
+| 普通工具失败误导打开任务面板 | 已修复 | 只有真正来自 `TaskRun` 的可恢复任务才显示“打开任务面板处理”。普通工具失败会提示调整请求后重试。 |
+| `read_project_markdown_document` 缺少 `action` | 已修复 | 后端在执行前自动补齐安全默认值：有文件目标时 `read`，无文件目标时 `list`。 |
+| SSE 尾部事件可能丢失 | 已修复 | 前端在 `reader.read()` 完成后会 flush 剩余 buffer，最后一个无 `\n\n` 的事件也会被处理。 |
+| 网络错误清空已接收内容 | 已修复 | 非主动取消的流式错误会保留已收到文本、工具步骤和附件，并标记 `stream_interrupted`。 |
 
-已验证：
+历史验证：
 
 ```bash
 PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
@@ -56,6 +61,21 @@ PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
   AriaAI/backend/tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_does_not_auto_generate_ppt_after_skill_followup -q
 
 # 3 passed
+```
+
+```bash
+cd aria-web && npm run build
+# passed
+```
+
+最新验证：
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
+  AriaAI/backend/.venv/bin/python -m pytest \
+  AriaAI/backend/tests/test_chat_streaming.py -q
+
+# 109 passed
 ```
 
 ```bash
@@ -138,7 +158,7 @@ finally:
 原因：
 
 - `CancelledError` 表示调用方主动取消，不应该被吞掉。
-- **当前代码中没有任何地方 catch `CancelledError`，它完全处于漏网状态。**
+- `sse.py` 已在 pending task cleanup 中处理 `CancelledError`，但主 orchestrator / phase 层还没有按生命周期单独处理取消。
 - 需要确保 LLM stream、async generator、pending task、DB session 都能在 `finally` 中释放。
 - 对用户刷新页面、Nginx 超时、移动端网络切换很关键。
 
@@ -165,7 +185,7 @@ finally:
 
 位置：`aria-web/src/pages/projects/useProjectChatComposer.ts`
 
-当前读取逻辑会按 `\n\n` 切分 SSE 事件，但如果最后一个事件没有以 `\n\n` 结尾，尾部 buffer 可能没有被处理。
+当前状态：已在本轮修复。前端会在 `reader.read()` 返回 `done` 后 flush `TextDecoder` 尾部内容，并处理剩余 buffer。
 
 风险：
 
@@ -174,11 +194,10 @@ finally:
 - `truncated` 事件丢失。
 - 前端显示“还在生成”，但后端已经结束。
 
-建议：
+后续建议：
 
-- 抽一个 `flushBufferedEvent(buffer)`。
-- `reader.read()` done 后先 flush 剩余 buffer，再退出循环。
-- 给 `done/error/truncated` 增加测试。
+- 将当前内联解析逻辑进一步抽成独立 SSE parser。
+- 给 `done/error/truncated` 增加前端单元测试。
 
 验收标准：
 
@@ -240,7 +259,7 @@ finally:
 
 位置：`services/chat/phases/p4_persist.py`
 
-当前 `total_stream_ms` 在 P4 内部反推，容易变成接近 `save_ms` 的值，而不是用户感知总耗时。
+P0 durable task early-return 路径已经在 `stream_chat_events` 中修正 `total_stream_ms`。普通 P4 持久化路径仍在 P4 内部反推，容易变成接近 `save_ms` 的值，而不是用户感知总耗时。
 
 建议：
 
@@ -313,6 +332,8 @@ finally:
 - `useProjectChatComposer.ts`
 - `projectChatWorkflow.ts`
 
+当前状态：已在 `a6fcb8b` 修复主要前端入口，后续新增步骤逻辑仍需沿用同一写法。
+
 风险：
 
 - 如果某些事件使用 `step_index = 0`，前端会当作不存在。
@@ -344,16 +365,17 @@ if (payload.step_index !== undefined && payload.step_index !== null) {
 
 位置：`useProjectChatComposer.ts`
 
+当前状态：已在本轮修复。非主动 abort 的异常会保留当前收到的文本、工具步骤和附件，并在 metadata 中标记 `stream_interrupted`。
+
 风险：
 
 - 用户已经看到部分回复。
-- 网络错误后 `resetStream()` 可能清掉当前内容。
+- 后续如果新增其他 stream 入口，仍需沿用同一保留策略。
 
-建议：
+后续建议：
 
-- 非主动 abort 的错误，保留 `fullContent` 到临时 assistant 消息。
-- 再触发 `fetchMessages()` 与后端同步。
-- UI 标记“连接中断，以下为已收到内容”。
+- UI 可进一步显式展示“连接中断，以下为已收到内容”提示。
+- 后端 P4 持久化失败也应使用类似的可恢复语义。
 
 ---
 

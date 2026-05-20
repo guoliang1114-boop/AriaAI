@@ -218,14 +218,20 @@ export function useProjectChatComposer({
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
-          if (abortControllerRef.current?.signal.aborted) break;
-          buffer += decoder.decode(value, { stream: true });
+          if (done) {
+            const tail = decoder.decode();
+            if (tail) buffer += tail;
+            if (!buffer.trim()) break;
+          } else {
+            if (abortControllerRef.current?.signal.aborted) break;
+            buffer += decoder.decode(value, { stream: true });
+          }
 
           const events = buffer.split("\n\n");
-          buffer = events.pop() || "";
+          buffer = done ? "" : events.pop() || "";
 
           for (const event of events) {
+            if (!event.trim()) continue;
             const line = event
               .split("\n")
               .map((item) => item.trim())
@@ -370,6 +376,7 @@ export function useProjectChatComposer({
               throw new Error(payload.message || payload.error || "Chat failed");
             }
           }
+          if (done) break;
         }
 
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
@@ -422,8 +429,32 @@ export function useProjectChatComposer({
         }
         console.error("Failed to send message:", error);
         resetStream();
-        onSendError();
-        await fetchMessages(conversationId);
+        const failedToolCalls = collectedToolCalls.map((call) =>
+          call.status === "running"
+            ? { ...call, status: "error" as const, error: "连接中断，已保留当前收到的内容。" }
+            : call,
+        );
+        if (fullContent.trim() || failedToolCalls.length > 0 || collectedArtifacts.length > 0) {
+          const assistantMessage = buildAssistantMessage({
+            artifacts: collectedArtifacts,
+            content: fullContent.trim() || "连接中断，已保留当前已收到的执行记录。你可以稍后重试。",
+            conversationId,
+            projectId,
+            references: collectedReferences,
+            toolCalls: failedToolCalls,
+            taskRun: serverPersistedAssistant ? latestTaskRun : null,
+            taskType: latestTaskType,
+          });
+          assistantMessage.metadata_json = JSON.stringify({
+            ...JSON.parse(assistantMessage.metadata_json || "{}"),
+            stream_interrupted: true,
+          });
+          setMessages((prev) => [...prev, assistantMessage]);
+          void fetchConversations();
+        } else {
+          onSendError();
+          await fetchMessages(conversationId);
+        }
         return false;
       } finally {
         abortControllerRef.current = null;
