@@ -561,12 +561,12 @@ class ExtractArtifactTests(unittest.TestCase):
 
 
 class RepairProjectOfficeToolInputTests(unittest.TestCase):
-    def test_repairs_interview_excel_request(self):
-        result, changes = _repair_project_office_tool_input("我想要准备一个访谈的excel", {})
+    def test_repairs_explicit_xlsx_request_with_neutral_sheet(self):
+        result, changes = _repair_project_office_tool_input("我想要准备一个访谈的excel", {"file_type": "xlsx"})
 
         self.assertEqual(result["file_type"], "xlsx")
         self.assertTrue(result["file_name"].endswith(".xlsx"))
-        self.assertEqual(result["sheets"][0]["name"], "访谈计划")
+        self.assertEqual(result["sheets"], [{"name": "工作表", "headers": [], "data": []}])
         self.assertIn("生成默认 Excel 工作表结构", changes)
 
 

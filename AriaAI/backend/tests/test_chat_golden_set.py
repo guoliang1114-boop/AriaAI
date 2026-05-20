@@ -8,7 +8,7 @@ import yaml
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
-from app.services.policy_guards import policy_allows_tool
+from app.services.policy_guards import filter_tools_for_policy, policy_allows_tool
 from app.services.tool_descriptions import load_tool_spec, tool_description
 
 
@@ -128,3 +128,15 @@ def test_tool_specs_are_loaded_from_yaml_and_drive_policy():
     )
     assert required == ActionPolicy.READ_ONLY_TOOL
     assert allowed is True
+
+
+def test_filter_tools_for_policy_uses_tool_default_policy_for_all_policies():
+    tools = [
+        {"name": "read_project_markdown_document"},
+        {"name": "update_project_markdown_document"},
+        {"name": "manage_project_folders"},
+    ]
+
+    filtered = filter_tools_for_policy(tools, ActionPolicy.WRITE_ARTIFACT)
+
+    assert [tool["name"] for tool in filtered or []] == ["read_project_markdown_document", "update_project_markdown_document"]

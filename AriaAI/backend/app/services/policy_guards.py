@@ -364,12 +364,8 @@ def filter_tools_for_policy(tools: list[dict] | None, action_policy: ActionPolic
         name = str(tool.get("name") or "")
         if not name:
             continue
-        if current in {ActionPolicy.DIRECT_ANSWER, ActionPolicy.READ_ONLY_TOOL}:
-            allowed, _, _ = policy_allows_tool(current, name, {})
-            if allowed:
-                filtered.append(tool)
-            continue
-        if current in {ActionPolicy.WRITE_ARTIFACT, ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION, ActionPolicy.DURABLE_TASK}:
+        allowed, _, _ = policy_allows_tool(current, name, {})
+        if allowed:
             filtered.append(tool)
     return filtered
 

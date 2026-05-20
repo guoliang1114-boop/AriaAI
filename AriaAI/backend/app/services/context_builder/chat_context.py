@@ -4,7 +4,6 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.models.db import ClientRecord, Project
-from app.services.context_builder.constants import PROJECT_MARKDOWN_TOOL_PROMPT
 from app.services.context_builder.memory_formatters import _format_client_memory_for_prompt
 from app.services.context_builder.project_context import build_project_context
 from app.services.context_builder.rag_context import build_rag_context
@@ -114,11 +113,6 @@ def build_chat_context(
         )
         skill_ctx.skill_prompt = (skill_ctx.skill_prompt or "").strip() + skill_briefing
 
-    if project_id:
-        skill_ctx.skill_prompt = "\n\n".join(
-            part for part in ((skill_ctx.skill_prompt or "").strip(), PROJECT_MARKDOWN_TOOL_PROMPT) if part
-        )
-    
     # Build RAG context
     rag_data = build_rag_context(
         session,
