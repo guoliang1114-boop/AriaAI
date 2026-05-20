@@ -719,7 +719,6 @@ export interface ToolCallEvent {
   summary?: string
   error?: string
   details?: string[]
-  status_stage?: string
   step_index?: number
   step_total?: number
   step_title?: string

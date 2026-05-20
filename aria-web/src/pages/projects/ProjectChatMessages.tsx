@@ -45,8 +45,8 @@ const ChatStreamingMessage = memo<{
         <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
           <div className="md-root w-full">
             {content ? renderedContent : null}
-            {!content && status ? (
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500">
+            {status ? (
+              <div className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500`}>
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span>{status}</span>
               </div>

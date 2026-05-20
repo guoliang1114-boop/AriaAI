@@ -4,6 +4,7 @@
 > 审计基线：`a6fcb8b`（`Fix project chat feedback and tool recovery cues`）+ 本报告记录的流式韧性增量修复
 > 审计范围：后端 `AriaAI/backend/app/services/chat/`、`task_orchestrator.py`、`chat_artifacts.py`、`chat_streaming.py`；前端 `aria-web/src/pages/projects/` 项目对话相关组件。
 > 审计目标：确认 Chat 功能是否仍存在补丁式逻辑、错误路由、流式输出不稳定、资源生命周期和前端交互问题，并给出可执行修复优先级。
+> UX 基线：所有后续 Chat 修复必须遵守 `docs/15-Chat UX Baseline.md`。普通状态事件只能作为轻量提示，不能渲染成任务/工具卡片。
 
 ---
 

@@ -17,9 +17,7 @@ import {
   artifactFromResult,
   artifactFromTaskRunArtifact,
   attachToolDetailToActiveStep,
-  statusProgressFromStream,
   upsertArtifacts,
-  upsertStatusProgress,
   upsertWorkflowStep,
   workflowStepFromTask,
 } from "./projectChatWorkflow";
@@ -252,12 +250,6 @@ export function useProjectChatComposer({
               fullContent += payload.content;
               appendStreamText(payload.content);
               setStreamStatus("");
-              if (collectedToolCalls.some((call) => call.status_stage && !call.step_index && call.status === "running")) {
-                collectedToolCalls = collectedToolCalls.map((call) =>
-                  call.status_stage && !call.step_index && call.status === "running" ? { ...call, status: "completed" } : call,
-                );
-                setStreamToolCalls(collectedToolCalls);
-              }
             } else if (payload.type === "status" && payload.message) {
               if (payload.step_index !== undefined && payload.step_index !== null) {
                 const stepCall: ToolCallEvent = {
@@ -274,17 +266,9 @@ export function useProjectChatComposer({
                 setStreamToolCalls(collectedToolCalls);
                 continue;
               }
-              const statusCall = statusProgressFromStream(payload);
-              if (statusCall) {
-                collectedToolCalls = upsertStatusProgress(collectedToolCalls, statusCall);
-                setStreamToolCalls(collectedToolCalls);
-              }
               setStreamStatus(payload.message);
               if (payload.stage === "saving" || payload.stage === "finalizing") {
-                collectedToolCalls = collectedToolCalls.map((call) =>
-                  call.status_stage && !call.step_index ? { ...call, status: "completed" } : call,
-                );
-                setStreamToolCalls(collectedToolCalls.filter((call) => call.step_index || call.status_stage || call.status !== "running"));
+                setStreamToolCalls(collectedToolCalls.filter((call) => call.step_index || call.status !== "running"));
               }
             } else if (payload.type === "references") {
               collectedReferences = payload.references || [];

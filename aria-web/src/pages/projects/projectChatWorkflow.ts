@@ -195,53 +195,6 @@ export function upsertWorkflowStep(steps: ToolCallEvent[], next: ToolCallEvent) 
   );
 }
 
-export function statusProgressFromStream(payload: {
-  stage?: string;
-  message?: string;
-  step_status?: ToolCallEvent["status"];
-}): ToolCallEvent | null {
-  const message = String(payload.message || "").trim();
-  if (!message) return null;
-  const stage = String(payload.stage || "status").trim() || "status";
-  const titleMap: Record<string, string> = {
-    prepare: "准备上下文",
-    thinking: "理解需求",
-    planning: "规划执行",
-    tools: "执行工具",
-    saving: "保存结果",
-    finalizing: "整理回复",
-  };
-  return {
-    tool_name: titleMap[stage] || "处理进度",
-    status: payload.step_status || "running",
-    message,
-    status_stage: stage,
-  };
-}
-
-export function upsertStatusProgress(calls: ToolCallEvent[], next: ToolCallEvent) {
-  if (!next.status_stage) return calls;
-  const existingIndex = calls.findIndex((item) => item.status_stage === next.status_stage && !item.step_index);
-  const nextCalls =
-    existingIndex === -1
-      ? [...calls, next]
-      : calls.map((item, index) =>
-          index === existingIndex
-            ? {
-                ...item,
-                ...next,
-                details: next.message && item.message && next.message !== item.message
-                  ? [...(item.details || []), item.message].slice(-4)
-                  : item.details,
-              }
-            : item,
-        );
-  const nonStepStatusCalls = nextCalls.filter((item) => item.status_stage && !item.step_index);
-  if (nonStepStatusCalls.length <= 6) return nextCalls;
-  const removable = new Set(nonStepStatusCalls.slice(0, nonStepStatusCalls.length - 6));
-  return nextCalls.filter((item) => !removable.has(item));
-}
-
 export function upsertArtifacts(current: GeneratedArtifact[], incoming: GeneratedArtifact[]) {
   return incoming.reduce<GeneratedArtifact[]>((items, artifact) => mergeArtifacts(items, [artifact]), current);
 }
