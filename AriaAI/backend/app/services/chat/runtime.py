@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass
 
 from sqlmodel import Session
 
@@ -39,6 +40,15 @@ STANDALONE_CHAT_MAX_TOKENS = 2048
 CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
 CLIENT_PORTFOLIO_MAX_TOKENS = 4096
 WORKSPACE_INVENTORY_MAX_TOKENS = 6144
+
+
+@dataclass(frozen=True)
+class SkillActivationDecision:
+    """Structured decision for applying a selected Skill to the current turn."""
+
+    apply: bool
+    reason: str
+    confidence: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +126,21 @@ def _resolve_runtime_model_and_tokens(
     return selected_model, max_tokens
 
 
-def _should_apply_skill(content: str, skill: Skill | None) -> bool:
+def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: bool = False) -> SkillActivationDecision:
+    """Decide whether a selected Skill should run for this message.
+
+    A Skill is an execution contract, not a passive context hint. It should only
+    run when the user explicitly arms it in the UI/API or invokes the Skill in
+    the message. Broad deliverable keywords such as "方案" or "报告" are handled
+    by the project task router instead of silently activating a selected Skill.
+    """
     if not skill:
-        return False
+        return SkillActivationDecision(False, "no_skill", 0.0)
+    if force_skill:
+        return SkillActivationDecision(True, "forced_by_user", 1.0)
     text = (content or "").strip().lower()
     if not text:
-        return False
+        return SkillActivationDecision(False, "empty_message", 0.0)
 
     explicit_skill = any(
         token in text
@@ -130,24 +149,16 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
             "用这个能力", "用该能力",
         )
     )
+    if explicit_skill:
+        return SkillActivationDecision(True, "explicit_skill_invocation", 0.96)
 
-    deliverable_keywords = (
-        "生成", "制作", "创建", "输出", "产出", "写一份", "做一份", "整理成", "形成", "设计", "规划", "制定",
-        "完善", "重新生成", "导出", "下载", "交付", "ppt", "powerpoint", "deck", "slide", "slides",
-        "excel", "xlsx", "xls", "word", "docx", "pdf", "表格", "工作簿", "文档", "文件",
-        "报告", "方案", "材料", "路线图", "roadmap", "蓝图", "blueprint", "战略", "strategy", "计划",
-    )
+    return SkillActivationDecision(False, "selected_skill_not_armed", 0.8)
 
-    casual_prefixes = (
-        "为什么", "为啥", "怎么", "如何", "是否", "是不是", "能不能", "可以吗", "这个", "那个",
-        "我问", "解释", "说明", "检查", "看一下", "你觉得", "what", "why", "how", "can", "could", "should",
-    )
 
-    deliverable_intent = any(token in text for token in deliverable_keywords)
-    casual_question = text.startswith(casual_prefixes)
-    long_template_like = len(text) > 180 and ("\n" in content or ":" in content or "：" in content)
+def _should_apply_skill(content: str, skill: Skill | None) -> bool:
+    """Backward-compatible boolean wrapper around ``decide_skill_activation``."""
 
-    return explicit_skill or long_template_like or (deliverable_intent and not casual_question)
+    return decide_skill_activation(content, skill).apply
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +184,10 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     # 1. Skill resolution
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
-    effective_skill_id = req.skill_id if skill and (req.force_skill or _should_apply_skill(req.content, skill)) else None
+    skill_decision = decide_skill_activation(req.content, skill, force_skill=req.force_skill)
+    effective_skill_id = req.skill_id if skill and skill_decision.apply else None
     effective_skill = skill if effective_skill_id else None
+    prepare_metrics["skill_decision"] = skill_decision.reason
     prepare_metrics["resolve_skill_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 2. Conversation

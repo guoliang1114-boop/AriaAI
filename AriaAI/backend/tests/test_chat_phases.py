@@ -21,6 +21,7 @@ from app.services.chat.workflow import (
 )
 from app.services.chat.runtime import (
     _cap_max_tokens_for_model,
+    decide_skill_activation,
     _is_standalone_fast_path,
     _should_apply_skill,
     _resolve_runtime_model_and_tokens,
@@ -315,11 +316,19 @@ class ShouldApplySkillTests(unittest.TestCase):
             system_prompt = ""
         self.assertTrue(_should_apply_skill("@skill create ppt", FakeSkill()))
 
-    def test_deliverable_intent(self):
+    def test_force_skill_applies(self):
         class FakeSkill:
             name = "test"
             system_prompt = ""
-        self.assertTrue(_should_apply_skill("生成一份报告", FakeSkill()))
+        decision = decide_skill_activation("生成一份报告", FakeSkill(), force_skill=True)
+        self.assertTrue(decision.apply)
+        self.assertEqual(decision.reason, "forced_by_user")
+
+    def test_deliverable_intent_does_not_auto_apply(self):
+        class FakeSkill:
+            name = "test"
+            system_prompt = ""
+        self.assertFalse(_should_apply_skill("生成一份报告", FakeSkill()))
 
     def test_casual_question_blocks(self):
         class FakeSkill:
@@ -327,12 +336,12 @@ class ShouldApplySkillTests(unittest.TestCase):
             system_prompt = ""
         self.assertFalse(_should_apply_skill("how to create a report", FakeSkill()))
 
-    def test_long_template(self):
+    def test_long_template_does_not_auto_apply(self):
         class FakeSkill:
             name = "test"
             system_prompt = ""
         text = "x" * 200 + "\nsome: template"
-        self.assertTrue(_should_apply_skill(text, FakeSkill()))
+        self.assertFalse(_should_apply_skill(text, FakeSkill()))
 
 
 class ResolveRuntimeModelAndTokensTests(unittest.TestCase):

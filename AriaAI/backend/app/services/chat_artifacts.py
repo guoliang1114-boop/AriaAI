@@ -43,23 +43,6 @@ def _build_artifact_notice(artifacts: list[dict]) -> str:
     return f"\u5df2\u751f\u6210\u9644\u4ef6\uff1a{names}\u3002\u53ef\u5728\u672c\u6761\u56de\u590d\u4e2d\u7684\u4e0b\u8f7d\u5361\u7247\u91cc\u76f4\u63a5\u4e0b\u8f7d\u3002"
 
 
-def _has_ppt_artifact(artifacts: list[dict]) -> bool:
-    return any(str(item.get("file_type") or "").lower() == "pptx" for item in artifacts)
-
-
-def _should_auto_generate_digital_strategy_ppt(
-    runtime: ChatRuntime,
-    req,
-    full_text: str,
-    artifacts: list[dict],
-) -> bool:
-    if not req.skill_id or not full_text.strip():
-        return False
-    if _has_ppt_artifact(artifacts):
-        return False
-    return _is_digital_strategy_runtime(runtime)
-
-
 def _is_digital_strategy_runtime(runtime: ChatRuntime) -> bool:
     text = f"{runtime.skill_name or ''}\n{runtime.system or ''}".lower()
     markers = (

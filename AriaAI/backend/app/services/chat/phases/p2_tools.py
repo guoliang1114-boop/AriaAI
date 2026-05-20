@@ -18,16 +18,11 @@ from app.services.chat_tools import (
 )
 from app.services.chat_artifacts import (
     _extract_artifact,
-    _has_ppt_artifact,
-    _is_digital_strategy_runtime,
-    _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
     _route_ppt_tool_for_skill,
-    _should_auto_generate_digital_strategy_ppt,
-    _build_slides_from_strategy_text,
 )
 from app.services.chat.state import ChatSessionState
-from app.services.chat.sse import sse_event, iter_with_heartbeat, await_with_heartbeat
+from app.services.chat.sse import sse_event, await_with_heartbeat
 from app.services.chat.workflow import workflow_status, workflow_plan_events
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
@@ -291,78 +286,3 @@ async def run_p2_tools(
         )
 
     state.tool_result_blocks = tool_result_blocks
-
-
-async def run_p2_auto_ppt_fallback(
-    runtime: ChatRuntime,
-    req: SendMessageRequest,
-    state: ChatSessionState,
-) -> AsyncIterator[str]:
-    """Auto-generate a PPT if a digital-strategy skill ran but produced no PPT artifact.
-
-    This is invoked by the orchestrator *after* P3, only when the fallback condition is met.
-    """
-    full_text = state.full_text
-    if not _should_auto_generate_digital_strategy_ppt(runtime, req, full_text, state.artifacts):
-        return
-
-    if not state.workflow_started:
-        state.workflow_started = True
-        for event in workflow_plan_events():
-            yield sse_event(event)
-
-    ppt_title, ppt_slides = _build_slides_from_strategy_text(full_text)
-    tool_name = "generate_ppt_from_skill"
-    tool_input = {
-        "skill_name": "digital-strategy",
-        "title": ppt_title,
-        "subtitle": "自动根据数字化战略正文生成",
-        "slides": ppt_slides,
-    }
-
-    yield sse_event(
-        workflow_status(
-            step_index=3,
-            step_total=4,
-            title="执行 Skill / 工具",
-            stage="tools",
-            message="第 3 步：检测到 Skill 没有生成 PPT，正在自动创建可下载材料。",
-        )
-    )
-    yield sse_event(
-        {
-            "type": "status",
-            "stage": "tools",
-            "message": "检测到数字化战略 Skill 未生成 PPT，正在自动创建可下载材料...",
-        }
-    )
-    yield sse_event(
-        {"type": "tool_executing", "tool_name": tool_name, **_tool_progress_payload(tool_name, tool_input)}
-    )
-    logger.info(f"[P2-fallback] executing tool: {tool_name}, slides={len(ppt_slides)}")
-
-    try:
-        result = await registry.execute(tool_name, tool_input)
-    except Exception as exc:
-        result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
-
-    yield sse_event({"type": "tool_result", "result": result})
-    state.tool_call_events.append(
-        {
-            "tool_name": tool_name,
-            "status": "error"
-            if result.get("status") == "error" or result.get("success") is False
-            else "completed",
-            "message": _tool_progress_payload(tool_name, tool_input).get("message", ""),
-            "summary": _summarize_tool_result(result),
-            **({"error": str(result.get("error"))} if result.get("error") else {}),
-        }
-    )
-
-    artifact = _extract_artifact(result)
-    if artifact:
-        state.artifacts.append(artifact)
-
-    yield sse_event(
-        {"type": "status", "stage": "follow_up", "message": "PPT 已生成，正在保存正文和附件..."}
-    )

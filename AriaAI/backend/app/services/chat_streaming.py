@@ -13,17 +13,32 @@ New code should import directly from the focused sub-modules:
 """
 from __future__ import annotations
 
+from app.services.chat import runtime as _chat_runtime_module
+from app.tools import registry
+
 # ---------------------------------------------------------------------------
 # Public API — new canonical location
 # ---------------------------------------------------------------------------
-from app.services.chat import prepare_chat_runtime, stream_chat_events
+from app.services.chat import prepare_chat_runtime as _prepare_chat_runtime
+from app.services.chat import stream_chat_events
 from app.services.chat.state import ChatSessionState
 
 # ---------------------------------------------------------------------------
 # Re-export runtime helpers (moved to chat.runtime)
 # ---------------------------------------------------------------------------
 from app.services.chat.runtime import (
+    CHAT_HISTORY_WINDOW,
+    CLIENT_PORTFOLIO_FAST_MODEL,
+    CLIENT_PORTFOLIO_MAX_TOKENS,
+    STANDALONE_CHAT_MAX_TOKENS,
+    STANDALONE_FAST_PATH_MAX_TOKENS,
+    STANDALONE_FAST_PATH_MODEL,
+    WORKSPACE_INVENTORY_MAX_TOKENS,
     _cap_max_tokens_for_model,
+    _load_provider_module,
+    build_chat_context,
+    decide_skill_activation,
+    get_selected_model,
     _has_deepseek_api_key,
     _is_standalone_fast_path,
     _resolve_runtime_model_and_tokens,
@@ -95,13 +110,34 @@ from app.services.chat_artifacts import (
     _build_slides_from_strategy_text,
     _clean_slide_line,
     _extract_artifact,
-    _has_ppt_artifact,
     _is_digital_strategy_runtime,
     _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
     _route_ppt_tool_for_skill,
-    _should_auto_generate_digital_strategy_ppt,
 )
+
+
+def prepare_chat_runtime(session, req):
+    """Compatibility wrapper for the legacy ``chat_streaming`` module.
+
+    Some older tests and integrations patch provider/context helpers on this
+    shim. The focused implementation lives in ``chat.runtime``, so this wrapper
+    forwards the shim-level patched helpers for the duration of one call.
+    """
+
+    original_build_context = _chat_runtime_module.build_chat_context
+    original_load_provider = _chat_runtime_module._load_provider_module
+    original_get_model = _chat_runtime_module.get_selected_model
+    try:
+        _chat_runtime_module.build_chat_context = build_chat_context
+        _chat_runtime_module._load_provider_module = _load_provider_module
+        _chat_runtime_module.get_selected_model = get_selected_model
+        return _prepare_chat_runtime(session, req)
+    finally:
+        _chat_runtime_module.build_chat_context = original_build_context
+        _chat_runtime_module._load_provider_module = original_load_provider
+        _chat_runtime_module.get_selected_model = original_get_model
+
 
 __all__ = [
     "prepare_chat_runtime",

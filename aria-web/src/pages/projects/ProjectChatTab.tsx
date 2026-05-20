@@ -964,7 +964,6 @@ export function ProjectChatTab({
             isRebuildingMemory={isRebuildingMemory}
             isSidebarOpen={panel.isSidebarOpen}
             knowledgeScope={panel.knowledgeScope}
-            projectMemory={projectMemory}
             memoryStatus={memoryStatus}
             messages={messages}
             messagesContainerRef={panel.messagesContainerRef}

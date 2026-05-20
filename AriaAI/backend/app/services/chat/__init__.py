@@ -31,7 +31,6 @@ from app.services.chat.phases import (
     run_p0_durable_task,
     run_p1_planning,
     run_p2_tools,
-    run_p2_auto_ppt_fallback,
     run_p3_followup,
     run_p4_persist,
 )
@@ -139,19 +138,9 @@ async def stream_chat_events(
             yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
             return
 
-    # ==================================================================
-    # Auto-PPT fallback (between P3 and P4)
-    # ==================================================================
     state.full_text = state.text_buffer.strip()
     if state.follow_up_text.strip():
         state.full_text = (state.full_text + "\n\n" + state.follow_up_text.strip()).strip()
-
-    try:
-        async for event in run_p2_auto_ppt_fallback(runtime, req, state):
-            yield event
-    except Exception as exc:
-        logger.error(f"[P2-fallback auto-ppt error] {exc}", exc_info=True)
-        # Non-fatal: continue to P4
 
     # ==================================================================
     # P4 — Persistence & finalization

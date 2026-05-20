@@ -3464,7 +3464,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 )
             session.commit()
 
-            with patch.object(context_builder_module, "build_chat_context") as mocked_context, patch.object(
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
                 chat_streaming_module,
                 "_load_provider_module",
             ) as mocked_provider, patch.object(
@@ -3492,7 +3492,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
     def test_prepare_chat_runtime_routes_standalone_short_chat_to_fast_model(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
-            with patch.object(context_builder_module, "build_chat_context") as mocked_context, patch.object(
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
                 chat_streaming_module,
                 "_load_provider_module",
             ) as mocked_provider, patch.object(
@@ -3515,6 +3515,78 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
 
         self.assertEqual(runtime.selected_model, chat_streaming_module.STANDALONE_FAST_PATH_MODEL)
         self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_FAST_PATH_MAX_TOKENS)
+
+    def test_prepare_chat_runtime_does_not_auto_apply_selected_skill_from_keywords(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            skill = Skill(name="Strategy Skill", category="deep_task", system_prompt="skill system")
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            skill_id = skill.id
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="生成一份战略报告",
+                        skill_id=skill_id,
+                        force_skill=False,
+                    ),
+                )
+
+        self.assertFalse(runtime.skill_name)
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "selected_skill_not_armed")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
+
+    def test_prepare_chat_runtime_applies_forced_skill_contract(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            skill = Skill(name="Strategy Skill", category="deep_task", system_prompt="skill system")
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            skill_id = skill.id
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="生成一份战略报告",
+                        skill_id=skill_id,
+                        force_skill=True,
+                    ),
+                )
+
+        self.assertEqual(runtime.skill_name, "Strategy Skill")
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "forced_by_user")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
     def test_prepare_chat_runtime_keeps_portfolio_query_on_selected_model(self):
         conv_id = self._create_conversation()
@@ -4549,7 +4621,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertTrue(repaired_input["title"])
         self.assertGreaterEqual(len(repaired_input["slides"]), 1)
 
-    def test_stream_chat_events_auto_generates_ppt_when_digital_strategy_only_saved_json(self):
+    def test_stream_chat_events_does_not_auto_generate_ppt_after_skill_followup(self):
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
             [
@@ -4600,10 +4672,8 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 }
             raise AssertionError(f"Unexpected tool call: {name}")
 
-        with patch(
-            "app.services.chat_streaming.registry.execute",
-            new=AsyncMock(side_effect=execute_side_effect),
-        ):
+        execute_mock = AsyncMock(side_effect=execute_side_effect)
+        with patch("app.services.chat_streaming.registry.execute", new=execute_mock):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         done_event = next(
@@ -4613,7 +4683,9 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         artifact_names = {item["name"] for item in done_event["artifacts"]}
         self.assertIn("金科服务_数字化战略_核心数据.json", artifact_names)
-        self.assertIn("金科服务_数字化战略_汇报材料.pptx", artifact_names)
+        self.assertNotIn("金科服务_数字化战略_汇报材料.pptx", artifact_names)
+        called_tools = [call.args[0] for call in execute_mock.await_args_list]
+        self.assertEqual(called_tools, ["save_json"])
 
         with Session(self.engine) as session:
             assistant_message = session.exec(
@@ -4622,7 +4694,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             metadata = json.loads(assistant_message.metadata_json)
             saved_names = {item["name"] for item in metadata["artifacts"]}
             self.assertIn("金科服务_数字化战略_核心数据.json", saved_names)
-            self.assertIn("金科服务_数字化战略_汇报材料.pptx", saved_names)
+            self.assertNotIn("金科服务_数字化战略_汇报材料.pptx", saved_names)
 
     def test_stream_chat_events_surfaces_friendly_errors(self):
         conv_id = self._create_conversation()

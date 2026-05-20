@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.chat.state import ChatSessionState
 from app.services.chat.phases.p1_planning import run_p1_planning
-from app.services.chat.phases.p2_tools import run_p2_tools, run_p2_auto_ppt_fallback
+from app.services.chat.phases.p2_tools import run_p2_tools
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import run_p0_durable_task

@@ -7,7 +7,6 @@ import type {
   Conversation,
   GeneratedArtifact,
   Message,
-  ProjectMemory,
   ProjectMemoryStatusResponse,
   Reference,
   Skill,
@@ -17,7 +16,6 @@ import type {
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMessages } from "./ProjectChatMessages";
-import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
 import { ProjectTaskRunsDrawer } from "./ProjectTaskRunsDrawer";
 import { getProjectChatCopy, type ProjectQuickPrompt } from "./projectChatCopy";
 
@@ -34,7 +32,6 @@ interface ProjectChatMainPanelProps {
   memoryStatus: ProjectMemoryStatusResponse | null;
   isLoadingMemoryStatus: boolean;
   isRebuildingMemory: boolean;
-  projectMemory: ProjectMemory | null;
   messages: Message[];
   messagesContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
@@ -97,7 +94,6 @@ export function ProjectChatMainPanel({
   memoryStatus,
   isLoadingMemoryStatus,
   isRebuildingMemory,
-  projectMemory,
   messages,
   messagesContainerRef,
   onInputChange,
@@ -149,11 +145,6 @@ export function ProjectChatMainPanel({
   const selectedSkillData = useMemo(
     () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
     [selectedSkillId, skills],
-  );
-  const hasPinnedAnchors = Boolean(
-    projectMemory?.key_risks_detail?.pinned?.length ||
-      projectMemory?.open_questions_detail?.pinned?.length ||
-      projectMemory?.stakeholder_notes_detail?.pinned?.length,
   );
   const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
@@ -231,20 +222,6 @@ export function ProjectChatMainPanel({
           </button>
         }
       />
-
-      {hasPinnedAnchors ? (
-        <div className="border-b border-gray-100 bg-white/80 px-4 py-2">
-          <div className="mx-auto max-w-4xl">
-            <ProjectAnchorsCard
-              compact
-              clientName={projectClientName}
-              isZh={isZh}
-              memory={projectMemory}
-              onManage={() => window.open(`/projects/${projectId}/anchors`, "_self")}
-            />
-          </div>
-        </div>
-      ) : null}
 
       <div
         ref={messagesContainerRef}
