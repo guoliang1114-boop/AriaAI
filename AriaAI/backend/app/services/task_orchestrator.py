@@ -43,6 +43,7 @@ _PPT_INTENT_TERMS = ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片",
 _EXCEL_INTENT_TERMS = ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "台账")
 _DOCX_INTENT_TERMS = ("word", "docx", "文档", "报告", "方案", "材料")
 _PDF_INTENT_TERMS = ("pdf",)
+_MARKDOWN_INTENT_TERMS = ("markdown", ".md", " md", "md ", "md文档", "markdown文档")
 _CREATE_INTENT_TERMS = (
     "准备", "生成", "创建", "制作", "输出", "导出", "整理", "整理成", "形成", "写一份", "做一份",
     "proposal", "prepare", "create", "generate", "make", "export", "draft",
@@ -129,10 +130,13 @@ def _rule_based_task_route(content: str) -> TaskRoute:
     normalized = (content or "").strip().lower()
     if not normalized:
         return TaskRoute(None, reason="empty")
+    if _looks_like_direct_memory_summary(content):
+        return TaskRoute(None, confidence=0.94, reason="rule:direct_memory_summary")
     consulting_capability = match_consulting_capability(content)
     wants_ppt = any(term in normalized for term in _PPT_INTENT_TERMS)
     wants_excel = any(term in normalized for term in _EXCEL_INTENT_TERMS)
     wants_pdf = any(term in normalized for term in _PDF_INTENT_TERMS)
+    wants_markdown = any(term in normalized for term in _MARKDOWN_INTENT_TERMS)
     wants_docx = any(term in normalized for term in _DOCX_INTENT_TERMS)
     wants_create = any(term in normalized for term in _CREATE_INTENT_TERMS)
     if wants_ppt and wants_create:
@@ -141,6 +145,8 @@ def _rule_based_task_route(content: str) -> TaskRoute:
         return TaskRoute("generate_project_excel", confidence=0.86, reason="rule:excel", output_kind="xlsx")
     if wants_pdf and wants_create:
         return TaskRoute("generate_project_pdf", confidence=0.86, reason="rule:pdf", output_kind="pdf")
+    if wants_markdown and wants_create:
+        return TaskRoute("create_text_artifact", confidence=0.84, reason="rule:markdown", output_kind="md")
     if wants_docx and wants_create:
         return TaskRoute("generate_project_docx", confidence=0.82, reason="rule:docx", output_kind="docx")
     if should_create_text_artifact_for_capability(content, consulting_capability):
@@ -172,6 +178,26 @@ def _looks_like_direct_diagnostic(content: str) -> bool:
         "ppt", "pptx", "excel", "xlsx", "word", "docx", "pdf", "markdown", "md",
     )
     return any(term in text for term in diagnostic_terms) and not any(term in text for term in explicit_deliverable_terms)
+
+
+def _looks_like_direct_memory_summary(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    summary_terms = ("摘要", "概览", "总结", "overview", "summary")
+    memory_terms = ("结构化记忆", "当前项目", "项目记忆", "project memory", "structured memory")
+    concise_terms = ("条以内", "5 条", "5条", "bullet", "bullets", "以内")
+    file_terms = (
+        "生成文件", "保存", "导出", "下载", "md", "markdown", "文档", "报告",
+        "ppt", "pptx", "excel", "xlsx", "word", "docx", "pdf",
+    )
+    if any(term in text for term in file_terms):
+        return False
+    return (
+        any(term in text for term in summary_terms)
+        and any(term in text for term in memory_terms)
+        and (any(term in text for term in concise_terms) or "风险" in text or "下一步" in text)
+    )
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -225,6 +251,8 @@ async def route_project_task_request(
     model: str = "",
 ) -> TaskRoute:
     fallback = _rule_based_task_route(content)
+    if fallback.reason == "rule:direct_memory_summary":
+        return fallback
     if fallback.task_type is None and _looks_like_direct_diagnostic(content):
         return TaskRoute(None, confidence=0.95, reason="rule:direct_diagnostic")
     if llm_complete is None:

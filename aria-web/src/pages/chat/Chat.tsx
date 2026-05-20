@@ -1127,7 +1127,8 @@ export function Chat() {
     setStreamArtifacts([])
     setLiveStageTimings([])
     liveStageTimingsRef.current = []
-    setLiveStatusText(null)
+    setLiveStatusText(skillForThisMessage ? '已收到，正在准备 Skill 上下文…' : '已收到，正在连接模型…')
+    setIsThinking(true)
     isStreamingRef.current = true
     skillRunActiveRef.current = !!skillForThisMessage
     setSkillRunActive(!!skillForThisMessage)
@@ -1185,7 +1186,6 @@ export function Chat() {
       setMessages(prev => [...prev, userMsg])
       // Scroll after DOM update
       setTimeout(() => scrollToBottom(), 0)
-      setIsThinking(true)
 
       const token = localStorage.getItem('authToken')
       const response = await fetch(`${getApiBaseUrl()}/chat/send`, {
@@ -1762,7 +1762,7 @@ export function Chat() {
                 <p className="mt-4 text-sm text-gray-400">{t('chat.loading')}</p>
               </div>
 
-            ) : messages.length === 0 && !streamingContent ? (
+            ) : messages.length === 0 && !streamingContent && !isThinking && progressSteps.length === 0 ? (
               /* ── Empty state ── */
               <div className="flex flex-col items-center py-10 animate-fade-in sm:py-16">
                 <div className="relative mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">

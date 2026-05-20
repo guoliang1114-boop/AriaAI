@@ -86,6 +86,21 @@ def test_router_keeps_diagnostic_chat_as_direct_answer():
     assert route.reason == "rule:direct_diagnostic"
 
 
+def test_router_keeps_structured_memory_overview_as_direct_answer():
+    content = "请基于当前项目的结构化记忆，给我一个 5 条以内的项目概览摘要，覆盖当前阶段、关键进展、风险和下一步动作。"
+    route = asyncio.run(route_project_task_request(content))
+
+    assert route.task_type is None
+    assert route.reason == "rule:direct_memory_summary"
+
+
+def test_router_allows_memory_summary_when_user_explicitly_asks_for_file():
+    content = "请基于当前项目的结构化记忆，生成一个 md 文档，整理项目概览摘要和风险。"
+    route = asyncio.run(route_project_task_request(content))
+
+    assert route.task_type == "create_text_artifact"
+
+
 def test_ppt_slide_count_request_is_extracted_and_used():
     assert task_orchestrator._extract_requested_slide_count("内容不够丰富，页数要求20页以上") == 20
     assert task_orchestrator._extract_requested_slide_count("make at least 22 slides") == 22
