@@ -1,0 +1,408 @@
+"""Integration tests for chat streaming phases.
+
+Tests the full P1 → P2 → P3 → P4 pipeline with mocked LLM and tools.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.services.chat.state import ChatSessionState
+from app.services.chat.phases.p1_planning import run_p1_planning
+from app.services.chat.phases.p2_tools import run_p2_tools, run_p2_auto_ppt_fallback
+from app.services.chat.phases.p3_followup import run_p3_followup
+from app.services.chat.phases.p4_persist import run_p4_persist
+from app.services.chat.phases.p0_durable_task import run_p0_durable_task
+
+
+class _AsyncIter:
+    """Helper to turn a list of strings into an async iterator for LLM streams."""
+
+    def __init__(self, chunks: list[str]):
+        self._chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
+
+
+def _make_stream(chunks: list[str]):
+    """Return a coroutine that yields the given chunks."""
+    async def _stream(*args, **kwargs):
+        for chunk in chunks:
+            yield chunk
+    return _stream
+
+
+class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.runtime = MagicMock()
+        self.runtime.conv_id = 1
+        self.runtime.project_id = 1
+        self.runtime.selected_model = "test-model"
+        self.runtime.max_tokens = 2000
+        self.runtime.temperature = 0.5
+        self.runtime.system = "system prompt"
+        self.runtime.api_messages = [{"role": "user", "content": "hello"}]
+        self.runtime.tools = None
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.prepare_metrics = {}
+        self.bind = MagicMock()
+
+        self.req = MagicMock()
+        self.req.project_id = 1
+        self.req.content = "test message"
+
+    def _collect_events(self, async_gen):
+        """Drain an async generator into a list."""
+        return asyncio.run(self._collect(async_gen))
+
+    async def _collect(self, async_gen):
+        return [e async for e in async_gen]
+
+    # ------------------------------------------------------------------
+    # P1 — Planning without tools
+    # ------------------------------------------------------------------
+    async def test_p1_no_tools_streams_text(self):
+        self.runtime.llm.stream_response = _make_stream(["Hello", " world"])
+        state = ChatSessionState()
+
+        events = []
+        async for event in run_p1_planning(self.runtime, self.req, state):
+            events.append(event)
+
+        text_events = [e for e in events if '"type": "text"' in e]
+        self.assertGreaterEqual(len(text_events), 2)
+        self.assertEqual(state.text_buffer, "Hello world")
+        self.assertEqual(state.tool_use_blocks, [])
+
+    async def test_p1_truncation_once_continues(self):
+        """P1 detects truncation, marks p1_truncated, and auto-continues."""
+        self.runtime.llm.stream_response = _make_stream(
+            ["Part 1 ", "[OUTPUT_TRUNCATED]"]
+        )
+        # Continuation stream
+        self.runtime.llm.stream_response = _make_stream(
+            ["Part 1 ", "[OUTPUT_TRUNCATED]"]
+        )
+        # We need to track calls because the function calls stream_response twice
+        call_count = 0
+
+        async def _tracking_stream(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                for chunk in ["Part 1 ", "[OUTPUT_TRUNCATED]"]:
+                    yield chunk
+            else:
+                for chunk in ["Part 2"]:
+                    yield chunk
+
+        self.runtime.llm.stream_response = _tracking_stream
+        state = ChatSessionState()
+
+        events = []
+        async for event in run_p1_planning(self.runtime, self.req, state):
+            events.append(event)
+
+        self.assertTrue(state.p1_truncated)
+        self.assertFalse(state.p1_double_truncated)
+        self.assertEqual(state.text_buffer, "Part 1 Part 2")
+        # Should have continuation status event
+        status_events = [e for e in events if '"stage": "continuing"' in e]
+        self.assertGreaterEqual(len(status_events), 1)
+
+    async def test_p1_double_truncation_emits_can_continue(self):
+        """P1 truncated twice emits truncated event with can_continue=true."""
+        call_count = 0
+
+        async def _tracking_stream(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                for chunk in ["Part 1 ", "[OUTPUT_TRUNCATED]"]:
+                    yield chunk
+            else:
+                for chunk in ["Part 2 ", "[OUTPUT_TRUNCATED]"]:
+                    yield chunk
+
+        self.runtime.llm.stream_response = _tracking_stream
+        state = ChatSessionState()
+
+        events = []
+        async for event in run_p1_planning(self.runtime, self.req, state):
+            events.append(event)
+
+        self.assertTrue(state.p1_truncated)
+        self.assertTrue(state.p1_double_truncated)
+        # Should emit truncated event with can_continue
+        truncated_events = [e for e in events if '"type": "truncated"' in e]
+        self.assertEqual(len(truncated_events), 1)
+        self.assertIn('"can_continue": true', truncated_events[0])
+
+    async def test_p1_detects_tool_use_block(self):
+        """P1 detects tool_use JSON blocks embedded in text."""
+        tool_block = json.dumps({"type": "tool_use", "name": "write_tool", "id": "t1", "input": {}})
+        self.runtime.llm.stream_response = _make_stream([f"Let me write: {tool_block}"])
+        state = ChatSessionState()
+
+        async for _ in run_p1_planning(self.runtime, self.req, state):
+            pass
+
+        self.assertEqual(len(state.tool_use_blocks), 1)
+        self.assertEqual(state.tool_use_blocks[0]["name"], "write_tool")
+
+    # ------------------------------------------------------------------
+    # P2 — Tool execution
+    # ------------------------------------------------------------------
+    async def test_p2_executes_tool_and_collects_result(self):
+        """P2 executes a single tool and collects result."""
+        self.runtime.tools = None
+        self.runtime.project_id = 1
+
+        state = ChatSessionState()
+        state.text_buffer = "I will write a file"
+        state.tool_use_blocks = [
+            {"name": "write_tool", "input": {"file_name": "test.md"}, "id": "t1"}
+        ]
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute") as mock_exec:
+            mock_exec.return_value = {"status": "completed", "output": {"file_name": "test.md"}}
+            events = []
+            async for event in run_p2_tools(self.runtime, self.req, state):
+                events.append(event)
+
+        self.assertEqual(len(state.tool_result_blocks), 1)
+        self.assertEqual(len(state.tool_call_events), 1)
+        self.assertEqual(state.tool_call_events[0]["status"], "completed")
+        self.assertEqual(state.tool_call_events[0]["tool_name"], "write_tool")
+
+    async def test_p2_tool_error(self):
+        """P2 handles tool execution errors gracefully."""
+        self.runtime.tools = None
+        self.runtime.project_id = 1
+
+        state = ChatSessionState()
+        state.text_buffer = ""
+        state.tool_use_blocks = [
+            {"name": "broken_tool", "input": {}, "id": "t1"}
+        ]
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute") as mock_exec:
+            mock_exec.side_effect = RuntimeError("tool failed")
+            events = []
+            async for event in run_p2_tools(self.runtime, self.req, state):
+                events.append(event)
+
+        self.assertEqual(len(state.tool_call_events), 1)
+        self.assertEqual(state.tool_call_events[0]["status"], "error")
+        self.assertIn("tool failed", state.tool_call_events[0]["error"])
+
+    # ------------------------------------------------------------------
+    # P3 — Follow-up
+    # ------------------------------------------------------------------
+    async def test_p3_generates_followup_text(self):
+        """P3 generates follow-up text after tool results."""
+        state = ChatSessionState()
+        state.text_buffer = "I will write a file"
+        state.tool_use_blocks = [
+            {"name": "write_tool", "input": {}, "id": "t1"}
+        ]
+        state.tool_result_blocks = [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "{}"}
+        ]
+        state.reasoning_content = ""
+
+        self.runtime.llm.stream_response = _make_stream(["The file has been created."])
+
+        events = []
+        async for event in run_p3_followup(self.runtime, self.req, state):
+            events.append(event)
+
+        self.assertEqual(state.follow_up_text, "The file has been created.")
+        text_events = [e for e in events if '"type": "text"' in e]
+        self.assertGreaterEqual(len(text_events), 1)
+
+    async def test_p3_truncated_sets_flag(self):
+        """P3 detects truncation in follow-up."""
+        state = ChatSessionState()
+        state.text_buffer = "x"
+        state.tool_use_blocks = [{"name": "t", "input": {}, "id": "t1"}]
+        state.tool_result_blocks = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+
+        self.runtime.llm.stream_response = _make_stream(["Long text ", "[OUTPUT_TRUNCATED]"])
+
+        events = []
+        async for event in run_p3_followup(self.runtime, self.req, state):
+            events.append(event)
+
+        self.assertTrue(state.p3_truncated)
+
+    # ------------------------------------------------------------------
+    # P4 — Persistence
+    # ------------------------------------------------------------------
+    async def test_p4_persists_assistant_message(self):
+        """P4 persists the final message and emits done event."""
+        state = ChatSessionState()
+        state.text_buffer = "Hello"
+        state.follow_up_text = " world"
+        state.tool_call_events = [{"tool_name": "t", "status": "completed"}]
+        state.stage_timings = {"planning_ms": 100}
+
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = True
+            mock_artifacts.return_value = []
+
+            events = []
+            async for event in run_p4_persist(self.runtime, self.req, self.bind, state):
+                events.append(event)
+
+        done_events = [e for e in events if '"type": "done"' in e]
+        self.assertEqual(len(done_events), 1)
+        self.assertEqual(state.full_text, "Hello\n\nworld")
+        self.assertTrue(state.need_title)
+        mock_persist.assert_called_once()
+
+    async def test_p4_empty_response_uses_fallback(self):
+        """P4 uses fallback message when response is empty."""
+        state = ChatSessionState()
+        state.text_buffer = ""
+        state.follow_up_text = ""
+        state.tool_call_events = []
+        state.stage_timings = {}
+
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = False
+            mock_artifacts.return_value = []
+
+            events = []
+            async for event in run_p4_persist(self.runtime, self.req, self.bind, state):
+                events.append(event)
+
+        self.assertIn("AI 服务暂时未能生成回复", state.full_text)
+
+    # ------------------------------------------------------------------
+    # P0 — Durable task early-return
+    # ------------------------------------------------------------------
+    async def test_p0_no_task_route_skips(self):
+        """P0 returns early when no durable task route is found."""
+        self.req.project_id = 1
+
+        with patch("app.services.chat.phases.p0_durable_task.route_project_task_request") as mock_route:
+            mock_route.return_value = None
+            events = []
+            async for event in run_p0_durable_task(self.runtime, self.req, self.bind, ChatSessionState()):
+                events.append(event)
+
+        self.assertEqual(events, [])
+
+    async def test_p0_no_project_id_skips(self):
+        """P0 skips when project_id is None."""
+        self.req.project_id = None
+        state = ChatSessionState()
+
+        events = []
+        async for event in run_p0_durable_task(self.runtime, self.req, self.bind, state):
+            events.append(event)
+
+        self.assertEqual(events, [])
+        self.assertFalse(state.durable_task_completed)
+
+    # ------------------------------------------------------------------
+    # End-to-end: P1 → P4 without tools
+    # ------------------------------------------------------------------
+    async def test_e2e_no_tools(self):
+        """Full flow: P1 streams text, P2 skipped, P3 skipped, P4 persists."""
+        state = ChatSessionState()
+        self.runtime.llm.stream_response = _make_stream(["Hello world"])
+
+        # P1
+        async for _ in run_p1_planning(self.runtime, self.req, state):
+            pass
+        self.assertEqual(state.text_buffer, "Hello world")
+        self.assertEqual(state.tool_use_blocks, [])
+
+        # P2 skipped (no tools)
+        self.assertEqual(state.tool_use_blocks, [])
+
+        # P3 skipped (no tools)
+        self.assertEqual(state.tool_result_blocks, [])
+
+        # P4
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = False
+            mock_artifacts.return_value = []
+
+            events = []
+            async for event in run_p4_persist(self.runtime, self.req, self.bind, state):
+                events.append(event)
+
+            self.assertEqual(state.full_text, "Hello world")
+            done_events = [e for e in events if '"type": "done"' in e]
+            self.assertEqual(len(done_events), 1)
+
+    # ------------------------------------------------------------------
+    # End-to-end: P1 → P2 → P3 with tool
+    # ------------------------------------------------------------------
+    async def test_e2e_with_tool(self):
+        """Full flow with tool: P1 plans, P2 executes, P3 follows up, P4 persists."""
+        state = ChatSessionState()
+        self.runtime.project_id = 1
+
+        # P1: tool planned
+        tool_block = json.dumps({"type": "tool_use", "name": "write_tool", "id": "t1", "input": {"file_name": "test.md"}})
+        self.runtime.llm.stream_response = _make_stream([f"I will write: {tool_block}"])
+
+        async for _ in run_p1_planning(self.runtime, self.req, state):
+            pass
+
+        self.assertEqual(len(state.tool_use_blocks), 1)
+
+        # P2: execute tool
+        with patch("app.services.chat.phases.p2_tools.registry.execute") as mock_exec:
+            mock_exec.return_value = {"status": "completed", "output": {"file_name": "test.md"}}
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        self.assertEqual(len(state.tool_result_blocks), 1)
+
+        # P3: follow-up
+        self.runtime.llm.stream_response = _make_stream(["File written successfully."])
+        async for _ in run_p3_followup(self.runtime, self.req, state):
+            pass
+
+        self.assertEqual(state.follow_up_text, "File written successfully.")
+
+        # P4: persist
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = False
+            mock_artifacts.return_value = []
+
+            events = []
+            async for event in run_p4_persist(self.runtime, self.req, self.bind, state):
+                events.append(event)
+
+            self.assertIn("File written successfully.", state.full_text)
+            done_events = [e for e in events if '"type": "done"' in e]
+            self.assertEqual(len(done_events), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
