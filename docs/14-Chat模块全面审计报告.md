@@ -1,449 +1,533 @@
 # Chat 模块全面审计报告
 
-> 审计日期：2026-05-20
-> 审计范围：后端 `services/chat/`（P0-P4、orchestrator、SSE、state、errors、runtime、RAG）+ 前端 `pages/projects/`（ProjectChatTab、useProjectChatComposer、chatStore、chatStreamStore、types/chat）
-> 代码版本：V0.0.2 + P0-P4 重构补丁（commit ef4eec8）
-> 审计方法：四维度并发代码走读（编排层、Phase 实现、前端 SSE、运行时与上下文）
+> 审计日期：2026-05-14
+> 审计版本：`476eaa6`（`docs: add comprehensive chat module audit report`）
+> 审计范围：后端 `AriaAI/backend/app/services/chat/`、`task_orchestrator.py`、`chat_artifacts.py`、`chat_streaming.py`；前端 `aria-web/src/pages/projects/` 项目对话相关组件。
+> 审计目标：确认 Chat 功能是否仍存在补丁式逻辑、错误路由、流式输出不稳定、资源生命周期和前端交互问题，并给出可执行修复优先级。
 
 ---
 
 ## 一、执行摘要
 
-Chat 模块在 **业务逻辑拆分** 上已相当成熟（P0-P4 各 phase 职责清晰、类型守卫完善、Zustand store 引入），但在 **并发安全、资源生命周期管理、生产容错** 三个维度存在系统性缺口。
+当前 Chat 模块已经完成一轮关键收敛：P0-P4 分层清晰，项目任务编排有结构化 Router，项目对话页的 Skill 误触发和 Auto-PPT 后处理补丁已经移除，项目对话页也不再把“项目关注锚点”卡片插入聊天流。
 
-**当前代码在开发环境和低负载下表现良好，但在高并发、大知识库、网络波动的生产环境中会暴露出严重问题。**
+但 Chat 仍有若干生产级风险，主要集中在四类：
 
-| 维度 | 评分 | 说明 |
-|------|------|------|
-| 架构模块化 | ⭐⭐⭐⭐☆ | P0-P4 拆分清晰，向后兼容 shim 到位 |
-| 类型安全 | ⭐⭐⭐☆☆ | 前端 Discriminated Union 好，但运行时无校验；Python 类型提示不完整 |
-| 并发安全 | ⭐⭐☆☆☆ | 前后台都有明显竞态，async generator 不清理，后台任务注册表无锁 |
-| 错误处理 | ⭐⭐☆☆☆ | `CancelledError` 漏网，P4 失败 = 数据丢失，网络错误丢弃已收内容 |
-| 资源管理 | ⭐⭐☆☆☆ | DB session 跨 yield、RAG 全量加载、无 `aclose()` |
-| 测试覆盖 | ⭐⭐⭐☆☆ | 单元测试较好（87-100%），集成测试已补充 14 个，但端到端/压力测试缺失 |
-| 可观测性 | ⭐⭐⭐☆☆ | timing 指标失真（`total_stream_ms` broken），日志较干净但错误场景覆盖不全 |
+1. **流式生命周期**：取消、断线、尾部 buffer、generator close 仍需加强。
+2. **前端并发与恢复**：快速重复发送、网络中断、后台任务状态恢复仍不够稳。
+3. **持久化一致性**：用户已经看到的内容，如果 P4 保存失败，仍可能刷新后丢失。
+4. **大上下文治理**：RAG / 项目上下文 / 历史消息仍缺少统一 token 预算。
+
+整体判断：
+**Chat 架构方向已经正确，但还没有达到“高并发、弱网络、大项目上下文”下的生产稳态。**
 
 ---
 
-## 二、严重级别问题（CRITICAL）—— 共 4 项
+## 二、已经修复的关键问题
 
-### CR-1. RAG 检索：全量 chunk 加载到内存 → 必然 OOM
+以下问题在当前版本 `876fd34` 已经修复，不应再作为当前缺陷重复记录。
 
-**位置**：`app/services/rag.py:106-121`
+| 问题 | 当前状态 | 说明 |
+| --- | --- | --- |
+| Skill 依赖关键词自动触发 | 已修复 | 新增 `SkillActivationDecision`，只有用户强制 Skill 或显式调用 Skill 才启用。 |
+| “生成 / 报告 / 方案 / PPT”等词误触发 Skill | 已修复 | 这些意图交给项目任务 Router，而不是隐式启用选中的 Skill。 |
+| Auto-PPT fallback | 已移除 | Chat 主链路不再在 P3 后偷偷补生成 PPT。交付物必须由 Planner/工具调用明确产生。 |
+| `_should_auto_generate_digital_strategy_ppt` | 已删除 | 不再保留数字化战略专用自动补 PPT 入口。 |
+| 项目对话页显示“项目关注锚点” | 已修复 | `ProjectAnchorsCard` 已从项目聊天主面板移除，锚点功能保留在概览/锚点管理页。 |
+| `chat_streaming.py` 旧 shim patch 不生效 | 已修复 | 新增兼容 wrapper，旧测试/旧调用 patch shim helper 时仍能生效。 |
 
-```python
-chunks = session.exec(stmt).all()  # ← 加载所有 chunk
-scored = [(cosine_similarity(query_embedding, chunk.embedding), chunk) for chunk in chunks]
+已验证：
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
+  AriaAI/backend/.venv/bin/python -m pytest \
+  AriaAI/backend/tests/test_chat_streaming.py \
+  AriaAI/backend/tests/test_chat_phases.py \
+  AriaAI/backend/tests/test_chat_phases_integration.py -q
+
+# 166 passed
 ```
 
-- 无向量数据库（pgvector / FAISS / Qdrant），纯 Python 循环做余弦相似度
-- 随着知识库增长，每次查询线性增长内存占用
-- **影响**：项目到 10k+ chunk 时单次查询可能占用数十 MB，100k+ 时直接 OOM
-- **与现有技术债文档的关联**：`02-技术债与行动清单.md` 第 3.3 节已标记，但当前审计确认该风险在生产环境中是**必然触发**的，而非"可能"
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
+  AriaAI/backend/.venv/bin/python -m pytest \
+  AriaAI/backend/tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_does_not_auto_apply_selected_skill_from_keywords \
+  AriaAI/backend/tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_prepare_chat_runtime_applies_forced_skill_contract \
+  AriaAI/backend/tests/test_chat_flow.py::ChatStreamingServiceTestCase::test_stream_chat_events_does_not_auto_generate_ppt_after_skill_followup -q
 
-**建议**：立即引入 `pgvector` 的 `vector` 类型 + `IVFFlat`/`HNSW` 索引，或至少对 chunk 查询加 `LIMIT` + batch 处理。
+# 3 passed
+```
 
----
-
-### CR-2. `asyncio.CancelledError` 完全未捕获 → 客户端断开 = 资源泄漏
-
-**位置**：整个后端调用链
-
-- Python 3.8+ 中 `CancelledError` 继承自 `BaseException`，**不在 `except Exception` 范围内**
-- Orchestrator（`__init__.py`）、所有 phase（P0-P4）、`iter_with_heartbeat` 都只 catch `Exception`
-- **后果**：用户刷新页面或 Nginx 超时断开时：
-  - LLM HTTP 连接未关闭（`iter_with_heartbeat` 不 `aclose()` source）
-  - P0 的 `Session(bind)` 同步上下文管理器跨 yield 持有，abandon 时可能不释放回连接池
-  - `ChatSessionState` 处于半写完的不一致状态
-  - 没有任何 SSE error 事件通知前端，前端只能看到连接中断
-
-**建议**：所有 `except Exception` 扩展为 `except (Exception, asyncio.CancelledError)`；orchestrator 加 `try/finally` 确保状态一致性；`iter_with_heartbeat` 在 `finally` 中 `await source.aclose()`。
+```bash
+cd aria-web && npm run build
+# passed
+```
 
 ---
 
-### CR-3. 前端 SSE 尾部 buffer 被静默丢弃
+## 三、当前架构状态
 
-**位置**：`useProjectChatComposer.ts` read loop
+### 3.1 后端 Chat 主链路
 
-```typescript
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;  // ← 剩余 buffer 未 flush
-  // ...
+当前后端主链路：
+
+1. `prepare_chat_runtime`
+   - 解析 Skill 激活决策
+   - 获取/创建会话
+   - 保存用户消息
+   - 构建上下文
+   - 选择模型与 provider
+
+2. `stream_chat_events`
+   - P0：可恢复项目任务判断与早返回
+   - P1：模型初始输出与工具调用提取
+   - P2：执行工具
+   - P3：工具结果后的最终回复
+   - P4：持久化 assistant 消息与 done 事件
+
+3. `task_orchestrator.py`
+   - 项目任务使用结构化 Router
+   - 支持 direct / analyze / artifact / orchestrated / edit
+   - 支持动态步骤和 text artifact
+
+### 3.2 前端项目 Chat 主链路
+
+当前前端主链路：
+
+1. `ProjectChatTab`
+   - 管理项目会话、记忆、模型、Skill、文件预览、任务面板
+
+2. `useProjectChatComposer`
+   - 发送消息
+   - 读取 SSE
+   - 聚合 text/status/tool/artifact/task 事件
+   - 写入 `chatStreamStore`
+
+3. `ProjectChatMessages`
+   - 渲染历史消息
+   - 渲染 streaming 内容
+   - 渲染工具调用、任务步骤、附件卡片
+
+4. `ProjectTaskRunsDrawer`
+   - 展示可恢复任务与步骤详情
+
+---
+
+## 四、仍然有效的高优先级问题
+
+### P0-1. `CancelledError` 与资源清理需要按生命周期最佳实践处理
+
+旧报告建议“把 `except Exception` 扩展为 `except (Exception, asyncio.CancelledError)`”，这个建议不准确。
+
+更合理的最佳实践是：
+
+```python
+try:
+    ...
+except asyncio.CancelledError:
+    # 只做清理和必要状态记录
+    raise
+except Exception as exc:
+    # 普通错误转成用户可见错误
+    ...
+finally:
+    # 关闭 generator / HTTP stream / DB session / pending task
+    ...
+```
+
+原因：
+
+- `CancelledError` 表示调用方主动取消，不应该被吞掉。
+- **当前代码中没有任何地方 catch `CancelledError`，它完全处于漏网状态。**
+- 需要确保 LLM stream、async generator、pending task、DB session 都能在 `finally` 中释放。
+- 对用户刷新页面、Nginx 超时、移动端网络切换很关键。
+
+建议修复范围：
+
+- `services/chat/__init__.py`
+- `services/chat/sse.py`
+- `services/chat/phases/p0_durable_task.py`
+- `services/chat/phases/p1_planning.py`
+- `services/chat/phases/p2_tools.py`
+- `services/chat/phases/p3_followup.py`
+- `services/chat/phases/p4_persist.py`
+
+验收标准：
+
+- 客户端中断后无悬挂 LLM 请求。
+- 无未关闭 async generator。
+- DB 连接不因流式中断而泄漏。
+- 日志中可区分用户取消与真实错误。
+
+---
+
+### P0-2. 前端 SSE 尾部 buffer 仍可能被丢弃
+
+位置：`aria-web/src/pages/projects/useProjectChatComposer.ts`
+
+当前读取逻辑会按 `\n\n` 切分 SSE 事件，但如果最后一个事件没有以 `\n\n` 结尾，尾部 buffer 可能没有被处理。
+
+风险：
+
+- `done` 事件丢失。
+- `error` 事件丢失。
+- `truncated` 事件丢失。
+- 前端显示“还在生成”，但后端已经结束。
+
+建议：
+
+- 抽一个 `flushBufferedEvent(buffer)`。
+- `reader.read()` done 后先 flush 剩余 buffer，再退出循环。
+- 给 `done/error/truncated` 增加测试。
+
+验收标准：
+
+- 最后一条 SSE 没有 `\n\n` 时仍能正确完成。
+- `done` 事件一定会触发 `setStreamIsLoading(false)`。
+
+---
+
+### P0-3. 前端发送并发保护不完整
+
+位置：`useProjectChatComposer.ts`
+
+当前风险：
+
+- 用户快速点击发送可能产生多个并行 stream。
+- `abortControllerRef.current` 会被新请求覆盖。
+- 旧流仍可能继续写 `chatStreamStore`。
+- 工具调用、附件、进度卡可能交错。
+
+建议：
+
+- `sendMessage` / `sendMessageAsync` 开头增加运行中保护。
+- 如果新请求必须开始，先 abort 旧请求并等待旧流退出。
+- 每个 stream 分配 `streamRunId`，处理事件时校验当前 run 是否仍有效。
+
+验收标准：
+
+- 快速连点发送只产生一个有效请求。
+- 停止按钮能停止当前唯一 stream。
+- 旧 stream 结束后不会覆盖新 stream 状态。
+
+---
+
+### P0-4. P4 持久化失败仍可能造成“幽灵回复”
+
+位置：`services/chat/phases/p4_persist.py`
+
+风险：
+
+- 用户已经看到完整回复。
+- P4 保存 assistant 消息失败。
+- 刷新页面后回复消失。
+
+建议：
+
+- P4 持久化失败时，不应简单返回 error。
+- 前端已经收到的 `full_text` 应保留在当前 UI。
+- 后端应发送 `done`，但 metadata 标记 `persist_failed: true`。
+- 可选：写入本地 outbox / retry queue。
+
+验收标准：
+
+- 模拟 DB commit 失败，前端仍保留本轮回复。
+- 用户看到明确提示：“回复已生成，但保存失败，可重试保存。”
+
+---
+
+### P0-5. `total_stream_ms` 指标仍不可信
+
+位置：`services/chat/phases/p4_persist.py`
+
+当前 `total_stream_ms` 在 P4 内部反推，容易变成接近 `save_ms` 的值，而不是用户感知总耗时。
+
+建议：
+
+- 在 `stream_chat_events` 开头记录 `stream_started_at`。
+- 放入 `ChatSessionState`。
+- P4 只读取该字段计算总耗时。
+
+验收标准：
+
+- `total_stream_ms >= prepare_total_ms + model_first_event_ms + tools_total_ms + follow_up_ms + save_ms` 的合理下界。
+- P0 durable task 早返回也能正确记录总耗时。
+
+---
+
+## 五、重要但可分阶段处理的问题
+
+### P1-1. 大上下文缺少统一 token 预算
+
+涉及：
+
+- 系统 prompt
+- Skill prompt
+- 项目上下文
+- 客户记忆
+- RAG 内容
+- 历史消息
+- 用户当前输入
+
+当前主要限制的是输出 `max_tokens`，不是输入 prompt 总 token。
+
+风险：
+
+- 大项目空间或大 RAG 下，prompt 超上下文窗口。
+- API 报错、静默截断或模型输出质量下降。
+
+建议：
+
+- 建立 `ContextBudget`：
+  - `system`
+  - `project_memory`
+  - `rag`
+  - `files`
+  - `history`
+  - `user`
+- 根据模型 context window 做分层截断。
+- 优先保留用户当前输入、显式引用文件、最近任务状态。
+
+---
+
+### P1-2. RAG 检索需要向量索引或分页策略
+
+旧报告写“必然 OOM”过于绝对，但方向正确。
+
+当前风险更准确地说是：
+
+- chunk 越多，Python 侧全量相似度计算的 CPU 和内存线性增长。
+- 在大知识库下会显著拖慢响应，并可能造成内存峰值过高。
+
+建议：
+
+- 优先：pgvector + HNSW/IVFFlat。
+- 短期兜底：限制候选 chunk、分页 batch、记录检索耗时和候选数量。
+
+---
+
+### P1-3. `step_index` falsy 判断需要统一
+
+位置：
+
+- `useProjectChatComposer.ts`
+- `projectChatWorkflow.ts`
+
+风险：
+
+- 如果某些事件使用 `step_index = 0`，前端会当作不存在。
+- 当前多数步骤从 1 开始，因此不是立刻爆炸的问题，但属于类型判断不严谨。
+
+建议：
+
+```ts
+if (payload.step_index !== undefined && payload.step_index !== null) {
+  ...
 }
 ```
 
-- 如果服务器最后一条事件不以 `\n\n` 结尾，该事件丢失
-- 特别是 `done`、`truncated`、`error` 等最终事件——这会导致前端永远等不到 stream 结束
+---
 
-**建议**：`break` 前处理 `buffer` 中剩余的未完成事件。
+### P1-4. P1/P3 工具 JSON 跨 chunk 解析仍需加强
+
+当前 P1/P3 会从 chunk 中提取 `tool_use` JSON。如果 JSON 被模型流拆到多个 chunk，存在识别失败风险。
+
+建议：
+
+- 维护跨 chunk JSON buffer。
+- 使用增量 JSON 解析。
+- 对过长 buffer 设置上限，防止异常内容无限增长。
 
 ---
 
-### CR-4. 前台并发无保护 → 多次点击 corrupt 全局状态
+### P1-5. 网络错误时应保留已接收内容
 
-**位置**：`useProjectChatComposer.ts` `sendMessage` / `sendMessageAsync`
+位置：`useProjectChatComposer.ts`
 
-- 无 `if (isLoading) return;` guard
-- 第二次请求覆盖 `abortControllerRef.current`，旧流继续在后台运行
-- 两个流同时写入同一个 `chatStreamStore`，`streamingContent` / `streamingToolCalls` / `streamingArtifacts` 内容交错
-- `AbortController` 被覆盖后，`stopGeneration` 只能取消最新的请求
+风险：
 
-**建议**：`sendMessage` 和 `sendMessageAsync` 入口加 `if (isLoading) return false;`；赋值 `abortControllerRef.current` 前先 abort 现有 controller。
+- 用户已经看到部分回复。
+- 网络错误后 `resetStream()` 可能清掉当前内容。
 
----
+建议：
 
-## 三、高风险问题（HIGH）—— 共 10 项
-
-### HI-1. P4 持久化失败 = 幽灵消息
-
-**位置**：`p4_persist.py:142`
-
-- `persist_assistant_message` 抛异常（DB 死锁、连接断开）时：
-  - 用户**已经**在 SSE 流中看到了完整回复
-  - 但 DB 中**没有**这条 assistant 消息
-  - 刷新页面后，这条"已看过"的回复彻底消失
-- 无任何重试或降级保存机制
-
-**建议**：P4 加 `try/except` 包裹 persist，异常时仍 emit `done` 并保留 `full_text`，至少保证前端状态不丢失。
+- 非主动 abort 的错误，保留 `fullContent` 到临时 assistant 消息。
+- 再触发 `fetchMessages()` 与后端同步。
+- UI 标记“连接中断，以下为已收到内容”。
 
 ---
 
-### HI-2. `total_stream_ms` 指标完全失真
+### P1-6. 后台任务注册表需要并发保护
 
-**位置**：`p4_persist.py:40,115`
+位置：`chat_async.py`
 
-```python
-stream_started_at = time.perf_counter() - (state.stage_timings.get("total_stream_ms", 0) / 1000)
-# 正常流：total_stream_ms 还不存在 → stream_started_at ≈ time.perf_counter()
-# 然后 total_stream_ms = time.perf_counter() - stream_started_at ≈ save_ms（几毫秒）
-```
+风险：
 
-- 正常聊天流的总耗时被报告为 **P4 内部的几毫秒**，完全失去监控意义
-- 无法用于监控真实用户感知的延迟
+- 同一 conversation 的后台任务互相覆盖。
+- 旧任务 finally pop 掉新任务。
 
-**建议**：在 orchestrator `stream_chat_events` 开头记录 `stream_started_at`，存入 `ChatSessionState`，P4 直接读取。
+建议：
 
----
-
-### HI-3. 输入 token 无限制 → 可能超过模型上下文窗口
-
-**位置**：`chat/runtime.py`、`openai_compat.py`、`claude.py`
-
-- 系统 prompt (~1,100 字) + skill prompt + project_context（无界）+ RAG（无界）+ 24 条历史消息
-- `_cap_max_tokens_for_model()` 只限制 **输出** `max_tokens`
-- 无任何 tokenizer 计算或截断逻辑
-- 大项目 + 大 RAG 可能轻松组装出 50k+ token 的 prompt，API 直接拒绝或静默截断
-
-**建议**：引入 `tiktoken` 或 provider 专用 tokenizer，在 `prepare_chat_runtime` 中对 project_context、rag_context、历史消息做截断，确保总 prompt < model_context_window - max_tokens。
+- `_background_chat_tasks` 读写加 `asyncio.Lock`。
+- pop 时校验 task identity。
 
 ---
 
-### HI-4. 后台任务注册表竞态
+### P1-7. P3 re-follow-up 文本完全替换主 follow-up 文本
 
-**位置**：`chat_async.py`
+位置：`services/chat/phases/p3_followup.py`
 
-```python
-_background_chat_tasks: dict[int, asyncio.Task] = {}  # 无锁
-```
+风险：
 
-- 同一 `conv_id` 的新任务取消旧任务后，旧任务的 `finally: pop()` 可能把**新任务**也 pop 掉
-- 状态端点返回"已完成"，但实际上后台任务仍在跑
-- 同步 DB commit 阻塞事件循环
+- 用户已在 SSE 流中看到主 follow-up 的完整文本。
+- re-follow-up（二次 tool_use 后的补充回复）执行后，`follow_up_text = re_follow_text` 完全替换原内容。
+- 导致**用户看到的内容 ≠ 最终保存到数据库的内容**。
 
-**建议**：用 `asyncio.Lock` 保护 `_background_chat_tasks` 的读写；DB commit 用 `loop.run_in_executor()`。
+建议：
 
----
-
-### HI-5. P3 re-follow-up 截断被静默吞掉
-
-**位置**：`p3_followup.py:389-421`
-
-- 二次 follow-up（执行 P3 内检测到的额外工具后）如果再次截断：
-  - 只 emit `status: continuing`，**不发** `{"type": "truncated", "can_continue": true}`
-  - **不触发**自动续写循环
-  - 用户看不到"Continue"按钮，内容不完整就被保存
-
-**建议**：re-follow-up 流补全与主 P3 流相同的截断检测 + 续写逻辑。
+- 将 re-follow-up 内容追加到主 follow-up 后，而非替换。
+- 或明确分隔两段内容（如 `"---\n补充回复：\n"`）。
 
 ---
 
-### HI-6. 网络错误丢弃已接收内容
+### P1-8. P1 续写时仍传递 `tools=runtime.tools`
 
-**位置**：`useProjectChatComposer.ts` catch 块
+位置：`services/chat/phases/p1_planning.py`
 
-- 非 `AbortError`（如 Wi-Fi 断开、服务器 5xx）时调用 `resetStream()`
-- 已积累的 `fullContent` 被完全丢弃
-- 用户已经看到部分回复，但断网后全部消失
+风险：
 
-**建议**：非 abort 异常时，将 `fullContent` 追加到 messages 中（类似 abort 的处理方式），再调用 `fetchMessages()` 同步。
+- 截断续写 prompt 已明确要求模型"不要调用工具，只继续之前的文本"。
+- 但 `runtime.llm.stream_response(..., tools=runtime.tools)` 仍传入完整 tools 定义。
+- LLM 可能在续写中再次 emit `tool_use`，导致无限循环或异常流程。
 
----
+建议：
 
-### HI-7. `iter_with_heartbeat` 不 `aclose()` source → LLM 连接泄漏
-
-**位置**：`sse.py:22-54`
-
-```python
-async def iter_with_heartbeat(source, ...):
-    iterator = source.__aiter__()
-    pending = asyncio.create_task(iterator.__anext__())
-    try:
-        while True:
-            ...
-    finally:
-        if not pending.done():
-            pending.cancel()
-            try:
-                await pending
-            except (asyncio.CancelledError, StopAsyncIteration):
-                pass
-```
-
-- `finally` 只取消 `pending`，但**从不调用 `await source.aclose()`**
-- 如果 consumer abandon 了 generator，底层 LLM HTTP 连接/订阅/WebSocket 可能一直保持打开
-
-**建议**：`finally` 块中增加 `await source.aclose()`；orchestrator 中用 `contextlib.aclosing` 包裹所有 phase generator。
+- 续写调用时显式传入 `tools=None`（或不传 tools 参数）。
 
 ---
 
-### HI-8. P0 的 `Session(bind)` 跨 yield 持有 → DB 连接泄漏
+### P1-9. `iter_with_heartbeat` 的 dict/str union 混淆
 
-**位置**：`p0_durable_task.py:65`
+位置：`services/chat/sse.py`
 
-```python
-with Session(bind) as task_session:
-    ...
-    yield sse_event(...)  # ← 同步上下文管理器跨 yield
-```
+风险：
 
-- Python 3.9 中同步上下文管理器在 async generator 被 abandon 时，`__exit__` 不保证调用
-- DB 连接可能永远停留在"已检出"状态，连接池耗尽
+- `iter_with_heartbeat` 签名是 `AsyncIterator[str | dict]`，但内部逻辑把 dict 当作普通值 yield。
+- 如果上游生成器 yield dict（如状态对象），会被误传给 SSE 序列化层，可能导致非法 JSON。
+- 类型系统没有保护这种运行时错误。
 
-**建议**：将 SSE event 收集到 list buffer，在 `with Session(...)` 块内完成所有 DB 操作，退出后再 yield buffer 中的事件。
+建议：
 
----
-
-### HI-9. `step_index: 0` 被当 falsy → 工作流第一步跳过
-
-**位置**：`useProjectChatComposer.ts`
-
-```typescript
-if (payload.step_index) { ... }  // step_index=0 走不进这里
-```
-
-- 工作流第一步（index=0）被误当作普通 status，不渲染为工作流步骤
-- 用户看不到"第 1 步：..."的 UI
-
-**建议**：改为 `if (payload.step_index !== undefined)`。
+- 明确拆分：heartbeat 生成器只 yield str（已序列化的事件），状态更新走单独通道。
+- 或改用 `yield sse_event({...})` 保证输出始终是 str。
 
 ---
 
-### HI-10. 部分响应在 phase 失败时不持久化
+## 六、当前不应再继续走的补丁路线
 
-**位置**：`__init__.py` orchestrator
+以下做法应避免继续扩散：
 
-- P1 成功流了很长内容给用户，但 P2 抛异常
-- orchestrator yield error 后返回，部分 assistant 文本**从未持久化**
-- 用户刷新后，这条已看过的回复消失
+1. **根据关键词直接修某个场景**
+   - 例如“看到故事线就走专门逻辑”
+   - 更合理：通用咨询能力 schema + Planner 动态步骤
 
-**建议**：orchestrator 的 `except` 块中，如果 `state.text_buffer` 非空，将其作为降级内容持久化（标记为 `incomplete`）。
+2. **工具失败后静默自动补一个交付物**
+   - 例如已移除的 Auto-PPT fallback
+   - 更合理：Planner 明确创建交付物步骤，失败则进入可恢复任务状态
 
----
+3. **在前端用显示层逻辑弥补后端状态不一致**
+   - 更合理：后端事件语义清楚，前端只负责渲染和轻量恢复
 
-## 四、中等风险问题（MEDIUM）—— 共 9 项
-
-### ME-1. `tool_use` JSON 跨 chunk 分裂无法恢复
-
-- P1/P3 的 `extract_tool_use_json_blocks(chunk)` 是**逐 chunk** 调用
-- 如果 `{"type": "tool_use", ...}` 被 SSE 分割到两个 chunk，永远检测不到
-- 残留 JSON 作为普通文本存入 `text_buffer`，最终被用户看到
-
-**建议**：在 P1/P3 中维护一个跨 chunk 的 JSON buffer，对不完整 JSON 做增量解析尝试。
+4. **在 tool repair 中做过多业务猜测**
+   - repair 应负责最小参数补齐和校验
+   - 任务类型、输出格式、章节结构应由 Router/Planner 决策
 
 ---
 
-### ME-2. P1 续写时仍传递 `tools`
+## 七、推荐修复路线
 
-- 续写 prompt 明确要求"不要调用工具"
-- 但 `runtime.llm.stream_response(..., tools=runtime.tools)` 仍传了 tools
-- LLM 可能在续写中再次 emit `tool_use`
+### 第一阶段：流式可靠性
 
-**建议**：续写调用时 `tools=None`。
+目标：用户发送后，不会出现“无提示、刷新才有结果、内容突然消失”。
 
----
+任务：
 
-### ME-3. P3 re-follow-up 的 `follow_up_text` 被完全替换
+1. SSE 尾部 buffer flush。
+2. 前端并发 guard + streamRunId。
+3. 网络错误保留已接收内容。
+4. `CancelledError` 单独处理 + finally 清理。
+5. `iter_with_heartbeat` 对 source 做 `aclose()`。
 
-- 用户已在 SSE 中看到主 follow-up 的文本
-- re-follow-up 后 `follow_up_text = re_follow_text` 完全替换
-- **看到的内容 ≠ 保存的内容**
+### 第二阶段：持久化一致性
 
-**建议**：re-follow-up 文本追加到已有 `follow_up_text` 上，而非替换。
+目标：用户看到的内容，刷新后仍能找到；保存失败要可感知、可恢复。
 
----
+任务：
 
-### ME-4. `ChatError` 类型体系是 dead code
+1. P4 persist 失败时保留前端内容。
+2. metadata 标记 `persist_failed`。
+3. 支持“重试保存本轮回复”。
+4. 持久化失败测试覆盖。
 
-**位置**：`errors.py`
+### 第三阶段：上下文与任务质量
 
-- 定义了 `ChatStreamingError` / `ChatContextError` / `ChatToolError`
-- 没有任何 phase raise 它们，也没有任何 caller catch 它们
-- 维护负担 + 虚假安全感
+目标：大项目、大文件、多知识源下仍能稳定回答。
 
-**建议**：要么在各 phase 中使用它们（orchestrator catch 它们并做特殊处理），要么删除 `errors.py`。
+任务：
 
----
+1. ContextBudget。
+2. RAG 向量索引或 batch 检索。
+3. 工具 JSON 跨 chunk buffer。
+4. Planner 输出结构化 schema 校验。
 
-### ME-5. `chatStore.ts` 在 `ProjectChatTab` 中未被使用
+### 第四阶段：前端状态统一
 
-- `ProjectChatTab` 仍使用 local `useState` 和 `useProjectChatConversations`
-- 其他组件如果消费 `useChatStore`，状态树分叉，active conversation ID 不一致
+目标：项目 Chat 和通用 Chat 的状态模型不再分叉。
 
-**建议**：统一迁移到 `useChatStore`，或暂时移除未使用的 store。
+任务：
 
----
-
-### ME-6. 后台任务同步 DB commit 阻塞事件循环
-
-**位置**：`chat_async.py`
-
-- `_mark_background_chat_run()` 是同步函数，在 async 任务中直接调用
-- 阻塞整个事件循环直到 DB commit 完成
-
-**建议**：用 `asyncio.get_event_loop().run_in_executor()` 包装同步 DB 操作。
+1. 统一 stream store。
+2. 抽离 SSE parser。
+3. 抽离 artifact / task / workflow event reducer。
+4. **`ProjectChatTab` 迁移到 `chatStore.ts`**：当前 `ProjectChatTab` 仍使用 local `useState` 和 `useProjectChatConversations`，`chatStore.ts` 已创建但未被引用，存在状态树分叉风险。其他组件若消费 `useChatStore` 将与 `ProjectChatTab` 的本地状态不一致。
 
 ---
 
-### ME-7. 无重试 / 断线重连 / 恢复逻辑
+## 八、建议测试补充
 
-- SSE 断开即终止，无任何重试
-- 30 秒超时后只 abort，不尝试恢复
-- 长时间任务（如 PPT 生成）对网络波动极度敏感
+### 后端
 
-**建议**：前端实现指数退避重试（最多 3 次），或至少在网络恢复后自动 `fetchMessages()` 同步最新状态。
+| 测试 | 目的 |
+| --- | --- |
+| `CancelledError` 中断 stream | 确认 generator 和 session 清理 |
+| P4 persist 抛异常 | 确认前端可保留内容，后端事件不乱 |
+| P1/P3 tool_use 跨 chunk | 确认工具调用不会漏识别 |
+| P1 续写不传 tools | 确认续写不会再次触发 tool_use |
+| P3 re-follow-up 文本追加 | 确认保存内容与用户看到一致 |
+| `total_stream_ms` | 确认耗时指标真实 |
+| 大 context budget | 确认输入 prompt 不越界 |
 
----
+### 前端
 
-### ME-8. `StreamConversationIdEvent` 定义了但从未处理
-
-**位置**：`types/chat.ts` / `useProjectChatComposer.ts`
-
-- 后端 emit `conversation_id` 事件，但前端 composer 的 event parser 没有处理它的分支
-- 如果服务器 emit 它，事件被静默跳过
-
-**建议**：composer 中补充 `conversation_id` 的处理分支，更新 `activeConvId`。
-
----
-
-### ME-9. `sendMessageAsync` timeout ID 组件卸载后泄漏
-
-**位置**：`useProjectChatComposer.ts`
-
-- `setTimeout` 的 ID 在组件卸载时未清理
-- 超时回调仍尝试 abort `abortControllerAsyncRef.current`
-- 虽然不会 crash（有 optional chaining），但 timeout ID 泄漏直到触发
-
-**建议**：在 `useEffect` cleanup 中 `clearTimeout(timeoutId)`。
+| 测试 | 目的 |
+| --- | --- |
+| SSE 最后一条无 `\n\n` | 确认 done/error/truncated 不丢 |
+| 连续点击发送 | 确认不会双流交错 |
+| 网络错误中断 | 确认已收到文本保留 |
+| step_index 为 0 | 确认不会被 falsy 吃掉 |
+| artifact download/open | 确认文件卡片行为一致 |
 
 ---
 
-## 五、低风险问题（LOW）—— 共 8 项
+## 九、当前结论
 
-| # | 问题 | 位置 | 说明 |
-|---|------|------|------|
-| LO-1 | `first_model_event_recorded` 重复设置 | `p1_planning.py:97-106, 157-168` | 安全但冗余 |
-| LO-2 | `tool_duration_ms` 对失败工具也计时 | `p2_tools.py:232` | 设计如此，但可能误导 |
-| LO-3 | `stage_timings` 混存 `int` 和 `str` | `state.py` | `selected_model`（str）和毫秒（int）在同一个 dict |
-| LO-4 | `bind` 参数无类型注解 | 所有 phase 签名 | 应注解为 `sqlalchemy.engine.Engine` |
-| LO-5 | `reader.releaseLock()` 未被调用 | `useProjectChatComposer.ts` | 现代引擎通常自动清理，但显式释放更安全 |
-| LO-6 | `as StreamEvent` 运行时 cast 无校验 | `useProjectChatComposer.ts` | 无 Zod/io-ts 验证， malformed 数据可能导致运行时异常 |
-| LO-7 | 动态 import `parseMentions` 增加延迟 | `ProjectChatTab.tsx` | 模块已缓存，但每次 send 都触发 import 表达式 |
-| LO-8 | 前端 SSE 事件链未使用类型守卫 | `useProjectChatComposer.ts` | 已定义 `isTextEvent` / `isStatusEvent` 等，但代码用 `if/else if` 链 |
+Chat 模块现在已经摆脱了最明显的补丁式路径：Skill 不再被宽泛关键词误触发，PPT 不再被后处理自动补生成，项目对话页也不再插入影响焦点的锚点卡片。
 
----
+下一步的核心不是继续补场景，而是把 **流式生命周期、并发控制、持久化一致性、上下文预算** 做扎实。完成这些后，Chat 才能在真实客户使用中稳定支撑长任务、交付物生成和项目记忆协作。
 
-## 六、与历史文档的对比
+优先级建议：
 
-### 6.1 已修复项（自 `13-项目对话代码审阅报告.md` 以来）
-
-| 历史问题 | 状态 | 说明 |
-|---------|------|------|
-| `chat_streaming.py` 1,740 行未拆分 | ✅ **已修复** | 拆为 `services/chat/` 13 个模块 + shim |
-| `context_builder.py` 1,122 行未拆分 | ✅ **已修复** | 拆为 `services/context_builder/` 9 个模块 |
-| `print()` 调试语句残留 | ✅ **已修复** | 已替换为 `logging` |
-| 后端核心流逻辑 0% 覆盖 | ✅ **已改善** | 新增 `test_chat_phases.py`（44 测试）、`test_context_builder_modules.py`（36 测试）、`test_chat_phases_integration.py`（14 测试） |
-| @文件提及不注入内容 | ✅ **已修复** | `mention_context.file_ids` 合并到 `file_ids` |
-| P3 re-follow-up 截断未追踪 | ✅ **已修复** | 添加 `p3_double_truncated` |
-| P3 follow-up 缺少 `original_content` | ✅ **已修复** | 字段补全 |
-
-### 6.2 仍待修复（历史遗留 + 本次新发现）
-
-| 历史问题 | 优先级 | 本次审计是否升级 |
-|---------|--------|-----------------|
-| RAG 全量 chunk 加载 | P0 | ⚠️ **从 HIGH 升级到 CRITICAL**（确认为必然 OOM） |
-| 后台任务内存注册表 | P1 | 维持 HIGH |
-| sendMessageAsync 无超时/取消 | P1 | 维持 HIGH（并发安全问题已加入 CR-4） |
-| 自动干系人检测无取消机制 | P1 | 维持 MEDIUM |
-| 计划模式双 LLM 调用 | P2 | 维持 MEDIUM |
-| 工具调用代码重复 | P2 | 维持 MEDIUM |
-| 硬编码中文提示 | P3 | 维持 LOW |
-
-### 6.3 本次新发现（历史文档未覆盖）
-
-| 新问题 | 级别 | 关键性说明 |
-|--------|------|-----------|
-| `CancelledError` 全链未捕获 | **CRITICAL** | 生产环境客户端断开 = 资源泄漏 + 状态不一致 |
-| SSE 尾部 buffer 丢弃 | **CRITICAL** | 最终事件（done/error/truncated）可能丢失 |
-| P4 失败 = 幽灵消息 | **HIGH** | 用户已看到回复但刷新后消失 |
-| `total_stream_ms` 失真 | **HIGH** | 监控指标完全不可用 |
-| 输入 token 无限制 | **HIGH** | 大项目 prompt 可能超模型上下文窗口 |
-| P3 re-follow-up 截断丢失 | **HIGH** | 二次 follow-up 无截断恢复 |
-| 网络错误丢弃已收内容 | **HIGH** | 用户体验严重受损 |
-| `iter_with_heartbeat` 不 aclose | **HIGH** | LLM HTTP 连接泄漏 |
-| P0 DB session 跨 yield | **HIGH** | 连接池耗尽风险 |
-| 部分响应失败不持久化 | **HIGH** | 刷新后已读内容消失 |
-| `tool_use` JSON 跨 chunk 分裂 | **MEDIUM** | 工具调用可靠性 |
-| `ChatError` dead code | **MEDIUM** | 维护负担 |
-| `chatStore.ts` 未使用 | **MEDIUM** | 状态分叉风险 |
-
----
-
-## 七、修复优先级建议
-
-### 🔴 立即修复（本周内）—— 不做则生产环境暴露
-
-| 优先级 | 修复项 | 责任人 | 预计工时 |
-|--------|--------|--------|----------|
-| 1 | RAG 加 `pgvector` 或至少加 `LIMIT` + batch 相似度 | 后端 | 1-2 天 |
-| 2 | 所有 `except Exception` 扩展为 `except (Exception, asyncio.CancelledError)`，并加 `finally` 清理 | 后端 | 4-6 小时 |
-| 3 | 前端 `sendMessage` 加并发 guard + 尾部 buffer flush | 前端 | 2-3 小时 |
-| 4 | `total_stream_ms` 在 orchestrator 开头记录并传入 P4 | 后端 | 1 小时 |
-
-### 🟠 短期修复（两周内）—— 不做则用户体验/可观测性受损
-
-| 优先级 | 修复项 | 责任人 | 预计工时 |
-|--------|--------|--------|----------|
-| 5 | P4 加 `try/except` 包裹 persist，异常时仍 emit `done` | 后端 | 2 小时 |
-| 6 | 输入 token 计数 + 截断（`tiktoken` 或 provider tokenizer） | 后端 | 1 天 |
-| 7 | `chat_async.py` `_background_chat_tasks` 加 `asyncio.Lock` | 后端 | 2 小时 |
-| 8 | P3 re-follow-up 补全截断事件 + 续写循环 | 后端 | 3-4 小时 |
-| 9 | 前端网络错误时保留已接收内容 | 前端 | 2 小时 |
-| 10 | `iter_with_heartbeat` / 所有 async generator 加 `aclose()` | 后端 | 3-4 小时 |
-
-### 🟡 中期优化（一个月内）—— 架构健壮性
-
-| 优先级 | 修复项 | 责任人 | 预计工时 |
-|--------|--------|--------|----------|
-| 11 | 跨 chunk 的 `tool_use` JSON 恢复（buffer + 增量解析） | 后端 | 1 天 |
-| 12 | P1 续写时不传 `tools` | 后端 | 1 小时 |
-| 13 | 前端 SSE 重试 / 断线恢复 | 前端 | 1 天 |
-| 14 | `ChatError` 用起来或删掉 | 后端 | 1 小时 |
-| 15 | `chatStore.ts` 统一接入 `ProjectChatTab` 或移除 | 前端 | 2-3 小时 |
-| 16 | P0 DB session 不跨 yield（buffer 模式） | 后端 | 2 小时 |
-
----
-
-## 八、一句话总结
-
-> Chat 模块的**模块化拆分已经完成**，但**资源生命周期管理**和**生产容错**是当前的系统性短板。`CancelledError` 漏网、async generator 不清理、RAG 必然 OOM、P4 失败导致幽灵消息——这四个问题如果不在本周内处理，上线后会在真实用户场景中反复触发，严重损害产品可信度。建议立即投入 `pgvector` 改造和 `CancelledError` 全链修复。
+1. 先修 SSE buffer flush、并发 guard、取消清理。
+2. 再修 P4 持久化失败的用户可见恢复。
+3. 然后做 ContextBudget 和 RAG 检索升级。
+4. 最后统一前端 Chat 状态模型和 SSE parser。
