@@ -77,6 +77,62 @@ def test_rule_router_routes_markdown_artifacts():
     assert detect_project_task_type("帮我整理一份项目风险清单") == "create_text_artifact"
     assert detect_project_task_type("这个故事线 不行 至少有 10个章节 需要1级和2级目录") == "create_text_artifact"
     assert detect_project_task_type("帮我做一个 MECE 问题树，拆成一级和二级议题") == "create_text_artifact"
+    assert detect_project_task_type(
+        "请帮我准备一次客户会议。请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。"
+    ) == "create_text_artifact"
+    route = asyncio.run(route_project_task_request("请帮我准备一次客户会议，输出开场话术、关键议题顺序、关键人表达方式和会后行动清单。"))
+    assert [step.step_type for step in route.plan_steps] == [
+        "collect_project_context",
+        "plan_text_artifact",
+        "draft_text_artifact",
+        "summarize_result",
+    ]
+
+
+def test_consulting_capability_route_overrides_llm_direct_misclassification():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "response_mode": "direct",
+                "task_type": None,
+                "confidence": 0.91,
+                "reason": "misclassified as simple chat",
+                "output_kind": "chat",
+            },
+            ensure_ascii=False,
+        )
+
+    content = (
+        "请帮我准备一次客户会议。项目：CRM系统迁移项目，客户：上海波赫驱动系统有限公司。"
+        "请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。"
+    )
+    route = asyncio.run(route_project_task_request(content, llm_complete=fake_complete, model="test"))
+
+    assert route.task_type == "create_text_artifact"
+    assert route.response_mode == "artifact"
+    assert route.reason == "capability:client_meeting_brief"
+
+
+def test_high_confidence_rule_route_overrides_wrong_llm_artifact_type():
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(
+            {
+                "response_mode": "artifact",
+                "task_type": "generate_project_docx",
+                "confidence": 0.93,
+                "reason": "wrongly treated as word document",
+                "output_kind": "docx",
+            },
+            ensure_ascii=False,
+        )
+
+    route = asyncio.run(
+        route_project_task_request("请帮我准备一次客户会议，输出开场话术、关键议题顺序、关键人表达方式和会后行动清单。", llm_complete=fake_complete, model="test")
+    )
+
+    assert route.task_type == "create_text_artifact"
+    assert route.output_kind == "md"
+    assert route.reason == "capability:client_meeting_brief"
 
 
 def test_router_keeps_diagnostic_chat_as_direct_answer():
@@ -148,6 +204,7 @@ def test_structured_router_infers_markdown_artifact_from_response_mode_and_outpu
     assert route.output_kind == "md"
     assert [step.step_type for step in route.plan_steps] == [
         "collect_project_context",
+        "plan_text_artifact",
         "draft_text_artifact",
         "summarize_result",
     ]
@@ -253,6 +310,7 @@ def test_llm_router_uses_structured_plan():
     assert route.title == "项目风险清单"
     assert [step.step_type for step in route.plan_steps] == [
         "collect_project_context",
+        "plan_text_artifact",
         "draft_text_artifact",
         "summarize_result",
     ]
@@ -491,7 +549,7 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
             project_files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project.id)).all()
 
         assert task.status == "completed"
-        assert [step.key for step in steps] == ["collect_context", "draft_text_artifact", "summarize_result"]
+        assert [step.key for step in steps] == ["collect_context", "plan_text_artifact", "draft_text_artifact", "summarize_result"]
         assert artifacts and artifacts[0].file_type == "md"
         assert artifacts[0].project_file_id
         assert artifacts[0].path
@@ -518,6 +576,14 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
         assert metadata["project_file_id"] == project_files[0].id
         assert metadata["path"] == project_files[0].path
         assert metadata["content"].startswith("#")
+        assert metadata["text_spec"]["output_schema"]
+        assert metadata["text_spec"]["plan"]["capability_id"] == "client_meeting_brief"
+        assert metadata["text_spec"]["plan"]["required_sections"] == [
+            "开场话术",
+            "关键议题顺序",
+            "每个关键人应关注的表达方式",
+            "会后行动清单",
+        ]
     finally:
         engine.dispose()
 
@@ -594,6 +660,21 @@ def test_text_artifact_uses_consulting_capability_catalog_for_issue_tree():
     assert "## 一级议题" in result["content"]
     assert "## 二级议题" in result["content"]
     assert "层级互斥且穷尽" in result["text_spec"]["quality_rules"]
+
+
+def test_text_artifact_plan_exposes_capability_protocol():
+    plan = task_orchestrator._build_text_artifact_plan(
+        "请帮我准备一次客户会议。请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。"
+    )
+
+    assert plan["capability_id"] == "client_meeting_brief"
+    assert plan["required_sections"] == [
+        "开场话术",
+        "关键议题顺序",
+        "每个关键人应关注的表达方式",
+        "会后行动清单",
+    ]
+    assert "## 开场话术" in plan["output_schema"]
 
 
 def test_execute_task_run_fails_only_current_step(monkeypatch):

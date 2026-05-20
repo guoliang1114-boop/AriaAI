@@ -63,13 +63,31 @@ route_project_task_request(content)
 - “帮我整理一份项目风险清单”会进入 Text artifact 任务。
 - “介绍一下这个报告的重点”不会进入 Orchestrator，只走普通 LLM 回答。
 
+## 3.1 路由仲裁原则：Rule-First Arbitration
+
+当前路由不是“完全相信 LLM Router”。更准确的规则是：
+
+```text
+规则路由先给出 rule_intent / confidence
+LLM Router 再给出 llm_intent / confidence / plan_steps
+如果规则高置信命中，且 LLM 把它降级为 direct 或改成另一个 task_type：
+  使用规则路由
+  记录 router disagreement 日志
+否则：
+  使用 LLM Router 的结构化结果，尤其是 plan_steps
+```
+
+这样做的原因是：顾问能力目录、文件类型识别、用户明确要求的章节结构，属于确定性业务约束；LLM Router 适合补充边缘判断和动态步骤，不应该覆盖已经明确命中的能力。
+
+例如“客户会议准备 + 开场话术 / 关键议题顺序 / 关键人表达方式 / 会后行动清单”已经命中 `client_meeting_brief`，即使 LLM Router 误判为普通 direct，也必须进入 `create_text_artifact`。
+
 当前已支持：
 
 | task_type | 输出 |
 |---|---|
 | `create_text_artifact` | 仅文本交付，不生成 Office 文件 |
 
-## 3.1 顾问通用能力目录
+## 3.2 顾问通用能力目录
 
 为了避免继续用零散关键词打补丁，项目对话现在引入顾问能力目录：
 
@@ -85,6 +103,18 @@ AriaAI/backend/app/services/consulting_capabilities.py
 - `default_title`：干净的交付物标题
 - `default_sections`：默认结构
 - `quality_rules`：生成后的质量要求
+
+能力目录不只是“触发词表”，而是能力协议的来源。每次命中能力后，系统会形成一份 `CapabilityProtocol`：
+
+| 字段 | 用途 |
+|---|---|
+| `required_sections` | 必须出现的章节或模块 |
+| `quality_rules` | 生成内容必须满足的质量规则 |
+| `min_chapter_count` | 故事线等结构型交付物的最少章节数 |
+| `requires_hierarchy` | 是否必须有一级 / 二级目录 |
+| `output_schema` | 给 Planner / Executor / 校验层共用的输出结构约束 |
+
+这意味着“客户会议准备”“故事线”“问题树”等能力不再依赖自由生成。Router 只决定是否进入任务，能力协议决定应该生成什么结构，Executor 在保存前会校验结构是否完整。
 
 当前沉淀的高频顾问能力：
 
@@ -128,7 +158,7 @@ POST /api/skills/seed-pro
 
 这些 Skills 适合用户主动选择使用；而在项目对话里，Router 仍会根据用户输入自动识别相同能力并进入对应的 Orchestrator 流程。
 
-每个 `顾问能力｜...` Skill 都必须至少包含统一四步：
+每个 `顾问能力｜...` Skill 以及项目对话里的自动能力任务，都必须至少包含统一四步：
 
 ```text
 步骤 1/4：收集上下文
@@ -138,6 +168,15 @@ POST /api/skills/seed-pro
 ```
 
 具体能力可以在这四步下扩展更多细节，但不能跳过这些基本步骤。
+
+当前文本交付物的后端步骤对应为：
+
+| 步骤 | step_type | 说明 |
+|---|---|---|
+| 收集上下文 | `collect_project_context` | 读取项目、客户、结构化记忆、干系人等上下文 |
+| 规划结构 | `plan_text_artifact` | 根据能力协议生成 required_sections / output_schema / quality_rules |
+| 生成内容 | `draft_text_artifact` | 按协议生成 Markdown，并保存到项目空间 |
+| 校验并交付 | `summarize_result` | 返回交付物卡片和执行摘要 |
 
 ## 4. 执行流程
 

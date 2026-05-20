@@ -8,6 +8,7 @@ on top without changing the task state model.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -22,16 +23,24 @@ from app.models.db import Project, TaskArtifact, TaskEvent, TaskRun, TaskStep
 from app.routers.projects_deps import _build_project_briefing
 from app.services.consulting_capabilities import (
     ConsultingCapability,
+    build_capability_protocol,
+    capability_output_schema_markdown,
+    clean_requested_heading,
+    extract_requested_headings,
     match_consulting_capability,
     should_create_text_artifact_for_capability,
+    validate_capability_markdown,
 )
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
 from app.tools.office_documents import write_project_office_document
 
+logger = logging.getLogger(__name__)
+
 TASK_STATUS_TERMINAL = {"completed", "failed", "canceled"}
 TASK_STATUS_PAUSED = "paused"
+RULE_FIRST_OVERRIDE_CONFIDENCE = 0.85
 SUPPORTED_TASK_TYPES = {
     "generate_client_ppt",
     "generate_project_excel",
@@ -102,15 +111,27 @@ GENERATE_PROJECT_DOCUMENT_STEPS = [
 
 CREATE_TEXT_ARTIFACT_STEPS = [
     StepSpec("collect_context", "收集项目上下文", "collect_project_context"),
-    StepSpec("draft_text_artifact", "生成文本交付内容", "draft_text_artifact"),
+    StepSpec("plan_text_artifact", "规划文本结构", "plan_text_artifact"),
+    StepSpec("draft_text_artifact", "生成并校验文本交付", "draft_text_artifact"),
     StepSpec("summarize_result", "整理交付结果", "summarize_result", retryable=False),
 ]
+
+
+def _consulting_capability_steps(capability: ConsultingCapability | None) -> tuple[StepSpec, ...]:
+    name = capability.name if capability else "文本交付"
+    return (
+        StepSpec("collect_context", "收集项目上下文", "collect_project_context"),
+        StepSpec("plan_text_artifact", f"规划{name}结构", "plan_text_artifact"),
+        StepSpec("draft_text_artifact", f"生成并校验{name}", "draft_text_artifact"),
+        StepSpec("summarize_result", "校验并交付结果", "summarize_result", retryable=False),
+    )
 
 ALLOWED_STEP_TYPES = {
     "collect_project_context",
     "build_slide_spec",
     "build_document_spec",
     "write_project_office_document",
+    "plan_text_artifact",
     "draft_text_artifact",
     "summarize_result",
 }
@@ -124,6 +145,9 @@ STEP_TYPE_ALIASES = {
     "draft_text": "draft_text_artifact",
     "finalize": "summarize_result",
     "summary": "summarize_result",
+    "plan_text": "plan_text_artifact",
+    "plan_text_artifact": "plan_text_artifact",
+    "build_text_spec": "plan_text_artifact",
     "write_document": "write_project_office_document",
     "create_file": "write_project_office_document",
     "generate_file": "write_project_office_document",
@@ -205,10 +229,11 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
         return RouterDecision(
             "artifact",
             "create_text_artifact",
-            0.78,
+            0.86,
             f"capability:{consulting_capability.id if consulting_capability else 'text'}",
             title=consulting_capability.default_title if consulting_capability else "",
             output_kind="md",
+            plan_steps=_consulting_capability_steps(consulting_capability),
         )
 
     text_deliverable_terms = ("整理", "梳理", "总结", "形成", "准备", "起草", "写", "输出", "清单", "要点", "分析", "计划", "建议", "复盘")
@@ -220,7 +245,55 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
 
 
 def _rule_based_task_route(content: str) -> TaskRoute:
-    return _task_route_from_decision(_rule_based_router_decision(content))
+    return _ensure_task_route_protocol_steps(_task_route_from_decision(_rule_based_router_decision(content)), content)
+
+
+def _ensure_task_route_protocol_steps(route: TaskRoute, content: str) -> TaskRoute:
+    if route.task_type != "create_text_artifact":
+        return route
+    if any(step.step_type == "plan_text_artifact" for step in route.plan_steps):
+        return route
+    capability = match_consulting_capability(content)
+    steps = _consulting_capability_steps(capability) if capability else tuple(CREATE_TEXT_ARTIFACT_STEPS)
+    return TaskRoute(
+        task_type=route.task_type,
+        confidence=route.confidence,
+        reason=route.reason,
+        title=route.title,
+        output_kind=route.output_kind or "md",
+        plan_steps=steps,
+        response_mode=route.response_mode,
+    )
+
+
+def _should_rule_route_override_llm(fallback: TaskRoute, route: TaskRoute) -> bool:
+    """Return True when a high-confidence deterministic route should win.
+
+    LLM routing is useful for fuzzy edge cases, but it should not downgrade or
+    redirect a rule-backed consulting capability / file-deliverable match.
+    """
+    if not fallback.task_type or fallback.confidence < RULE_FIRST_OVERRIDE_CONFIDENCE:
+        return False
+    if route.response_mode in DIRECT_RESPONSE_MODES:
+        return True
+    return bool(route.task_type and route.task_type != fallback.task_type)
+
+
+def _log_router_disagreement(content: str, fallback: TaskRoute, route: TaskRoute) -> None:
+    logger.warning(
+        "Project task router disagreement; using high-confidence rule route",
+        extra={
+            "rule_task_type": fallback.task_type,
+            "rule_response_mode": fallback.response_mode,
+            "rule_confidence": fallback.confidence,
+            "rule_reason": fallback.reason,
+            "llm_task_type": route.task_type,
+            "llm_response_mode": route.response_mode,
+            "llm_confidence": route.confidence,
+            "llm_reason": route.reason,
+            "request_preview": (content or "")[:120],
+        },
+    )
 
 
 def _looks_like_direct_diagnostic(content: str) -> bool:
@@ -418,7 +491,10 @@ async def route_project_task_request(
     raw_task_type = data.get("task_type")
     task_type = str(raw_task_type) if raw_task_type in SUPPORTED_TASK_TYPES else None
     decision = _decision_from_llm_payload(data, task_type)
-    route = _task_route_from_decision(decision)
+    route = _ensure_task_route_protocol_steps(_task_route_from_decision(decision), content)
+    if _should_rule_route_override_llm(fallback, route):
+        _log_router_disagreement(content, fallback, route)
+        return fallback
     if route.response_mode in DIRECT_RESPONSE_MODES:
         if fallback.task_type and fallback.confidence >= 0.8:
             return fallback
@@ -1033,6 +1109,12 @@ def _previous_context_output(session: Session, task_id: int) -> dict[str, Any]:
 def _previous_document_spec_output(session: Session, task_id: int) -> dict[str, Any]:
     return _previous_step_output(session, task_id, "draft_document_spec") or _previous_step_output_by_type(
         session, task_id, "build_document_spec"
+    )
+
+
+def _previous_text_plan_output(session: Session, task_id: int) -> dict[str, Any]:
+    return _previous_step_output(session, task_id, "plan_text_artifact") or _previous_step_output_by_type(
+        session, task_id, "plan_text_artifact"
     )
 
 
@@ -1809,6 +1891,40 @@ def _default_document_sections(goal: str, context: dict[str, Any]) -> list[dict[
     ]
 
 
+def _build_text_artifact_plan(goal: str) -> dict[str, Any]:
+    normalized_goal = re.sub(r"\s+", " ", (goal or "").strip())
+    capability = match_consulting_capability(normalized_goal)
+    requested_headings = extract_requested_headings(normalized_goal)
+    requested_chapter_count = _extract_requested_chapter_count(
+        normalized_goal,
+        default=(
+            capability.default_chapter_count
+            if capability and capability.requires_hierarchy and ("章节" in normalized_goal or "目录" in normalized_goal)
+            else 0
+        ),
+    )
+    protocol = (
+        build_capability_protocol(
+            normalized_goal,
+            capability,
+            requested_headings=requested_headings,
+            requested_chapter_count=requested_chapter_count,
+        )
+        if capability
+        else None
+    )
+    return {
+        "capability_id": capability.id if capability else "",
+        "capability_name": capability.name if capability else "",
+        "artifact_kind": capability.artifact_kind if capability else "md",
+        "required_sections": list(protocol.required_sections) if protocol else [],
+        "quality_rules": list(protocol.quality_rules) if protocol else [],
+        "min_chapter_count": protocol.min_chapter_count if protocol else 0,
+        "requires_hierarchy": protocol.requires_hierarchy if protocol else False,
+        "output_schema": capability_output_schema_markdown(protocol) if protocol else "",
+    }
+
+
 def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
     project = context.get("project") or {}
     memory = context.get("memory") or {}
@@ -1820,20 +1936,6 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         if not items:
             items = [fallback]
         return f"## {title}\n" + "\n".join(f"- {item}" for item in items[:8])
-
-    def clean_heading(value: str) -> str:
-        heading = re.sub(r"\s+", "", str(value or "").strip())
-        heading = re.sub(r"^(请)?(输出|包含|包括|提供|生成|整理)[:：]?", "", heading)
-        return heading.strip(" ：:，,。；;、")
-
-    def extract_requested_headings(text: str) -> list[str]:
-        requested: list[str] = []
-        pattern = r"(?:^|[：:；;，,\n]\s*)(?:\d{1,2}|[一二三四五六七八九十])\s*[）).、]\s*([^；;\n]+)"
-        for match in re.finditer(pattern, text):
-            heading = clean_heading(match.group(1))
-            if 2 <= len(heading) <= 28 and heading not in requested:
-                requested.append(heading)
-        return requested[:8]
 
     def context_sentence() -> str:
         brief = str(memory.get("project_brief") or project.get("description") or "").strip()
@@ -2041,7 +2143,7 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         return "\n".join(lines).strip()
 
     def default_section_content(heading: str) -> str:
-        normalized = clean_heading(heading)
+        normalized = clean_requested_heading(heading)
         if "开场" in normalized or "话术" in normalized:
             return (
                 f"各位好，今天我们围绕「{project.get('name') or '本项目'}」做一次大前期沟通。"
@@ -2066,11 +2168,21 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
     project_name = str(project.get("name") or "").strip()
     normalized_goal = re.sub(r"\s+", " ", goal.strip())
     capability = match_consulting_capability(normalized_goal)
-    requested_headings = extract_requested_headings(normalized_goal)
+    requested_headings = list(extract_requested_headings(normalized_goal))
     is_storyline_request = bool(capability and capability.id == "consulting_storyline")
     requested_chapter_count = _extract_requested_chapter_count(
         normalized_goal,
         default=(capability.default_chapter_count if capability and capability.requires_hierarchy and ("章节" in normalized_goal or "目录" in normalized_goal) else 0),
+    )
+    protocol = (
+        build_capability_protocol(
+            normalized_goal,
+            capability,
+            requested_headings=tuple(requested_headings),
+            requested_chapter_count=requested_chapter_count,
+        )
+        if capability
+        else None
     )
     if requested_headings:
         title_core = (
@@ -2113,19 +2225,25 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
             list_block("下一步动作", memory.get("next_actions"), "确认责任人、时间节点和后续资料补充。"),
         ]
         content = "\n\n".join(sections)
+    validation = validate_capability_markdown(title=title, content=content, protocol=protocol)
+    if not validation.ok:
+        raise ValueError("Text artifact failed capability validation: " + "；".join(validation.errors))
+
     return {
         "title": title,
         "file_type": "md",
         "content": content,
         "summary": f"已生成 Markdown 交付：{title}",
         "text_spec": {
-            "sections": requested_headings,
+            "sections": list(protocol.required_sections) if protocol else requested_headings,
             "capability_id": capability.id if capability else "",
             "capability_name": capability.name if capability else "",
             "quality_rules": list(capability.quality_rules) if capability else [],
             "strict_sections": bool(requested_headings),
             "chapter_count": requested_chapter_count or None,
             "hierarchy": "h1_h2" if is_storyline_request else "",
+            "output_schema": capability_output_schema_markdown(protocol) if protocol else "",
+            "validation_errors": list(validation.errors),
         },
     }
 
@@ -2178,9 +2296,15 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         file_type = str(task_input.get("file_type") or _document_file_type_for_task(task.task_type))
         return _build_project_document_spec(context, task.goal, file_type, title)
 
+    if step.step_type == "plan_text_artifact":
+        return _build_text_artifact_plan(task.goal)
+
     if step.step_type == "draft_text_artifact":
         context = _previous_context_output(session, task.id)
         result = _build_text_artifact(context, task.goal)
+        text_plan = _previous_text_plan_output(session, task.id)
+        if text_plan:
+            result.setdefault("text_spec", {}).update({"plan": text_plan})
         project_file = create_project_document_record(
             session,
             task.project_id,

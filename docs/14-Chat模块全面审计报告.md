@@ -40,6 +40,8 @@
 | `read_project_markdown_document` 缺少 `action` | 已修复 | 后端在执行前自动补齐安全默认值：有文件目标时 `read`，无文件目标时 `list`。 |
 | SSE 尾部事件可能丢失 | 已修复 | 前端在 `reader.read()` 完成后会 flush 剩余 buffer，最后一个无 `\n\n` 的事件也会被处理。 |
 | 网络错误清空已接收内容 | 已修复 | 非主动取消的流式错误会保留已收到文本、工具步骤和附件，并标记 `stream_interrupted`。 |
+| 客户会议准备被 LLM Router 误判为普通对话 | 已修复 | 明确命中咨询能力目录的结构化交付请求会强制保留规则路由，不再被 LLM 的 direct 误判覆盖。 |
+| 文本交付物缺少统一能力协议 | 已修复 | 顾问能力命中后会生成 `CapabilityProtocol`，统一 required_sections、output_schema、quality_rules，并在保存前做结构校验。 |
 
 历史验证：
 
@@ -66,6 +68,19 @@ PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
 ```bash
 cd aria-web && npm run build
 # passed
+```
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/aria_pycache PYTHONPATH=AriaAI/backend \
+  AriaAI/backend/.venv/bin/python -m pytest \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_rule_router_routes_markdown_artifacts \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_consulting_capability_route_overrides_llm_direct_misclassification \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_high_confidence_rule_route_overrides_wrong_llm_artifact_type \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_text_artifact_plan_exposes_capability_protocol \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_text_artifact_storyline_respects_requested_chapter_count_and_hierarchy \
+  AriaAI/backend/tests/test_task_orchestrator.py::test_execute_text_artifact_task_records_markdown_project_file -q
+
+# 6 passed
 ```
 
 最新验证：
@@ -463,6 +478,10 @@ if (payload.step_index !== undefined && payload.step_index !== null) {
 4. **在 tool repair 中做过多业务猜测**
    - repair 应负责最小参数补齐和校验
    - 任务类型、输出格式、章节结构应由 Router/Planner 决策
+
+5. **让 LLM Router 覆盖高置信规则能力命中**
+   - 例如“客户会议准备 + 四个明确模块”已经命中咨询能力目录
+   - 更合理：LLM Router 可补充计划步骤，但不能把明确交付物误降级为普通聊天
 
 ---
 

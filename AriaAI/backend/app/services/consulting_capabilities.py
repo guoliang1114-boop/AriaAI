@@ -6,6 +6,7 @@ every scenario into one long chain of keyword branches.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -25,6 +26,32 @@ class ConsultingCapability:
     quality_rules: tuple[str, ...] = ()
     default_chapter_count: int = 0
     requires_hierarchy: bool = False
+
+
+@dataclass(frozen=True)
+class CapabilityProtocol:
+    """Execution contract for a consulting capability.
+
+    The protocol is intentionally separate from route decisions: once a
+    capability is matched, the same sections, rules and validation expectations
+    apply whether the final path is direct answer, text artifact, or a richer
+    orchestrated flow.
+    """
+
+    capability_id: str
+    name: str
+    artifact_kind: ArtifactKind
+    title: str
+    required_sections: tuple[str, ...]
+    quality_rules: tuple[str, ...]
+    min_chapter_count: int = 0
+    requires_hierarchy: bool = False
+
+
+@dataclass(frozen=True)
+class CapabilityValidationResult:
+    ok: bool
+    errors: tuple[str, ...] = ()
 
 
 CONSULTING_CAPABILITIES: tuple[ConsultingCapability, ...] = (
@@ -138,6 +165,22 @@ def normalize_text(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def clean_requested_heading(value: str) -> str:
+    heading = re.sub(r"\s+", "", str(value or "").strip())
+    heading = re.sub(r"^(请)?(输出|包含|包括|提供|生成|整理)[:：]?", "", heading)
+    return heading.strip(" ：:，,。；;、")
+
+
+def extract_requested_headings(text: str, *, limit: int = 8) -> tuple[str, ...]:
+    requested: list[str] = []
+    pattern = r"(?:^|[：:；;，,\n]\s*)(?:\d{1,2}|[一二三四五六七八九十])\s*[）).、]\s*([^；;\n]+)"
+    for match in re.finditer(pattern, text or ""):
+        heading = clean_requested_heading(match.group(1))
+        if 2 <= len(heading) <= 28 and heading not in requested:
+            requested.append(heading)
+    return tuple(requested[:limit])
+
+
 def match_consulting_capability(content: str) -> ConsultingCapability | None:
     """Return the best matching consulting capability for a user request."""
     text = normalize_text(content)
@@ -153,6 +196,74 @@ def match_consulting_capability(content: str) -> ConsultingCapability | None:
         if best is None or candidate > best:
             best = candidate
     return best[2] if best else None
+
+
+def build_capability_protocol(
+    content: str,
+    capability: ConsultingCapability,
+    *,
+    requested_headings: tuple[str, ...] | None = None,
+    requested_chapter_count: int = 0,
+) -> CapabilityProtocol:
+    explicit_headings = requested_headings if requested_headings is not None else extract_requested_headings(content)
+    required_sections = explicit_headings or capability.default_sections
+    min_chapter_count = max(int(requested_chapter_count or 0), int(capability.default_chapter_count or 0))
+    return CapabilityProtocol(
+        capability_id=capability.id,
+        name=capability.name,
+        artifact_kind=capability.artifact_kind,
+        title=capability.default_title,
+        required_sections=tuple(required_sections),
+        quality_rules=capability.quality_rules,
+        min_chapter_count=min_chapter_count,
+        requires_hierarchy=capability.requires_hierarchy,
+    )
+
+
+def capability_output_schema_markdown(protocol: CapabilityProtocol) -> str:
+    lines = [f"# {protocol.title}"]
+    for section in protocol.required_sections:
+        lines.append(f"## {section}")
+    if protocol.min_chapter_count:
+        lines.append(f"至少 {protocol.min_chapter_count} 个一级章节")
+    if protocol.requires_hierarchy:
+        lines.append("必须包含一级目录和二级目录")
+    return "\n".join(lines)
+
+
+def validate_capability_markdown(
+    *,
+    title: str,
+    content: str,
+    protocol: CapabilityProtocol | None,
+) -> CapabilityValidationResult:
+    if protocol is None:
+        return CapabilityValidationResult(ok=True)
+
+    errors: list[str] = []
+    text = content or ""
+    for section in protocol.required_sections:
+        if protocol.requires_hierarchy:
+            continue
+        if f"## {section}" not in text:
+            errors.append(f"缺少章节：{section}")
+
+    if protocol.min_chapter_count:
+        chapter_count = len(re.findall(r"^# \d{2}\. ", text, flags=re.MULTILINE))
+        if chapter_count < protocol.min_chapter_count:
+            errors.append(f"一级章节数不足：需要至少 {protocol.min_chapter_count} 个，当前 {chapter_count} 个")
+
+    if protocol.requires_hierarchy:
+        h1_count = len(re.findall(r"^# \d{2}\. ", text, flags=re.MULTILINE))
+        h2_count = len(re.findall(r"^## \d+\.\d+ ", text, flags=re.MULTILINE))
+        if h1_count <= 0 or h2_count <= 0:
+            errors.append("缺少一级/二级目录层级")
+
+    correction_terms = ("不行", "重新", "修正", "改一下", "至少", "需要1级", "需要一级")
+    if any(term in title for term in correction_terms):
+        errors.append("标题包含用户纠错语或操作指令")
+
+    return CapabilityValidationResult(ok=not errors, errors=tuple(errors))
 
 
 def should_create_text_artifact_for_capability(content: str, capability: ConsultingCapability | None) -> bool:
