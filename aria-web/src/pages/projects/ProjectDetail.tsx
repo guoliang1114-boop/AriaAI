@@ -42,7 +42,6 @@ function renderProjectDetailContent(
         />
       );
     case "milestones":
-    case "todos":
       return (
         <div className="space-y-6">
           <ProjectMilestonesTab

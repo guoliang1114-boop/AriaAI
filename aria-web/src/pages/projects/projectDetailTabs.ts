@@ -4,7 +4,6 @@ import {
   ClipboardList,
   DollarSign,
   Files,
-  Flag,
   LayoutDashboard,
   ListTodo,
   MessageSquare,
