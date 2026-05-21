@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
+from dataclasses import replace
 
 from sqlmodel import Session
 
@@ -27,7 +28,7 @@ from app.services.provider_selector import (
 )
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
-from app.services.chat.mode_registry import ChatMode, MODE_CONFIG
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_policy
 
@@ -41,6 +42,28 @@ STANDALONE_CHAT_MAX_TOKENS = 2048
 CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
 CLIENT_PORTFOLIO_MAX_TOKENS = 4096
 WORKSPACE_INVENTORY_MAX_TOKENS = 6144
+SHORT_CONFIRMATION_TERMS = (
+    "执行",
+    "确认",
+    "确定",
+    "按你的要求",
+    "按你说的",
+    "就这样",
+    "可以",
+    "继续",
+    "do it",
+    "confirm",
+    "proceed",
+    "go ahead",
+)
+DELETION_PLAN_MARKERS = (
+    "删除清单",
+    "待删除",
+    "删除文件",
+    "清理清单",
+    "file_id",
+    "file ids",
+)
 
 # Cheap model used exclusively by the IntentRouter.
 # DeepSeek is preferred because it is fast, cheap, and good enough for
@@ -90,6 +113,52 @@ def _is_standalone_fast_path(req: SendMessageRequest, effective_skill_id: int | 
         and not req.file_ids
         and len((req.content or "").strip()) <= 280
     )
+
+
+def _looks_like_confirmation_followup(content: str) -> bool:
+    normalized = (content or "").strip().lower()
+    if not normalized:
+        return False
+    return len(normalized) <= 40 and any(term in normalized for term in SHORT_CONFIRMATION_TERMS)
+
+
+def _recent_assistant_has_deletion_plan(history: list) -> bool:
+    for msg in reversed(history):
+        if getattr(msg, "role", "") != "assistant":
+            continue
+        content = str(getattr(msg, "content", "") or "").lower()
+        if any(marker.lower() in content for marker in DELETION_PLAN_MARKERS):
+            return True
+        return False
+    return False
+
+
+def _upgrade_policy_for_confirmed_followup(
+    intent_decision: IntentDecision,
+    req: SendMessageRequest,
+    history: list,
+) -> IntentDecision:
+    if intent_decision.action_policy == ActionPolicy.DESTRUCTIVE_ACTION:
+        return intent_decision
+    if getattr(req, "action_confirmations", None):
+        return replace(
+            intent_decision,
+            action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+            confidence=max(intent_decision.confidence, 0.9),
+            reason="confirmation_token_replay",
+            method=f"{intent_decision.method}+confirmation_replay",
+            trace={**(intent_decision.trace or {}), "policy_upgrade": "confirmation_token_replay"},
+        )
+    if req.project_id and _looks_like_confirmation_followup(req.content) and _recent_assistant_has_deletion_plan(history):
+        return replace(
+            intent_decision,
+            action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+            confidence=max(intent_decision.confidence, 0.86),
+            reason="confirmation_followup_after_deletion_plan",
+            method=f"{intent_decision.method}+confirmation_followup",
+            trace={**(intent_decision.trace or {}), "policy_upgrade": "confirmation_followup_after_deletion_plan"},
+        )
+    return intent_decision
 
 
 def _resolve_runtime_model_and_tokens(

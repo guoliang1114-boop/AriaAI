@@ -33,14 +33,18 @@ from app.services.chat.tool_repair import extract_tool_use_json_blocks
 from app.services.chat.workflow import workflow_status
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
-from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.office_documents import (
+    MANAGE_PROJECT_FILES_TOOL_NAME,
+    MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+    WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+)
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
-_PROJECT_FILE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME})
+_PROJECT_SPACE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME, MANAGE_PROJECT_FOLDERS_TOOL_NAME})
 _CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
 
 
@@ -344,7 +348,7 @@ async def run_p3_followup(
                             message=f"第 3 步：已补齐后续文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
                     )
-            if tool_name in _PROJECT_FILE_MANAGEMENT_TOOLS and runtime.project_id is not None:
+            if tool_name in _PROJECT_SPACE_MANAGEMENT_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
 
             allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
