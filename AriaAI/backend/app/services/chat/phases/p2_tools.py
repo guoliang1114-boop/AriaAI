@@ -57,19 +57,26 @@ def _action_policy_value(value) -> str:
     return str(getattr(value, "value", value) or "")
 
 
-def _tool_confirmation_token(tool_name: str) -> str:
-    return f"tool:{tool_name}"
+def _tool_confirmation_token(tool_name: str, tool_input: dict) -> str:
+    operation = str(
+        tool_input.get("mode")
+        or tool_input.get("action")
+        or tool_input.get("operation")
+        or ""
+    ).strip()
+    return f"tool:{tool_name}:{operation}" if operation else f"tool:{tool_name}"
 
 
-def _tool_requires_confirmation(runtime: ChatRuntime, tool_name: str, req: SendMessageRequest) -> bool:
-    try:
-        policy = ActionPolicy(_action_policy_value(runtime.action_policy))
-    except ValueError:
-        return False
-    if policy not in _CONFIRMATION_POLICIES:
+def _tool_requires_confirmation(
+    required_policy: ActionPolicy,
+    tool_name: str,
+    tool_input: dict,
+    req: SendMessageRequest,
+) -> bool:
+    if required_policy not in _CONFIRMATION_POLICIES:
         return False
     confirmations = set(getattr(req, "action_confirmations", []) or [])
-    return _tool_confirmation_token(tool_name) not in confirmations
+    return _tool_confirmation_token(tool_name, tool_input) not in confirmations
 
 
 def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
@@ -237,8 +244,8 @@ async def run_p2_tools(
             )
             yield sse_event({"type": "tool_result", "result": skip_result})
             continue
-        if _tool_requires_confirmation(runtime, tool_name, req):
-            confirmation_token = _tool_confirmation_token(tool_name)
+        if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
+            confirmation_token = _tool_confirmation_token(tool_name, tool_input)
             confirmation_output = {
                 "skipped": True,
                 "requires_confirmation": True,

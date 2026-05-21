@@ -14,6 +14,7 @@ const STATUS_STYLES: Record<ToolCallEvent["status"], string> = {
   completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
   error: "border-rose-200 bg-rose-50 text-rose-700",
   blocked: "border-amber-200 bg-amber-50 text-amber-700",
+  confirmation_required: "border-amber-200 bg-amber-50 text-amber-700",
   skipped: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
@@ -23,6 +24,7 @@ const WORKFLOW_STEP_STYLES: Record<ToolCallEvent["status"], string> = {
   completed: "border-emerald-200 bg-white",
   error: "border-rose-200 bg-rose-50/70",
   blocked: "border-amber-200 bg-amber-50/70",
+  confirmation_required: "border-amber-200 bg-amber-50/70",
   skipped: "border-slate-200 bg-slate-50/70",
 };
 
@@ -32,6 +34,7 @@ const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
   completed: "bg-emerald-600 text-white",
   error: "bg-rose-600 text-white",
   blocked: "bg-amber-500 text-white",
+  confirmation_required: "bg-amber-500 text-white",
   skipped: "bg-slate-400 text-white",
 };
 
@@ -55,6 +58,7 @@ function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowS
   if (status === "running") return isZh ? (isWorkflowStep ? "进行中" : "执行中") : isWorkflowStep ? "In progress" : "Running";
   if (status === "completed") return isZh ? "已完成" : "Done";
   if (status === "blocked") return isZh ? "已拦截" : "Blocked";
+  if (status === "confirmation_required") return isZh ? "待确认" : "Confirm";
   if (status === "skipped") return isZh ? "已跳过" : "Skipped";
   return isZh ? (isWorkflowStep ? "需处理" : "失败") : isWorkflowStep ? "Needs attention" : "Failed";
 }

@@ -18,7 +18,7 @@ from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, run_p0_durable_task
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
-from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 
 class _AsyncIter:
@@ -558,7 +558,30 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_exec.assert_not_awaited()
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertEqual(state.trace_events[-1]["type"], "tool_confirmation_required")
+        self.assertEqual(state.trace_events[-1]["confirmation_token"], f"tool:{PROJECT_MARKDOWN_TOOL_NAME}:append")
         self.assertIn("等待确认", "".join(events))
+
+    async def test_p2_does_not_require_confirmation_for_read_tool_in_modify_turn(self):
+        """A modify-capable turn may still use read-only tools without confirmation."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": READ_MARKDOWN_TOOL_NAME,
+                "id": "tool-read",
+                "input": {"action": "list"},
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(return_value={"status": "completed", "output": {"files": []}})) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_awaited_once()
+        self.assertEqual(state.tool_call_events[-1]["status"], "completed")
 
 
 if __name__ == "__main__":

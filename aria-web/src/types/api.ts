@@ -714,7 +714,7 @@ export interface Reference {
 
 export interface ToolCallEvent {
   tool_name: string
-  status: 'pending' | 'running' | 'completed' | 'error' | 'blocked' | 'skipped'
+  status: 'pending' | 'running' | 'completed' | 'error' | 'blocked' | 'skipped' | 'confirmation_required'
   message?: string
   summary?: string
   error?: string
