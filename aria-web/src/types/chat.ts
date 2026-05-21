@@ -33,7 +33,7 @@ export interface StreamStatusEvent {
   step_index?: number;
   step_total?: number;
   step_title?: string;
-  step_status?: "pending" | "running" | "completed" | "error";
+  step_status?: ToolCallEvent["status"];
 }
 
 export interface StreamReferencesEvent {

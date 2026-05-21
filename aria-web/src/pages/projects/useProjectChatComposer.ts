@@ -64,6 +64,7 @@ function buildAssistantMessage({
 }
 
 function summarizeToolResult(result: Record<string, unknown>, fallbackMessage?: string) {
+  if (typeof result.summary === "string" && result.summary) return result.summary;
   if (typeof result.error === "string" && result.error) return result.error;
   if (typeof result.file_name === "string" && result.file_name) {
     return `Created ${result.file_name}`;
@@ -326,7 +327,9 @@ export function useProjectChatComposer({
             } else if (payload.type === "tool_result" && payload.result) {
               const result = payload.result;
               const resultStatus: ToolCallEvent["status"] =
-                result.status === "error" || result.success === false
+                result.status === "confirmation_required"
+                  ? "confirmation_required"
+                  : result.status === "error" || result.success === false
                   ? "error"
                   : result.status === "skipped"
                     ? "skipped"
@@ -341,11 +344,24 @@ export function useProjectChatComposer({
                 status: resultStatus,
                 summary: resultSummary,
                 error: typeof result.error === "string" ? result.error : undefined,
+                confirmation_token: typeof result.confirmation_token === "string" ? result.confirmation_token : undefined,
+                details: Array.isArray(result.details) ? result.details.filter((item): item is string => typeof item === "string") : undefined,
               };
               const hasActiveWorkflowStep = collectedToolCalls.some(
                 (call) => call.step_index !== undefined && call.step_index !== null && call.status === "running",
               );
-              if (hasActiveWorkflowStep) {
+              if (hasActiveWorkflowStep && resultStatus === "confirmation_required") {
+                collectedToolCalls = attachToolDetailToActiveStep(
+                  collectedToolCalls,
+                  resultSummary || `工具 ${toolName} 等待确认`,
+                  "confirmation_required",
+                  {
+                    confirmation_token: completedCall.confirmation_token,
+                    details: completedCall.details,
+                    summary: completedCall.summary,
+                  },
+                );
+              } else if (hasActiveWorkflowStep) {
                 const detail =
                   resultStatus === "error"
                     ? `工具 ${toolName} 执行失败${completedCall.error ? `：${completedCall.error}` : ""}`

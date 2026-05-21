@@ -405,6 +405,7 @@ async def run_p3_followup(
                 continue
 
             if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
+                state.confirmation_requested = True
                 confirmation_token = _tool_confirmation_token(tool_name, tool_input)
                 confirmation_details = _tool_confirmation_details(tool_name, tool_input)
                 confirmation_output = {
@@ -444,10 +445,25 @@ async def run_p3_followup(
                         step_total=4,
                         title="执行 Skill / 工具",
                         stage="tools",
+                        status="confirmation_required",
                         message="第 3 步：后续工具调用涉及修改或删除，等待确认后再执行。",
                     )
                 )
-                continue
+                yield sse_event(
+                    {
+                        "type": "tool_result",
+                        "result": {
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "status": "confirmation_required",
+                            "summary": confirmation_output["reason"],
+                            "confirmation_token": confirmation_token,
+                            "details": confirmation_details,
+                            "output": confirmation_output,
+                        },
+                    }
+                )
+                break
 
             if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
                 markdown_content = str(tool_input.get("content") or "").strip()
@@ -573,6 +589,10 @@ async def run_p3_followup(
         # ------------------------------------------------------------------
         # Re-follow-up stream after P3 tools
         # ------------------------------------------------------------------
+        if state.confirmation_requested:
+            state.follow_up_text = follow_up_text.strip()
+            return
+
         if p3_tool_result_blocks:
             p3_assistant_content = []
             if follow_up_text.strip():

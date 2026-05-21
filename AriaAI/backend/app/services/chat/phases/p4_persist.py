@@ -136,14 +136,18 @@ async def run_p4_persist(
 
     # Fallback message for empty response
     if not full_text:
-        full_text = (
-            "抱歉，AI 服务暂时未能生成回复。可能原因包括：\n\n"
-            "1. API 服务当前繁忙或暂时不可用\n"
-            "2. 模型上下文过长，超出处理限制\n"
-            "3. API Key 配置异常或余额不足\n\n"
-            "建议稍后重试，或前往「设置」检查 API Key 配置。"
-        )
-        logger.warning("[P4] empty response detected, using fallback message")
+        if state.confirmation_requested:
+            full_text = "这个操作会修改或删除项目内容，已暂停。请确认后我再继续执行。"
+            yield sse_event({"type": "text", "content": full_text})
+        else:
+            full_text = (
+                "抱歉，AI 服务暂时未能生成回复。可能原因包括：\n\n"
+                "1. API 服务当前繁忙或暂时不可用\n"
+                "2. 模型上下文过长，超出处理限制\n"
+                "3. API Key 配置异常或余额不足\n\n"
+                "建议稍后重试，或前往「设置」检查 API Key 配置。"
+            )
+            logger.warning("[P4] empty response detected, using fallback message")
 
     delivery_failed = False
     if artifact_contract and not _delivery_satisfied(state, artifact_contract):

@@ -271,6 +271,7 @@ async def run_p2_tools(
             yield sse_event({"type": "tool_result", "result": skip_result})
             continue
         if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
+            state.confirmation_requested = True
             confirmation_token = _tool_confirmation_token(tool_name, tool_input)
             confirmation_details = _tool_confirmation_details(tool_name, tool_input)
             confirmation_output = {
@@ -310,7 +311,7 @@ async def run_p2_tools(
                     step_total=4,
                     title="执行 Skill / 工具",
                     stage="tools",
-                    status="error",
+                    status="confirmation_required",
                     message="第 3 步：该操作会修改或删除项目内容，已暂停等待确认。",
                 )
             )
@@ -321,11 +322,14 @@ async def run_p2_tools(
                         "type": "tool_result",
                         "tool_name": tool_name,
                         "status": "confirmation_required",
+                        "summary": confirmation_output["reason"],
+                        "confirmation_token": confirmation_token,
+                        "details": confirmation_details,
                         "output": confirmation_output,
                     },
                 }
             )
-            continue
+            break
 
         # ---- Markdown write tool (special inline handling) ----
         if tool_name == PROJECT_MARKDOWN_TOOL_NAME and runtime.project_id is not None:
@@ -508,14 +512,18 @@ async def run_p2_tools(
             }
         )
         has_tool_error = any(event.get("status") == "error" for event in state.tool_call_events)
+        has_confirmation = state.confirmation_requested
         yield sse_event(
             workflow_status(
                 step_index=3,
                 step_total=4,
                 title="执行 Skill / 工具",
                 stage="tools",
-                status="error" if has_tool_error else "completed",
+                status="confirmation_required" if has_confirmation else "error" if has_tool_error else "completed",
                 message=(
+                    "第 3 步：后续工具调用涉及修改或删除，等待确认后再执行。"
+                    if has_confirmation
+                    else
                     "第 3 步：工具执行遇到错误，正在整理可恢复信息。"
                     if has_tool_error
                     else "第 3 步：Skill / 工具调用已完成。"

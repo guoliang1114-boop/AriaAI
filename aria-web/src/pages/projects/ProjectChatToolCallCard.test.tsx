@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 
@@ -29,5 +30,30 @@ describe("ProjectChatToolCallCard", () => {
     expect(screen.getByText("已拦截")).toBeInTheDocument();
     expect(screen.getByText("已跳过")).toBeInTheDocument();
     expect(screen.queryByText("失败")).not.toBeInTheDocument();
+  });
+
+  it("renders confirmation actions for workflow steps", async () => {
+    const user = userEvent.setup();
+    const onConfirmAction = vi.fn();
+
+    render(
+      <ProjectChatToolCallCard
+        isZh
+        onConfirmAction={onConfirmAction}
+        call={{
+          tool_name: "步骤 3/4：执行 Skill / 工具",
+          status: "confirmation_required",
+          message: "等待确认后再执行。",
+          confirmation_token: "tool:manage_project_files:delete:abc123",
+          step_index: 3,
+          step_total: 4,
+          step_title: "执行 Skill / 工具",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "确认并执行" }));
+
+    expect(onConfirmAction).toHaveBeenCalledWith("tool:manage_project_files:delete:abc123");
   });
 });

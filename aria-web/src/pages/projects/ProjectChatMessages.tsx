@@ -26,9 +26,10 @@ const ChatStreamingMessage = memo<{
   onOpenTasks?: () => void;
   projectId: number;
   references: Reference[];
+  sourceContent?: string;
   status: string;
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isTruncated, isZh, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
+}>(({ artifacts, content, isTruncated, isZh, onConfirmToolAction, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, sourceContent, status, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -72,6 +73,9 @@ const ChatStreamingMessage = memo<{
                   key={`${call.tool_name}-${call.status}-${index}`}
                   call={call}
                   isZh={isZh}
+                  onConfirmAction={
+                    onConfirmToolAction && sourceContent ? (token) => onConfirmToolAction(sourceContent, token) : undefined
+                  }
                   onOpenTasks={onOpenTasks}
                 />
               ))}
@@ -169,6 +173,7 @@ export function ProjectChatMessages({
 }: ProjectChatMessagesProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
+  const latestUserContent = [...messages].reverse().find((message) => message.role === "user")?.content || "";
 
   return (
     <>
@@ -234,9 +239,11 @@ export function ProjectChatMessages({
               onContinue={onContinue}
               onDownloadArtifact={onDownloadArtifact}
               onOpenArtifact={onOpenArtifact}
+              onConfirmToolAction={onConfirmToolAction}
               onOpenTasks={onOpenTasks}
               projectId={projectId}
               references={streamingReferences}
+              sourceContent={latestUserContent}
               status={streamingStatus}
               toolCalls={streamingToolCalls}
             />

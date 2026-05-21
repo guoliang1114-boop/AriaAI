@@ -59,6 +59,7 @@ class ChatSessionState:
     # Durable-task early-return
     # ------------------------------------------------------------------
     durable_task_completed: bool = False
+    confirmation_requested: bool = False
 
     # ------------------------------------------------------------------
     # Title generation

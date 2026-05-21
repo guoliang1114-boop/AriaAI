@@ -138,6 +138,16 @@ async def stream_chat_events(
             yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
             return
 
+    if state.confirmation_requested:
+        state.full_text = state.text_buffer.strip()
+        try:
+            async for event in run_p4_persist(runtime, req, bind, state):
+                yield event
+        except Exception as exc:
+            logger.error(f"[P4 persist error] {exc}", exc_info=True)
+            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+        return
+
     # ==================================================================
     # P3 — Follow-up / final reply
     # =================================================================

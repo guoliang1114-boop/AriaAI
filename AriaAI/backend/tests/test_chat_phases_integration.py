@@ -592,6 +592,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertEqual(state.trace_events[-1]["type"], "tool_confirmation_required")
         confirmation_token = state.trace_events[-1]["confirmation_token"]
@@ -620,6 +621,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
         mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
 
     async def test_p2_confirmation_token_replays_exact_tool_input(self):
@@ -666,6 +668,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
         mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertTrue(state.tool_call_events[-1]["confirmation_token"].startswith(f"tool:{MANAGE_PROJECT_FILES_TOOL_NAME}:delete:"))
         self.assertIn("待删除文件 ID：12, 13", state.tool_call_events[-1]["details"])

@@ -203,6 +203,7 @@ export function attachToolDetailToActiveStep(
   calls: ToolCallEvent[],
   detail: string,
   status?: ToolCallEvent["status"],
+  patch?: Partial<ToolCallEvent>,
 ) {
   const activeIndex = calls.findIndex((call) => call.step_index !== undefined && call.step_index !== null && call.status === "running");
   if (activeIndex === -1) return calls;
@@ -210,6 +211,7 @@ export function attachToolDetailToActiveStep(
     index === activeIndex
       ? {
           ...call,
+          ...patch,
           status: status || call.status,
           details: [...(call.details || []), detail],
         }

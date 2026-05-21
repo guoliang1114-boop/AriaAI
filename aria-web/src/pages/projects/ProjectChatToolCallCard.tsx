@@ -73,15 +73,16 @@ export function ProjectChatToolCallCard({
   const isWorkflowStep = Boolean(call.step_index);
   const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
   const [expanded, setExpanded] = useState(() => {
-    if (typeof window === "undefined") return call.status === "running" || call.status === "error";
+    if (typeof window === "undefined") return call.status === "running" || call.status === "error" || call.status === "confirmation_required";
     const saved = window.localStorage.getItem(WORKFLOW_DETAIL_PREFERENCE_KEY);
+    if (call.status === "confirmation_required") return true;
     if (saved === "expanded") return true;
     if (saved === "collapsed") return false;
     return call.status === "running" || call.status === "error";
   });
 
   useEffect(() => {
-    if (call.status === "error") setExpanded(true);
+    if (call.status === "error" || call.status === "confirmation_required") setExpanded(true);
   }, [call.status]);
 
   const toggleExpanded = () => {
@@ -97,6 +98,7 @@ export function ProjectChatToolCallCard({
   if (isWorkflowStep) {
     const stepTitle = call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
     const canOpenRecoverableTask = call.status === "error" && call.has_recoverable_task && onOpenTasks;
+    const canConfirmAction = call.status === "confirmation_required" && call.confirmation_token && onConfirmAction;
     return (
       <div className={`rounded-2xl border px-4 py-3.5 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}>
         <div className="flex items-start gap-3">
@@ -162,6 +164,23 @@ export function ProjectChatToolCallCard({
                         {isZh ? "打开任务面板处理" : "Open task panel"}
                       </button>
                     ) : null}
+                  </div>
+                ) : null}
+                {canConfirmAction ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2">
+                    <p className="text-xs leading-relaxed text-amber-800">
+                      {isZh
+                        ? "这个步骤会修改或删除项目内容。确认后我会按同一批参数继续执行。"
+                        : "This step will modify or delete project content. Confirm to replay the same action."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onConfirmAction(call.confirmation_token || "")}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {isZh ? "确认并执行" : "Confirm and run"}
+                    </button>
                   </div>
                 ) : null}
               </div>
