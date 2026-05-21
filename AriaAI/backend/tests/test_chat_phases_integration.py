@@ -17,6 +17,7 @@ from app.services.chat.phases.p2_tools import run_p2_tools
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import run_p0_durable_task
+from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
 
 class _AsyncIter:
@@ -484,6 +485,45 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("File written successfully.", state.full_text)
             done_events = [e for e in events if '"type": "done"' in e]
             self.assertEqual(len(done_events), 1)
+
+    async def test_p2_retries_artifact_tool_once(self):
+        """P2 retries a required artifact tool once before reporting failure."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+                "id": "tool-1",
+                "input": {"file_type": "xlsx", "file_name": "访谈问卷.xlsx", "sheets": []},
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "durable_task"
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="xlsx",
+            allowed_tools=(WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,),
+            confidence=0.9,
+            reason="test",
+            source="rule",
+        )
+
+        first_result = {"status": "error", "error": "temporary writer error"}
+        second_result = {
+            "status": "completed",
+            "success": True,
+            "output": {"file_name": "访谈问卷.xlsx", "file_type": "xlsx"},
+        }
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(side_effect=[first_result, second_result])) as mock_exec:
+            events = []
+            async for event in run_p2_tools(self.runtime, self.req, state):
+                events.append(event)
+
+        self.assertEqual(mock_exec.await_count, 2)
+        self.assertTrue(any(item["type"] == "tool_retry" for item in state.trace_events))
+        self.assertEqual(state.tool_call_events[-1]["status"], "completed")
+        self.assertIn("正在自动重试一次", "".join(events))
 
 
 if __name__ == "__main__":

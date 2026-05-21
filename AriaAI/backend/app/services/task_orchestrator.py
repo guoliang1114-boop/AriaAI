@@ -206,12 +206,12 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
     normalized = (content or "").strip().lower()
     if not normalized:
         return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
-    if _looks_like_existing_artifact_modify(content):
-        return RouterDecision("direct", confidence=0.93, reason="rule:modify_existing_file", output_kind="chat")
     if _looks_like_direct_memory_summary(content):
         return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
     if _looks_like_direct_diagnostic(content):
         return RouterDecision("analyze", confidence=0.95, reason="rule:direct_diagnostic", output_kind="chat")
+    if _looks_like_existing_artifact_modify(content):
+        return RouterDecision("direct", confidence=0.93, reason="rule:modify_existing_file", output_kind="chat")
 
     consulting_capability = match_consulting_capability(content)
     artifact_intent = detect_artifact_intent(content)
@@ -1020,6 +1020,8 @@ def task_step_log_message(event_type: str, step: dict[str, Any] | None = None, o
         return f"{prefix}，完成。"
     if event_type == "step_failed":
         return f"{prefix}，失败：{step.get('error_message') or '未知错误'}。前面已完成步骤会保留，可从这里重试。"
+    if event_type == "step_retry":
+        return f"{prefix}，首次执行失败，正在自动重试。"
     return f"{prefix}，状态更新为 {step.get('status')}。"
 
 
@@ -1149,6 +1151,42 @@ def _fail_step(session: Session, task: TaskRun, step: TaskStep, exc: Exception, 
         event_type="step_failed",
         message=f"{step.title}失败：{exc}",
         payload={"error_code": step.error_code, "retryable": step.retryable, "duration_ms": duration_ms},
+    )
+
+
+def _retry_step_after_failure(
+    session: Session,
+    task: TaskRun,
+    step: TaskStep,
+    exc: Exception,
+    *,
+    duration_ms: int | None = None,
+) -> None:
+    now = utc_now_naive()
+    step.retry_count += 1
+    step.error_code = exc.__class__.__name__
+    step.error_message = str(exc)
+    step.updated_at = now
+    task.retry_count += 1
+    task.status = "running"
+    task.error_code = ""
+    task.error_message = ""
+    task.updated_at = now
+    session.add(step)
+    session.add(task)
+    session.commit()
+    _record_event(
+        session,
+        task,
+        step=step,
+        event_type="step_retry",
+        message=f"{step.title}失败，正在自动重试第 {step.retry_count} 次：{exc}",
+        payload={
+            "error_code": step.error_code,
+            "retryable": step.retryable,
+            "retry_count": step.retry_count,
+            "duration_ms": duration_ms,
+        },
     )
 
 
@@ -2792,20 +2830,39 @@ async def stream_execute_task_run_in_session(session: Session, task_id: int) -> 
             "task": serialize_task_run(session, task, include_events=True),
             "payload": progress_payload,
         }
-        step_started_at = time.perf_counter()
-        try:
-            output = await _execute_step(session, task, step)
-        except Exception as exc:
-            duration_ms = round((time.perf_counter() - step_started_at) * 1000)
-            _fail_step(session, task, step, exc, duration_ms=duration_ms)
-            yield {
-                "event_type": "step_failed",
-                "step": _serialize_step(step),
-                "message": task_step_log_message("step_failed", _serialize_step(step)),
-                "task": serialize_task_run(session, task, include_events=True),
-                "duration_ms": duration_ms,
-            }
-            return
+        while True:
+            step_started_at = time.perf_counter()
+            try:
+                output = await _execute_step(session, task, step)
+                break
+            except Exception as exc:
+                duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+                session.rollback()
+                refreshed_task = session.get(TaskRun, task.id)
+                refreshed_step = session.get(TaskStep, step.id)
+                if refreshed_task is not None:
+                    task = refreshed_task
+                if refreshed_step is not None:
+                    step = refreshed_step
+                if step.retryable and step.retry_count < 1:
+                    _retry_step_after_failure(session, task, step, exc, duration_ms=duration_ms)
+                    yield {
+                        "event_type": "step_retry",
+                        "step": _serialize_step(step),
+                        "message": task_step_log_message("step_retry", _serialize_step(step)),
+                        "task": serialize_task_run(session, task, include_events=True),
+                        "duration_ms": duration_ms,
+                    }
+                    continue
+                _fail_step(session, task, step, exc, duration_ms=duration_ms)
+                yield {
+                    "event_type": "step_failed",
+                    "step": _serialize_step(step),
+                    "message": task_step_log_message("step_failed", _serialize_step(step)),
+                    "task": serialize_task_run(session, task, include_events=True),
+                    "duration_ms": duration_ms,
+                }
+                return
         session.refresh(task)
         if task.status == "canceled":
             _skip_step(session, task, step, reason=task.error_message or "用户取消任务")

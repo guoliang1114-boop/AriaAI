@@ -34,6 +34,21 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+_MAX_TOOL_ATTEMPTS = 2
+
+
+def _result_failed(result: dict | None) -> bool:
+    if not isinstance(result, dict):
+        return True
+    return result.get("status") == "error" or result.get("success") is False or bool(result.get("error"))
+
+
+def _should_retry_tool(runtime: ChatRuntime, tool_name: str) -> bool:
+    contract = getattr(runtime, "artifact_contract", None)
+    allowed_tools = set(getattr(contract, "allowed_tools", ()) or ())
+    if getattr(contract, "delivery_required", False) and tool_name in allowed_tools:
+        return True
+    return tool_name in _PROJECT_OFFICE_TOOLS
 
 
 def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
@@ -296,26 +311,48 @@ async def run_p2_tools(
         logger.info(f"[P2] executing tool: {tool_name}, input_keys={list(tool_input.keys())}")
 
         tool_started_at = time.perf_counter()
-        try:
-            result = None
-            async for event in await_with_heartbeat(
-                registry.execute(tool_name, tool_input),
-                stage="tool_running",
-                message=f"{tool_name} 正在执行中，文件生成类任务可能需要 1-2 分钟...",
-            ):
-                if event.get("type") == "result":
-                    result = event.get("result")
-                else:
-                    yield sse_event(event)
-            if result is None:
-                result = {
-                    "type": "tool_result",
-                    "tool_name": tool_name,
-                    "status": "error",
-                    "error": "Tool returned no result",
-                }
-        except Exception as exc:
-            result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
+        max_attempts = _MAX_TOOL_ATTEMPTS if _should_retry_tool(runtime, tool_name) else 1
+        result = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = None
+                async for event in await_with_heartbeat(
+                    registry.execute(tool_name, tool_input),
+                    stage="tool_running",
+                    message=f"{tool_name} 正在执行中，文件生成类任务可能需要 1-2 分钟...",
+                ):
+                    if event.get("type") == "result":
+                        result = event.get("result")
+                    else:
+                        yield sse_event(event)
+                if result is None:
+                    result = {
+                        "type": "tool_result",
+                        "tool_name": tool_name,
+                        "status": "error",
+                        "error": "Tool returned no result",
+                    }
+            except Exception as exc:
+                result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
+            if not _result_failed(result) or attempt >= max_attempts:
+                break
+            state.record_trace_event(
+                "tool_retry",
+                stage="p2",
+                tool_name=tool_name,
+                attempt=attempt + 1,
+                max_attempts=max_attempts,
+                reason=_summarize_tool_result(result),
+            )
+            yield sse_event(
+                workflow_status(
+                    step_index=3,
+                    step_total=4,
+                    title="执行 Skill / 工具",
+                    stage="tools",
+                    message=f"第 3 步：{tool_name} 首次执行失败，正在自动重试一次。",
+                )
+            )
 
         logger.info(f"[P2] tool result: status={result.get('status')}, keys={list(result.keys())}")
         yield sse_event({"type": "tool_result", "result": result})

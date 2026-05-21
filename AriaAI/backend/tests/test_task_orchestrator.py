@@ -400,7 +400,7 @@ def test_llm_router_keeps_explicit_ppt_creation_when_llm_says_no_task():
     route = asyncio.run(route_project_task_request("好，给我一个初步沟通的方案，生成 PPT 版本", llm_complete=fake_complete, model="test"))
 
     assert route.task_type == "generate_client_ppt"
-    assert route.reason == "rule:ppt"
+    assert route.reason == "rule:pptx"
 
 
 def test_task_run_chat_summary_mentions_steps_and_retry_hint():
@@ -764,11 +764,58 @@ def test_execute_task_run_fails_only_current_step(monkeypatch):
             asyncio.run(execute_task_run_in_session(session, task.id))
             session.refresh(task)
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
+            events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id)).all()
 
         assert task.status == "failed"
         assert [step.status for step in steps] == ["completed", "completed", "failed", "pending"]
         assert steps[2].error_message == "template unavailable"
         assert steps[2].retryable is True
+        assert steps[2].retry_count == 1
+        assert any(event.event_type == "step_retry" for event in events)
+    finally:
+        engine.dispose()
+
+
+def test_execute_task_run_auto_recovers_retryable_step(monkeypatch):
+    engine = _setup_engine()
+    calls = 0
+
+    async def flaky_write_project_office_document(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary writer error")
+        return {
+            "name": kwargs.get("file_name") or "访谈问卷.xlsx",
+            "file_name": kwargs.get("file_name") or "访谈问卷.xlsx",
+            "file_type": kwargs.get("file_type") or "xlsx",
+            "path": "projects/1/访谈问卷.xlsx",
+        }
+
+    monkeypatch.setattr(task_orchestrator, "write_project_office_document", flaky_write_project_office_document)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Excel Project", client="Client", status="active")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="generate_project_excel",
+                goal="准备访谈 Excel",
+            )
+
+            asyncio.run(execute_task_run_in_session(session, task.id))
+            session.refresh(task)
+            steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
+            events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id)).all()
+
+        assert calls == 2
+        assert task.status == "completed"
+        assert [step.status for step in steps] == ["completed", "completed", "completed", "completed"]
+        assert steps[2].retry_count == 1
+        assert any(event.event_type == "step_retry" for event in events)
     finally:
         engine.dispose()
 
