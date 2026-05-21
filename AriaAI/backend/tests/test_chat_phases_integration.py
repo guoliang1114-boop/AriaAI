@@ -11,13 +11,20 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.artifact_intent import ArtifactContract
+from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.runtime import _upgrade_policy_for_confirmed_followup
 from app.services.chat.state import ChatSessionState
+from app.services.intent_router import IntentDecision
 from app.services.chat.phases.p1_planning import run_p1_planning
 from app.services.chat.phases.p2_tools import _tool_confirmation_token, run_p2_tools
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, run_p0_durable_task
-from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.office_documents import (
+    MANAGE_PROJECT_FILES_TOOL_NAME,
+    MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+    WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+)
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 
@@ -64,6 +71,26 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.req = MagicMock()
         self.req.project_id = 1
         self.req.content = "test message"
+
+    def test_confirmation_followup_after_deletion_plan_upgrades_policy(self):
+        decision = IntentDecision(
+            chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+            action_policy=ActionPolicy.READ_ONLY_TOOL,
+            task_route=None,
+            confidence=0.72,
+            reason="default",
+            method="rule_fallback",
+        )
+        req = SimpleNamespace(project_id=27, content="执行", action_confirmations=[])
+        history = [
+            SimpleNamespace(role="assistant", content="🗑️ 删除清单\n文件ID 131 给我准备一个-PPT.pptx"),
+            SimpleNamespace(role="user", content="执行"),
+        ]
+
+        upgraded = _upgrade_policy_for_confirmed_followup(decision, req, history)
+
+        self.assertEqual(upgraded.action_policy, ActionPolicy.DESTRUCTIVE_ACTION)
+        self.assertEqual(upgraded.reason, "confirmation_followup_after_deletion_plan")
 
     def _collect_events(self, async_gen):
         """Drain an async generator into a list."""
@@ -642,6 +669,28 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertTrue(state.tool_call_events[-1]["confirmation_token"].startswith(f"tool:{MANAGE_PROJECT_FILES_TOOL_NAME}:delete:"))
         self.assertIn("待删除文件 ID：12, 13", state.tool_call_events[-1]["details"])
+
+    async def test_p2_adds_project_id_to_folder_management_tool(self):
+        """Folder management calls should receive project_id before execution."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+                "id": "tool-list-folders",
+                "input": {"action": "list"},
+            }
+        ]
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "read_only_tool"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(return_value={"status": "completed", "output": {"folders": []}})) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_awaited_once()
+        self.assertEqual(mock_exec.await_args.args[1]["project_id"], 27)
 
     async def test_p2_does_not_require_confirmation_for_read_tool_in_modify_turn(self):
         """A modify-capable turn may still use read-only tools without confirmation."""

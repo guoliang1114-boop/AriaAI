@@ -371,8 +371,13 @@ def prepare_chat_runtime(
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
         api_messages = api_messages[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
+    intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
+    prepare_metrics["action_policy"] = intent_decision.action_policy.value
+    prepare_metrics["intent_reason"] = intent_decision.reason
+    prepare_metrics["intent_method"] = intent_decision.method
+    prepare_metrics["intent_trace"] = intent_decision.trace
     prepare_metrics["context_mode"] = context_mode
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
     runtime_tools = filter_tools_for_policy(chat_ctx.tools, intent_decision.action_policy)
