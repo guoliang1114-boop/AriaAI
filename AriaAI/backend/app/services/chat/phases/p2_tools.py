@@ -5,6 +5,7 @@ special cases, collects artifacts, and manages workflow status events.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -64,7 +65,13 @@ def _tool_confirmation_token(tool_name: str, tool_input: dict) -> str:
         or tool_input.get("operation")
         or ""
     ).strip()
-    return f"tool:{tool_name}:{operation}" if operation else f"tool:{tool_name}"
+    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    parts = ["tool", tool_name]
+    if operation:
+        parts.append(operation)
+    parts.append(digest)
+    return ":".join(parts)
 
 
 def _tool_requires_confirmation(

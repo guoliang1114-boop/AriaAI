@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat.state import ChatSessionState
 from app.services.chat.phases.p1_planning import run_p1_planning
-from app.services.chat.phases.p2_tools import run_p2_tools
+from app.services.chat.phases.p2_tools import _tool_confirmation_token, run_p2_tools
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, run_p0_durable_task
@@ -567,8 +567,57 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         mock_exec.assert_not_awaited()
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertEqual(state.trace_events[-1]["type"], "tool_confirmation_required")
-        self.assertEqual(state.trace_events[-1]["confirmation_token"], f"tool:{PROJECT_MARKDOWN_TOOL_NAME}:append")
+        confirmation_token = state.trace_events[-1]["confirmation_token"]
+        self.assertTrue(confirmation_token.startswith(f"tool:{PROJECT_MARKDOWN_TOOL_NAME}:append:"))
         self.assertIn("等待确认", "".join(events))
+
+    async def test_p2_confirmation_token_is_bound_to_tool_input(self):
+        """A confirmation token only authorizes the exact tool input it was created for."""
+        stale_input = {"mode": "append", "content": "## 旧内容", "project_id": 1}
+        current_input = {"mode": "append", "content": "## 新内容"}
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": PROJECT_MARKDOWN_TOOL_NAME,
+                "id": "tool-confirm-stale",
+                "input": current_input,
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = [_tool_confirmation_token(PROJECT_MARKDOWN_TOOL_NAME, stale_input)]
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock()) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_not_awaited()
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
+
+    async def test_p2_confirmation_token_replays_exact_tool_input(self):
+        """An exact confirmation token lets the previously blocked tool call execute."""
+        tool_input = {"mode": "append", "content": "## 会后行动清单"}
+        confirmed_input = {**tool_input, "project_id": 1}
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": PROJECT_MARKDOWN_TOOL_NAME,
+                "id": "tool-confirm-exact",
+                "input": tool_input,
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = [_tool_confirmation_token(PROJECT_MARKDOWN_TOOL_NAME, confirmed_input)]
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(return_value={"status": "completed", "success": True})) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_awaited_once()
+        self.assertEqual(state.tool_call_events[-1]["status"], "completed")
 
     async def test_p2_does_not_require_confirmation_for_read_tool_in_modify_turn(self):
         """A modify-capable turn may still use read-only tools without confirmation."""
