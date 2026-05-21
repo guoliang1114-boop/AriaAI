@@ -7,6 +7,10 @@ as normal chat even when they mention file formats.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
+
+from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 
 FORMAT_TERMS: dict[str, tuple[str, ...]] = {
@@ -72,6 +76,46 @@ class ArtifactIntent:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class ArtifactContract:
+    """Execution contract for turns that must produce a durable deliverable."""
+
+    delivery_required: bool = False
+    output_kind: str = ""
+    title: str = ""
+    allowed_tools: tuple[str, ...] = ()
+    confidence: float = 0.0
+    reason: str = ""
+    source: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "delivery_required": self.delivery_required,
+            "output_kind": self.output_kind,
+            "title": self.title,
+            "allowed_tools": list(self.allowed_tools),
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "source": self.source,
+        }
+
+
+_OUTPUT_KIND_ALIASES = {
+    "ppt": "pptx",
+    "powerpoint": "pptx",
+    "slides": "pptx",
+    "xls": "xlsx",
+    "spreadsheet": "xlsx",
+    "excel": "xlsx",
+    "word": "docx",
+    "document": "docx",
+    "markdown": "md",
+    "text": "md",
+}
+
+_SUPPORTED_OUTPUT_KINDS = {"pptx", "xlsx", "docx", "pdf", "md"}
+
+
 def _normalize(content: str) -> str:
     return (content or "").strip().lower()
 
@@ -82,6 +126,70 @@ def _has_any(text: str, terms: tuple[str, ...]) -> bool:
 
 def is_question_like(content: str) -> bool:
     return _normalize(content).startswith(QUESTION_PREFIXES)
+
+
+def normalize_output_kind(value: Any) -> str:
+    kind = str(value or "").strip().lower().lstrip(".")
+    kind = _OUTPUT_KIND_ALIASES.get(kind, kind)
+    return kind if kind in _SUPPORTED_OUTPUT_KINDS else ""
+
+
+def allowed_tools_for_output_kind(output_kind: str) -> tuple[str, ...]:
+    if output_kind == "md":
+        return (PROJECT_MARKDOWN_TOOL_NAME,)
+    if output_kind in {"pptx", "xlsx", "docx", "pdf"}:
+        return (WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,)
+    return ()
+
+
+def contract_from_artifact_intent(intent: ArtifactIntent, *, title: str = "", source: str = "rule") -> ArtifactContract:
+    output_kind = normalize_output_kind(intent.output_kind)
+    if not intent.requested or not output_kind:
+        return ArtifactContract()
+    return ArtifactContract(
+        delivery_required=True,
+        output_kind=output_kind,
+        title=str(title or "").strip(),
+        allowed_tools=allowed_tools_for_output_kind(output_kind),
+        confidence=intent.confidence,
+        reason=intent.reason,
+        source=source,
+    )
+
+
+def contract_from_llm_payload(payload: dict[str, Any]) -> ArtifactContract:
+    raw = payload.get("artifact_contract")
+    contract_data = raw if isinstance(raw, dict) else {}
+    delivery_required = bool(
+        contract_data.get("delivery_required")
+        or payload.get("delivery_required")
+        or payload.get("response_mode") in {"artifact", "orchestrated", "workflow"}
+    )
+    output_kind = normalize_output_kind(
+        contract_data.get("output_kind")
+        or contract_data.get("artifact_type")
+        or payload.get("output_kind")
+    )
+    if not delivery_required or not output_kind:
+        return ArtifactContract()
+    confidence = contract_data.get("confidence", payload.get("confidence", 0))
+    try:
+        confidence_value = max(0.0, min(1.0, float(confidence)))
+    except (TypeError, ValueError):
+        confidence_value = 0.0
+    allowed_tools_raw = contract_data.get("allowed_tools")
+    allowed_tools = tuple(str(item) for item in allowed_tools_raw if item) if isinstance(allowed_tools_raw, list) else ()
+    if not allowed_tools:
+        allowed_tools = allowed_tools_for_output_kind(output_kind)
+    return ArtifactContract(
+        delivery_required=True,
+        output_kind=output_kind,
+        title=str(contract_data.get("title") or payload.get("title") or "").strip(),
+        allowed_tools=allowed_tools,
+        confidence=confidence_value,
+        reason=str(contract_data.get("reason") or payload.get("reason") or "llm_artifact_contract"),
+        source="llm_router",
+    )
 
 
 def detect_artifact_intent(content: str) -> ArtifactIntent:

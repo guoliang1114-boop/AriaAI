@@ -222,6 +222,8 @@ def prepare_chat_runtime(
     prepare_metrics["intent_reason"] = intent_decision.reason
     prepare_metrics["intent_method"] = intent_decision.method
     prepare_metrics["intent_trace"] = intent_decision.trace
+    if intent_decision.artifact_contract.delivery_required:
+        prepare_metrics["artifact_contract"] = intent_decision.artifact_contract.to_dict()
     prepare_metrics["resolve_skill_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 2. Conversation
@@ -325,6 +327,7 @@ def prepare_chat_runtime(
         intent_method=intent_decision.method,
         intent_trace=intent_decision.trace,
         intent_task_route=intent_decision.task_route,
+        artifact_contract=intent_decision.artifact_contract,
         intent_prepared_async=intent_prepared_async,
     )
 

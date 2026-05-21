@@ -32,7 +32,7 @@ from app.services.consulting_capabilities import (
     should_create_text_artifact_for_capability,
     validate_capability_markdown,
 )
-from app.services.artifact_intent import detect_artifact_intent
+from app.services.artifact_intent import ArtifactContract, detect_artifact_intent
 from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
@@ -206,6 +206,8 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
     normalized = (content or "").strip().lower()
     if not normalized:
         return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
+    if _looks_like_existing_artifact_modify(content):
+        return RouterDecision("direct", confidence=0.93, reason="rule:modify_existing_file", output_kind="chat")
     if _looks_like_direct_memory_summary(content):
         return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
     if _looks_like_direct_diagnostic(content):
@@ -272,6 +274,26 @@ def rule_based_project_task_route(content: str) -> TaskRoute:
     details.
     """
     return _rule_based_task_route(content)
+
+
+def task_route_for_artifact_contract(contract: ArtifactContract, content: str) -> TaskRoute:
+    """Build a durable task route from a validated artifact contract."""
+    if not contract.delivery_required:
+        return TaskRoute(None, confidence=contract.confidence, reason=contract.reason, output_kind=contract.output_kind)
+    task_type = _infer_task_type_from_output_kind(contract.output_kind)
+    if not task_type:
+        return TaskRoute(None, confidence=contract.confidence, reason="contract:unsupported_output", output_kind=contract.output_kind)
+    return _ensure_task_route_protocol_steps(
+        TaskRoute(
+            task_type=task_type,
+            confidence=contract.confidence,
+            reason=contract.reason or "artifact_contract",
+            title=contract.title,
+            output_kind=contract.output_kind,
+            response_mode="artifact",
+        ),
+        content,
+    )
 
 
 def _is_high_confidence_text_capability_route(route: TaskRoute) -> bool:
@@ -343,6 +365,25 @@ def _looks_like_direct_diagnostic(content: str) -> bool:
         "ppt", "pptx", "excel", "xlsx", "word", "docx", "pdf", "markdown", "md",
     )
     return any(term in text for term in diagnostic_terms) and not any(term in text for term in explicit_deliverable_terms)
+
+
+def _looks_like_existing_artifact_modify(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    modify_terms = (
+        "修改", "更新", "替换", "追加", "重写", "修正", "矫正", "改一下", "调整", "覆盖",
+        "update", "modify", "replace", "append", "rewrite", "fix",
+    )
+    artifact_terms = (
+        "文档", "文件", "markdown", " md", ".md", "报告", "材料", "清单", "交付物",
+        "项目空间", "ppt", "pptx", "word", "docx", "excel", "xlsx", "pdf",
+        "document", "file", "deliverable",
+    )
+    existing_terms = ("刚才的", "现有", "已有", "当前", "previous", "existing", "last", "current")
+    return any(term in text for term in modify_terms) and (
+        any(term in text for term in artifact_terms) or any(term in text for term in existing_terms)
+    )
 
 
 def _looks_like_direct_memory_summary(content: str) -> bool:

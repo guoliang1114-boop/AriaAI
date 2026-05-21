@@ -10,6 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.services.artifact_intent import ArtifactContract
 from app.services.chat.state import ChatSessionState
 from app.services.chat.phases.p1_planning import run_p1_planning
 from app.services.chat.phases.p2_tools import run_p2_tools
@@ -55,6 +56,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.chat_mode = "project_deep_dive"
         self.runtime.intent_reason = ""
         self.runtime.intent_method = ""
+        self.runtime.artifact_contract = None
         self.bind = MagicMock()
 
         self.req = MagicMock()
@@ -296,6 +298,72 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         self.assertIn("AI 服务暂时未能生成回复", state.full_text)
+
+    async def test_p4_artifact_contract_failure_does_not_persist_fake_delivery(self):
+        """P4 marks contract failure when a required artifact was not produced."""
+        state = ChatSessionState()
+        state.text_buffer = "这里是一大段表格内容，但没有真实生成 Excel。"
+        state.follow_up_text = ""
+        state.tool_call_events = []
+        state.stage_timings = {}
+
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="xlsx",
+            title="部门访谈问卷",
+            allowed_tools=("write_project_office_document",),
+            confidence=0.86,
+            reason="test",
+            source="llm_router",
+        )
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+
+            events = []
+            async for event in run_p4_persist(self.runtime, self.req, self.bind, state):
+                events.append(event)
+
+        self.assertIn("没有成功生成 XLSX 文件", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertTrue(persisted_metadata["delivery_failed"])
+        self.assertEqual(persisted_metadata["artifact_contract"]["output_kind"], "xlsx")
+        self.assertTrue(any(item["type"] == "artifact_delivery_failed" for item in state.trace_events))
+
+    async def test_p4_artifact_contract_satisfied_by_artifact(self):
+        """P4 treats a persisted artifact as satisfying the contract."""
+        state = ChatSessionState()
+        state.text_buffer = "Excel 已生成。"
+        state.artifacts = [{"name": "部门访谈问卷.xlsx", "file_type": "xlsx"}]
+        state.stage_timings = {}
+
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="xlsx",
+            title="部门访谈问卷",
+            allowed_tools=("write_project_office_document",),
+            confidence=0.86,
+            reason="test",
+            source="llm_router",
+        )
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = state.artifacts
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        self.assertNotIn("没有成功生成", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertNotIn("delivery_failed", persisted_metadata)
 
     # ------------------------------------------------------------------
     # P0 — Durable task early-return

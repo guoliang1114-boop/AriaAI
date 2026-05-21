@@ -18,8 +18,8 @@ cases:
   - id: explicit_markdown_artifact
     content: "请生成一个 md 文档，整理项目风险清单，并保存到项目空间。"
     project_id: 27
-    expected_chat_mode: project_deep_dive
-    expected_action_policy: write_artifact
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task
     allow_tools:
       - update_project_markdown_document
 

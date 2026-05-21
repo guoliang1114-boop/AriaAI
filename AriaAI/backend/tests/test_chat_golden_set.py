@@ -10,6 +10,7 @@ from app.services.chat.mode_registry import ActionPolicy, ChatMode
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_policy, policy_allows_tool
 from app.services.tool_descriptions import load_tool_spec, tool_description
+from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
 
 def _load_cases() -> list[dict]:
@@ -89,6 +90,47 @@ def test_llm_router_cannot_upgrade_read_only_to_write_without_user_intent():
     assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
     assert decision.trace["final_action_policy"] == "read_only_tool"
     assert decision.trace["llm_payload"]["action_policy"] == "write_artifact"
+
+
+def test_llm_router_can_controlled_upgrade_ambiguous_artifact_contract():
+    async def fake_llm(*args, **kwargs):
+        return (
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.86,'
+            '"reason":"user wants a deliverable spreadsheet",'
+            '"artifact_contract":{'
+            '"delivery_required":true,'
+            '"output_kind":"xlsx",'
+            '"title":"部门访谈问卷",'
+            f'"allowed_tools":["{WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME}"]'
+            "}}"
+        )
+
+    req = SendMessageRequest(
+        content="帮我弄个部门访谈表，明天要发客户各部门填写。",
+        project_id=26,
+    )
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
+    assert decision.chat_mode == ChatMode.TASK_ORCHESTRATION
+    assert decision.action_policy == ActionPolicy.DURABLE_TASK
+    assert decision.task_route is not None
+    assert decision.task_route.task_type == "generate_project_excel"
+    assert decision.artifact_contract.delivery_required is True
+    assert decision.artifact_contract.output_kind == "xlsx"
+    assert decision.trace["artifact_contract"]["output_kind"] == "xlsx"
+
+
+def test_llm_router_rejects_artifact_upgrade_without_contract():
+    async def fake_llm(*args, **kwargs):
+        return '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.9,"reason":"guessed workflow"}'
+
+    req = SendMessageRequest(
+        content="帮我分析一下明天客户访谈应该重点问什么。",
+        project_id=26,
+    )
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
+    assert decision.chat_mode != ChatMode.TASK_ORCHESTRATION
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.task_route is None
 
 
 def test_unified_router_short_circuits_explicit_office_generation():

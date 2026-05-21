@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.artifact_intent import ArtifactContract
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 
@@ -22,15 +22,16 @@ class ChatRuntime:
     project_id: int | None = None
     skill_name: str = ""
     prepare_metrics: dict | None = None
-    chat_mode: ChatMode | str = ChatMode.STANDALONE_QA
+    chat_mode: str = "standalone_qa"
     # Default to the strictest policy. Real runtime always overrides via
     # intent_decision.action_policy; this default exists only as a safety net so
     # that any code path that forgets to set it does not silently open write tools.
-    action_policy: ActionPolicy | str = ActionPolicy.DIRECT_ANSWER
+    action_policy: str = "direct_answer"
     intent_reason: str = ""
     intent_method: str = ""
     intent_trace: dict | None = None
     intent_task_route: object | None = None
+    artifact_contract: ArtifactContract | None = None
     intent_prepared_async: bool = False
 
 

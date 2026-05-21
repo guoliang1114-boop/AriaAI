@@ -8,8 +8,10 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
 from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
@@ -20,6 +22,50 @@ from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
 
 logger = logging.getLogger(__name__)
+
+
+def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
+    contract = getattr(runtime, "artifact_contract", None)
+    if isinstance(contract, ArtifactContract) and contract.delivery_required:
+        return contract
+    return None
+
+
+def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | None) -> bool:
+    if not contract or not contract.delivery_required:
+        return True
+    output_kind = (contract.output_kind or "").lower()
+    if output_kind == "md" and state.pending_markdown_saves:
+        return True
+    for artifact in state.artifacts:
+        file_type = str(artifact.get("file_type") or artifact.get("output_kind") or "").lower().lstrip(".")
+        file_name = str(artifact.get("file_name") or artifact.get("name") or "").lower()
+        if file_type == output_kind or (output_kind and file_name.endswith(f".{output_kind}")):
+            return True
+    for event in state.tool_call_events:
+        if str(event.get("status") or "").lower() != "completed":
+            continue
+        artifact = event.get("artifact") or event.get("output") or {}
+        if isinstance(artifact, dict):
+            file_type = str(artifact.get("file_type") or artifact.get("output_kind") or "").lower().lstrip(".")
+            file_name = str(artifact.get("file_name") or artifact.get("name") or "").lower()
+            if file_type == output_kind or (output_kind and file_name.endswith(f".{output_kind}")):
+                return True
+    return False
+
+
+def _delivery_failure_message(contract: ArtifactContract) -> str:
+    kind = (contract.output_kind or "文件").upper()
+    return (
+        f"抱歉，这次没有成功生成 {kind} 文件，因此我不会把正文文本当作交付物完成。\n\n"
+        "请重试一次，或切换模型后再试；系统会保留这次失败记录，便于排查具体原因。"
+    )
+
+
+def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] | None:
+    if not contract or not contract.delivery_required:
+        return None
+    return contract.to_dict()
 
 
 async def run_p4_persist(
@@ -77,6 +123,8 @@ async def run_p4_persist(
     if state.artifacts:
         state.artifacts = persist_generated_artifacts(bind, runtime.conv_id, state.artifacts, req.project_id)
 
+    artifact_contract = _runtime_artifact_contract(runtime)
+
     # Build artifact notice
     artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""
     if not full_text and artifact_notice:
@@ -97,6 +145,23 @@ async def run_p4_persist(
         )
         logger.warning("[P4] empty response detected, using fallback message")
 
+    delivery_failed = False
+    if artifact_contract and not _delivery_satisfied(state, artifact_contract):
+        delivery_failed = True
+        full_text = _delivery_failure_message(artifact_contract)
+        state.record_trace_event(
+            "artifact_delivery_failed",
+            output_kind=artifact_contract.output_kind,
+            title=artifact_contract.title,
+            reason="contract_not_satisfied",
+        )
+        logger.warning(
+            "[P4] artifact contract not satisfied. output_kind=%s title=%s",
+            artifact_contract.output_kind,
+            artifact_contract.title,
+        )
+        yield sse_event({"type": "text", "content": f"\n\n{full_text}"})
+
     # Build metadata
     metadata: dict = {}
     if runtime.rag_sources:
@@ -107,6 +172,11 @@ async def run_p4_persist(
         metadata["artifacts"] = state.artifacts
     if state.pending_markdown_saves:
         metadata["pending_markdown_saves"] = state.pending_markdown_saves
+    contract_metadata = _contract_to_metadata(artifact_contract)
+    if contract_metadata:
+        metadata["artifact_contract"] = contract_metadata
+    if delivery_failed:
+        metadata["delivery_failed"] = True
     if req.project_id:
         metadata["project_id"] = req.project_id
     if runtime.skill_name:

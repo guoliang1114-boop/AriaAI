@@ -59,6 +59,7 @@ async def run_p0_durable_task(
         runtime.intent_method = intent_decision.method
         runtime.intent_reason = intent_decision.reason
         runtime.intent_trace = intent_decision.trace
+        runtime.artifact_contract = getattr(intent_decision, "artifact_contract", None)
         task_route = intent_decision.task_route
         state.stage_timings["route_task_ms"] = round((time.perf_counter() - route_started_at) * 1000)
 
@@ -93,6 +94,9 @@ async def run_p0_durable_task(
                         "confidence": task_route.confidence,
                         "reason": task_route.reason,
                         "output_kind": task_route.output_kind,
+                        "artifact_contract": runtime.artifact_contract.to_dict()
+                        if getattr(runtime.artifact_contract, "delivery_required", False)
+                        else None,
                     },
                 },
                 plan_steps=list(task_route.plan_steps),
