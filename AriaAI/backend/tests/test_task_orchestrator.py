@@ -67,6 +67,7 @@ def test_detect_project_task_type_routes_ppt_creation_requests():
     assert detect_project_task_type("给客户准备一个 PPT 介绍") == "generate_client_ppt"
     assert detect_project_task_type("please create a powerpoint deck for the client") == "generate_client_ppt"
     assert detect_project_task_type("我想要准备一个访谈的excel") == "generate_project_excel"
+    assert detect_project_task_type("请给我写一个全面而丰富的访谈问卷Excel") == "generate_project_excel"
     assert detect_project_task_type("帮我生成一份项目总结word文档") == "generate_project_docx"
     assert detect_project_task_type("输出一个客户沟通pdf") == "generate_project_pdf"
     assert detect_project_task_type("这个项目风险是什么") is None
@@ -161,6 +162,14 @@ def test_router_allows_memory_summary_when_user_explicitly_asks_for_file():
     route = asyncio.run(route_project_task_request(content))
 
     assert route.task_type == "create_text_artifact"
+
+
+def test_router_treats_write_excel_questionnaire_as_artifact():
+    route = asyncio.run(route_project_task_request("请给我写一个全面而丰富的访谈问卷Excel"))
+
+    assert route.task_type == "generate_project_excel"
+    assert route.response_mode == "artifact"
+    assert route.output_kind == "xlsx"
 
 
 def test_structured_router_respects_direct_response_mode_even_with_task_type():
@@ -300,6 +309,18 @@ def test_client_ppt_delivery_title_uses_deliverable_topic():
 
     assert title == "样例客户-CRM迁移方案建议书"
     assert task_orchestrator._client_ppt_file_name(title) == "样例客户-CRM迁移方案建议书.pptx"
+
+
+def test_deliverable_title_removes_excel_command_language():
+    title = task_orchestrator.normalize_deliverable_title(
+        content="请给我写一个全面而丰富的访谈问卷Excel",
+        explicit_title="请给我写一个全面而丰富的访谈问卷Excel",
+        file_type="xlsx",
+        client_name="东阿阿胶股份有限公司",
+    )
+
+    assert title == "东阿阿胶股份有限公司-访谈问卷"
+    assert task_orchestrator.file_name_for_deliverable(title, "xlsx") == "东阿阿胶股份有限公司-访谈问卷.xlsx"
 
 
 def test_llm_router_uses_structured_plan():
@@ -536,6 +557,29 @@ def test_execute_project_excel_task_uses_durable_document_steps(monkeypatch):
         assert artifacts and artifacts[0].file_type == "xlsx"
     finally:
         engine.dispose()
+
+
+def test_comprehensive_interview_questionnaire_excel_has_department_sheets():
+    context = {
+        "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},
+        "memory": {"project_brief": "探索功能性护肤品/医美抗衰赛道的新业务机会。"},
+    }
+
+    sheets = task_orchestrator._default_xlsx_sheets("请给我写一个全面而丰富的访谈问卷Excel", context)
+    sheet_names = {sheet["name"] for sheet in sheets}
+    question_count = sum(len(sheet.get("data") or []) for sheet in sheets if sheet["name"].endswith("问卷"))
+
+    assert "访谈总览" in sheet_names
+    assert "Sheet索引" in sheet_names
+    assert "战略部问卷" in sheet_names
+    assert "品牌市场问卷" in sheet_names
+    assert "渠道销售问卷" in sheet_names
+    assert "合规法务问卷" in sheet_names
+    assert len(sheets) >= 10
+    assert question_count >= 90
+    strategy_sheet = next(sheet for sheet in sheets if sheet["name"] == "战略部问卷")
+    assert strategy_sheet["headers"] == ["序号", "问题分类", "核心问题", "追问/深挖方向", "优先级", "建议填写部门", "预期产出", "访谈记录"]
+    assert any("决策" in row[2] for row in strategy_sheet["data"])
 
 
 def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, tmp_path):

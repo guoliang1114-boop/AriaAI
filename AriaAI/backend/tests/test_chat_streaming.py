@@ -440,6 +440,22 @@ class ChatModeActionPolicyTests(unittest.TestCase):
         )
         self.assertTrue(allowed)
 
+    def test_write_excel_questionnaire_allows_office_artifact(self):
+        decision = classify_chat_mode_and_policy("请给我写一个全面而丰富的访谈问卷Excel", project_id=26)
+        self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
+        self.assertEqual(decision.action_policy, ActionPolicy.WRITE_ARTIFACT)
+        allowed, _, required = policy_allows_tool(
+            decision.action_policy,
+            "write_project_office_document",
+            {"file_type": "xlsx"},
+        )
+        self.assertTrue(allowed)
+        self.assertEqual(required, ActionPolicy.WRITE_ARTIFACT)
+
+    def test_excel_how_to_question_stays_read_only(self):
+        decision = classify_chat_mode_and_policy("如何写 Excel 公式？", project_id=26)
+        self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+
     def test_chat_trace_payload_records_router_and_tool_decisions(self):
         runtime = ChatRuntime(
             conv_id=12,

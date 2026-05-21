@@ -36,8 +36,9 @@ def clean_deliverable_topic(value: str) -> str:
         return ""
     cleanup_patterns = [
         r"^(好的?|请|麻烦|帮我|帮忙|给我|我打算|我想要|我要|需要|可以)\s*",
-        r"(给客户|为客户|客户准备|准备给客户|准备一份|准备一个|起草一份|起草一个|起草|撰写|编写)",
-        r"(帮我|帮忙|给我|请|麻烦|生成|制作|输出|创建|整理|保存|导出|准备)",
+        r"(给客户|为客户|客户准备|准备给客户|准备一份|准备一个|起草一份|起草一个|写一份|写一个|写个|起草|撰写|编写)",
+        r"(帮我|帮忙|给我|请|麻烦|生成|制作|输出|创建|整理|保存|导出|准备|写)",
+        r"(全面而丰富|全面|丰富|完整|详细|系统化)",
         r"(一份|一个|一下|版本|版)",
         r"(pptx|powerpoint|ppt|PPT|docx|word|pdf|xlsx|excel|markdown|md|文档|文件)",
         r"的",
@@ -69,7 +70,7 @@ def normalize_deliverable_title(
     label = _TYPE_LABELS.get(file_type.lower(), "交付物")
     if not topic:
         topic = label
-    elif label not in topic and not any(token in topic for token in ("建议书", "建议", "方案", "报告", "清单", "纪要", "计划")):
+    elif label not in topic and not any(token in topic for token in ("建议书", "建议", "方案", "报告", "清单", "问卷", "纪要", "计划")):
         topic = f"{topic}{label}"
 
     client = client_name.strip()
