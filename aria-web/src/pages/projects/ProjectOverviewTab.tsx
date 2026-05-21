@@ -1,11 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../contexts/ToastContext";
-import type { GeneratedArtifact, ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
+import type { ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
 import { downloadProjectFile } from "./downloadProjectFile";
-import { downloadArtifact } from "./downloadArtifact";
 import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
-import { ProjectOverviewArtifactsCard } from "./ProjectOverviewArtifactsCard";
 import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
 import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
@@ -42,12 +40,10 @@ export function ProjectOverviewTab({
     generateSummary,
     generatingSummary,
     handleSummaryTypeChange,
-    isLoadingArtifacts,
     isLoadingMemory,
     isRebuildingMemory,
     memory,
     overviewNotesText,
-    recentArtifacts,
     recentFiles,
     recentMilestones,
     recentTodos,
@@ -75,17 +71,6 @@ export function ProjectOverviewTab({
     } catch (error) {
       console.error("Failed to download file:", error);
       toast.error(isZh ? "下载失败" : "Download failed");
-    }
-  };
-
-  const handleArtifactDownload = async (artifact: GeneratedArtifact) => {
-    try {
-      await downloadArtifact({
-        artifact: artifact,
-      });
-    } catch (error) {
-      console.error("Failed to download artifact:", error);
-      toast.error(isZh ? "生成物下载失败" : "Artifact download failed");
     }
   };
 
@@ -147,18 +132,20 @@ export function ProjectOverviewTab({
           onManage={() => navigate(`/projects/${projectId}/anchors`)}
         />
 
-        <ProjectOverviewNotesCard
-          isZh={isZh}
-          notesText={overviewNotesText}
-          onOpen={() => navigate(`/projects/${projectId}/space`)}
-        />
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ProjectOverviewMilestonesCard
-            isZh={isZh}
-            milestones={recentMilestones}
-            onOpen={() => navigate(`/projects/${projectId}/milestones`)}
-          />
+          <div className="space-y-6">
+            <ProjectOverviewNotesCard
+              isZh={isZh}
+              notesText={overviewNotesText}
+              onOpen={() => navigate(`/projects/${projectId}/space`)}
+            />
+
+            <ProjectOverviewMilestonesCard
+              isZh={isZh}
+              milestones={recentMilestones}
+              onOpen={() => navigate(`/projects/${projectId}/milestones`)}
+            />
+          </div>
 
           <ProjectOverviewDocumentsCard
             files={recentFiles}
@@ -170,14 +157,6 @@ export function ProjectOverviewTab({
       </div>
 
       <ProjectOverviewSidebar
-        artifactsCard={
-          <ProjectOverviewArtifactsCard
-            artifacts={recentArtifacts}
-            isLoading={isLoadingArtifacts}
-            isZh={isZh}
-            onDownload={(artifact) => void handleArtifactDownload(artifact)}
-          />
-        }
         financials={financials}
         formatAmount={formatAmount}
         isZh={isZh}

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { ProjectFinancials, ProjectTodo } from "../../types/api";
 
 interface ProjectOverviewSidebarProps {
-  artifactsCard?: ReactNode;
   financials: ProjectFinancials;
   formatAmount: (amount: number | undefined | null) => string;
   isZh: boolean;
@@ -16,7 +15,6 @@ interface ProjectOverviewSidebarProps {
 }
 
 export function ProjectOverviewSidebar({
-  artifactsCard,
   financials,
   formatAmount,
   isZh,
@@ -78,8 +76,6 @@ export function ProjectOverviewSidebar({
           </div>
         </div>
       </div>
-
-      {artifactsCard}
 
       {memoryCard}
 
