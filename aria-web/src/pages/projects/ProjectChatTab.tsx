@@ -401,11 +401,19 @@ export function ProjectChatTab({
     if (!activeConvId) {
       return;
     }
+    const currentPathConversationId = pathConversationParam ? Number(pathConversationParam) : null;
+    if (
+      currentPathConversationId
+      && Number.isFinite(currentPathConversationId)
+      && currentPathConversationId !== activeConvId
+    ) {
+      return;
+    }
     const nextPath = `/projects/${project.id}/chat/${activeConvId}`;
     if (location.pathname !== nextPath) {
       navigate(`${nextPath}${location.search}`, { replace: true });
     }
-  }, [activeConvId, location.pathname, location.search, navigate, project.id]);
+  }, [activeConvId, location.pathname, location.search, navigate, pathConversationParam, project.id]);
 
   useEffect(() => {
     if (!highlightedMessageId || isLoadingMessages) {
