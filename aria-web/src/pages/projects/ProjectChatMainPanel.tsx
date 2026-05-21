@@ -44,6 +44,7 @@ interface ProjectChatMainPanelProps {
   onStop?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onTaskRunUpdated?: (task: TaskRun) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -107,6 +108,7 @@ export function ProjectChatMainPanel({
   onStop,
   onDownloadArtifact,
   onOpenArtifact,
+  onConfirmToolAction,
   onTaskRunUpdated,
   onToggleSidebar,
   quickPrompts,
@@ -232,6 +234,7 @@ export function ProjectChatMainPanel({
           messages={messages}
           onDownloadArtifact={onDownloadArtifact}
           onOpenArtifact={onOpenArtifact}
+          onConfirmToolAction={onConfirmToolAction}
           onOpenTasks={() => setIsTaskDrawerOpen(true)}
           streamingContent={streamingContent}
           streamingStatus={streamingStatus}

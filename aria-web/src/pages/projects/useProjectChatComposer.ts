@@ -101,6 +101,10 @@ type UseProjectChatComposerParams = {
   onSendError: () => void;
 };
 
+type SendMessageOptions = {
+  actionConfirmations?: string[];
+};
+
 export function useProjectChatComposer({
   projectId,
   activeConvId,
@@ -139,7 +143,7 @@ export function useProjectChatComposer({
   }, [resetStream]);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, options: SendMessageOptions = {}) => {
       const trimmed = content.trim();
       if (!trimmed) return false;
 
@@ -205,6 +209,7 @@ export function useProjectChatComposer({
             knowledge_scope: knowledgeScope,
             model: selectedModel || undefined,
             mention_context: mentionContext,
+            action_confirmations: options.actionConfirmations,
           }),
           signal: abortControllerRef.current.signal,
         });
@@ -496,7 +501,7 @@ export function useProjectChatComposer({
   }, []);
 
   const sendMessageAsync = useCallback(
-    async (content: string) => {
+    async (content: string, options: SendMessageOptions = {}) => {
       const trimmed = content.trim();
       if (!trimmed) return false;
 
@@ -558,6 +563,7 @@ export function useProjectChatComposer({
             knowledge_scope: knowledgeScope,
             model: selectedModel || undefined,
             mention_context: mentionContext,
+            action_confirmations: options.actionConfirmations,
           }),
           signal: abortControllerAsyncRef.current.signal,
         });

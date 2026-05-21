@@ -412,6 +412,15 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("确认", reason)
 
+    async def test_p0_flags_high_cost_excel_for_confirmation(self):
+        route = SimpleNamespace(task_type="generate_project_excel", output_kind="xlsx")
+        self.req.content = "请生成一个全面丰富的全部门访谈问卷 Excel。"
+        self.runtime.action_policy = "durable_task"
+
+        reason = _task_confirmation_reason(self.runtime, self.req, route)
+
+        self.assertIn("Excel", reason)
+
     # ------------------------------------------------------------------
     # End-to-end: P1 → P4 without tools
     # ------------------------------------------------------------------

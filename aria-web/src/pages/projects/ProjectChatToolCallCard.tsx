@@ -5,6 +5,7 @@ import type { ToolCallEvent } from "../../types/api";
 interface ProjectChatToolCallCardProps {
   call: ToolCallEvent;
   isZh: boolean;
+  onConfirmAction?: (confirmationToken: string) => void;
   onOpenTasks?: () => void;
 }
 
@@ -66,6 +67,7 @@ function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowS
 export function ProjectChatToolCallCard({
   call,
   isZh,
+  onConfirmAction,
   onOpenTasks,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
@@ -187,6 +189,16 @@ export function ProjectChatToolCallCard({
           {call.message ? <p className="mt-1 text-xs text-gray-600">{call.message}</p> : null}
           {call.summary ? <p className="mt-1 text-xs text-gray-600">{call.summary}</p> : null}
           {call.error ? <p className="mt-1 text-xs text-rose-600">{call.error}</p> : null}
+          {call.status === "confirmation_required" && call.confirmation_token && onConfirmAction ? (
+            <button
+              type="button"
+              onClick={() => onConfirmAction(call.confirmation_token || "")}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {isZh ? "确认并重试" : "Confirm and retry"}
+            </button>
+          ) : null}
           {call.details?.length ? (
             <div className="mt-2 space-y-1 border-t border-white/70 pt-1.5">
               {call.details.map((detail, index) => (

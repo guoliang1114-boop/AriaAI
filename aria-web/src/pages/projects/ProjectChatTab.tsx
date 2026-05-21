@@ -850,7 +850,7 @@ export function ProjectChatTab({
     }
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, options: { actionConfirmations?: string[] } = {}) => {
     if (isPlanMode && !planResult) {
       // Generate plan instead of sending
       setIsGeneratingPlan(true);
@@ -891,8 +891,8 @@ export function ProjectChatTab({
       return true;
     }
     const sent = isBackgroundMode
-      ? await sendMessageAsync(content)
-      : await sendMessage(content);
+      ? await sendMessageAsync(content, options)
+      : await sendMessage(content, options);
     if (sent && selectedSkillId && skillArmedRef.current) {
       setSelectedSkillId(null);
       skillArmedRef.current = false;
@@ -993,6 +993,9 @@ export function ProjectChatTab({
             messagesContainerRef={panel.messagesContainerRef}
             onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
             onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
+            onConfirmToolAction={(content, confirmationToken) => {
+              void handleSendMessage(content, { actionConfirmations: [confirmationToken] });
+            }}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
             onTaskRunUpdated={handleTaskRunUpdated}
             onInputChange={panel.setInputValue}

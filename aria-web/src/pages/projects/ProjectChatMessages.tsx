@@ -22,6 +22,7 @@ const ChatStreamingMessage = memo<{
   onContinue?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onOpenTasks?: () => void;
   projectId: number;
   references: Reference[];
@@ -111,6 +112,7 @@ type ProjectChatMessagesProps = {
   messages: ChatMessage[];
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
+  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onOpenTasks?: () => void;
   streamingContent: string;
   streamingStatus: string;
@@ -140,6 +142,7 @@ export function ProjectChatMessages({
   messages,
   onDownloadArtifact,
   onOpenArtifact,
+  onConfirmToolAction,
   onOpenTasks,
   streamingContent,
   streamingStatus,
@@ -203,20 +206,25 @@ export function ProjectChatMessages({
 
       {!isLoadingMessages && (messages.length > 0 || streamingContent || streamingStatus || isLoading) && (
         <>
-          {messages.map((msg) => (
-            <ProjectChatMessageBubble
-              key={msg.id}
-              highlight={highlightedMessageId === msg.id}
-              msg={msg}
-              onDownloadArtifact={onDownloadArtifact}
-              onOpenArtifact={onOpenArtifact}
-              onOpenTasks={onOpenTasks}
-              onApplyStakeholders={onApplyStakeholders}
-              onContinue={msg.role === "assistant" && !isLoading ? onContinue : undefined}
-              projectId={projectId}
-              onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
-            />
-          ))}
+          {messages.map((msg, index) => {
+            const previousUserMessage = [...messages.slice(0, index)].reverse().find((item) => item.role === "user");
+            return (
+              <ProjectChatMessageBubble
+                key={msg.id}
+                highlight={highlightedMessageId === msg.id}
+                msg={msg}
+                sourceContent={previousUserMessage?.content}
+                onDownloadArtifact={onDownloadArtifact}
+                onOpenArtifact={onOpenArtifact}
+                onConfirmToolAction={onConfirmToolAction}
+                onOpenTasks={onOpenTasks}
+                onApplyStakeholders={onApplyStakeholders}
+                onContinue={msg.role === "assistant" && !isLoading ? onContinue : undefined}
+                projectId={projectId}
+                onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
+              />
+            );
+          })}
           {(streamingContent || streamingStatus || streamingToolCalls.length > 0 || streamingArtifacts.length > 0 || streamingReferences.length > 0) && (
             <ChatStreamingMessage
               artifacts={streamingArtifacts}

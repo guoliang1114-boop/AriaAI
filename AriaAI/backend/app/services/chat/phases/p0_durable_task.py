@@ -39,8 +39,15 @@ def _task_confirmation_reason(runtime: ChatRuntime, req: SendMessageRequest, tas
         return "该任务可能修改或删除已有项目内容，需要先确认。"
     text = (req.content or "").lower()
     high_cost_terms = ("全面", "丰富", "完整", "详细", "大型", "全部门", "所有部门", "10", "20", "large", "comprehensive")
-    if getattr(task_route, "output_kind", "") == "pptx" and any(term in text for term in high_cost_terms):
-        return "该 PPT 生成任务可能耗时较长，需要先确认后执行。"
+    output_kind = getattr(task_route, "output_kind", "")
+    if output_kind in {"pptx", "xlsx", "docx", "pdf"} and any(term in text for term in high_cost_terms):
+        label = {
+            "pptx": "PPT",
+            "xlsx": "Excel",
+            "docx": "Word",
+            "pdf": "PDF",
+        }.get(output_kind, "文件")
+        return f"该 {label} 生成任务可能耗时较长，需要先确认后执行。"
     return ""
 
 
