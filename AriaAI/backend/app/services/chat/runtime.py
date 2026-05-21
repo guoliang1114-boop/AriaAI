@@ -28,7 +28,7 @@ from app.services.provider_selector import (
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.mode_registry import ChatMode, MODE_CONFIG
-from app.services.intent_router import classify_chat_intent
+from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_policy
 
 # ---------------------------------------------------------------------------
@@ -162,10 +162,35 @@ def _should_apply_skill(content: str, skill: Skill | None) -> bool:
     return decide_skill_activation(content, skill).apply
 
 
+def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple[Skill | None, SkillActivationDecision, int | None, Skill | None]:
+    skill = session.get(Skill, req.skill_id) if req.skill_id else None
+    skill_decision = decide_skill_activation(req.content, skill, force_skill=req.force_skill)
+    effective_skill_id = req.skill_id if skill and skill_decision.apply else None
+    effective_skill = skill if effective_skill_id else None
+    return skill, skill_decision, effective_skill_id, effective_skill
+
+
+def _resolve_requested_model(session: Session, req: SendMessageRequest) -> str:
+    selected_model = get_selected_model(session)
+    user_model = (req.model or "").strip()
+    if user_model:
+        model_lower = user_model.lower()
+        known_prefixes = ("claude-", "kimi-", "moonshot-", "deepseek-", "glm-", "mimo-")
+        if any(model_lower.startswith(p) for p in known_prefixes):
+            selected_model = user_model
+    return selected_model
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
-def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRuntime:
+def prepare_chat_runtime(
+    session: Session,
+    req: SendMessageRequest,
+    *,
+    intent_decision: IntentDecision | None = None,
+    intent_prepared_async: bool = False,
+) -> ChatRuntime:
     """Build a fully-populated ``ChatRuntime`` from a user request.
 
     Steps performed:
@@ -178,19 +203,18 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
     """
     prepare_started_at = time.perf_counter()
     step_started_at = prepare_started_at
-    prepare_metrics: dict[str, int | str] = {}
+    prepare_metrics: dict[str, int | str | dict] = {}
 
     # 1. Skill resolution
-    skill = session.get(Skill, req.skill_id) if req.skill_id else None
-    skill_decision = decide_skill_activation(req.content, skill, force_skill=req.force_skill)
-    effective_skill_id = req.skill_id if skill and skill_decision.apply else None
-    effective_skill = skill if effective_skill_id else None
-    intent_decision = classify_chat_intent(req, effective_skill_id=effective_skill_id)
+    _, skill_decision, effective_skill_id, effective_skill = _resolve_effective_skill(session, req)
+    if intent_decision is None:
+        intent_decision = classify_chat_intent(req, effective_skill_id=effective_skill_id)
     prepare_metrics["skill_decision"] = skill_decision.reason
     prepare_metrics["chat_mode"] = intent_decision.chat_mode.value
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
     prepare_metrics["intent_reason"] = intent_decision.reason
     prepare_metrics["intent_method"] = intent_decision.method
+    prepare_metrics["intent_trace"] = intent_decision.trace
     prepare_metrics["resolve_skill_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 2. Conversation
@@ -236,13 +260,7 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
 
     # 5. Model & provider resolution
     step_started_at = time.perf_counter()
-    selected_model = get_selected_model(session)
-    user_model = (req.model or "").strip()
-    if user_model:
-        model_lower = user_model.lower()
-        known_prefixes = ("claude-", "kimi-", "moonshot-", "deepseek-", "glm-", "mimo-")
-        if any(model_lower.startswith(p) for p in known_prefixes):
-            selected_model = user_model
+    selected_model = _resolve_requested_model(session, req)
 
     runtime_model, runtime_max_tokens = _resolve_runtime_model_and_tokens(
         req,
@@ -298,4 +316,35 @@ def prepare_chat_runtime(session: Session, req: SendMessageRequest) -> ChatRunti
         action_policy=intent_decision.action_policy,
         intent_reason=intent_decision.reason,
         intent_method=intent_decision.method,
+        intent_trace=intent_decision.trace,
+        intent_task_route=intent_decision.task_route,
+        intent_prepared_async=intent_prepared_async,
+    )
+
+
+async def prepare_chat_runtime_async(session: Session, req: SendMessageRequest) -> ChatRuntime:
+    """Build ``ChatRuntime`` after a full async IntentRouter pre-route.
+
+    This is the canonical path for API requests.  It lets the LLM-assisted
+    router affect the prompt, context mode, model budget, and tool policy before
+    any context is assembled, while the synchronous ``prepare_chat_runtime``
+    remains as a deterministic compatibility baseline for older tests and
+    utility callers.
+    """
+
+    _, _, effective_skill_id, _ = _resolve_effective_skill(session, req)
+    selected_model = _resolve_requested_model(session, req)
+    provider = resolve_provider_from_model(selected_model)
+    llm = _load_provider_module(provider)
+    intent_decision = await classify_chat_intent_async(
+        req,
+        effective_skill_id=effective_skill_id,
+        llm_complete=llm.complete,
+        model=selected_model,
+    )
+    return prepare_chat_runtime(
+        session,
+        req,
+        intent_decision=intent_decision,
+        intent_prepared_async=True,
     )

@@ -44,8 +44,10 @@ async def run_p0_durable_task(
     ``state.durable_task_completed = True`` so the orchestrator can return early.
     """
     stream_started_at = time.perf_counter()
-    task_route = None
-    if req.project_id:
+    task_route = runtime.intent_task_route if req.project_id else None
+    if task_route is not None and not isinstance(getattr(task_route, "task_type", None), str):
+        task_route = None
+    if req.project_id and not runtime.intent_prepared_async:
         route_started_at = time.perf_counter()
         intent_decision = await classify_chat_intent_async(
             req,
@@ -56,6 +58,7 @@ async def run_p0_durable_task(
         runtime.action_policy = intent_decision.action_policy
         runtime.intent_method = intent_decision.method
         runtime.intent_reason = intent_decision.reason
+        runtime.intent_trace = intent_decision.trace
         task_route = intent_decision.task_route
         state.stage_timings["route_task_ms"] = round((time.perf_counter() - route_started_at) * 1000)
 

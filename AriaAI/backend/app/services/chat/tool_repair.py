@@ -64,41 +64,16 @@ def _slugify_deliverable_name(value: str, fallback: str) -> str:
 
 
 def _infer_office_file_type(content: str, tool_input: dict) -> str:
-    """Guess the desired office file type from user content + tool input."""
+    """Resolve the desired office file type from explicit tool input only."""
     explicit = str(tool_input.get("file_type") or "").strip().lower()
     if explicit:
         return explicit
-    text = f"{content}\n{json.dumps(tool_input, ensure_ascii=False)}".lower()
-    if any(token in text for token in ("excel", "xlsx", "xls", "表格", "访谈表", "清单", "台账")):
-        return "xlsx"
-    if any(token in text for token in ("ppt", "pptx", "powerpoint", "deck", "幻灯片", "演示")):
-        return "pptx"
-    if "pdf" in text:
-        return "pdf"
     return "docx"
 
 
 def _default_xlsx_sheets_for_request(content: str) -> list[dict]:
-    """Return sensible default sheet structures for Excel generation."""
-    text = (content or "").lower()
-    if any(token in text for token in ("访谈", "interview")):
-        return [
-            {
-                "name": "访谈计划",
-                "headers": ["访谈对象", "角色/部门", "访谈主题", "核心问题", "时间", "负责人", "状态", "备注"],
-                "data": [
-                    ["", "", "背景与目标", "当前最需要确认的业务目标是什么？", "", "", "待安排", ""],
-                    ["", "", "现状与痛点", "现有流程、系统或协作中最大的阻塞是什么？", "", "", "待安排", ""],
-                    ["", "", "决策与下一步", "后续决策需要哪些材料、数据或参与人？", "", "", "待安排", ""],
-                ],
-            },
-            {
-                "name": "访谈记录",
-                "headers": ["日期", "访谈对象", "关键观点", "风险/分歧", "待补充资料", "下一步动作", "负责人"],
-                "data": [],
-            },
-        ]
-    return [{"name": "工作表", "headers": ["事项", "说明", "负责人", "状态", "备注"], "data": []}]
+    """Return a neutral sheet skeleton without inferring domain-specific columns."""
+    return [{"name": "工作表", "headers": [], "data": []}]
 
 
 def repair_project_office_tool_input(content: str, tool_input: dict) -> tuple[dict, list[str]]:

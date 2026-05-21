@@ -52,6 +52,8 @@ async def run_p4_persist(
     # Suppress leaked tool_use JSON from saved text
     leaked_tool_blocks, cleaned_full_text = extract_tool_use_json_blocks(full_text)
     if leaked_tool_blocks:
+        for block in leaked_tool_blocks:
+            state.record_tool_use_via_text("p4", block, status="suppressed")
         logger.warning(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text")
         full_text = cleaned_full_text.strip()
 

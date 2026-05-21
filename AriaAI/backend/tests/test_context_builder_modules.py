@@ -199,12 +199,19 @@ class StripTruncationMarkerTests(unittest.TestCase):
 
 
 class RepairProjectOfficeToolInputTests(unittest.TestCase):
-    def test_adds_file_type(self):
+    def test_defaults_file_type_to_docx_without_explicit_input(self):
         content = "Create an excel file"
         tool_input = {"title": "Report"}
         repaired, changes = repair_project_office_tool_input(content, tool_input)
-        self.assertEqual(repaired["file_type"], "xlsx")
+        self.assertEqual(repaired["file_type"], "docx")
         self.assertTrue(any("文件类型" in c for c in changes))
+
+    def test_preserves_explicit_xlsx_file_type(self):
+        content = "Create an excel file"
+        tool_input = {"title": "Report", "file_type": "xlsx"}
+        repaired, _ = repair_project_office_tool_input(content, tool_input)
+        self.assertEqual(repaired["file_type"], "xlsx")
+        self.assertIn("sheets", repaired)
 
     def test_adds_file_name(self):
         content = "Create a document"
@@ -218,13 +225,13 @@ class RepairProjectOfficeToolInputTests(unittest.TestCase):
         repaired, changes = repair_project_office_tool_input(content, tool_input)
         self.assertTrue(len(repaired["title"]) > 0)
 
-    def test_interview_excel_gets_sheets(self):
+    def test_xlsx_gets_neutral_sheet_skeleton(self):
         content = "Create interview excel"
-        tool_input = {}
+        tool_input = {"file_type": "xlsx"}
         repaired, changes = repair_project_office_tool_input(content, tool_input)
         self.assertEqual(repaired["file_type"], "xlsx")
         self.assertIn("sheets", repaired)
-        self.assertTrue(any("访谈" in str(s.get("name", "")) for s in repaired["sheets"]))
+        self.assertEqual(repaired["sheets"], [{"name": "工作表", "headers": [], "data": []}])
 
 
 if __name__ == "__main__":

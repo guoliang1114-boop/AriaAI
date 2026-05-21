@@ -1,0 +1,9 @@
+name: read_project_markdown_document
+purpose: List or read Markdown documents in the current project space.
+when_to_use: Use action=list to discover available Markdown files; use action=read with file_id or file_name before analysis, quoting, or an explicitly requested edit.
+when_not_to_use: Do not invent a file name. If the file is unknown, list files first. This tool is read-only and must not create or change content.
+ui_effect: Reading may be shown as project-document inspection progress in chat.
+required_policy:
+  default: read_only_tool
+  list: read_only_tool
+  read: read_only_tool

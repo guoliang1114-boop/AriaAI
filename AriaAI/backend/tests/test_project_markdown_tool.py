@@ -45,7 +45,8 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
 
         self.assertTrue(context.tools)
         self.assertIn(PROJECT_MARKDOWN_TOOL_NAME, {tool["name"] for tool in context.tools})
-        self.assertIn("Project space document tools", context.skill_prompt)
+        update_tool = next(tool for tool in context.tools if tool["name"] == PROJECT_MARKDOWN_TOOL_NAME)
+        self.assertIn("analysis-only", update_tool["description"])
 
     def test_tool_creates_and_appends_markdown_document(self):
         project_id = self._create_project()

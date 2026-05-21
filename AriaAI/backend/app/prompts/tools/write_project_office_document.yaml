@@ -1,0 +1,11 @@
+name: write_project_office_document
+purpose: Create a Word, Excel, PowerPoint, or PDF deliverable and save it into the current project space.
+when_to_use: Use only when the user explicitly asks to create, generate, export, or save a DOCX, XLSX, PPTX, or PDF artifact.
+when_not_to_use: Do not use for analysis-only chat answers. Choose DOCX/PDF for narrative documents, XLSX for tables, and PPTX for presentation slides.
+ui_effect: Creates a downloadable artifact card in chat and a project file in Space.
+required_policy:
+  default: write_artifact
+  docx: write_artifact
+  xlsx: write_artifact
+  pptx: write_artifact
+  pdf: write_artifact

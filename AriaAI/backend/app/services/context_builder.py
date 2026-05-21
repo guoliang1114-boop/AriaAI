@@ -27,7 +27,6 @@ from app.services.context_builder.constants import (
     MAX_SINGLE_FILE_CHARS,
     PROJECT_FILE_QUERY_MARKERS,
     PROJECT_MARKDOWN_TOOL_NAMES,
-    PROJECT_MARKDOWN_TOOL_PROMPT,
     PROJECT_OFFICE_TOOL_NAMES,
 )
 from app.services.context_builder.memory_formatters import (
