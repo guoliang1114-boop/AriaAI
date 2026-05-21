@@ -147,26 +147,26 @@ export function ProjectOverviewTab({
           onManage={() => navigate(`/projects/${projectId}/anchors`)}
         />
 
-        {overviewNotesText.length > 0 && (
-          <ProjectOverviewNotesCard
-            isZh={isZh}
-            notesText={overviewNotesText}
-            onOpen={() => navigate(`/projects/${projectId}/space`)}
-          />
-        )}
-
-        <ProjectOverviewMilestonesCard
+        <ProjectOverviewNotesCard
           isZh={isZh}
-          milestones={recentMilestones}
-          onOpen={() => navigate(`/projects/${projectId}/milestones`)}
-        />
-
-        <ProjectOverviewDocumentsCard
-          files={recentFiles}
-          isZh={isZh}
-          onDownload={(file) => void handleDownload(file)}
+          notesText={overviewNotesText}
           onOpen={() => navigate(`/projects/${projectId}/space`)}
         />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <ProjectOverviewMilestonesCard
+            isZh={isZh}
+            milestones={recentMilestones}
+            onOpen={() => navigate(`/projects/${projectId}/milestones`)}
+          />
+
+          <ProjectOverviewDocumentsCard
+            files={recentFiles}
+            isZh={isZh}
+            onDownload={(file) => void handleDownload(file)}
+            onOpen={() => navigate(`/projects/${projectId}/space`)}
+          />
+        </div>
       </div>
 
       <ProjectOverviewSidebar
