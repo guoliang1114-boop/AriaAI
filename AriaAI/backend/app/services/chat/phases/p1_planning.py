@@ -162,6 +162,7 @@ async def run_p1_planning(
                     block.get("input") if isinstance(block.get("input"), dict) else {},
                 )
                 if not allowed:
+                    state.record_tool_use_via_text("p1", block, status="blocked")
                     logger.warning(
                         "[P1] blocked mixed-text tool by action policy. tool=%s required=%s reason=%s",
                         block.get("name"),
@@ -177,6 +178,7 @@ async def run_p1_planning(
                         current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
                     )
                     continue
+                state.record_tool_use_via_text("p1", block, status="planned")
                 logger.info(
                     f"[P1] tool_use detected in mixed text: {block.get('name')}, "
                     f"id={block.get('id')}, input_keys={list((block.get('input') or {}).keys())}"

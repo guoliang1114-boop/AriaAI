@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.chat.state import ChatSessionState
+from app.services.chat.phases.p1_planning import run_p1_planning
+from app.services.chat_tools import ChatRuntime
 from app.services.chat.sse import sse_event, iter_with_heartbeat, await_with_heartbeat
 from app.services.chat.truncation import strip_truncation_marker, OUTPUT_TRUNCATED_MARKER
 from app.services.chat.workflow import (
@@ -19,7 +21,7 @@ from app.services.chat.workflow import (
     task_step_output_details,
     task_payload_tool_calls,
 )
-from app.services.chat.mode_registry import ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode
 from app.services.chat.runtime import (
     _cap_max_tokens_for_model,
     decide_skill_activation,
@@ -49,6 +51,61 @@ class ChatSessionStateTests(unittest.TestCase):
         state.text_buffer = "hello"
         state.tool_use_blocks.append({"name": "test"})
         self.assertEqual(state.text_buffer, "hello")
+        self.assertEqual(len(state.tool_use_blocks), 1)
+
+    def test_record_tool_use_via_text(self):
+        state = ChatSessionState()
+        state.record_tool_use_via_text(
+            "p1",
+            {"id": "tool-1", "name": "update_project_markdown_document"},
+            status="planned",
+        )
+
+        self.assertEqual(state.trace_events[0]["type"], "tool_use_via_text")
+        self.assertTrue(state.trace_events[0]["tool_use_via_text"])
+        self.assertEqual(state.trace_events[0]["source"], "text_fallback")
+
+
+class FakeStreamingLlm:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    async def stream_response(self, *args, **kwargs):
+        for chunk in self.chunks:
+            yield chunk
+
+
+class P1PlanningTraceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mixed_text_tool_use_records_text_fallback_trace(self):
+        runtime = ChatRuntime(
+            conv_id=1,
+            selected_model="m",
+            llm=FakeStreamingLlm(
+                [
+                    'before {"type":"tool_use","id":"tool-1","name":"update_project_markdown_document",'
+                    '"input":{"mode":"create","content":"# x"}} after'
+                ]
+            ),
+            system="system",
+            api_messages=[{"role": "user", "content": "save"}],
+            rag_sources=[],
+            tools=[{"name": "update_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.0,
+            action_policy=ActionPolicy.WRITE_ARTIFACT,
+        )
+        state = ChatSessionState()
+        req = DummyRequest(content="save", project_id=1)
+
+        events = []
+        async for event in run_p1_planning(runtime, req, state):
+            events.append(event)
+
+        traces = [event for event in state.trace_events if event["type"] == "tool_use_via_text"]
+        self.assertEqual(len(traces), 1)
+        self.assertEqual(traces[0]["stage"], "p1")
+        self.assertEqual(traces[0]["status"], "planned")
+        self.assertEqual(traces[0]["tool_name"], "update_project_markdown_document")
         self.assertEqual(len(state.tool_use_blocks), 1)
 
 

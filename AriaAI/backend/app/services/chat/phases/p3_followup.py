@@ -175,6 +175,7 @@ async def run_p3_followup(
                     block.get("input") if isinstance(block.get("input"), dict) else {},
                 )
                 if not allowed:
+                    state.record_tool_use_via_text("p3", block, status="blocked")
                     logger.warning(
                         "[P3] blocked follow-up tool by action policy. tool=%s required=%s reason=%s",
                         block.get("name"),
@@ -190,6 +191,7 @@ async def run_p3_followup(
                         current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
                     )
                     continue
+                state.record_tool_use_via_text("p3", block, status="planned")
                 logger.info(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}")
                 p3_tool_use_blocks.append(block)
                 yield sse_event(
@@ -539,6 +541,7 @@ async def run_p3_followup(
                 leaked_tool_blocks, cleaned_chunk = extract_tool_use_json_blocks(chunk)
                 if leaked_tool_blocks:
                     for block in leaked_tool_blocks:
+                        state.record_tool_use_via_text("p3_re_follow", block, status="suppressed")
                         logger.info(
                             f"[P3] suppressed leaked tool_use in re-follow-up: "
                             f"{block.get('name')}, id={block.get('id')}"

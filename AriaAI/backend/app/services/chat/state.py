@@ -68,3 +68,15 @@ class ChatSessionState:
     def record_trace_event(self, event_type: str, **payload) -> None:
         """Record an internal decision for diagnostics without changing chat UI."""
         self.trace_events.append({"type": event_type, **payload})
+
+    def record_tool_use_via_text(self, stage: str, block: dict, *, status: str) -> None:
+        """Record provider fallback tool JSON parsed from normal text."""
+        self.record_trace_event(
+            "tool_use_via_text",
+            stage=stage,
+            tool_name=str(block.get("name") or ""),
+            tool_use_id=str(block.get("id") or ""),
+            status=status,
+            source="text_fallback",
+            tool_use_via_text=True,
+        )
