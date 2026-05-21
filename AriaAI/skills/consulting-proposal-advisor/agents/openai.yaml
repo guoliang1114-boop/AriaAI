@@ -1,0 +1,4 @@
+interface:
+  display_name: "Consulting Proposal Advisor"
+  short_description: "Draft client-ready consulting proposals"
+  default_prompt: "Use $consulting-proposal-advisor to create a client-ready solution proposal from my notes."

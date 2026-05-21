@@ -171,3 +171,35 @@ class SkillsCrudTestCase(unittest.TestCase):
         for skill in skills:
             for step in required_steps:
                 self.assertIn(step, skill.system_prompt, skill.name)
+
+    def test_seed_pro_adds_consulting_proposal_advisor_skill(self):
+        with Session(self.engine) as session:
+            skills_module.ensure_builtin_pro_skills(session)
+            skill = session.exec(
+                select(Skill).where(Skill.name == skills_module.CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME)
+            ).one()
+
+        self.assertEqual(skill.category, "提案与项目交付")
+        self.assertIn("Consulting Proposal Advisor", skill.system_prompt)
+        self.assertIn("Bundled Reference: proposal-structure.md", skill.system_prompt)
+        self.assertIn('skill_name: "consulting-proposal-advisor"', skill.system_prompt)
+        self.assertIn("客户可审阅", skill.user_template)
+        self.assertEqual(skill.max_tokens, 32768)
+        self.assertEqual(
+            skill.tools,
+            [
+                "generate_ppt_from_skill",
+                "read_project_file",
+                "write_project_office_document",
+            ],
+        )
+        tool_defs = json.loads(skill.tools_definition_json)
+        tool_def_names = {tool.get("name") for tool in tool_defs}
+        self.assertEqual(
+            tool_def_names,
+            {
+                "generate_ppt_from_skill",
+                "read_project_file",
+                "write_project_office_document",
+            },
+        )

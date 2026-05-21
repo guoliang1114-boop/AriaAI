@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,9 +30,18 @@ OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES = [
     "write_project_office_document",
     "manage_project_folders",
 ]
+CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME = "咨询提案顾问"
+CONSULTING_PROPOSAL_ADVISOR_PACKAGE_NAME = "consulting-proposal-advisor"
+CONSULTING_PROPOSAL_ADVISOR_PROMPT_MARKER = "Consulting Proposal Advisor"
+CONSULTING_PROPOSAL_ADVISOR_TOOL_NAMES = [
+    "generate_ppt_from_skill",
+    "read_project_file",
+    "write_project_office_document",
+]
 CONSULTING_CAPABILITY_SKILL_PREFIX = "顾问能力｜"
 CONSULTING_CAPABILITY_PROMPT_MARKER_PREFIX = "consulting-capability:"
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
+SKILLS_DIR = Path(__file__).resolve().parents[3] / "skills"
 
 _skills_cache = TTLCache()
 _SKILLS_TTL = 300.0  # 5 minutes — skills change very rarely
@@ -42,6 +52,32 @@ def _bust_skills() -> None:
 
 
 router = APIRouter(prefix="/skills", tags=["skills"])
+
+
+def _strip_skill_frontmatter(text: str) -> str:
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) == 3:
+            return parts[2].lstrip()
+    return text
+
+
+def _load_skill_package_prompt(package_name: str, reference_files: list[str] | None = None) -> str:
+    """Load a file-backed Skill package into the DB-backed platform prompt."""
+    skill_dir = SKILLS_DIR / package_name
+    skill_path = skill_dir / "SKILL.md"
+    if not skill_path.is_file():
+        return ""
+
+    parts = [_strip_skill_frontmatter(skill_path.read_text(encoding="utf-8")).strip()]
+    for reference_name in reference_files or []:
+        reference_path = skill_dir / "references" / reference_name
+        if reference_path.is_file():
+            parts.append(
+                f"## Bundled Reference: {reference_name}\n\n"
+                f"{reference_path.read_text(encoding='utf-8').strip()}"
+            )
+    return "\n\n---\n\n".join(part for part in parts if part)
 
 
 class SkillCreate(BaseModel):
@@ -714,6 +750,37 @@ GSTACK_PRO_SKILLS = [
         "tools": PRESENTATION_BUILDER_TOOL_NAMES,
     },
     {
+        "name": CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME,
+        "category": "提案与项目交付",
+        "description": "资深咨询提案顾问，用于生成客户建议书、PPT 大纲、PPTX、SOW、商业案例、路线图与高管建议。",
+        "system_prompt": _load_skill_package_prompt(
+            CONSULTING_PROPOSAL_ADVISOR_PACKAGE_NAME,
+            [
+                "intake-questions.md",
+                "proposal-structure.md",
+                "content-depth.md",
+                "engagement-types.md",
+                "business-case.md",
+                "examples.md",
+                "ppt-template-usage.md",
+                "quality-checklist.md",
+            ],
+        ),
+        "user_template": (
+            "请使用咨询提案顾问能力，基于以下背景生成客户可审阅的交付物：\n\n"
+            "客户 / 行业：\n"
+            "业务问题或机会：\n"
+            "目标受众与决策场景：\n"
+            "期望交付物（建议书 / PPT 大纲 / PPTX / SOW / 商业案例 / 路线图）：\n"
+            "已有事实、数据或项目上下文：\n"
+            "范围、时间、预算或约束：\n"
+            "特别要求："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 32768,
+        "tools": CONSULTING_PROPOSAL_ADVISOR_TOOL_NAMES,
+    },
+    {
         "name": "数字化战略设计",
         "category": "数字化与技术",
         "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
@@ -1287,6 +1354,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_PROMPT_MARKER,
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
         OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_PROMPT_MARKER,
+        CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME: CONSULTING_PROPOSAL_ADVISOR_PROMPT_MARKER,
     }
     prompt_markers.update(
         {
@@ -1298,6 +1366,7 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         DIGITAL_STRATEGY_SKILL_NAME: DIGITAL_STRATEGY_TOOL_NAMES,
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
         OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES,
+        CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME: CONSULTING_PROPOSAL_ADVISOR_TOOL_NAMES,
     }
 
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}
