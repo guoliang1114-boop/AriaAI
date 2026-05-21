@@ -18,6 +18,7 @@ import { api } from '../../api/client'
 import { PageTitle } from '../../components/PageTitle'
 import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
 import type { VectorStatus } from '../../types/enums'
+import { formatDateOnly } from '../../utils/timezone'
 
 const fileTypeIcons: Record<string, string> = {
   pdf: 'bg-red-50 text-red-500',
@@ -283,7 +284,7 @@ export function Knowledge() {
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-on-surface-muted uppercase">{doc.file_type}</span>
                       <span className="text-xs text-on-surface-muted">
-                        {new Date(doc.uploaded_at).toLocaleDateString()}
+                        {formatDateOnly(doc.uploaded_at)}
                       </span>
                       {doc.size != null && (
                         <span className="text-xs text-on-surface-muted">

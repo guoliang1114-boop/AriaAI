@@ -22,6 +22,7 @@ _settings_cache = TTLCache()
 _SETTINGS_TTL = SETTINGS_CACHE_TTL  # Use unified config
 
 _ALL_KEY = "__all__"
+_DEFAULT_SETTINGS = {"timezone": "Asia/Shanghai"}
 
 
 def _bust_settings(key: str | None = None) -> None:
@@ -229,7 +230,7 @@ def get_all_settings(session: Session = Depends(get_session)):
     settings = session.exec(
         __import__("sqlmodel").select(Setting)
     ).all()
-    result = {s.key: s.value for s in settings}
+    result = {**_DEFAULT_SETTINGS, **{s.key: s.value for s in settings}}
     _settings_cache.set(_ALL_KEY, result, _SETTINGS_TTL)
     return result
 
@@ -280,6 +281,10 @@ def get_setting(key: str, session: Session = Depends(get_session)):
         return cached
     setting = session.get(Setting, key)
     if not setting:
+        if key in _DEFAULT_SETTINGS:
+            result = {"key": key, "value": _DEFAULT_SETTINGS[key]}
+            _settings_cache.set(key, result, _SETTINGS_TTL)
+            return result
         raise HTTPException(404, f"Setting '{key}' not found")
     result = {"key": setting.key, "value": setting.value}
     _settings_cache.set(key, result, _SETTINGS_TTL)

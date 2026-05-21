@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 
 import type { Conversation, ProjectFile, ProjectFolder } from "../../types/api";
 import {
@@ -91,6 +92,7 @@ type ProjectChatSidebarProps = {
   editTitle: string;
   onStartNewChat: () => void;
   onSelectConversation: (conversationId: number) => void;
+  getConversationHref?: (conversationId: number) => string;
   onBeginRename: (conversation: Conversation) => void;
   onRenameTitleChange: (value: string) => void;
   onRenameSubmit: (conversationId: number, title: string) => void;
@@ -115,6 +117,7 @@ export function ProjectChatSidebar({
   editTitle,
   onStartNewChat,
   onSelectConversation,
+  getConversationHref,
   onBeginRename,
   onRenameTitleChange,
   onRenameSubmit,
@@ -222,6 +225,7 @@ export function ProjectChatSidebar({
     event: React.MouseEvent,
     conversation: Conversation,
   ) => {
+    event.preventDefault();
     event.stopPropagation();
     onDeleteConversation(conversation);
   };
@@ -429,8 +433,9 @@ export function ProjectChatSidebar({
                         {group.label}
                       </p>
                       {group.items.map((conversation) => (
-                        <div
+                        <Link
                           key={conversation.id}
+                          to={getConversationHref?.(conversation.id) || "#"}
                           onClick={() => onSelectConversation(conversation.id)}
                           className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-colors hover:bg-gray-50 cursor-pointer"
                         >
@@ -443,7 +448,7 @@ export function ProjectChatSidebar({
                               {formatTime(conversation.updated_at, resolvedTimeZone)}
                             </p>
                           </div>
-                        </div>
+                        </Link>
                       ))}
                     </div>
                   ))}
@@ -469,82 +474,102 @@ export function ProjectChatSidebar({
                       <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
                         {group.label}
                       </p>
-                      {group.items.map((conversation) => (
-                        <div
-                          key={conversation.id}
-                          onClick={() => onSelectConversation(conversation.id)}
-                          className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
-                            activeConvId === conversation.id
-                              ? "bg-primary/8"
-                              : "hover:bg-gray-50"
-                          }`}
-                        >
-                          <div
-                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
-                              activeConvId === conversation.id
-                                ? "bg-primary"
-                                : "bg-gray-200"
-                            }`}
-                          />
-                          <div className="flex-1 min-w-0">
-                            {editingConvId === conversation.id ? (
-                              <input
-                                type="text"
-                                value={editTitle}
-                                onChange={(event) =>
-                                  onRenameTitleChange(event.target.value)
-                                }
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter")
-                                    onRenameSubmit(conversation.id, editTitle);
-                                  else if (event.key === "Escape")
-                                    onCancelRename();
-                                }}
-                                onBlur={() =>
-                                  onRenameSubmit(conversation.id, editTitle)
-                                }
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full px-2 py-1 text-[13px] border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                autoFocus
-                              />
-                            ) : (
-                              <p
-                                className={`text-[13px] truncate transition-colors ${
-                                  activeConvId === conversation.id
-                                    ? "text-primary font-medium"
-                                    : "text-gray-700"
-                                }`}
-                              >
-                                {conversation.title || copy.defaultNewChatTitle}
+                      {group.items.map((conversation) => {
+                        const isEditing = editingConvId === conversation.id;
+                        const rowClassName = `group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
+                          activeConvId === conversation.id
+                            ? "bg-primary/8"
+                            : "hover:bg-gray-50"
+                        }`;
+                        const rowContent = (
+                          <>
+                            <div
+                              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
+                                activeConvId === conversation.id
+                                  ? "bg-primary"
+                                  : "bg-gray-200"
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editTitle}
+                                  onChange={(event) =>
+                                    onRenameTitleChange(event.target.value)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter")
+                                      onRenameSubmit(conversation.id, editTitle);
+                                    else if (event.key === "Escape")
+                                      onCancelRename();
+                                  }}
+                                  onBlur={() =>
+                                    onRenameSubmit(conversation.id, editTitle)
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-full px-2 py-1 text-[13px] border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                  autoFocus
+                                />
+                              ) : (
+                                <p
+                                  className={`text-[13px] truncate transition-colors ${
+                                    activeConvId === conversation.id
+                                      ? "text-primary font-medium"
+                                      : "text-gray-700"
+                                  }`}
+                                >
+                                  {conversation.title || copy.defaultNewChatTitle}
+                                </p>
+                              )}
+                              <p className="text-[11px] text-gray-400 mt-0.5">
+                                {formatTime(conversation.updated_at, resolvedTimeZone)}
                               </p>
-                            )}
-                            <p className="text-[11px] text-gray-400 mt-0.5">
-                              {formatTime(conversation.updated_at, resolvedTimeZone)}
-                            </p>
-                          </div>
-                          {editingConvId !== conversation.id && (
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                              <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  onBeginRename(conversation);
-                                }}
-                                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(event) =>
-                                  handleDelete(event, conversation)
-                                }
-                                className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            {!isEditing && (
+                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                <button
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onBeginRename(conversation);
+                                  }}
+                                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(event) =>
+                                    handleDelete(event, conversation)
+                                  }
+                                  className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        );
+
+                        return isEditing ? (
+                          <div
+                            key={conversation.id}
+                            onClick={() => onSelectConversation(conversation.id)}
+                            className={rowClassName}
+                          >
+                            {rowContent}
+                          </div>
+                        ) : (
+                          <Link
+                            key={conversation.id}
+                            to={getConversationHref?.(conversation.id) || "#"}
+                            onClick={() => onSelectConversation(conversation.id)}
+                            className={rowClassName}
+                          >
+                            {rowContent}
+                          </Link>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>

@@ -55,7 +55,16 @@ class SettingsRouterTestCase(unittest.TestCase):
         settings_module._settings_cache.clear()
         resp = self.client.get("/settings/")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {})
+        self.assertEqual(resp.json(), {"timezone": "Asia/Shanghai"})
+
+    def test_get_default_timezone_when_missing(self):
+        SQLModel.metadata.drop_all(self.engine)
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+        settings_module._settings_cache.clear()
+        resp = self.client.get("/settings/timezone")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["value"], "Asia/Shanghai")
 
     def test_metadata_endpoint(self):
         resp = self.client.get("/settings/metadata")

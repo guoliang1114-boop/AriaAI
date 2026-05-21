@@ -150,9 +150,11 @@ export function getActiveProjectDetailTabId(
     return "space";
   }
 
-  const matchedTab = PROJECT_DETAIL_TABS.find(
-    (tab) => pathname === tab.getPath(projectId),
-  );
+  if (pathname === `/projects/${projectId}/chat` || pathname.startsWith(`/projects/${projectId}/chat/`)) {
+    return "chat";
+  }
+
+  const matchedTab = PROJECT_DETAIL_TABS.find((tab) => pathname === tab.getPath(projectId));
 
   return matchedTab?.id ?? "overview";
 }

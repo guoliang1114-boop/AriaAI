@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock, Clock3 } from 'lucide-react'
 import { api } from '../../api/client'
 import type { User as UserType } from '../../types/api'
-import { BROWSER_TIMEZONE_VALUE, getBrowserTimeZone, setAppTimeZone } from '../../utils/timezone'
+import { BROWSER_TIMEZONE_VALUE, DEFAULT_APP_TIMEZONE, getBrowserTimeZone, setAppTimeZone } from '../../utils/timezone'
 
 const timezoneOptions = [
-  { value: BROWSER_TIMEZONE_VALUE, label: '跟随浏览器', hint: '' },
   { value: 'Asia/Shanghai', label: '中国标准时间', hint: 'UTC+08:00' },
+  { value: BROWSER_TIMEZONE_VALUE, label: '跟随浏览器', hint: '' },
   { value: 'UTC', label: '协调世界时', hint: 'UTC+00:00' },
   { value: 'Asia/Tokyo', label: '日本标准时间', hint: 'UTC+09:00' },
   { value: 'America/Los_Angeles', label: '洛杉矶时间', hint: 'UTC-08:00 / -07:00' },
@@ -19,7 +19,7 @@ export function ProfileSettings() {
   const [displayName, setDisplayName] = useState('')
   const [savingName, setSavingName] = useState(false)
   const [nameMsg, setNameMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [selectedTimeZone, setSelectedTimeZone] = useState(BROWSER_TIMEZONE_VALUE)
+  const [selectedTimeZone, setSelectedTimeZone] = useState(DEFAULT_APP_TIMEZONE)
   const [savingTimeZone, setSavingTimeZone] = useState(false)
   const [timeZoneMsg, setTimeZoneMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -38,7 +38,7 @@ export function ProfileSettings() {
     ]).then(([u, settings]) => {
       setUser(u)
       setDisplayName(u.display_name)
-      setSelectedTimeZone(settings.timezone || BROWSER_TIMEZONE_VALUE)
+      setSelectedTimeZone(settings.timezone || DEFAULT_APP_TIMEZONE)
     }).catch(() => {})
   }, [])
 
@@ -216,7 +216,7 @@ export function ProfileSettings() {
             </button>
           </div>
           <p className="text-xs text-on-surface-muted">
-            对话、项目聊天等时间显示会优先使用这里的时区。
+            默认使用北京时间（UTC+08:00）。对话、项目、知识库和任务记录等时间显示会优先使用这里的时区。
           </p>
           {timeZoneMsg && (
             <p className={`text-xs flex items-center gap-1 ${timeZoneMsg.type === 'success' ? 'text-active' : 'text-error'}`}>

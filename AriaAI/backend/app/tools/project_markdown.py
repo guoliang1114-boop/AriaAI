@@ -9,6 +9,7 @@ from app.config import UPLOADS_DIR
 from app.database import engine
 from app.models.db import ProjectFile, ProjectFolder
 from app.services.cache import projects_cache
+from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import (
@@ -166,10 +167,11 @@ async def update_project_markdown_document(
             project_file = _find_markdown_file(session, project_id, file_name)
 
         if mode == "create":
+            default_title = normalize_deliverable_title(content=content, file_type="md")
             created = create_project_document_record(
                 session,
                 project_id,
-                name=file_name or "project-note.md",
+                name=file_name or file_name_for_deliverable(default_title, "md"),
                 content=content,
                 uploads_dir=UPLOADS_DIR,
                 init_default_folders=_init_default_folders,

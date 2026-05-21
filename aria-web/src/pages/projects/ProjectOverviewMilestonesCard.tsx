@@ -1,5 +1,6 @@
 import { CheckCircle2, Circle, Flag } from "lucide-react";
 import type { Milestone } from "../../types/api";
+import { formatDateOnly } from "../../utils/timezone";
 
 interface ProjectOverviewMilestonesCardProps {
   isZh: boolean;
@@ -46,7 +47,7 @@ export function ProjectOverviewMilestonesCard({
                   {milestone.due_date && (
                     <p className="text-xs text-gray-400 mt-0.5">
                       {isZh ? "截止：" : "Due: "}
-                      {new Date(milestone.due_date).toLocaleDateString()}
+                      {formatDateOnly(milestone.due_date)}
                     </p>
                   )}
                 </div>

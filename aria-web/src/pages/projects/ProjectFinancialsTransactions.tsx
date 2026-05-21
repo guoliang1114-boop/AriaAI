@@ -1,5 +1,6 @@
 import { DollarSign, FileText, Receipt, Trash2, TrendingUp } from "lucide-react";
 import type { ProjectPayment } from "../../types/api";
+import { formatDateOnly } from "../../utils/timezone";
 
 type PaymentFilter = "all" | "received" | "invoiced" | "expense";
 
@@ -100,7 +101,7 @@ export function ProjectFinancialsTransactions({
                   </p>
                   {payment.note && <p className="text-sm text-gray-500">{payment.note}</p>}
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {new Date(payment.payment_date).toLocaleDateString()}
+                    {formatDateOnly(payment.payment_date)}
                   </p>
                 </div>
               </div>

@@ -15,6 +15,7 @@ import { ProjectOverviewSidebar } from "./ProjectOverviewSidebar";
 import { ProjectOverviewSummaryCard } from "./ProjectOverviewSummaryCard";
 import { buildProjectSkillPrompt, ProjectSkillWorkflowsCard } from "./ProjectSkillWorkflowsCard";
 import { useProjectOverviewData } from "./useProjectOverviewData";
+import { formatDateOnly } from "../../utils/timezone";
 
 interface ProjectOverviewTabProps {
   projectDetail: ProjectDetailType;
@@ -111,7 +112,7 @@ export function ProjectOverviewTab({
               ? `CNY ${formatAmountInTenThousand(project.contract_amount)}${isZh ? "万" : "K"}`
               : ""
           }
-          createdAt={new Date(project.created_at).toLocaleDateString()}
+          createdAt={formatDateOnly(project.created_at)}
           descExpanded={descExpanded}
           description={project.description}
           isZh={isZh}

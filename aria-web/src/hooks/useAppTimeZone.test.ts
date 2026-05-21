@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useAppTimeZone } from './useAppTimeZone'
-import { APP_TIMEZONE_STORAGE_KEY, APP_TIMEZONE_EVENT, BROWSER_TIMEZONE_VALUE } from '../utils/timezone'
+import { APP_TIMEZONE_STORAGE_KEY, APP_TIMEZONE_EVENT, BROWSER_TIMEZONE_VALUE, DEFAULT_APP_TIMEZONE } from '../utils/timezone'
 
 describe('useAppTimeZone', () => {
   beforeEach(() => {
@@ -10,9 +10,8 @@ describe('useAppTimeZone', () => {
 
   it('returns initial stored and resolved timezone', () => {
     const { result } = renderHook(() => useAppTimeZone())
-    expect(result.current.storedTimeZone).toBe(BROWSER_TIMEZONE_VALUE)
-    expect(typeof result.current.resolvedTimeZone).toBe('string')
-    expect(result.current.resolvedTimeZone.length).toBeGreaterThan(0)
+    expect(result.current.storedTimeZone).toBe(DEFAULT_APP_TIMEZONE)
+    expect(result.current.resolvedTimeZone).toBe(DEFAULT_APP_TIMEZONE)
   })
 
   it('returns stored timezone from localStorage', () => {
@@ -24,7 +23,7 @@ describe('useAppTimeZone', () => {
 
   it('updates when storage event fires', () => {
     const { result } = renderHook(() => useAppTimeZone())
-    expect(result.current.storedTimeZone).toBe(BROWSER_TIMEZONE_VALUE)
+    expect(result.current.storedTimeZone).toBe(DEFAULT_APP_TIMEZONE)
 
     localStorage.setItem(APP_TIMEZONE_STORAGE_KEY, 'Europe/London')
     act(() => {
@@ -37,7 +36,7 @@ describe('useAppTimeZone', () => {
 
   it('updates when custom timezone event fires', () => {
     const { result } = renderHook(() => useAppTimeZone())
-    expect(result.current.storedTimeZone).toBe(BROWSER_TIMEZONE_VALUE)
+    expect(result.current.storedTimeZone).toBe(DEFAULT_APP_TIMEZONE)
 
     localStorage.setItem(APP_TIMEZONE_STORAGE_KEY, 'America/New_York')
     act(() => {

@@ -214,10 +214,11 @@ class RepairProjectOfficeToolInputTests(unittest.TestCase):
         self.assertIn("sheets", repaired)
 
     def test_adds_file_name(self):
-        content = "Create a document"
-        tool_input = {"file_type": "docx"}
+        content = "我打算给客户准备一个 CRM 迁移的方案建议书，帮我起草 PPT"
+        tool_input = {"file_type": "pptx"}
         repaired, changes = repair_project_office_tool_input(content, tool_input)
-        self.assertTrue(repaired["file_name"].endswith(".docx"))
+        self.assertEqual(repaired["title"], "CRM迁移方案建议书")
+        self.assertEqual(repaired["file_name"], "CRM迁移方案建议书.pptx")
 
     def test_adds_title(self):
         content = "Create report"

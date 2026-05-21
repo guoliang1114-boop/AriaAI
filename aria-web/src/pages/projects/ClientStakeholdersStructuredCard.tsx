@@ -2,6 +2,7 @@ import { Brain, Check, Clock, Edit3, Loader2, Plus, Trash2, Users, X } from "luc
 import { useCallback, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { ClientStakeholder } from "../../types/api";
+import { formatDateOnly } from "../../utils/timezone";
 
 type StakeholderDraft = Pick<
   ClientStakeholder,
@@ -340,7 +341,7 @@ export function ClientStakeholdersStructuredCard({
                                     <span className={`rounded px-1 py-0.5 text-[9px] ${h.trigger === 'ai_analyze' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
                                       {h.trigger === 'ai_analyze' ? 'AI' : h.trigger}
                                     </span>
-                                    <span className="ml-auto text-gray-400 flex-shrink-0">{new Date(h.changed_at).toLocaleDateString()}</span>
+                                    <span className="ml-auto text-gray-400 flex-shrink-0">{formatDateOnly(h.changed_at)}</span>
                                   </div>
                                   {h.old_value && <div className="text-gray-400 line-clamp-1">{isZh ? "原" : "was"}: {h.old_value}</div>}
                                   <div className="text-gray-700 line-clamp-1">{isZh ? "改为" : "now"}: {h.new_value}</div>

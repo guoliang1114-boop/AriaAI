@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, Users, X } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../contexts/ToastContext";
@@ -82,6 +82,7 @@ export function ProjectChatTab({
 }) {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
@@ -185,6 +186,7 @@ export function ProjectChatTab({
   const launchPrompt = searchParams.get("q");
   const briefingLaunch = searchParams.get("briefing");
   const sourceConversationParam = searchParams.get("conversation");
+  const pathConversationParam = location.pathname.match(/\/chat\/(\d+)$/)?.[1] || "";
   const sourceMessageParam = searchParams.get("message");
   const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
   const highlightedMessageId = parsedSourceMessageId && Number.isFinite(parsedSourceMessageId) ? parsedSourceMessageId : null;
@@ -382,17 +384,28 @@ export function ProjectChatTab({
   }, [briefingLaunch, isLoadingConversations, panel, sendMessage, setSearchParams, startNewChat]);
 
   useEffect(() => {
-    if (!sourceConversationParam || isLoadingConversations) {
+    const conversationParam = pathConversationParam || sourceConversationParam;
+    if (!conversationParam || isLoadingConversations) {
       return;
     }
-    const conversationId = Number(sourceConversationParam);
+    const conversationId = Number(conversationParam);
     if (!Number.isFinite(conversationId)) {
       return;
     }
     if (activeConvId !== conversationId) {
       setActiveConvId(conversationId);
     }
-  }, [activeConvId, isLoadingConversations, setActiveConvId, sourceConversationParam]);
+  }, [activeConvId, isLoadingConversations, pathConversationParam, setActiveConvId, sourceConversationParam]);
+
+  useEffect(() => {
+    if (!activeConvId) {
+      return;
+    }
+    const nextPath = `/projects/${project.id}/chat/${activeConvId}`;
+    if (location.pathname !== nextPath) {
+      navigate(`${nextPath}${location.search}`, { replace: true });
+    }
+  }, [activeConvId, location.pathname, location.search, navigate, project.id]);
 
   useEffect(() => {
     if (!highlightedMessageId || isLoadingMessages) {
@@ -895,6 +908,7 @@ export function ProjectChatTab({
     setPlanResult(null);
     setPlanPendingContent("");
     startNewChat();
+    navigate(`/projects/${project.id}/chat`);
   };
 
   const handleSelectConversation = (conversationId: number) => {
@@ -904,6 +918,7 @@ export function ProjectChatTab({
     setPlanResult(null);
     setPlanPendingContent("");
     setActiveConvId(conversationId);
+    navigate(`/projects/${project.id}/chat/${conversationId}`);
   };
 
   const handleCancelSkillTemplate = () => {
@@ -941,6 +956,7 @@ export function ProjectChatTab({
         onRenameTitleChange={setEditTitle}
         onSelectFile={(file) => setPreviewFile(file)}
         onSelectConversation={handleSelectConversation}
+        getConversationHref={(conversationId) => `/projects/${project.id}/chat/${conversationId}`}
         onStartNewChat={handleStartNewChat}
         onUploadFiles={(fileList, folderId) => {
           void handleUploadProjectFiles(fileList, folderId);

@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { formatDateTime } from '../../utils/timezone'
 
 interface SystemInfo {
   version: string
@@ -164,7 +165,7 @@ export function AboutSettings() {
 
   const packagedAtLabel =
     typeof __BUILD_TIME__ !== 'undefined'
-      ? new Date(__BUILD_TIME__).toLocaleString(isZh ? 'zh-CN' : 'en-US')
+      ? formatDateTime(__BUILD_TIME__, isZh ? 'zh-CN' : 'en-US')
       : '-'
 
   const headerTitle = t('about.title') || (isZh ? '关于 AriaAI' : 'About AriaAI')

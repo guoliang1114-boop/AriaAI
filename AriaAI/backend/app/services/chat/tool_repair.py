@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
-import re
+from app.services.deliverable_naming import (
+    file_name_for_deliverable,
+    normalize_deliverable_title,
+    slugify_deliverable_name,
+)
 
 
 def try_extract_tool_use_json(text: str) -> dict | None:
@@ -58,11 +62,6 @@ def extract_tool_use_json_blocks(text: str) -> tuple[list[dict], str]:
     return blocks, "".join(cleaned_parts)
 
 
-def _slugify_deliverable_name(value: str, fallback: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9\u4e00-\u9fa5._-]+", "-", str(value or "").strip()).strip("-")
-    return slug[:48].strip("-") or fallback
-
-
 def _infer_office_file_type(content: str, tool_input: dict) -> str:
     """Resolve the desired office file type from explicit tool input only."""
     explicit = str(tool_input.get("file_type") or "").strip().lower()
@@ -84,13 +83,17 @@ def repair_project_office_tool_input(content: str, tool_input: dict) -> tuple[di
     if not repaired.get("file_type"):
         repaired["file_type"] = file_type
         changes.append(f"补齐文件类型：{file_type.upper()}")
-    if not str(repaired.get("file_name") or "").strip():
-        title_for_name = str(repaired.get("title") or content or "project-deliverable")
-        repaired["file_name"] = f"{_slugify_deliverable_name(title_for_name, 'project-deliverable')}.{file_type}"
-        changes.append(f"补齐文件名：{repaired['file_name']}")
+    title = normalize_deliverable_title(
+        content=content,
+        explicit_title=str(repaired.get("title") or ""),
+        file_type=file_type,
+    )
     if not str(repaired.get("title") or "").strip():
-        repaired["title"] = str(content or repaired["file_name"]).strip()[:80]
+        repaired["title"] = title
         changes.append("补齐标题")
+    if not str(repaired.get("file_name") or "").strip():
+        repaired["file_name"] = file_name_for_deliverable(title, file_type)
+        changes.append(f"补齐文件名：{repaired['file_name']}")
     if file_type == "xlsx" and not repaired.get("sheets"):
         repaired["sheets"] = _default_xlsx_sheets_for_request(content)
         changes.append("生成默认 Excel 工作表结构")
@@ -101,3 +104,4 @@ def repair_project_office_tool_input(content: str, tool_input: dict) -> tuple[di
 _try_extract_tool_use_json = try_extract_tool_use_json
 _extract_tool_use_json_blocks = extract_tool_use_json_blocks
 _repair_project_office_tool_input = repair_project_office_tool_input
+_slugify_deliverable_name = slugify_deliverable_name

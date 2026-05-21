@@ -1,5 +1,6 @@
 export const APP_TIMEZONE_STORAGE_KEY = "aria-timezone";
 export const APP_TIMEZONE_EVENT = "app:timezone-changed";
+export const DEFAULT_APP_TIMEZONE = "Asia/Shanghai";
 export const BROWSER_TIMEZONE_VALUE = "browser";
 
 export function getBrowserTimeZone() {
@@ -20,10 +21,10 @@ export function isValidTimeZone(value: string) {
 }
 
 export function getStoredAppTimeZone() {
-  if (typeof window === "undefined") return BROWSER_TIMEZONE_VALUE;
-  const value = window.localStorage.getItem(APP_TIMEZONE_STORAGE_KEY) || BROWSER_TIMEZONE_VALUE;
+  if (typeof window === "undefined") return DEFAULT_APP_TIMEZONE;
+  const value = window.localStorage.getItem(APP_TIMEZONE_STORAGE_KEY) || DEFAULT_APP_TIMEZONE;
   if (value === BROWSER_TIMEZONE_VALUE) return value;
-  return isValidTimeZone(value) ? value : BROWSER_TIMEZONE_VALUE;
+  return isValidTimeZone(value) ? value : DEFAULT_APP_TIMEZONE;
 }
 
 export function getResolvedAppTimeZone() {
@@ -33,7 +34,12 @@ export function getResolvedAppTimeZone() {
 
 export function setAppTimeZone(value: string) {
   if (typeof window === "undefined") return;
-  const nextValue = value && isValidTimeZone(value) ? value : BROWSER_TIMEZONE_VALUE;
+  const nextValue =
+    value === BROWSER_TIMEZONE_VALUE
+      ? BROWSER_TIMEZONE_VALUE
+      : value && isValidTimeZone(value)
+        ? value
+        : DEFAULT_APP_TIMEZONE;
   window.localStorage.setItem(APP_TIMEZONE_STORAGE_KEY, nextValue);
   window.dispatchEvent(new CustomEvent(APP_TIMEZONE_EVENT, { detail: nextValue }));
 }

@@ -32,6 +32,7 @@ from app.services.consulting_capabilities import (
     should_create_text_artifact_for_capability,
     validate_capability_markdown,
 )
+from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
@@ -589,37 +590,26 @@ def _client_ppt_delivery_title(context: dict[str, Any] | None, goal: str, explic
     project_name = str(project.get("name") or "").strip()
     client_name = str(project.get("client") or "").strip()
 
-    def dedupe_project_name(title: str) -> str:
-        if not project_name or project_name not in title:
-            return title
-        first_index = title.find(project_name)
-        head = title[: first_index + len(project_name)]
-        tail = title[first_index + len(project_name) :].replace(project_name, "")
+    def dedupe_project_name(value: str) -> str:
+        if not project_name:
+            return value
+        first_index = value.find(project_name)
+        if first_index < 0:
+            return value
+        head = value[: first_index + len(project_name)]
+        tail = value[first_index + len(project_name) :].replace(project_name, "")
         return f"{head}{tail}".strip("-_｜|/ ")
 
-    for candidate in (explicit_title, goal):
-        cleaned = _clean_ppt_request_title(str(candidate or ""))
-        if cleaned:
-            cleaned = dedupe_project_name(cleaned)
-            if cleaned in {project_name, client_name}:
-                return f"{project_name or client_name}客户沟通建议"
-            if project_name and project_name not in cleaned and len(cleaned) <= 18:
-                cleaned = f"{project_name}-{cleaned}"
-            if any(token in cleaned for token in ("沟通", "访谈", "介绍", "方案", "建议", "策略")):
-                return cleaned
-            return f"{cleaned}客户沟通建议"
-
-    base = project_name or client_name or "客户项目"
-    if len(base) > 34:
-        base = base[:34]
-    return f"{base}客户沟通建议"
+    return normalize_deliverable_title(
+        content=dedupe_project_name(goal),
+        explicit_title=dedupe_project_name(explicit_title or ""),
+        file_type="pptx",
+        client_name=client_name,
+    )
 
 
 def _client_ppt_file_name(title: str) -> str:
-    stem = _slugify_filename(title)[:80].strip("-_.")
-    if not stem:
-        stem = "client-introduction"
-    return f"{stem}.pptx"
+    return file_name_for_deliverable(title, "pptx", fallback="client-presentation")
 
 
 def _extract_requested_slide_count(text: str) -> int | None:
@@ -2439,8 +2429,13 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         document_spec = _previous_document_spec_output(session, task.id)
         project = session.get(Project, task.project_id)
         file_type = str(document_spec.get("file_type") or task_input.get("file_type") or _document_file_type_for_task(task.task_type))
-        title = str(task_input.get("title") or document_spec.get("title") or task.goal)
-        file_name = str(task_input.get("file_name") or f"{_slugify_filename(title)}.{file_type}")
+        title = normalize_deliverable_title(
+            content=task.goal,
+            explicit_title=str(task_input.get("title") or document_spec.get("title") or ""),
+            file_type=file_type,
+            client_name=project.client if project and project.client else "",
+        )
+        file_name = str(task_input.get("file_name") or file_name_for_deliverable(title, file_type))
         result = await write_project_office_document(
             project_id=task.project_id,
             file_type=file_type,

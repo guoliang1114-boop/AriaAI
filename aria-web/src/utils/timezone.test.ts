@@ -11,6 +11,7 @@ import {
   formatDateTime,
   APP_TIMEZONE_STORAGE_KEY,
   BROWSER_TIMEZONE_VALUE,
+  DEFAULT_APP_TIMEZONE,
 } from './timezone'
 
 describe('getBrowserTimeZone', () => {
@@ -47,8 +48,8 @@ describe('getStoredAppTimeZone', () => {
     localStorage.clear()
   })
 
-  it('returns browser value when nothing stored', () => {
-    expect(getStoredAppTimeZone()).toBe(BROWSER_TIMEZONE_VALUE)
+  it('returns Beijing timezone when nothing stored', () => {
+    expect(getStoredAppTimeZone()).toBe(DEFAULT_APP_TIMEZONE)
   })
 
   it('returns stored valid timezone', () => {
@@ -56,9 +57,9 @@ describe('getStoredAppTimeZone', () => {
     expect(getStoredAppTimeZone()).toBe('Asia/Shanghai')
   })
 
-  it('falls back to browser for invalid stored timezone', () => {
+  it('falls back to the app default for invalid stored timezone', () => {
     localStorage.setItem(APP_TIMEZONE_STORAGE_KEY, 'Invalid/Zone')
-    expect(getStoredAppTimeZone()).toBe(BROWSER_TIMEZONE_VALUE)
+    expect(getStoredAppTimeZone()).toBe(DEFAULT_APP_TIMEZONE)
   })
 
   it('returns browser keyword when stored as browser', () => {
@@ -77,9 +78,9 @@ describe('setAppTimeZone', () => {
     expect(localStorage.getItem(APP_TIMEZONE_STORAGE_KEY)).toBe('Europe/London')
   })
 
-  it('falls back to browser for invalid timezone', () => {
+  it('falls back to the app default for invalid timezone', () => {
     setAppTimeZone('Bad/Zone')
-    expect(localStorage.getItem(APP_TIMEZONE_STORAGE_KEY)).toBe(BROWSER_TIMEZONE_VALUE)
+    expect(localStorage.getItem(APP_TIMEZONE_STORAGE_KEY)).toBe(DEFAULT_APP_TIMEZONE)
   })
 
   it('dispatches a custom event', () => {
@@ -155,3 +156,6 @@ describe('formatDateTime', () => {
     expect(result).toMatch(/\d/)
   })
 })
+  it('defaults to Beijing timezone when no value is stored', () => {
+    expect(getResolvedAppTimeZone()).toBe(DEFAULT_APP_TIMEZONE)
+  })

@@ -1,5 +1,6 @@
 import { Download, Package } from "lucide-react";
 import type { GeneratedArtifact } from "../../types/api";
+import { formatDateOnly } from "../../utils/timezone";
 
 interface ProjectOverviewArtifactsCardProps {
   artifacts: GeneratedArtifact[];
@@ -41,7 +42,7 @@ export function ProjectOverviewArtifactsCard({
                 <p className="text-sm font-medium text-gray-900 truncate">{artifact.name}</p>
                 <p className="text-xs text-gray-400">
                   {artifact.file_type.toUpperCase()}
-                  {artifact.created_at ? ` · ${new Date(artifact.created_at).toLocaleDateString()}` : ""}
+                  {artifact.created_at ? ` · ${formatDateOnly(artifact.created_at)}` : ""}
                 </p>
               </div>
               <button

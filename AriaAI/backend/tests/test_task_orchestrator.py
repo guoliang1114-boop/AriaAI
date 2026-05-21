@@ -232,7 +232,7 @@ def test_ppt_slide_count_request_is_extracted_and_used():
     )
 
     assert len(slides) >= 20
-    assert slides[0]["title"] == "东阿阿胶新业务进入机会和策略客户沟通建议"
+    assert slides[0]["title"] == "东阿阿胶股份有限公司-方案建议书"
     assert any(slide["title"] == "资料收集计划" for slide in slides)
     assert any(slide["title"] == "商业验证假设" for slide in slides)
     assert any(slide.get("layout_key") == "roadmap" for slide in slides)
@@ -284,11 +284,22 @@ def test_client_ppt_delivery_title_and_file_name_are_clean():
         "东阿阿胶新业务进入机会和策略 东阿阿胶新业务进入机会和策略 客户沟通建议",
     )
 
-    assert title == "东阿阿胶新业务进入机会和策略-初步沟通方案"
-    assert enriched_title == "东阿阿胶新业务进入机会和策略客户沟通建议"
-    assert repeated_project_title == "东阿阿胶新业务进入机会和策略客户沟通建议"
-    assert task_orchestrator._client_ppt_file_name(enriched_title) == "东阿阿胶新业务进入机会和策略客户沟通建议.pptx"
+    assert title == "东阿阿胶股份有限公司-初步沟通方案"
+    assert enriched_title == "东阿阿胶股份有限公司-方案建议书"
+    assert repeated_project_title == "东阿阿胶股份有限公司-东阿阿胶新业务进入机会和策略客户沟通建议"
+    assert task_orchestrator._client_ppt_file_name(enriched_title) == "东阿阿胶股份有限公司-方案建议书.pptx"
     assert "内容不够丰富" not in task_orchestrator._client_ppt_file_name(enriched_title)
+
+
+def test_client_ppt_delivery_title_uses_deliverable_topic():
+    context = {"project": {"name": "CRM项目", "client": "样例客户"}}
+    title = task_orchestrator._client_ppt_delivery_title(
+        context,
+        "我打算给客户准备一个 CRM 迁移的方案建议书，帮我起草 PPT",
+    )
+
+    assert title == "样例客户-CRM迁移方案建议书"
+    assert task_orchestrator._client_ppt_file_name(title) == "样例客户-CRM迁移方案建议书.pptx"
 
 
 def test_llm_router_uses_structured_plan():
