@@ -7,7 +7,6 @@ interface ProjectOverviewInfoCardProps {
   descExpanded: boolean;
   description?: string | null;
   isZh: boolean;
-  notes?: string | null;
   onEdit: () => void;
   onToggleDescription: () => void;
   projectClient: string;
@@ -20,7 +19,6 @@ export function ProjectOverviewInfoCard({
   descExpanded,
   description,
   isZh,
-  notes,
   onEdit,
   onToggleDescription,
   projectClient,
@@ -90,12 +88,6 @@ export function ProjectOverviewInfoCard({
             {descExpanded && (
               <p className="text-sm text-gray-600 whitespace-pre-wrap">{description}</p>
             )}
-          </div>
-        )}
-        {notes && (
-          <div className="pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-1">{isZh ? "备注" : "Notes"}</p>
-            <p className="text-sm text-gray-600 whitespace-pre-wrap">{notes}</p>
           </div>
         )}
       </div>

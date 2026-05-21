@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type {
-  GeneratedArtifact,
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
   ProjectMemoryResponse,
@@ -40,7 +39,6 @@ const formatAmountInTenThousand = (amount: number | undefined | null): string =>
 interface UseProjectOverviewDataOptions {
   language: string;
   isZh: boolean;
-  mdNotes: string;
   projectDetail: ProjectDetailType;
   projectId: string;
 }
@@ -107,7 +105,6 @@ function getApiLimitSummaryError(isZh: boolean) {
 export function useProjectOverviewData({
   language,
   isZh,
-  mdNotes,
   projectDetail,
   projectId,
 }: UseProjectOverviewDataOptions) {
@@ -125,9 +122,6 @@ export function useProjectOverviewData({
     readSummaryGenerationLock(summaryGenerationLockKey),
   );
   const [descExpanded, setDescExpanded] = useState(false);
-  const [overviewNotesText, setOverviewNotesText] = useState((mdNotes || "").trim());
-  const [recentArtifacts, setRecentArtifacts] = useState<GeneratedArtifact[]>([]);
-  const [isLoadingArtifacts, setIsLoadingArtifacts] = useState(false);
   const [memory, setMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemory, setIsLoadingMemory] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
@@ -162,17 +156,6 @@ export function useProjectOverviewData({
     };
   }, [summaryGenerationLockKey]);
 
-  const firstMarkdownFile = useMemo(
-    () =>
-      [...files]
-        .filter((file) => file.file_type?.toLowerCase() === "md")
-        .sort(
-          (a, b) =>
-            new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime(),
-        )[0] || null,
-    [files],
-  );
-
   const recentTodos = useMemo(
     () => todos.filter((todo) => !todo.is_done).slice(0, 3),
     [todos],
@@ -199,64 +182,6 @@ export function useProjectOverviewData({
         .slice(0, 5),
     [files],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadOverviewNotes = async () => {
-      if (!firstMarkdownFile) {
-        setOverviewNotesText((mdNotes || "").trim());
-        return;
-      }
-
-      try {
-        const data = await api.get<{ content: string }>(
-          `/projects/${projectId}/documents/${firstMarkdownFile.id}`,
-        );
-        if (!cancelled) {
-          setOverviewNotesText((data.content || "").trim() || (mdNotes || "").trim());
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load overview notes:", error);
-          setOverviewNotesText((mdNotes || "").trim());
-        }
-      }
-    };
-
-    void loadOverviewNotes();
-    return () => {
-      cancelled = true;
-    };
-  }, [firstMarkdownFile, mdNotes, projectId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadArtifacts = async () => {
-      setIsLoadingArtifacts(true);
-      try {
-        const data = await api.get<GeneratedArtifact[]>(`/artifacts?project_id=${projectId}`);
-        if (!cancelled) {
-          setRecentArtifacts(data.slice(0, 5));
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load artifacts:", error);
-          setRecentArtifacts([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingArtifacts(false);
-        }
-      }
-    };
-
-    void loadArtifacts();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,7 +253,7 @@ export function useProjectOverviewData({
     return () => {
       cancelled = true;
     };
-  }, [language, project.context_summary, project.memory_version, projectId, summaryType]);
+  }, [language, project.context_summary, project.memory_version, projectId, summaryGenerationLockKey, summaryType]);
 
   useEffect(() => {
     return subscribeProjectMemorySummariesUpdated((detail) => {
@@ -492,12 +417,9 @@ export function useProjectOverviewData({
     generateSummary,
     generatingSummary: generatingSummary || hasPersistedSummaryGeneration,
     handleSummaryTypeChange,
-    isLoadingArtifacts,
     isLoadingMemory,
     isRebuildingMemory,
     memory,
-    overviewNotesText,
-    recentArtifacts,
     recentFiles,
     recentMilestones,
     recentTodos,

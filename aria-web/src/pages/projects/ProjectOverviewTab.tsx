@@ -8,7 +8,6 @@ import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
 import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
 import { ProjectOverviewMilestonesCard } from "./ProjectOverviewMilestonesCard";
-import { ProjectOverviewNotesCard } from "./ProjectOverviewNotesCard";
 import { ProjectOverviewSidebar } from "./ProjectOverviewSidebar";
 import { ProjectOverviewSummaryCard } from "./ProjectOverviewSummaryCard";
 import { buildProjectSkillPrompt, ProjectSkillWorkflowsCard } from "./ProjectSkillWorkflowsCard";
@@ -28,7 +27,7 @@ export function ProjectOverviewTab({
 }: ProjectOverviewTabProps) {
   void _onProjectUpdate;
 
-  const { project, financials, md_notes } = projectDetail;
+  const { project, financials } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
@@ -43,7 +42,6 @@ export function ProjectOverviewTab({
     isLoadingMemory,
     isRebuildingMemory,
     memory,
-    overviewNotesText,
     recentFiles,
     recentMilestones,
     recentTodos,
@@ -56,7 +54,6 @@ export function ProjectOverviewTab({
   } = useProjectOverviewData({
     language: i18n.language,
     isZh,
-    mdNotes: md_notes,
     projectDetail,
     projectId,
   });
@@ -101,7 +98,6 @@ export function ProjectOverviewTab({
           descExpanded={descExpanded}
           description={project.description}
           isZh={isZh}
-          notes={project.notes}
           onEdit={() => navigate(`/projects/${projectId}/settings`, { state: { edit: true } })}
           onToggleDescription={() => setDescExpanded((value) => !value)}
           projectClient={project.client}
@@ -132,21 +128,12 @@ export function ProjectOverviewTab({
           onManage={() => navigate(`/projects/${projectId}/anchors`)}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            <ProjectOverviewNotesCard
-              isZh={isZh}
-              notesText={overviewNotesText}
-              onOpen={() => navigate(`/projects/${projectId}/space`)}
-            />
-
-            <ProjectOverviewMilestonesCard
-              isZh={isZh}
-              milestones={recentMilestones}
-              onOpen={() => navigate(`/projects/${projectId}/milestones`)}
-            />
-          </div>
-
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <ProjectOverviewMilestonesCard
+            isZh={isZh}
+            milestones={recentMilestones}
+            onOpen={() => navigate(`/projects/${projectId}/milestones`)}
+          />
           <ProjectOverviewDocumentsCard
             files={recentFiles}
             isZh={isZh}
@@ -172,7 +159,7 @@ export function ProjectOverviewTab({
         onGoToDocuments={() => navigate(`/projects/${projectId}/space`)}
         onGoToFinancials={() => navigate(`/projects/${projectId}/financials`)}
         onGoToMilestones={() => navigate(`/projects/${projectId}/milestones`)}
-        onGoToTodos={() => navigate(`/projects/${projectId}/todos`)}
+        onGoToTodos={() => navigate(`/projects/${projectId}/milestones`)}
         recentTodos={recentTodos}
       />
     </div>
