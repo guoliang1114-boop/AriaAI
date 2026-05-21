@@ -42,6 +42,13 @@ CLIENT_PORTFOLIO_FAST_MODEL = "deepseek-v4-flash"
 CLIENT_PORTFOLIO_MAX_TOKENS = 4096
 WORKSPACE_INVENTORY_MAX_TOKENS = 6144
 
+# Cheap model used exclusively by the IntentRouter.
+# DeepSeek is preferred because it is fast, cheap, and good enough for
+# enum classification (chat_mode + action_policy).
+INTENT_ROUTER_MODEL = "deepseek-chat"
+INTENT_ROUTER_MAX_TOKENS = 500
+INTENT_ROUTER_TEMPERATURE = 0
+
 
 @dataclass(frozen=True)
 class SkillActivationDecision:
@@ -334,13 +341,22 @@ async def prepare_chat_runtime_async(session: Session, req: SendMessageRequest) 
 
     _, _, effective_skill_id, _ = _resolve_effective_skill(session, req)
     selected_model = _resolve_requested_model(session, req)
-    provider = resolve_provider_from_model(selected_model)
-    llm = _load_provider_module(provider)
+
+    # Use a cheap, fast model for intent classification.
+    # DeepSeek is preferred; fall back to the user's selected model if
+    # DeepSeek is not configured.
+    if _has_deepseek_api_key(session):
+        router_model = INTENT_ROUTER_MODEL
+        router_llm = _load_provider_module("deepseek")
+    else:
+        router_model = selected_model
+        router_llm = _load_provider_module(resolve_provider_from_model(selected_model))
+
     intent_decision = await classify_chat_intent_async(
         req,
         effective_skill_id=effective_skill_id,
-        llm_complete=llm.complete,
-        model=selected_model,
+        llm_complete=router_llm.complete,
+        model=router_model,
     )
     return prepare_chat_runtime(
         session,
