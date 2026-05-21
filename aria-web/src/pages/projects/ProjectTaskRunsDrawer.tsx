@@ -138,6 +138,7 @@ export function ProjectTaskRunsDrawer({
     () => tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null,
     [selectedTaskId, tasks],
   );
+  const selectedTaskNeedsConfirmation = selectedTask?.input?.requires_confirmation === true;
 
   const refreshTask = async (taskId: number) => {
     const nextTask = await api.get<TaskRun>(`/projects/${projectId}/task-runs/${taskId}`);
@@ -284,6 +285,11 @@ export function ProjectTaskRunsDrawer({
                         <span className="mx-2 text-slate-300">·</span>
                         {formatTime(selectedTask.created_at)}
                       </p>
+                      {selectedTaskNeedsConfirmation && typeof selectedTask.input?.confirmation_reason === "string" ? (
+                        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          {selectedTask.input.confirmation_reason}
+                        </p>
+                      ) : null}
                       {selectedTask.error_message ? <p className="mt-2 text-sm text-rose-600">{selectedTask.error_message}</p> : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -317,7 +323,7 @@ export function ProjectTaskRunsDrawer({
                           className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
                         >
                           <Play className="h-4 w-4" />
-                          {isZh ? "恢复" : "Resume"}
+                          {selectedTaskNeedsConfirmation ? (isZh ? "确认并执行" : "Confirm and run") : (isZh ? "恢复" : "Resume")}
                         </button>
                       ) : null}
                       {["pending", "running", "failed", "paused"].includes(selectedTask.status) ? (

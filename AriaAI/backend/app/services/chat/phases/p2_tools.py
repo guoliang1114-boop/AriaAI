@@ -25,6 +25,7 @@ from app.services.chat_artifacts import (
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event, await_with_heartbeat
 from app.services.chat.workflow import workflow_status, workflow_plan_events
+from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
 _MAX_TOOL_ATTEMPTS = 2
+_CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
 
 
 def _result_failed(result: dict | None) -> bool:
@@ -49,6 +51,25 @@ def _should_retry_tool(runtime: ChatRuntime, tool_name: str) -> bool:
     if getattr(contract, "delivery_required", False) and tool_name in allowed_tools:
         return True
     return tool_name in _PROJECT_OFFICE_TOOLS
+
+
+def _action_policy_value(value) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _tool_confirmation_token(tool_name: str) -> str:
+    return f"tool:{tool_name}"
+
+
+def _tool_requires_confirmation(runtime: ChatRuntime, tool_name: str, req: SendMessageRequest) -> bool:
+    try:
+        policy = ActionPolicy(_action_policy_value(runtime.action_policy))
+    except ValueError:
+        return False
+    if policy not in _CONFIRMATION_POLICIES:
+        return False
+    confirmations = set(getattr(req, "action_confirmations", []) or [])
+    return _tool_confirmation_token(tool_name) not in confirmations
 
 
 def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
@@ -215,6 +236,60 @@ async def run_p2_tools(
                 }
             )
             yield sse_event({"type": "tool_result", "result": skip_result})
+            continue
+        if _tool_requires_confirmation(runtime, tool_name, req):
+            confirmation_token = _tool_confirmation_token(tool_name)
+            confirmation_output = {
+                "skipped": True,
+                "requires_confirmation": True,
+                "confirmation_token": confirmation_token,
+                "reason": "需要用户确认后才能执行修改或危险操作。",
+                "current_policy": _action_policy_value(runtime.action_policy),
+            }
+            state.tool_call_events.append(
+                {
+                    "tool_name": tool_name,
+                    "status": "confirmation_required",
+                    "message": "该工具会修改或删除项目内容，已暂停等待用户确认。",
+                    "summary": confirmation_output["reason"],
+                    "confirmation_token": confirmation_token,
+                }
+            )
+            state.record_trace_event(
+                "tool_confirmation_required",
+                stage="p2",
+                tool_name=tool_name,
+                confirmation_token=confirmation_token,
+                current_policy=_action_policy_value(runtime.action_policy),
+            )
+            tool_result_blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": json.dumps(confirmation_output, ensure_ascii=False),
+                }
+            )
+            yield sse_event(
+                workflow_status(
+                    step_index=3,
+                    step_total=4,
+                    title="执行 Skill / 工具",
+                    stage="tools",
+                    status="error",
+                    message="第 3 步：该操作会修改或删除项目内容，已暂停等待确认。",
+                )
+            )
+            yield sse_event(
+                {
+                    "type": "tool_result",
+                    "result": {
+                        "type": "tool_result",
+                        "tool_name": tool_name,
+                        "status": "confirmation_required",
+                        "output": confirmation_output,
+                    },
+                }
+            )
             continue
 
         # ---- Markdown write tool (special inline handling) ----

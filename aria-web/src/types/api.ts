@@ -869,6 +869,7 @@ export interface SendMessageRequest {
   file_ids?: number[]
   model?: string
   mention_context?: MentionContext
+  action_confirmations?: string[]
 }
 
 export interface ChatModel {

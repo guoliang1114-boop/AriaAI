@@ -18,6 +18,7 @@ from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat_store import persist_assistant_message
 from app.services.task_orchestrator import (
     create_task_run,
+    pause_task_run_in_session,
     serialize_task_run,
     stream_execute_task_run_in_session,
     task_run_chat_brief,
@@ -30,6 +31,17 @@ from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status_from_task_event, task_payload_tool_calls
 
 logger = logging.getLogger(__name__)
+
+
+def _task_confirmation_reason(runtime: ChatRuntime, req: SendMessageRequest, task_route) -> str:
+    policy_value = str(getattr(runtime.action_policy, "value", runtime.action_policy) or "")
+    if policy_value in {ActionPolicy.MODIFY_EXISTING_FILE.value, ActionPolicy.DESTRUCTIVE_ACTION.value}:
+        return "该任务可能修改或删除已有项目内容，需要先确认。"
+    text = (req.content or "").lower()
+    high_cost_terms = ("全面", "丰富", "完整", "详细", "大型", "全部门", "所有部门", "10", "20", "large", "comprehensive")
+    if getattr(task_route, "output_kind", "") == "pptx" and any(term in text for term in high_cost_terms):
+        return "该 PPT 生成任务可能耗时较长，需要先确认后执行。"
+    return ""
 
 
 async def run_p0_durable_task(
@@ -82,26 +94,78 @@ async def run_p0_durable_task(
         await task_stream_flush_pause()
 
         with Session(bind) as task_session:
+            confirmation_reason = _task_confirmation_reason(runtime, req, task_route)
+            task_input = {
+                "title": task_route.title or req.content[:80],
+                "source": "project_chat",
+                "router": {
+                    "confidence": task_route.confidence,
+                    "reason": task_route.reason,
+                    "output_kind": task_route.output_kind,
+                    "artifact_contract": runtime.artifact_contract.to_dict()
+                    if getattr(runtime.artifact_contract, "delivery_required", False)
+                    else None,
+                },
+            }
+            if confirmation_reason:
+                task_input["requires_confirmation"] = True
+                task_input["confirmation_reason"] = confirmation_reason
             task = create_task_run(
                 task_session,
                 project_id=req.project_id,
                 task_type=durable_task_type,
                 goal=req.content,
-                input_data={
-                    "title": task_route.title or req.content[:80],
-                    "source": "project_chat",
-                    "router": {
-                        "confidence": task_route.confidence,
-                        "reason": task_route.reason,
-                        "output_kind": task_route.output_kind,
-                        "artifact_contract": runtime.artifact_contract.to_dict()
-                        if getattr(runtime.artifact_contract, "delivery_required", False)
-                        else None,
-                    },
-                },
+                input_data=task_input,
                 plan_steps=list(task_route.plan_steps),
                 conversation_id=runtime.conv_id,
             )
+            if confirmation_reason:
+                task_payload = pause_task_run_in_session(task_session, task.id, reason=confirmation_reason)
+                task_payload = task_payload or serialize_task_run(task_session, task, include_events=True)
+                full_text = f"已创建任务，但不会自动执行：{confirmation_reason}\n\n请在右上角「任务」面板确认后再开始。"
+                metadata = {
+                    "project_id": req.project_id,
+                    "task_run": task_payload,
+                    "task_run_id": task_payload.get("id"),
+                    "task_type": durable_task_type,
+                    "requires_confirmation": True,
+                    "confirmation_reason": confirmation_reason,
+                    "stage_timings": {
+                        **state.stage_timings,
+                        "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
+                    },
+                }
+                yield sse_event({"type": "task_run", "task": task_payload})
+                yield sse_event({"type": "text", "content": full_text})
+                state.durable_task_completed = True
+                state.full_text = full_text
+                state.stage_timings.update(metadata["stage_timings"])
+                state.record_trace_event(
+                    "task_confirmation_required",
+                    task_type=durable_task_type,
+                    reason=confirmation_reason,
+                )
+                need_title, assistant_message_id = persist_assistant_message(
+                    bind,
+                    runtime.conv_id,
+                    full_text,
+                    req.content,
+                    metadata,
+                )
+                state.need_title = need_title
+                try:
+                    persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
+                except Exception as exc:
+                    logger.warning("[P0] failed to persist paused task trace: %s", exc)
+                yield sse_event({"type": "done", **metadata})
+                if need_title and full_text:
+                    schedule_title_generation(
+                        conv_id=runtime.conv_id,
+                        user_content=req.content,
+                        bind=bind,
+                        complete_fn=runtime.llm.complete,
+                    )
+                return
             task_payload = serialize_task_run(task_session, task, include_events=True)
             yield sse_event({"type": "task_run", "task": task_payload})
             await task_stream_flush_pause()

@@ -23,6 +23,7 @@ class SendMessageRequest(BaseModel):
     file_ids: List[int] = []
     model: Optional[str] = None
     mention_context: Optional[MentionContext] = None
+    action_confirmations: List[str] = []
 
 
 class ConversationOut(BaseModel):

@@ -16,8 +16,9 @@ from app.services.chat.phases.p1_planning import run_p1_planning
 from app.services.chat.phases.p2_tools import run_p2_tools
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
-from app.services.chat.phases.p0_durable_task import run_p0_durable_task
+from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, run_p0_durable_task
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 
 class _AsyncIter:
@@ -402,6 +403,15 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, [])
         self.assertFalse(state.durable_task_completed)
 
+    async def test_p0_flags_high_cost_ppt_for_confirmation(self):
+        route = SimpleNamespace(task_type="generate_client_ppt", output_kind="pptx")
+        self.req.content = "请生成一个全面详细的客户沟通 PPT，至少 10 页。"
+        self.runtime.action_policy = "durable_task"
+
+        reason = _task_confirmation_reason(self.runtime, self.req, route)
+
+        self.assertIn("确认", reason)
+
     # ------------------------------------------------------------------
     # End-to-end: P1 → P4 without tools
     # ------------------------------------------------------------------
@@ -524,6 +534,31 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item["type"] == "tool_retry" for item in state.trace_events))
         self.assertEqual(state.tool_call_events[-1]["status"], "completed")
         self.assertIn("正在自动重试一次", "".join(events))
+
+    async def test_p2_requires_confirmation_for_modify_tool(self):
+        """P2 blocks modify/delete tools until the caller provides confirmation."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": PROJECT_MARKDOWN_TOOL_NAME,
+                "id": "tool-confirm",
+                "input": {"mode": "append", "content": "## 会后行动清单"},
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock()) as mock_exec:
+            events = []
+            async for event in run_p2_tools(self.runtime, self.req, state):
+                events.append(event)
+
+        mock_exec.assert_not_awaited()
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
+        self.assertEqual(state.trace_events[-1]["type"], "tool_confirmation_required")
+        self.assertIn("等待确认", "".join(events))
 
 
 if __name__ == "__main__":
