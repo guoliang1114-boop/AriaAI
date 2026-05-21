@@ -94,6 +94,25 @@ describe("useProjectChatConversations", () => {
     });
   });
 
+  it("can keep the base chat route in a new-chat state without auto-selecting history", async () => {
+    const convs = [
+      makeConversation({ id: 10 }),
+      makeConversation({ id: 20 }),
+    ];
+    mockGet.mockResolvedValue(convs);
+
+    const { result } = renderHook(() =>
+      useProjectChatConversations({ ...defaultProps, autoSelectFirstConversation: false }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.conversations).toHaveLength(2);
+    });
+
+    expect(result.current.activeConvId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+  });
+
   it("fetches messages when activeConvId changes", async () => {
     const conv = makeConversation({ id: 5 });
     const msgs = [makeMessage({ id: 1, conversation_id: 5 })];

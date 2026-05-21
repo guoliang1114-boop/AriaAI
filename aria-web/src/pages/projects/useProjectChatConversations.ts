@@ -5,6 +5,7 @@ import type { Conversation, Message } from "../../types/api";
 import { buildDefaultChatTitle } from "./projectChatCopy";
 
 type UseProjectChatConversationsParams = {
+  autoSelectFirstConversation?: boolean;
   projectId: number;
   isZh: boolean;
   onCreateConversationError: () => void;
@@ -13,6 +14,7 @@ type UseProjectChatConversationsParams = {
 };
 
 export function useProjectChatConversations({
+  autoSelectFirstConversation = true,
   projectId,
   isZh,
   onCreateConversationError,
@@ -57,7 +59,7 @@ export function useProjectChatConversations({
     try {
       const data = await api.get<Conversation[]>(`/chat/conversations?project_id=${projectId}`);
       setConversations(data);
-      if (data.length > 0 && !activeConvId) {
+      if (autoSelectFirstConversation && data.length > 0 && !activeConvId) {
         setActiveConvId(data[0].id);
       }
     } catch (error) {

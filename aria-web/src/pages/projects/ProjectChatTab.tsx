@@ -148,6 +148,18 @@ export function ProjectChatTab({
   const preserveLaunchSkillRef = useRef(false);
   const skillArmedRef = useRef(false);
   const resizeStartRef = useRef({ x: 0, width: 440 });
+  const ignoreConversationParamRef = useRef(false);
+  const projectChatBasePath = `/projects/${project.id}/chat`;
+  const isCurrentProjectChatPath =
+    location.pathname === projectChatBasePath || location.pathname.startsWith(`${projectChatBasePath}/`);
+  const launchSkillParam = searchParams.get("skill");
+  const launchPrompt = searchParams.get("q");
+  const briefingLaunch = searchParams.get("briefing");
+  const sourceConversationParam = searchParams.get("conversation");
+  const pathConversationParam = isCurrentProjectChatPath ? location.pathname.match(/\/chat\/(\d+)$/)?.[1] || "" : "";
+  const sourceMessageParam = searchParams.get("message");
+  const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
+  const highlightedMessageId = parsedSourceMessageId && Number.isFinite(parsedSourceMessageId) ? parsedSourceMessageId : null;
 
   const {
     conversations,
@@ -174,6 +186,7 @@ export function ProjectChatTab({
     openDeleteConversationDialog,
     closeDeleteConversationDialog,
   } = useProjectChatConversations({
+    autoSelectFirstConversation: Boolean(pathConversationParam || sourceConversationParam),
     projectId: project.id,
     isZh,
     onCreateConversationError: () => toast.error(copy.createConversationFailed),
@@ -182,14 +195,6 @@ export function ProjectChatTab({
   });
 
   const panel = useProjectChatPanel();
-  const launchSkillParam = searchParams.get("skill");
-  const launchPrompt = searchParams.get("q");
-  const briefingLaunch = searchParams.get("briefing");
-  const sourceConversationParam = searchParams.get("conversation");
-  const pathConversationParam = location.pathname.match(/\/chat\/(\d+)$/)?.[1] || "";
-  const sourceMessageParam = searchParams.get("message");
-  const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
-  const highlightedMessageId = parsedSourceMessageId && Number.isFinite(parsedSourceMessageId) ? parsedSourceMessageId : null;
 
   const {
     isLoading,
@@ -384,8 +389,17 @@ export function ProjectChatTab({
   }, [briefingLaunch, isLoadingConversations, panel, sendMessage, setSearchParams, startNewChat]);
 
   useEffect(() => {
+    if (!isCurrentProjectChatPath) {
+      return;
+    }
     const conversationParam = pathConversationParam || sourceConversationParam;
     if (!conversationParam || isLoadingConversations) {
+      if (!conversationParam) {
+        ignoreConversationParamRef.current = false;
+      }
+      return;
+    }
+    if (ignoreConversationParamRef.current) {
       return;
     }
     const conversationId = Number(conversationParam);
@@ -395,10 +409,16 @@ export function ProjectChatTab({
     if (activeConvId !== conversationId) {
       setActiveConvId(conversationId);
     }
-  }, [activeConvId, isLoadingConversations, pathConversationParam, setActiveConvId, sourceConversationParam]);
+  }, [activeConvId, isCurrentProjectChatPath, isLoadingConversations, pathConversationParam, setActiveConvId, sourceConversationParam]);
 
   useEffect(() => {
+    if (!isCurrentProjectChatPath) {
+      return;
+    }
     if (!activeConvId) {
+      if (pathConversationParam && location.pathname !== projectChatBasePath) {
+        navigate(`${projectChatBasePath}${location.search}`, { replace: true });
+      }
       return;
     }
     const currentPathConversationId = pathConversationParam ? Number(pathConversationParam) : null;
@@ -409,11 +429,11 @@ export function ProjectChatTab({
     ) {
       return;
     }
-    const nextPath = `/projects/${project.id}/chat/${activeConvId}`;
+    const nextPath = `${projectChatBasePath}/${activeConvId}`;
     if (location.pathname !== nextPath) {
       navigate(`${nextPath}${location.search}`, { replace: true });
     }
-  }, [activeConvId, location.pathname, location.search, navigate, pathConversationParam, project.id]);
+  }, [activeConvId, isCurrentProjectChatPath, location.pathname, location.search, navigate, pathConversationParam, projectChatBasePath]);
 
   useEffect(() => {
     if (!highlightedMessageId || isLoadingMessages) {
@@ -915,8 +935,9 @@ export function ProjectChatTab({
     processedSkillRef.current = null;
     setPlanResult(null);
     setPlanPendingContent("");
+    ignoreConversationParamRef.current = true;
     startNewChat();
-    navigate(`/projects/${project.id}/chat`);
+    navigate(projectChatBasePath);
   };
 
   const handleSelectConversation = (conversationId: number) => {
