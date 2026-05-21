@@ -37,22 +37,22 @@ const ChatStreamingMessage = memo<{
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl items-start gap-3.5">
-      <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20">
+    <div className="project-chat-message mx-auto flex max-w-4xl items-start gap-3.5">
+      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
         <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
       <div className="flex-1 min-w-0 flex flex-col items-stretch">
-        <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">Aria</p>
+        <p className="mb-1.5 px-0.5 text-[11px] font-medium text-slate-400">Aria</p>
         <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
-          <div className="md-root w-full">
+          <div className="md-root project-chat-answer w-full">
             {content ? renderedContent : null}
             {status ? (
-              <div className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500`}>
+              <div className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm`}>
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span>{status}</span>
               </div>
             ) : null}
-            <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse rounded-sm" />
+            <span className="project-chat-stream-caret ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-900" />
             {isTruncated && onContinue && (
               <div className="mt-3">
                 <button
@@ -66,7 +66,7 @@ const ChatStreamingMessage = memo<{
             )}
           </div>
           {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
-            <div className="mt-3 space-y-2 w-full max-w-3xl">
+            <div className="mt-3 w-full max-w-3xl space-y-2">
               {toolCalls.map((call, index) => (
                 <ProjectChatToolCallCard
                   key={`${call.tool_name}-${call.status}-${index}`}
@@ -250,12 +250,12 @@ export function ProjectChatMessages({
             />
           )}
           {isLoading && !streamingContent && !streamingStatus && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (
-            <div className="mx-auto flex max-w-5xl gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-white" />
+            <div className="project-chat-message mx-auto flex max-w-4xl gap-3.5">
+              <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
+                <Sparkles className="h-3.5 w-3.5 text-white" />
               </div>
               <div className="space-y-2">
-                <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-primary" />
                     <span className="text-sm text-gray-500">{thinkingLabel}</span>

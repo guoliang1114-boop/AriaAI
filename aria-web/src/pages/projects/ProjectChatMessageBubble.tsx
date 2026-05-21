@@ -140,45 +140,45 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     return (
       <div
         id={`message-${msg.id}`}
-        className={`mx-auto flex max-w-4xl items-start gap-3.5 transition ${
-          highlight ? "rounded-2xl p-2 bg-amber-100/80 ring-2 ring-amber-300" : ""
+        className={`project-chat-message mx-auto flex max-w-4xl items-start gap-3.5 transition ${
+          highlight ? "rounded-xl bg-amber-50 p-2 ring-1 ring-amber-300" : ""
         } group ${isUser ? "flex-row-reverse" : ""}`}
       >
         <div
-          className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
-            isUser ? "bg-gray-200" : "bg-gradient-to-br from-primary to-indigo-500 shadow-sm shadow-primary/20"
+          className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${
+            isUser ? "bg-slate-200" : "bg-slate-950 shadow-sm"
           }`}
         >
           {isUser ? (
-            <span className="text-[10px] font-semibold text-gray-500">{t("chat.you", "You")}</span>
+            <span className="text-[10px] font-semibold text-slate-500">{t("chat.you", "You")}</span>
           ) : (
             <Sparkles className="w-3.5 h-3.5 text-white" />
           )}
         </div>
 
         <div className={`flex-1 min-w-0 flex flex-col ${isUser ? "items-end" : "items-stretch"}`}>
-          <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">
+          <p className="mb-1.5 px-0.5 text-[11px] font-medium text-slate-400">
             {isUser ? t("chat.you", "You") : "Aria"}
           </p>
 
           <div
             className={`${
               isUser
-                ? "max-w-[85%] px-4 py-2.5 bg-gray-900 text-white rounded-2xl rounded-tr-sm text-[15px] leading-[1.7]"
-                : "w-full max-w-none text-[15px] leading-[1.8] text-gray-700"
+                ? "max-w-[78%] rounded-2xl rounded-tr-md bg-slate-950 px-4 py-2.5 text-[15px] leading-[1.7] text-white shadow-sm"
+                : "w-full max-w-none text-[15px] leading-[1.8] text-slate-700"
             }`}
           >
             {isUser ? (
               <p className="whitespace-pre-wrap">{msg.content}</p>
             ) : (
-              <div className="md-root w-full">
+              <div className="md-root project-chat-answer w-full">
                 <MarkdownRenderer content={msg.content} />
               </div>
             )}
           </div>
 
           {!isUser && (references.length > 0 || toolCalls.length > 0 || artifacts.length > 0) && (
-            <div className="mt-3 space-y-2 w-full max-w-3xl">
+            <div className="mt-3 w-full max-w-3xl space-y-2">
               {toolCalls.map((call, index) => (
                 <ProjectChatToolCallCard
                   key={`${call.tool_name}-${call.status}-${index}`}
@@ -286,8 +286,8 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             </div>
           )}
 
-          <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? "flex-row-reverse" : ""}`}>
-            <span className="text-[11px] text-gray-300 px-0.5">
+          <div className={`mt-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 ${isUser ? "flex-row-reverse" : ""}`}>
+            <span className="px-0.5 text-[11px] text-slate-300">
               {formatTimeOnly(msg.created_at, { hour: "2-digit", minute: "2-digit" }, resolvedTimeZone)}
             </span>
             {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}
@@ -331,8 +331,12 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     prev.msg.content === next.msg.content &&
     prev.msg.metadata_json === next.msg.metadata_json &&
     prev.projectId === next.projectId &&
+    prev.sourceContent === next.sourceContent &&
     prev.onApplyStakeholders === next.onApplyStakeholders &&
+    prev.onConfirmToolAction === next.onConfirmToolAction &&
     prev.onDownloadArtifact === next.onDownloadArtifact &&
+    prev.onOpenArtifact === next.onOpenArtifact &&
+    prev.onOpenTasks === next.onOpenTasks &&
     prev.onSaveToNotes === next.onSaveToNotes &&
     prev.onContinue === next.onContinue,
 );

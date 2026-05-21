@@ -89,7 +89,7 @@ export function ProjectChatTab({
   const quickPrompts = getProjectQuickPrompts(isZh);
   const toast = useToast();
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
-  const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(null);
+  const [, setProjectMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -1017,11 +1017,6 @@ export function ProjectChatTab({
             onModelChange={setSelectedModel}
             isBackgroundMode={isBackgroundMode}
             onToggleBackgroundMode={() => setIsBackgroundMode((v) => !v)}
-            isPlanMode={isPlanMode}
-            onTogglePlanMode={() => {
-              setIsPlanMode((v) => !v);
-              if (planResult) setPlanResult(null);
-            }}
             isStreamingTruncated={streamingTruncated}
             onContinue={() => void sendMessage(isZh ? "继续" : "Continue")}
             planResult={planResult}

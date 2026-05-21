@@ -645,6 +645,169 @@ body {
   overflow: hidden;
 }
 
+/* Project chat answer reading surface. Inspired by Codex: calm, text-first, with
+   clear rhythm for long generated answers and artifacts. */
+.project-chat-scroll {
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.72) 0%, rgba(255, 255, 255, 0) 80px),
+    #ffffff;
+}
+
+.project-chat-message {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.project-chat-answer {
+  max-width: 48rem;
+  font-size: 0.9375rem;
+  line-height: 1.76;
+  color: #1f2937;
+}
+
+.project-chat-answer .md-paragraph {
+  margin-bottom: 0.85rem;
+}
+
+.project-chat-answer .md-heading {
+  color: #0f172a;
+  font-weight: 650;
+  margin-top: 1.7rem;
+  margin-bottom: 0.7rem;
+}
+
+.project-chat-answer > .md-heading:first-child,
+.project-chat-answer > :first-child .md-heading:first-child {
+  margin-top: 0;
+}
+
+.project-chat-answer .md-h1 {
+  font-size: 1.28rem;
+  line-height: 1.35;
+}
+
+.project-chat-answer .md-h2 {
+  font-size: 1.12rem;
+  line-height: 1.45;
+}
+
+.project-chat-answer .md-h3 {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.project-chat-answer .md-list {
+  margin-bottom: 0.9rem;
+  padding-left: 1.35rem;
+}
+
+.project-chat-answer .md-list-item {
+  margin-bottom: 0.35rem;
+  padding-left: 0.12rem;
+}
+
+.project-chat-answer .md-list .md-list {
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.project-chat-answer .md-blockquote {
+  margin: 1rem 0;
+  border-left: 2px solid #94a3b8;
+  background: #f8fafc;
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.7rem 0.9rem;
+  color: #475569;
+  font-style: normal;
+}
+
+.project-chat-answer .inline-code {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.35rem;
+  color: #0f172a;
+  font-size: 0.84em;
+  padding: 0.08rem 0.32rem;
+}
+
+.project-chat-answer .md-code-block {
+  margin: 1rem 0;
+  border-color: #e2e8f0;
+  border-radius: 0.6rem;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.project-chat-answer .md-code-header {
+  background: #f8fafc;
+  border-bottom-color: #e2e8f0;
+}
+
+.project-chat-answer .md-code-lang {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.project-chat-answer pre {
+  background: #f8fafc !important;
+  color: #0f172a;
+}
+
+.project-chat-answer .md-table-wrapper {
+  margin: 1.1rem 0;
+  border-color: #e2e8f0;
+  border-radius: 0.6rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.project-chat-answer .md-table {
+  font-size: 0.84rem;
+}
+
+.project-chat-answer .md-table-head {
+  background: #f8fafc;
+}
+
+.project-chat-answer .md-table-row {
+  border-bottom-color: #e5e7eb;
+}
+
+.project-chat-answer .md-table-cell {
+  padding: 0.7rem 0.9rem;
+  color: #334155;
+}
+
+.project-chat-answer .md-table-header {
+  color: #0f172a;
+  font-weight: 650;
+}
+
+.project-chat-answer .md-hr {
+  margin: 1.4rem 0;
+  border-top-color: #e2e8f0;
+}
+
+.project-chat-answer .md-link {
+  color: #003fb1;
+  text-underline-offset: 0.18em;
+}
+
+.project-chat-stream-caret {
+  vertical-align: -0.15em;
+}
+
+@media (max-width: 640px) {
+  .project-chat-answer {
+    max-width: 100%;
+    font-size: 0.9rem;
+    line-height: 1.72;
+  }
+
+  .project-chat-answer .md-table-cell {
+    min-width: 8rem;
+  }
+}
+
 /* Compact document preview used inside the project chat right rail. */
 .project-chat-preview-md {
   font-size: 0.8125rem;

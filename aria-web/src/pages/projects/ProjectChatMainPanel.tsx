@@ -53,8 +53,6 @@ interface ProjectChatMainPanelProps {
   onModelChange?: (modelId: string) => void;
   isBackgroundMode?: boolean;
   onToggleBackgroundMode?: () => void;
-  isPlanMode?: boolean;
-  onTogglePlanMode?: () => void;
   projectId: number;
   projectClientName?: string;
   quickPrompts: ProjectQuickPrompt[];
@@ -117,8 +115,6 @@ export function ProjectChatMainPanel({
   onModelChange,
   isBackgroundMode,
   onToggleBackgroundMode,
-  isPlanMode,
-  onTogglePlanMode,
   projectId,
   startConversationLabel,
   streamingArtifacts,
@@ -228,7 +224,7 @@ export function ProjectChatMainPanel({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="relative flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-4"
+        className="project-chat-scroll relative min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-6"
       >
         <ProjectChatMessages
           messages={messages}
