@@ -16,12 +16,11 @@ import {
 export type ProjectDetailTabId =
   | "overview"
   | "briefing"
+  | "chat"
   | "space"
   | "documents"
   | "milestones"
   | "notes"
-  | "todos"
-  | "chat"
   | "stakeholders"
   | "financials"
   | "memory"
@@ -53,6 +52,13 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     getPath: (projectId) => `/projects/${projectId}/briefing`,
   },
   {
+    id: "chat",
+    labelKey: "projects.projectDetail.chat",
+    icon: MessageSquare,
+    path: "chat",
+    getPath: (projectId) => `/projects/${projectId}/chat`,
+  },
+  {
     id: "space",
     labelKey: "projects.projectDetail.space",
     icon: BookOpen,
@@ -60,25 +66,11 @@ export const PROJECT_DETAIL_TABS: ProjectDetailTabConfig[] = [
     getPath: (projectId) => `/projects/${projectId}/space`,
   },
   {
-    id: "todos",
-    labelKey: "projects.projectDetail.todos",
-    icon: ListTodo,
-    path: "todos",
-    getPath: (projectId) => `/projects/${projectId}/todos`,
-  },
-  {
     id: "milestones",
     labelKey: "projects.projectDetail.milestones",
-    icon: Flag,
+    icon: ListTodo,
     path: "milestones",
     getPath: (projectId) => `/projects/${projectId}/milestones`,
-  },
-  {
-    id: "chat",
-    labelKey: "projects.projectDetail.chat",
-    icon: MessageSquare,
-    path: "chat",
-    getPath: (projectId) => `/projects/${projectId}/chat`,
   },
   {
     id: "stakeholders",
@@ -152,6 +144,10 @@ export function getActiveProjectDetailTabId(
 
   if (pathname === `/projects/${projectId}/chat` || pathname.startsWith(`/projects/${projectId}/chat/`)) {
     return "chat";
+  }
+
+  if (pathname === `/projects/${projectId}/todos`) {
+    return "milestones";
   }
 
   const matchedTab = PROJECT_DETAIL_TABS.find((tab) => pathname === tab.getPath(projectId));

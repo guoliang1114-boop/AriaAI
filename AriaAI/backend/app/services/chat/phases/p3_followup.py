@@ -6,6 +6,7 @@ re-follow-up loops, and truncation (with auto-continuation).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -18,6 +19,7 @@ from app.services.chat_tools import (
     _strip_internal_tool_markers,
     _tool_start_progress_payload,
 )
+from app.services.chat.mode_registry import ActionPolicy
 from app.services.policy_guards import policy_allows_tool
 from app.services.chat_artifacts import (
     _extract_artifact,
@@ -31,13 +33,59 @@ from app.services.chat.tool_repair import extract_tool_use_json_blocks
 from app.services.chat.workflow import workflow_status
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
-from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+_PROJECT_FILE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME})
+_CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
+
+
+def _action_policy_value(value) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _tool_confirmation_token(tool_name: str, tool_input: dict) -> str:
+    operation = str(
+        tool_input.get("mode")
+        or tool_input.get("action")
+        or tool_input.get("operation")
+        or ""
+    ).strip()
+    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    parts = ["tool", tool_name]
+    if operation:
+        parts.append(operation)
+    parts.append(digest)
+    return ":".join(parts)
+
+
+def _tool_requires_confirmation(
+    required_policy: ActionPolicy,
+    tool_name: str,
+    tool_input: dict,
+    req: SendMessageRequest,
+) -> bool:
+    if required_policy not in _CONFIRMATION_POLICIES:
+        return False
+    confirmations = set(getattr(req, "action_confirmations", []) or [])
+    return _tool_confirmation_token(tool_name, tool_input) not in confirmations
+
+
+def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
+    if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and str(tool_input.get("action") or "").lower() == "delete":
+        ids = tool_input.get("file_ids") or []
+        if tool_input.get("file_id") is not None:
+            ids = [*ids, tool_input["file_id"]]
+        details = [f"待删除文件 ID：{', '.join(str(item) for item in ids)}"] if ids else []
+        if tool_input.get("reason"):
+            details.append(f"删除原因：{tool_input['reason']}")
+        return details
+    return []
 
 
 def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
@@ -296,6 +344,8 @@ async def run_p3_followup(
                             message=f"第 3 步：已补齐后续文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
                     )
+            if tool_name in _PROJECT_FILE_MANAGEMENT_TOOLS and runtime.project_id is not None:
+                tool_input = {**tool_input, "project_id": runtime.project_id}
 
             allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
             if not allowed:
@@ -347,6 +397,51 @@ async def run_p3_followup(
                             "output": skipped_output,
                         },
                     }
+                )
+                continue
+
+            if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
+                confirmation_token = _tool_confirmation_token(tool_name, tool_input)
+                confirmation_details = _tool_confirmation_details(tool_name, tool_input)
+                confirmation_output = {
+                    "skipped": True,
+                    "requires_confirmation": True,
+                    "confirmation_token": confirmation_token,
+                    "reason": "需要用户确认后才能执行修改或危险操作。",
+                    "current_policy": _action_policy_value(runtime.action_policy),
+                }
+                p3_tool_result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(confirmation_output, ensure_ascii=False),
+                    }
+                )
+                state.tool_call_events.append(
+                    {
+                        "tool_name": tool_name,
+                        "status": "confirmation_required",
+                        "message": "该后续工具会修改或删除项目内容，已暂停等待用户确认。",
+                        "summary": confirmation_output["reason"],
+                        "confirmation_token": confirmation_token,
+                        "details": confirmation_details,
+                    }
+                )
+                state.record_trace_event(
+                    "tool_confirmation_required",
+                    stage="p3",
+                    tool_name=tool_name,
+                    confirmation_token=confirmation_token,
+                    current_policy=_action_policy_value(runtime.action_policy),
+                )
+                yield sse_event(
+                    workflow_status(
+                        step_index=3,
+                        step_total=4,
+                        title="执行 Skill / 工具",
+                        stage="tools",
+                        message="第 3 步：后续工具调用涉及修改或删除，等待确认后再执行。",
+                    )
                 )
                 continue
 

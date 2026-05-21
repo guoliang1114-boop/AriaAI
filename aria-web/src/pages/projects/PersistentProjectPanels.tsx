@@ -6,16 +6,13 @@ import type {
 } from "../../types/api";
 import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
-import { ProjectTodosTab } from "./ProjectTodosTab";
 import type { ProjectDetailTabId } from "./projectDetailTabs";
 
-type PersistentPanelId = "chat" | "notes";
-type ProjectPanelId = PersistentPanelId | "todos";
+type ProjectPanelId = "chat" | "notes";
 
 const PANEL_WRAPPER_CLASSNAMES: Record<ProjectPanelId, string> = {
   chat: "h-[calc(100vh-3.5rem)] min-h-[32rem] px-3 py-3",
   notes: "min-h-[calc(100vh-3.5rem)] max-w-full px-4 py-4",
-  todos: "min-h-[calc(100vh-3.5rem)] max-w-full px-4 py-4",
 };
 
 function PanelContainer({
@@ -83,17 +80,7 @@ function buildPersistentPanelConfig({
         />
       ),
     },
-    {
-      id: "todos",
-      element: (
-        <ProjectTodosTab
-          projectId={projectId}
-          memoryVersion={project.memory_version ?? 0}
-          todos={projectDetail.todos}
-          onUpdate={onRefresh}
-        />
-      ),
-    },
+
   ];
 }
 
@@ -115,7 +102,7 @@ export function PersistentProjectPanels({
   onRefresh: () => void;
 }) {
   const [mountedPersistentPanels, setMountedPersistentPanels] = useState<
-    Record<PersistentPanelId, boolean>
+    Record<ProjectPanelId, boolean>
   >({
     chat: activeTabId === "chat",
     notes: activeTabId === "notes",
@@ -146,10 +133,7 @@ export function PersistentProjectPanels({
   return (
     <>
       {panels.map((panel) => {
-        const shouldMount =
-          panel.id === "todos"
-            ? activeTabId === "todos"
-            : mountedPersistentPanels[panel.id];
+        const shouldMount = mountedPersistentPanels[panel.id];
 
         if (!shouldMount) {
           return null;

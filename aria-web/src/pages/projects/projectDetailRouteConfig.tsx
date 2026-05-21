@@ -85,6 +85,16 @@ export function buildProjectDetailRouteConfig({
       ),
     },
     {
+      path: "todos",
+      element: (
+        <ProjectMilestonesTab
+          projectDetail={projectDetail}
+          projectId={projectId}
+          onUpdate={onRefresh}
+        />
+      ),
+    },
+    {
       path: "memory",
       element: (
         <ProjectMemoryTab

@@ -29,6 +29,7 @@ OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES = [
     "read_project_file",
     "write_project_office_document",
     "manage_project_folders",
+    "manage_project_files",
 ]
 CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME = "咨询提案顾问"
 CONSULTING_PROPOSAL_ADVISOR_PACKAGE_NAME = "consulting-proposal-advisor"

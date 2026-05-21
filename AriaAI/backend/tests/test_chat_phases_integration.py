@@ -17,7 +17,7 @@ from app.services.chat.phases.p2_tools import _tool_confirmation_token, run_p2_t
 from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat.phases.p4_persist import run_p4_persist
 from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, run_p0_durable_task
-from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 
@@ -618,6 +618,30 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         mock_exec.assert_awaited_once()
         self.assertEqual(state.tool_call_events[-1]["status"], "completed")
+
+    async def test_p2_requires_confirmation_for_project_file_delete_tool(self):
+        """Project-space file deletion must pause for explicit confirmation."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": MANAGE_PROJECT_FILES_TOOL_NAME,
+                "id": "tool-delete-files",
+                "input": {"action": "delete", "file_ids": [12, 13], "reason": "疑似重复生成物"},
+            }
+        ]
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "destructive_action"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock()) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_not_awaited()
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
+        self.assertTrue(state.tool_call_events[-1]["confirmation_token"].startswith(f"tool:{MANAGE_PROJECT_FILES_TOOL_NAME}:delete:"))
+        self.assertIn("待删除文件 ID：12, 13", state.tool_call_events[-1]["details"])
 
     async def test_p2_does_not_require_confirmation_for_read_tool_in_modify_turn(self):
         """A modify-capable turn may still use read-only tools without confirmation."""

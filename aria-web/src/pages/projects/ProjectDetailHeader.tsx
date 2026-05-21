@@ -31,7 +31,9 @@ export function ProjectDetailHeader({
         ? isZh ? "干系人" : "Stakeholders"
         : tabId === "briefing"
           ? isZh ? "会前简报" : "Briefing"
-          : t(labelKey);
+          : tabId === "milestones"
+            ? isZh ? "任务" : "Tasks"
+            : t(labelKey);
 
   const handleMeetingPrep = () => {
     const prompt = isZh

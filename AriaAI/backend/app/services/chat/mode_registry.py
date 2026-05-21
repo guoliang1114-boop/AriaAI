@@ -74,6 +74,7 @@ MODE_CONFIG: dict[ChatMode, ModeConfig] = {
             "update_project_markdown_document",
             "write_project_office_document",
             "manage_project_folders",
+            "manage_project_files",
         ),
     ),
     ChatMode.CROSS_PROJECT_PORTFOLIO: ModeConfig(

@@ -32,7 +32,7 @@ export function ProjectDetailLayout({
     return window.localStorage.getItem("aria-project-chat-fullscreen") === "true";
   });
   const isPersistentTab =
-    activeTabId === "chat" || activeTabId === "notes" || activeTabId === "todos";
+    activeTabId === "chat" || activeTabId === "notes";
 
   return (
     <div className={activeTabId === "chat" && isChatFocusMode ? "h-screen overflow-hidden bg-gray-50" : "min-h-full bg-gray-50"}>

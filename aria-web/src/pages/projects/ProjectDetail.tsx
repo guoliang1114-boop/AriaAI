@@ -13,6 +13,7 @@ import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { ProjectSpaceTab } from "./ProjectSpaceTab";
 import { ProjectStakeholdersTab } from "./ProjectStakeholdersTab";
+import { ProjectTodosTab } from "./ProjectTodosTab";
 import { getActiveProjectDetailTabId, type ProjectDetailTabId } from "./projectDetailTabs";
 import { useProjectDetailData } from "./useProjectDetailData";
 
@@ -41,12 +42,21 @@ function renderProjectDetailContent(
         />
       );
     case "milestones":
+    case "todos":
       return (
-        <ProjectMilestonesTab
-          projectDetail={projectDetail}
-          projectId={projectId}
-          onUpdate={onRefresh}
-        />
+        <div className="space-y-6">
+          <ProjectMilestonesTab
+            projectDetail={projectDetail}
+            projectId={projectId}
+            onUpdate={onRefresh}
+          />
+          <ProjectTodosTab
+            projectId={projectId}
+            memoryVersion={projectDetail.project.memory_version ?? 0}
+            todos={projectDetail.todos}
+            onUpdate={onRefresh}
+          />
+        </div>
       );
     case "financials":
       return (

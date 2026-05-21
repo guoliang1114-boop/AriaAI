@@ -16,6 +16,7 @@ from app.services.document_text import extract_text_from_file
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import infer_project_folder
+from app.services.project_files import delete_project_file
 from app.services.tool_descriptions import tool_description
 from app.tools import registry
 from app.tools.file_generators import generate_docx, generate_pdf, generate_ppt, generate_xlsx
@@ -23,6 +24,7 @@ from app.tools.file_generators import generate_docx, generate_pdf, generate_ppt,
 READ_PROJECT_FILE_TOOL_NAME = "read_project_file"
 WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME = "write_project_office_document"
 MANAGE_PROJECT_FOLDERS_TOOL_NAME = "manage_project_folders"
+MANAGE_PROJECT_FILES_TOOL_NAME = "manage_project_files"
 
 _READABLE_TYPES = {"pdf", "docx", "pptx", "xlsx", "xls", "md", "txt", "csv", "json"}
 _WRITABLE_TYPES = {"docx", "xlsx", "pptx", "pdf"}
@@ -103,6 +105,25 @@ def _list_files(session: Session, project_id: int, file_types: list[str] | None)
             for item in files
         ],
     }
+
+
+def _normalize_file_ids(file_ids: list[int] | None, file_id: int | None) -> list[int]:
+    normalized: list[int] = []
+    for value in file_ids or []:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0 and parsed not in normalized:
+            normalized.append(parsed)
+    if file_id is not None:
+        try:
+            parsed_file_id = int(file_id)
+        except (TypeError, ValueError):
+            parsed_file_id = 0
+        if parsed_file_id > 0 and parsed_file_id not in normalized:
+            normalized.append(parsed_file_id)
+    return normalized
 
 
 def _list_folders(session: Session, project_id: int) -> list[ProjectFolder]:
@@ -284,6 +305,98 @@ async def manage_project_folders(
         mark_project_memory_stale(session, project_id, trigger="folder_tool_delete")
         _bust_project_cache(project_id)
         return {"ok": True, "action": "deleted", "folder_id": folder.id}
+
+
+@registry.register(
+    name=MANAGE_PROJECT_FILES_TOOL_NAME,
+    description=tool_description(
+        MANAGE_PROJECT_FILES_TOOL_NAME,
+        "List project-space files and delete explicitly selected project files after user confirmation. "
+        "Use action='list' to inspect space clutter. Use action='delete' only with concrete file_ids."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "delete"],
+                "description": "list returns project files; delete removes selected files by id.",
+            },
+            "file_id": {
+                "type": "integer",
+                "description": "Single project file id to delete. Prefer file_ids for multiple files.",
+            },
+            "file_ids": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "Project file ids to delete. Required for bulk cleanup.",
+            },
+            "file_types": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional extensions for list, for example ['pdf', 'docx', 'xlsx'].",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Short deletion rationale shown in trace and confirmation UI.",
+            },
+        },
+        "required": ["action"],
+    },
+)
+async def manage_project_files(
+    *,
+    project_id: int,
+    action: Literal["list", "delete"],
+    file_id: int | None = None,
+    file_ids: list[int] | None = None,
+    file_types: list[str] | None = None,
+    reason: str | None = None,
+) -> dict:
+    if not project_id:
+        raise HTTPException(400, "Project id is required")
+
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if not project:
+            raise HTTPException(404, "Project not found")
+
+        if action == "list":
+            return _list_files(session, project_id, file_types)
+
+        ids = _normalize_file_ids(file_ids, file_id)
+        if not ids:
+            raise HTTPException(400, "Provide file_ids to delete project files")
+        if len(ids) > 50:
+            raise HTTPException(400, "At most 50 files can be deleted at once")
+
+        files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.id.in_(ids))).all()
+        found_by_id = {item.id: item for item in files if item.id is not None}
+        missing_ids = [item for item in ids if item not in found_by_id]
+        if missing_ids:
+            raise HTTPException(404, f"Files not found: {missing_ids}")
+
+        deleted_files = [
+            {
+                "id": item.id,
+                "name": item.name,
+                "file_type": item.file_type,
+                "size_bytes": item.size_bytes,
+            }
+            for item in files
+        ]
+        for target_id in ids:
+            delete_project_file(session, project_id, target_id, uploads_dir=UPLOADS_DIR)
+
+        mark_project_memory_stale(session, project_id, trigger="file_tool_delete")
+        _bust_project_cache(project_id)
+        return {
+            "ok": True,
+            "action": "deleted",
+            "deleted_count": len(deleted_files),
+            "deleted_files": deleted_files,
+            "reason": reason or "",
+        }
 
 
 @registry.register(

@@ -1,0 +1,9 @@
+name: manage_project_files
+purpose: List project-space files and delete explicitly selected project files after confirmation.
+when_to_use: Use action='list' when the user asks to inspect, clean up, declutter, or remove junk files from project space. Use action='delete' only after you have concrete file_ids and the user requested cleanup/deletion.
+when_not_to_use: Do not delete by fuzzy keyword, broad category, or filename guess alone. Do not delete files outside the current project. Do not delete if you cannot explain why each file is safe to remove.
+ui_effect: Changes project-space files and refreshes project memory.
+required_policy:
+  default: destructive_action
+  list: read_only_tool
+  delete: destructive_action

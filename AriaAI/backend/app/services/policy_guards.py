@@ -14,6 +14,7 @@ from app.services.artifact_intent import detect_artifact_intent, is_question_lik
 from app.services.tool_descriptions import tool_required_policy
 from app.tools.office_documents import (
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+    MANAGE_PROJECT_FILES_TOOL_NAME,
     READ_PROJECT_FILE_TOOL_NAME,
     WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
 )
@@ -59,6 +60,8 @@ IDENTITY_KEYWORDS = (
 
 DESTRUCTIVE_TERMS = (
     "删除",
+    "清理",
+    "清除",
     "清空",
     "移除",
     "丢弃",
@@ -334,6 +337,13 @@ def _required_policy_for_tool(tool_name: str, tool_input: dict[str, Any] | None 
         if action in {"rename", "move_file"}:
             return ActionPolicy.MODIFY_EXISTING_FILE
         return ActionPolicy.WRITE_ARTIFACT
+    if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME:
+        action = str(tool_input.get("action") or "").lower()
+        if action == "list":
+            return ActionPolicy.READ_ONLY_TOOL
+        if action == "delete":
+            return ActionPolicy.DESTRUCTIVE_ACTION
+        return ActionPolicy.DESTRUCTIVE_ACTION
     return ActionPolicy.READ_ONLY_TOOL
 
 

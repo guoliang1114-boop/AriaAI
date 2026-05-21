@@ -29,13 +29,14 @@ from app.services.chat.workflow import workflow_status, workflow_plan_events
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.tools import registry
-from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
+from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+_PROJECT_FILE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME})
 _MAX_TOOL_ATTEMPTS = 2
 _CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
 
@@ -84,6 +85,18 @@ def _tool_requires_confirmation(
         return False
     confirmations = set(getattr(req, "action_confirmations", []) or [])
     return _tool_confirmation_token(tool_name, tool_input) not in confirmations
+
+
+def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
+    if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and str(tool_input.get("action") or "").lower() == "delete":
+        ids = tool_input.get("file_ids") or []
+        if tool_input.get("file_id") is not None:
+            ids = [*ids, tool_input["file_id"]]
+        details = [f"待删除文件 ID：{', '.join(str(item) for item in ids)}"] if ids else []
+        if tool_input.get("reason"):
+            details.append(f"删除原因：{tool_input['reason']}")
+        return details
+    return []
 
 
 def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tuple[dict, list[str]]:
@@ -200,8 +213,10 @@ async def run_p2_tools(
                         title="执行 Skill / 工具",
                         stage="tools",
                         message=f"第 3 步：已补齐文件生成参数（{'；'.join(repaired_changes)}）。",
+                        )
                     )
-                )
+        if tool_name in _PROJECT_FILE_MANAGEMENT_TOOLS and runtime.project_id is not None:
+            tool_input = {**tool_input, "project_id": runtime.project_id}
 
         allowed, block_reason, required_policy = policy_allows_tool(runtime.action_policy, tool_name, tool_input)
         if not allowed:
@@ -253,6 +268,7 @@ async def run_p2_tools(
             continue
         if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
             confirmation_token = _tool_confirmation_token(tool_name, tool_input)
+            confirmation_details = _tool_confirmation_details(tool_name, tool_input)
             confirmation_output = {
                 "skipped": True,
                 "requires_confirmation": True,
@@ -267,6 +283,7 @@ async def run_p2_tools(
                     "message": "该工具会修改或删除项目内容，已暂停等待用户确认。",
                     "summary": confirmation_output["reason"],
                     "confirmation_token": confirmation_token,
+                    "details": confirmation_details,
                 }
             )
             state.record_trace_event(
