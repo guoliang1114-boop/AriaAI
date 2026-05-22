@@ -9,10 +9,10 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import PendingToolAction
+from app.models.db import Message, PendingToolAction
 from app.services.chat.action_executor import execute_tool_by_name
 
-router = APIRouter(prefix="/chat", tags=["chat-actions"])
+router = APIRouter(tags=["chat-actions"])
 
 
 class ConfirmActionRequest(BaseModel):
@@ -24,6 +24,7 @@ class ConfirmActionResponse(BaseModel):
     status: str
     result: Optional[dict[str, Any]] = None
     error_message: Optional[str] = None
+    message_id: Optional[int] = None
 
 
 class PendingActionItem(BaseModel):
@@ -122,12 +123,34 @@ async def confirm_action(
         action.status = "failed"
         action.error_message = result.get("error", "Unknown error")
     action.confirmed_at = datetime.utcnow()
+
+    result_summary = _format_action_result_message(action, result)
+    result_message = Message(
+        conversation_id=action.conversation_id,
+        role="assistant",
+        content=result_summary,
+        metadata_json=json.dumps(
+            {
+                "tool_action_result": {
+                    "pending_action_id": action.id,
+                    "tool_name": action.tool_name,
+                    "status": action.status,
+                    "result": result,
+                }
+            },
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+    session.add(result_message)
     session.commit()
+    session.refresh(result_message)
 
     return ConfirmActionResponse(
         status=action.status,
         result=result,
         error_message=action.error_message,
+        message_id=result_message.id,
     )
 
 
@@ -180,3 +203,19 @@ async def get_action(
         created_at=payload["created_at"] or "",
         expires_at=payload.get("expires_at"),
     )
+
+
+def _format_action_result_message(action: PendingToolAction, result: dict[str, Any]) -> str:
+    title = action.title or action.tool_name or "工具操作"
+    if result.get("success"):
+        pieces = [f"已执行：{title}。"]
+        output = result.get("output") or result.get("result")
+        if isinstance(output, dict):
+            message = output.get("message") or output.get("summary")
+            if message:
+                pieces.append(str(message))
+        elif isinstance(output, str) and output.strip():
+            pieces.append(output.strip())
+        return "\n\n".join(pieces)
+    error = result.get("error") or action.error_message or "未知错误"
+    return f"{title} 执行失败：{error}"

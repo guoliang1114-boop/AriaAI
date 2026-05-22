@@ -114,6 +114,9 @@ export function ProjectChatMainPanel({
   onDownloadArtifact,
   onOpenArtifact,
   onConfirmToolAction,
+  onConfirmHitasAction,
+  onRejectHitasAction,
+  pendingToolActions,
   serverPendingAction,
   onTaskRunUpdated,
   onToggleSidebar,
@@ -166,6 +169,7 @@ export function ProjectChatMainPanel({
     pendingAction?.call.confirmation_token && pendingAction.call.confirmation_token !== dismissedActionToken
       ? pendingAction
       : null;
+  const activePendingToolActions = pendingToolActions ?? [];
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -343,49 +347,81 @@ export function ProjectChatMainPanel({
         }
         selectedSkillPanel={
           <>
-            {/* HITAS: Server-side persisted pending actions — takes precedence over legacy token-based flow */}
-            {pendingToolActions && pendingToolActions.length > 0 && onConfirmHitasAction ? (
-              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <h4 className="mb-1 text-sm font-semibold text-amber-800">
-                  {isZh ? "待确认的操作" : "Action Required"}
-                </h4>
-                {pendingToolActions.map((action) => (
-                  <div key={action.id} className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
-                    <div className="mb-1 text-sm font-medium text-gray-900">{action.title}</div>
-                    <div className="mb-2 text-xs text-gray-500">{action.description}</div>
-                    {action.details && action.details.length > 0 && (
-                      <ul className="mb-2 max-h-32 overflow-y-auto rounded bg-gray-50 p-2 text-xs text-gray-600">
-                        {action.details.map((detail, index) => (
-                          <li key={index} className="py-0.5">• {detail}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          await onConfirmHitasAction(action.id);
-                        }}
-                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90"
-                      >
-                        {isZh ? "确认执行" : "Confirm"}
-                      </button>
-                      {onRejectHitasAction && (
-                        <button
-                          onClick={async () => {
-                            await onRejectHitasAction(action.id);
-                          }}
-                          className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                        >
-                          {isZh ? "取消" : "Cancel"}
-                        </button>
-                      )}
+            {/* HITAS: Server-side persisted pending actions. Keep it as a real modal so reload/new windows cannot hide approval behind the chat input. */}
+            {activePendingToolActions.length > 0 && onConfirmHitasAction ? (
+              <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/25 px-4 py-5 backdrop-blur-[2px] sm:items-center">
+                <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-2xl">
+                  <div className="flex items-start justify-between gap-4 border-b border-amber-100 bg-amber-50 px-5 py-4">
+                    <div className="flex min-w-0 gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                        <Wrench className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-base font-semibold text-slate-950">
+                          {isZh ? "Action Preview：等待确认" : "Action Preview: approval required"}
+                        </h4>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {isZh ? "这些操作会直接修改项目空间，确认后将按已保存的工具参数确定性执行。" : "These actions will modify the project workspace and run deterministically with the saved tool input."}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-700">
+                      {isZh ? "确认后才会执行" : "Requires approval"}
+                    </span>
+                  </div>
+                  <div className="max-h-[55vh] overflow-y-auto p-5">
+                    <div className="space-y-3">
+                      {activePendingToolActions.map((action) => (
+                        <div key={action.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-950">{action.title}</div>
+                              <div className="mt-1 text-sm text-slate-600">{action.description}</div>
+                            </div>
+                            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+                              {action.tool_name}
+                            </span>
+                          </div>
+                          {action.details && action.details.length > 0 ? (
+                            <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
+                              {action.details.map((detail, index) => (
+                                <li key={index} className="py-0.5">
+                                  • {detail}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <div className="mt-4 flex justify-end gap-2">
+                            {onRejectHitasAction ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await onRejectHitasAction(action.id);
+                                }}
+                                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                              >
+                                {isZh ? "取消" : "Cancel"}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await onConfirmHitasAction(action.id);
+                              }}
+                              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                            >
+                              {isZh ? "确认并执行" : "Confirm and run"}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                </div>
               </div>
             ) : null}
             {/* Legacy token-based confirmation flow (fallback) */}
-            {visiblePendingAction && onConfirmToolAction && !(pendingToolActions && pendingToolActions.length > 0) ? (
+            {visiblePendingAction && onConfirmToolAction && activePendingToolActions.length === 0 ? (
               <ProjectChatActionPreviewPanel
                 action={visiblePendingAction}
                 isConfirming={isLoading}

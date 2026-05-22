@@ -338,6 +338,7 @@ class PendingToolAction(SQLModel, table=True):
             "result": parse_json(self.result_json, None),
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }
 
 

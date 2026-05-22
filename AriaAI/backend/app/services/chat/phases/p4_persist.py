@@ -242,7 +242,7 @@ async def run_p4_persist(
             for action_payload in state.pending_tool_actions:
                 try:
                     db_action = PendingToolAction(
-                        trace_id=runtime.trace_id or f"conv-{runtime.conv_id}",
+                        trace_id=str(getattr(runtime, "trace_id", "") or f"conv-{runtime.conv_id}"),
                         conversation_id=runtime.conv_id,
                         project_id=runtime.project_id,
                         tool_name=action_payload.get("tool_name", ""),

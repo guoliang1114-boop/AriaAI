@@ -16,12 +16,13 @@ async def execute_tool_by_name(tool_name: str, tool_input: dict[str, Any]) -> di
     This bypasses the LLM planning phase and runs the tool deterministically.
     Used by the Human-in-the-Loop confirmation flow.
     """
-    tool_func = registry.get(tool_name)
-    if tool_func is None:
+    tool_def = registry.get(tool_name)
+    if tool_def is None:
         logger.error("[ActionExecutor] tool not found: %s", tool_name)
         return {"success": False, "error": f"Tool '{tool_name}' not found in registry"}
 
     try:
+        tool_func = tool_def.handler
         # Handle both sync and async tools
         if inspect.iscoroutinefunction(tool_func):
             result = await tool_func(**tool_input)
