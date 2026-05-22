@@ -2,6 +2,7 @@
 
 import type {
   GeneratedArtifact,
+  PendingToolConfirmation,
   Reference,
   TaskRun,
   ToolCallEvent,
@@ -84,6 +85,7 @@ export interface StreamDoneEvent {
   project_id?: number;
   skill_id?: number;
   skill_progress?: unknown;
+  pending_tool_confirmations?: PendingToolConfirmation[];
   pending_markdown_saves?: Array<{
     tool_use_id?: string;
     project_id?: number;

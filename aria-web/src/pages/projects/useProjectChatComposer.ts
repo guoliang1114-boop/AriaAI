@@ -5,6 +5,7 @@ import type {
   GeneratedArtifact,
   Message,
   MessageMetadata,
+  PendingToolConfirmation,
   Reference,
   TaskRun,
   TaskRunArtifact,
@@ -30,6 +31,7 @@ function buildAssistantMessage({
   projectId,
   references,
   toolCalls,
+  pendingToolConfirmations,
   taskRun,
   taskType,
 }: {
@@ -39,6 +41,7 @@ function buildAssistantMessage({
   projectId: number;
   references: Reference[];
   toolCalls: ToolCallEvent[];
+  pendingToolConfirmations?: PendingToolConfirmation[];
   taskRun?: TaskRun | null;
   taskType?: string;
 }): Message {
@@ -48,6 +51,9 @@ function buildAssistantMessage({
     references,
     tool_calls: toolCalls,
   };
+  if (pendingToolConfirmations?.length) {
+    metadata.pending_tool_confirmations = pendingToolConfirmations;
+  }
   if (taskRun) {
     metadata.task_run = taskRun;
     metadata.task_run_id = taskRun.id;
@@ -186,6 +192,7 @@ export function useProjectChatComposer({
       let collectedReferences: Reference[] = [];
       let collectedToolCalls: ToolCallEvent[] = [];
       let collectedArtifacts: GeneratedArtifact[] = [];
+      let collectedPendingToolConfirmations: PendingToolConfirmation[] = [];
       let serverPersistedAssistant = false;
       let latestTaskRun: TaskRun | null = null;
       let latestTaskType = "";
@@ -406,6 +413,9 @@ export function useProjectChatComposer({
                 collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
                 setStreamArtifacts(collectedArtifacts);
               }
+              if (Array.isArray(payload.pending_tool_confirmations)) {
+                collectedPendingToolConfirmations = payload.pending_tool_confirmations;
+              }
             } else if (payload.type === "truncated") {
               wasTruncated = true;
               setStreamTruncated(true);
@@ -432,6 +442,7 @@ export function useProjectChatComposer({
             projectId,
             references: collectedReferences,
             toolCalls: collectedToolCalls,
+            pendingToolConfirmations: collectedPendingToolConfirmations,
             taskRun: serverPersistedAssistant ? latestTaskRun : null,
             taskType: latestTaskType,
           });
@@ -463,6 +474,7 @@ export function useProjectChatComposer({
               projectId,
               references: collectedReferences,
               toolCalls: stoppedToolCalls,
+              pendingToolConfirmations: collectedPendingToolConfirmations,
             });
             setMessages((prev) => [...prev, assistantMessage]);
           }
@@ -484,6 +496,7 @@ export function useProjectChatComposer({
             projectId,
             references: collectedReferences,
             toolCalls: failedToolCalls,
+            pendingToolConfirmations: collectedPendingToolConfirmations,
             taskRun: serverPersistedAssistant ? latestTaskRun : null,
             taskType: latestTaskType,
           });
