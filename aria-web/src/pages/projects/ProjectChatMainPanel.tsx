@@ -345,6 +345,7 @@ export function ProjectChatMainPanel({
                 onConfirm={(content, confirmationToken) => {
                   onConfirmToolAction(content, confirmationToken);
                 }}
+                onRefreshPreview={(content) => onQuickPrompt(content)}
               />
             ) : null}
             {selectedSkillData ? (
@@ -398,7 +399,7 @@ function findPendingAction({
   const streamingCall = confirmationCallFrom(streamingToolCalls);
   if (streamingCall) {
     const sourceContent = [...messages].reverse().find((message) => message.role === "user")?.content || "";
-    if (sourceContent) return { call: streamingCall, sourceContent };
+    if (sourceContent) return { canConfirm: true, call: streamingCall, sourceContent };
   }
 
   const latestAssistantIndex = messages.map((message) => message.role).lastIndexOf("assistant");
@@ -412,7 +413,7 @@ function findPendingAction({
       .slice(0, latestAssistantIndex)
       .reverse()
       .find((item) => item.role === "user")?.content || "";
-    if (call && hasFrozenAction && sourceContent) return { call, sourceContent };
+    if (call && sourceContent) return { canConfirm: hasFrozenAction, call, sourceContent };
   }
 
   return null;

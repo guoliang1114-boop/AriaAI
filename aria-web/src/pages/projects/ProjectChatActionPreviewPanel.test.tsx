@@ -12,6 +12,7 @@ describe("ProjectChatActionPreviewPanel", () => {
       <ProjectChatActionPreviewPanel
         isZh
         action={{
+          canConfirm: true,
           sourceContent: "清理空间垃圾文件",
           call: {
             tool_name: "manage_project_files",
@@ -32,5 +33,38 @@ describe("ProjectChatActionPreviewPanel", () => {
     await user.click(screen.getByRole("button", { name: "确认并执行" }));
 
     expect(onConfirm).toHaveBeenCalledWith("清理空间垃圾文件", "tool:manage_project_files:delete:abc123");
+  });
+
+  it("offers to refresh legacy approvals without executing them", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const onRefreshPreview = vi.fn();
+
+    render(
+      <ProjectChatActionPreviewPanel
+        isZh
+        action={{
+          canConfirm: false,
+          sourceContent: "清理空间垃圾文件",
+          call: {
+            tool_name: "manage_project_files",
+            status: "confirmation_required",
+            summary: "需要用户确认后才能执行修改或危险操作。",
+            confirmation_token: "tool:manage_project_files:delete:legacy",
+            details: ["待删除文件 ID：12, 13"],
+          },
+        }}
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+        onRefreshPreview={onRefreshPreview}
+      />,
+    );
+
+    expect(screen.getByText("Action Preview：需要重新生成")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "重新生成确认预览" }));
+
+    expect(onRefreshPreview).toHaveBeenCalledWith("清理空间垃圾文件");
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });
