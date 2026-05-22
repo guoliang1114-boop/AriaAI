@@ -86,6 +86,7 @@ export interface StreamDoneEvent {
   skill_id?: number;
   skill_progress?: unknown;
   pending_tool_confirmations?: PendingToolConfirmation[];
+  resolved_action_confirmations?: string[];
   pending_markdown_saves?: Array<{
     tool_use_id?: string;
     project_id?: number;

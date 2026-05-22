@@ -32,6 +32,7 @@ function buildAssistantMessage({
   references,
   toolCalls,
   pendingToolConfirmations,
+  resolvedActionConfirmations,
   taskRun,
   taskType,
 }: {
@@ -42,6 +43,7 @@ function buildAssistantMessage({
   references: Reference[];
   toolCalls: ToolCallEvent[];
   pendingToolConfirmations?: PendingToolConfirmation[];
+  resolvedActionConfirmations?: string[];
   taskRun?: TaskRun | null;
   taskType?: string;
 }): Message {
@@ -53,6 +55,9 @@ function buildAssistantMessage({
   };
   if (pendingToolConfirmations?.length) {
     metadata.pending_tool_confirmations = pendingToolConfirmations;
+  }
+  if (resolvedActionConfirmations?.length) {
+    metadata.resolved_action_confirmations = resolvedActionConfirmations;
   }
   if (taskRun) {
     metadata.task_run = taskRun;
@@ -192,7 +197,8 @@ export function useProjectChatComposer({
       let collectedReferences: Reference[] = [];
       let collectedToolCalls: ToolCallEvent[] = [];
       let collectedArtifacts: GeneratedArtifact[] = [];
-      let collectedPendingToolConfirmations: PendingToolConfirmation[] = [];
+        let collectedPendingToolConfirmations: PendingToolConfirmation[] = [];
+        let collectedResolvedActionConfirmations: string[] = options.actionConfirmations || [];
       let serverPersistedAssistant = false;
       let latestTaskRun: TaskRun | null = null;
       let latestTaskType = "";
@@ -416,6 +422,9 @@ export function useProjectChatComposer({
               if (Array.isArray(payload.pending_tool_confirmations)) {
                 collectedPendingToolConfirmations = payload.pending_tool_confirmations;
               }
+              if (Array.isArray(payload.resolved_action_confirmations)) {
+                collectedResolvedActionConfirmations = payload.resolved_action_confirmations;
+              }
             } else if (payload.type === "truncated") {
               wasTruncated = true;
               setStreamTruncated(true);
@@ -443,6 +452,7 @@ export function useProjectChatComposer({
             references: collectedReferences,
             toolCalls: collectedToolCalls,
             pendingToolConfirmations: collectedPendingToolConfirmations,
+            resolvedActionConfirmations: collectedResolvedActionConfirmations,
             taskRun: serverPersistedAssistant ? latestTaskRun : null,
             taskType: latestTaskType,
           });
@@ -475,6 +485,7 @@ export function useProjectChatComposer({
               references: collectedReferences,
               toolCalls: stoppedToolCalls,
               pendingToolConfirmations: collectedPendingToolConfirmations,
+              resolvedActionConfirmations: collectedResolvedActionConfirmations,
             });
             setMessages((prev) => [...prev, assistantMessage]);
           }
@@ -497,6 +508,7 @@ export function useProjectChatComposer({
             references: collectedReferences,
             toolCalls: failedToolCalls,
             pendingToolConfirmations: collectedPendingToolConfirmations,
+            resolvedActionConfirmations: collectedResolvedActionConfirmations,
             taskRun: serverPersistedAssistant ? latestTaskRun : null,
             taskType: latestTaskType,
           });

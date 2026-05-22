@@ -389,7 +389,7 @@ function parseMessageMetadata(message: Message): MessageMetadata {
   }
 }
 
-function findPendingAction({
+export function findPendingAction({
   messages,
   streamingToolCalls,
 }: {
@@ -402,15 +402,21 @@ function findPendingAction({
     if (sourceContent) return { canConfirm: true, call: streamingCall, sourceContent };
   }
 
-  const latestAssistantIndex = messages.map((message) => message.role).lastIndexOf("assistant");
-  if (latestAssistantIndex >= 0) {
-    const metadata = parseMessageMetadata(messages[latestAssistantIndex]);
+  const resolvedTokens = new Set<string>();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+    const metadata = parseMessageMetadata(message);
+    (metadata.resolved_action_confirmations || []).forEach((token) => {
+      if (token) resolvedTokens.add(token);
+    });
     const call = confirmationCallFrom(metadata.tool_calls);
+    if (call?.confirmation_token && resolvedTokens.has(call.confirmation_token)) continue;
     const hasFrozenAction = (metadata.pending_tool_confirmations || []).some(
       (item) => item.confirmation_token && item.confirmation_token === call?.confirmation_token,
     );
     const sourceContent = messages
-      .slice(0, latestAssistantIndex)
+      .slice(0, index)
       .reverse()
       .find((item) => item.role === "user")?.content || "";
     if (call && sourceContent) return { canConfirm: hasFrozenAction, call, sourceContent };

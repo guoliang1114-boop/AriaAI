@@ -182,6 +182,8 @@ async def run_p4_persist(
         metadata["tool_calls"] = state.tool_call_events
     if state.pending_tool_confirmations:
         metadata["pending_tool_confirmations"] = state.pending_tool_confirmations
+    if req.action_confirmations:
+        metadata["resolved_action_confirmations"] = list(req.action_confirmations)
     if state.artifacts:
         metadata["artifacts"] = state.artifacts
     if state.pending_markdown_saves:
