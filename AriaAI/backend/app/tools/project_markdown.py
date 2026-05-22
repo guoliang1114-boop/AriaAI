@@ -10,6 +10,7 @@ from app.database import engine
 from app.models.db import ProjectFile, ProjectFolder
 from app.services.cache import projects_cache
 from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
+from app.services.project_files import active_project_files_stmt
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import (
@@ -76,9 +77,7 @@ def _find_markdown_file(session: Session, project_id: int, file_name: str | None
     normalized = file_name.strip().lower()
     if not normalized:
         return None
-    candidates = session.exec(
-        select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.file_type == "md")
-    ).all()
+    candidates = session.exec(active_project_files_stmt(project_id).where(ProjectFile.file_type == "md")).all()
     for candidate in candidates:
         if candidate.name.strip().lower() == normalized:
             return candidate
@@ -280,12 +279,7 @@ async def read_project_markdown_document(
 
     with Session(engine) as session:
         if action == "list":
-            files = session.exec(
-                select(ProjectFile).where(
-                    ProjectFile.project_id == project_id,
-                    ProjectFile.file_type == "md",
-                )
-            ).all()
+            files = session.exec(active_project_files_stmt(project_id).where(ProjectFile.file_type == "md")).all()
 
             folder_names: dict[int, str] = {}
             folder_ids = {f.folder_id for f in files if f.folder_id is not None}

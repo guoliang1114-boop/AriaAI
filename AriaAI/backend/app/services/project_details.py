@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.models.db import Milestone, Project, ProjectFile, ProjectFolder
 from app.services.project_financials import list_project_payments, serialize_financials
+from app.services.project_files import active_project_files_stmt
 from app.services.project_members import list_project_members, serialize_member
 from app.services.project_todos import list_project_todos, serialize_todo
 
@@ -21,9 +22,7 @@ def build_project_detail(
     if not project:
         raise HTTPException(404, "Project not found")
 
-    files = session.exec(
-        select(ProjectFile).where(ProjectFile.project_id == project_id)
-    ).all()
+    files = session.exec(active_project_files_stmt(project_id)).all()
     milestones = session.exec(
         select(Milestone).where(Milestone.project_id == project_id)
     ).all()

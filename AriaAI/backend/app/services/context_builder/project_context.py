@@ -17,6 +17,7 @@ from app.models.db import (
     ProjectPayment,
     ProjectTodo,
 )
+from app.services.project_files import active_project_files_stmt
 from app.services.document_text import extract_text_from_file
 from app.services.stakeholder_contexts import (
     find_client_by_name,
@@ -192,9 +193,7 @@ def build_project_context(
     should_inject_file_text = bool(file_ids) or _content_requests_file_details(content)
 
     # Files
-    files = session.exec(
-        select(ProjectFile).where(ProjectFile.project_id == project.id)
-    ).all()
+    files = session.exec(active_project_files_stmt(project.id)).all()
     file_content_sections = []
     if files:
         lines.append("\n**Uploaded Documents:**")
@@ -276,7 +275,7 @@ def build_project_context(
         file_sections = []
         for fid in file_ids:
             pf = session.get(ProjectFile, fid)
-            if pf and pf.project_id == project.id:
+            if pf and pf.project_id == project.id and pf.deleted_at is None:
                 full_path = _safe_project_file_path(UPLOADS_DIR, pf.path)
                 if full_path:
                     text = extract_file_text(full_path, pf.file_type)

@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import ClientRecord, ClientStakeholder, Milestone, Project, ProjectFile
+from app.services.project_files import active_project_files_stmt
 from app.services.stakeholder_contexts import find_client_by_name
 
 router = APIRouter()
@@ -49,9 +50,7 @@ def list_mentionables(
     if not project:
         return MentionablesOut(files=[], stakeholders=[], milestones=[])
 
-    files = session.exec(
-        select(ProjectFile).where(ProjectFile.project_id == project_id)
-    ).all()
+    files = session.exec(active_project_files_stmt(project_id)).all()
 
     stakeholders: list[ClientStakeholder] = []
     client = find_client_by_name(session, project.client)

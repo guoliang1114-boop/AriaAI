@@ -1685,12 +1685,23 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
         self.assertEqual(delete_resp.status_code, 200)
-        self.assertEqual(delete_resp.json(), {"ok": True})
+        self.assertEqual(delete_resp.json(), {"ok": True, "archived": True})
 
         with Session(self.engine) as session:
-            self.assertIsNone(session.get(ProjectFile, file_id))
+            archived_file = session.get(ProjectFile, file_id)
+            self.assertIsNotNone(archived_file)
+            self.assertIsNotNone(archived_file.deleted_at)
 
-        self.assertFalse(saved_path.exists())
+        self.assertTrue(saved_path.exists())
+
+        download_after_delete = self.client.get(f"/projects/{project_id}/files/{file_id}/download")
+        self.assertEqual(download_after_delete.status_code, 404)
+
+        restore_resp = self.client.post(f"/projects/{project_id}/files/{file_id}/restore")
+        self.assertEqual(restore_resp.status_code, 200)
+        restored_download = self.client.get(f"/projects/{project_id}/files/{file_id}/download")
+        self.assertEqual(restored_download.status_code, 200)
+        self.assertEqual(restored_download.content, b"hello project file")
 
     def test_list_files_reflects_upload_and_delete(self):
         with Session(self.engine) as session:
@@ -1715,6 +1726,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
         self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json(), {"ok": True, "archived": True})
 
         list_after_delete_resp = self.client.get(f"/projects/{project_id}/files")
         self.assertEqual(list_after_delete_resp.status_code, 200)
@@ -1790,25 +1802,27 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
 
         delete_resp = self.client.delete(f"/projects/{project_id}/files/{file_id}")
         self.assertEqual(delete_resp.status_code, 200)
-        self.assertEqual(delete_resp.json(), {"ok": True})
+        self.assertEqual(delete_resp.json(), {"ok": True, "archived": True})
 
         with Session(self.engine) as session:
-            self.assertIsNone(session.get(ProjectFile, file_id))
+            archived_file = session.get(ProjectFile, file_id)
+            self.assertIsNotNone(archived_file)
+            self.assertIsNotNone(archived_file.deleted_at)
             saved_derivative = session.get(ProjectFile, derivative_id)
             self.assertIsNotNone(saved_derivative)
             self.assertIsNone(saved_derivative.source_file_id)
             saved_artifact = session.get(TaskArtifact, artifact_id)
             self.assertIsNotNone(saved_artifact)
-            self.assertIsNone(saved_artifact.project_file_id)
+            self.assertEqual(saved_artifact.project_file_id, file_id)
             generated_files = session.exec(
                 select(GeneratedFile).where(
                     GeneratedFile.project_id == project_id,
                     GeneratedFile.path == str(file_path),
                 )
             ).all()
-            self.assertEqual(generated_files, [])
+            self.assertEqual(len(generated_files), 1)
 
-        self.assertFalse(full_path.exists())
+        self.assertTrue(full_path.exists())
 
     def test_delete_project_cascades_related_records(self):
         with Session(self.engine) as session:

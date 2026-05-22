@@ -507,6 +507,10 @@ export interface ProjectFile {
   folder_id?: number | null
   source_file_id?: number | null
   origin?: string
+  deleted_at?: string | null
+  deleted_by_user_id?: number | null
+  delete_reason?: string
+  delete_batch_id?: string
 }
 
 export interface ProjectFolder {
@@ -552,6 +556,7 @@ export interface ProjectMember {
   id: number
   project_id: number
   user_id: number
+  role?: "owner" | "editor" | "viewer" | string
   user: { id: number; display_name: string }
   created_at: string
 }
@@ -741,6 +746,7 @@ export interface PendingToolAction {
   tool_name: string
   tool_input: Record<string, unknown>
   action_type: string
+  risk_level?: string
   title: string
   description: string
   details: string[]

@@ -32,6 +32,12 @@ export function ProjectSettingsMembersCard({
   selectedUserId,
   setSelectedUserId,
 }: ProjectSettingsMembersCardProps) {
+  const roleLabel = (role?: string) => {
+    if (role === "owner") return isZh ? "负责人" : "Owner";
+    if (role === "viewer") return isZh ? "只读" : "Viewer";
+    return isZh ? "可编辑" : "Editor";
+  };
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
       <h3 className="mb-4 font-semibold text-gray-900">
@@ -79,9 +85,12 @@ export function ProjectSettingsMembersCard({
                     <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                       {(member.user?.display_name || "?").charAt(0)}
                     </div>
-                    <span className="truncate text-sm text-gray-800">
-                      {member.user?.display_name || (isZh ? "未知成员" : "Unknown")}
-                    </span>
+                    <div className="min-w-0">
+                      <span className="block truncate text-sm text-gray-800">
+                        {member.user?.display_name || (isZh ? "未知成员" : "Unknown")}
+                      </span>
+                      <span className="text-xs text-gray-400">{roleLabel(member.role)}</span>
+                    </div>
                   </div>
                   <button
                     onClick={() => handleRemoveMember(member.user_id)}

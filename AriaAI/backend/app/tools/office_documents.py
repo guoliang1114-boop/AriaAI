@@ -16,7 +16,7 @@ from app.services.document_text import extract_text_from_file
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import infer_project_folder
-from app.services.project_files import delete_project_file
+from app.services.project_files import active_project_files_stmt, archive_project_file
 from app.services.tool_descriptions import tool_description
 from app.tools import registry
 from app.tools.file_generators import generate_docx, generate_pdf, generate_ppt, generate_xlsx
@@ -61,7 +61,7 @@ def _file_path(project_file: ProjectFile) -> Path:
 def _find_project_file(session: Session, project_id: int, file_id: int | None, file_name: str | None) -> ProjectFile:
     if file_id is not None:
         project_file = session.get(ProjectFile, file_id)
-        if not project_file or project_file.project_id != project_id:
+        if not project_file or project_file.project_id != project_id or project_file.deleted_at is not None:
             raise HTTPException(404, "File not found")
         return project_file
 
@@ -69,7 +69,7 @@ def _find_project_file(session: Session, project_id: int, file_id: int | None, f
     if not normalized:
         raise HTTPException(400, "Provide file_id or file_name")
 
-    files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+    files = session.exec(active_project_files_stmt(project_id)).all()
     for project_file in files:
         if project_file.name.strip().lower() == normalized:
             return project_file
@@ -78,7 +78,7 @@ def _find_project_file(session: Session, project_id: int, file_id: int | None, f
 
 def _list_files(session: Session, project_id: int, file_types: list[str] | None) -> dict:
     normalized_types = {item.lower().lstrip(".") for item in file_types or [] if item}
-    stmt = select(ProjectFile).where(ProjectFile.project_id == project_id)
+    stmt = active_project_files_stmt(project_id)
     if normalized_types:
         stmt = stmt.where(ProjectFile.file_type.in_(normalized_types))
     files = session.exec(stmt.order_by(ProjectFile.uploaded_at.desc(), ProjectFile.id.desc())).all()
@@ -140,7 +140,7 @@ def _list_folders(session: Session, project_id: int) -> list[ProjectFolder]:
 def _folder_payload(session: Session, project_id: int) -> dict:
     folders = _list_folders(session, project_id)
     counts: dict[int, int] = {folder.id: 0 for folder in folders if folder.id is not None}
-    files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id)).all()
+    files = session.exec(active_project_files_stmt(project_id)).all()
     unassigned_count = 0
     for project_file in files:
         if project_file.folder_id in counts:
@@ -297,7 +297,9 @@ async def manage_project_folders(
 
         # action == "delete"
         folder = _resolve_folder_target(session, project_id, folder_id=folder_id, folder_name=folder_name)
-        file_count = session.exec(select(ProjectFile).where(ProjectFile.folder_id == folder.id)).all()
+        file_count = session.exec(
+            select(ProjectFile).where(ProjectFile.folder_id == folder.id, ProjectFile.deleted_at.is_(None))
+        ).all()
         if file_count:
             raise HTTPException(400, "Folder is not empty. Move files before deleting it.")
         session.delete(folder)
@@ -370,7 +372,13 @@ async def manage_project_files(
         if len(ids) > 50:
             raise HTTPException(400, "At most 50 files can be deleted at once")
 
-        files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project_id, ProjectFile.id.in_(ids))).all()
+        files = session.exec(
+            select(ProjectFile).where(
+                ProjectFile.project_id == project_id,
+                ProjectFile.id.in_(ids),
+                ProjectFile.deleted_at.is_(None),
+            )
+        ).all()
         found_by_id = {item.id: item for item in files if item.id is not None}
         missing_ids = [item for item in ids if item not in found_by_id]
         if missing_ids:
@@ -385,16 +393,24 @@ async def manage_project_files(
             }
             for item in files
         ]
+        delete_batch_id = uuid.uuid4().hex
         for target_id in ids:
-            delete_project_file(session, project_id, target_id, uploads_dir=UPLOADS_DIR)
+            archive_project_file(
+                session,
+                project_id,
+                target_id,
+                reason=reason or "HITAS approved project file cleanup",
+                batch_id=delete_batch_id,
+            )
 
         mark_project_memory_stale(session, project_id, trigger="file_tool_delete")
         _bust_project_cache(project_id)
         return {
             "ok": True,
-            "action": "deleted",
+            "action": "archived",
             "deleted_count": len(deleted_files),
             "deleted_files": deleted_files,
+            "trash": True,
             "reason": reason or "",
         }
 

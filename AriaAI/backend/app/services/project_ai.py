@@ -91,7 +91,7 @@ async def summarize_uploaded_project_file(
             return
         with session_factory() as session:
             project_file = session.get(ProjectFile, file_id)
-            if project_file:
+            if project_file and project_file.deleted_at is None:
                 project_file.summary = summary
                 session.add(project_file)
                 session.commit()

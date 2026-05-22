@@ -85,6 +85,14 @@ interface ProjectChatMainPanelProps {
   onSkillChange: (value: number | null) => void;
 }
 
+function pendingActionBadge(action: PendingToolAction, isZh: boolean) {
+  const type = (action.action_type || "").toLowerCase();
+  if (type.includes("delete")) return isZh ? "删除需确认" : "Delete approval";
+  if (type.includes("modify")) return isZh ? "修改需确认" : "Modify approval";
+  if (type.includes("write")) return isZh ? "写入需确认" : "Write approval";
+  return isZh ? "高风险操作" : "High-risk action";
+}
+
 export function ProjectChatMainPanel({
   activeConversation,
   choosePromptLabel,
@@ -380,7 +388,7 @@ export function ProjectChatMainPanel({
                               <div className="mt-1 text-sm text-slate-600">{action.description}</div>
                             </div>
                             <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-                              {action.tool_name}
+                              {pendingActionBadge(action, isZh)}
                             </span>
                           </div>
                           {action.details && action.details.length > 0 ? (

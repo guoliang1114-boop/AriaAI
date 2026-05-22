@@ -157,6 +157,7 @@ class ProjectMember(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
+    role: str = Field(default="editor", index=True)  # owner | editor | viewer
     created_at: datetime = Field(default_factory=utc_now_naive)
 
     project: Optional[Project] = Relationship(back_populates="members")
@@ -184,6 +185,10 @@ class ProjectFile(SQLModel, table=True):
     summary: str = ""               # AI-generated file summary (auto-generated on upload)
     origin: str = "uploaded"        # uploaded | ai_generated | markdown_derivative | manual
     uploaded_at: datetime = Field(default_factory=utc_now_naive)
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    delete_reason: str = ""
+    delete_batch_id: str = ""
 
     project: Optional[Project] = Relationship(back_populates="files")
     folder: Optional[ProjectFolder] = Relationship(back_populates="files")
@@ -300,6 +305,9 @@ class PendingToolAction(SQLModel, table=True):
     tool_input_json: str = "{}"
 
     action_type: str = ""       # e.g. delete_files, modify_document
+    risk_level: str = "medium"  # low | medium | high | destructive
+    policy_at_creation: str = ""
+    tool_input_hash: str = ""
     title: str = ""             # UI title
     description: str = ""       # UI description
     details_json: str = "[]"    # JSON list of detail strings
@@ -329,6 +337,9 @@ class PendingToolAction(SQLModel, table=True):
             "tool_name": self.tool_name,
             "tool_input": parse_json(self.tool_input_json, {}),
             "action_type": self.action_type,
+            "risk_level": self.risk_level,
+            "policy_at_creation": self.policy_at_creation,
+            "tool_input_hash": self.tool_input_hash,
             "title": self.title,
             "description": self.description,
             "details": parse_json(self.details_json, []),

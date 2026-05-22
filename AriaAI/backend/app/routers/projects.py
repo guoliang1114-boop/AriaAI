@@ -385,13 +385,14 @@ def list_members(project_id: int, session: Session = Depends(get_session)):
 @router.post("/{project_id}/members", status_code=201, response_model=MemberOut)
 def add_member(project_id: int, body: MemberCreate, session: Session = Depends(get_session)):
     ensure_project_exists(session, project_id)
-    member, user = add_project_member(session, project_id, body.user_id)
+    member, user = add_project_member(session, project_id, body.user_id, role=body.role)
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
     return MemberOut(
         id=member.id,
         project_id=member.project_id,
         user_id=member.user_id,
+        role=member.role or "editor",
         user=MemberUserOut(id=user.id, display_name=user.display_name),
         created_at=member.created_at,
     )

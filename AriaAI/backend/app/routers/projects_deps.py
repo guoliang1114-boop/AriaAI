@@ -208,6 +208,7 @@ class NotePolishBody(BaseModel):
 
 class MemberCreate(BaseModel):
     user_id: int
+    role: str = "editor"
 
 
 class MemberUserOut(BaseModel):
@@ -219,6 +220,7 @@ class MemberOut(BaseModel):
     id: int
     project_id: int
     user_id: int
+    role: str = "editor"
     user: MemberUserOut
     created_at: datetime
 

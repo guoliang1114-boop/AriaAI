@@ -1,6 +1,6 @@
 # Human-in-the-Loop Tool Approval System (HITAS)
 
-> 当前实现版本：v1.1，2026-05-23。
+> 当前实现版本：v1.2，2026-05-23。
 > 目标：把项目对话里的高风险工具调用，从“LLM 重放确认”升级为“服务端持久化 + 用户确认 + 确定性执行”。
 
 ---
@@ -29,6 +29,9 @@ HITAS 的核心改变是：**确认前冻结工具名和工具参数；确认后
 | 幂等执行 | 重复点击 Confirm 不重复执行工具；已完成动作返回已有状态 |
 | 失败关闭 | 参数非法、工具异常、过期动作都标记为 `failed`，不执行或不继续悬挂 |
 | 短事务 | Claim 阶段和结果写回阶段使用短 DB 会话；工具长时间执行期间不占连接 |
+| 范围二次校验 | Confirm 前再次校验冻结 `tool_input.project_id` 必须匹配 `PendingToolAction.project_id` |
+| 可恢复删除 | 项目文件删除默认进入回收站，不物理删除；文件列表、上下文、mention 默认过滤回收站文件 |
+| 角色化授权 | 普通成员必须具备 `owner/editor` 写权限才能 confirm/reject 修改或删除动作 |
 | 向后兼容 | 旧 `pending_tool_confirmations` 仍保留为 legacy fallback，但 HITAS 优先展示 |
 
 ---
@@ -72,7 +75,7 @@ POST /chat/actions/{id}/confirm
   ↓
 POST /chat/actions/{id}/reject
   ↓
-pending → rejected，写 confirmed_by_user_id / confirmed_at / reason
+pending → rejected，写 confirmed_by_user_id / confirmed_at / reason + assistant 结果消息
 ```
 
 ---
@@ -93,6 +96,9 @@ class PendingToolAction(SQLModel, table=True):
     tool_input_json: str = "{}"
 
     action_type: str = ""
+    risk_level: str = "medium"
+    policy_at_creation: str = ""
+    tool_input_hash: str = ""
     title: str = ""
     description: str = ""
     details_json: str = "[]"
@@ -111,6 +117,7 @@ class PendingToolAction(SQLModel, table=True):
 
 ```text
 AriaAI/backend/alembic/versions/012_v1_12_pending_tool_actions.py
+AriaAI/backend/alembic/versions/013_v1_13_hitas_governance_fields.py
 ```
 
 部署要求：
@@ -180,6 +187,8 @@ Body: {"approved": true}
 - 非 pending action 直接返回已有状态，保证幂等。
 - 过期 action 标记为 `failed` 并返回 400。
 - `tool_input_json` 必须是 JSON object，否则 fail closed。
+- 如果 action 绑定项目，`tool_input_json.project_id` 必须存在并与 action 项目一致，否则 fail closed。
+- 普通项目成员必须是 `owner/editor`；`viewer` 无权确认修改或删除动作。
 - 使用 `UPDATE ... WHERE status='pending'` 原子 claim，防止双击/并发重复执行。
 - claim 后关闭当前 session，工具执行完成后再新开 session 写结果。
 
@@ -215,6 +224,7 @@ Body: {"approved": false, "reason": "不需要了"}
 
 - pending → rejected。
 - 写 `confirmed_by_user_id`、`confirmed_at` 和可选 reason。
+- 写 `result_json` 和 assistant 消息，确保对话里留下“已取消”的可审计痕迹。
 - 非 pending action 返回已有状态，保证幂等。
 
 ### 5.4 获取单个动作
@@ -274,6 +284,7 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 
 - `status = pending`
 - `expires_at = utc_now_naive() + 24h`
+- `risk_level`、`policy_at_creation`、`tool_input_hash`
 - 先创建 action，再持久化 assistant message
 - assistant message 创建后，把 `message_id` 回填到 pending action
 - message metadata 写入 `pending_action_ids`
@@ -289,6 +300,17 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 - 支持 sync/async handler。
 - 标准化返回 `{"success": bool, ...}`。
 - 工具返回 `status="error"` 时视为失败。
+- 工具返回 `ok=false` 时视为失败，避免工具协议不一致造成误判成功。
+
+### 6.6 Project File Trash
+
+文件：`AriaAI/backend/app/services/project_files.py`
+
+- `archive_project_file(...)` 将文件标记为 `deleted_at`，不删除磁盘文件。
+- 常规文件列表、项目上下文、mention、读取工具默认排除 `deleted_at != null` 的文件。
+- `GET /projects/{project_id}/files/trash` 可查看回收站。
+- `POST /projects/{project_id}/files/{file_id}/restore` 可恢复文件。
+- 项目整体删除仍会物理清理项目相关记录和文件，这是项目级危险操作边界，不属于 HITAS 普通文件清理。
 
 ---
 
@@ -313,7 +335,8 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 文件：`aria-web/src/pages/projects/ProjectChatTab.tsx`
 
 - Confirm 成功后刷新消息列表。
-- Confirm/Reject 失败时用 toast 告知用户。
+- Confirm/Reject 成功或失败都会用 toast 告知用户。
+- UI 展示业务化动作名（如“删除需确认”），内部工具名仅保留在 trace/debug 语境。
 
 ### 7.3 Legacy Fallback
 
@@ -366,6 +389,8 @@ HITAS 端点必须满足：
 3. 普通用户必须是 action 所属项目的 `ProjectMember`。
 4. action 没有 `project_id` 时，从 `conversation.project_id` 回推。
 5. 无法确定项目归属时拒绝访问。
+6. Confirm 前校验 `tool_input.project_id == action.project_id`。
+7. 普通成员需要 `owner/editor` 角色才能确认或拒绝修改/删除动作。
 
 这是必要约束，因为 confirm 端点会直接执行删除、覆盖等真实工具操作。
 
@@ -384,7 +409,10 @@ AriaAI/backend/tests/test_chat_actions.py
 - HITAS 路由没有 `/chat/chat` 双前缀。
 - confirm 幂等，只执行一次。
 - 非项目成员无法 confirm。
+- `viewer` 成员无法 confirm destructive action。
+- 冻结工具参数项目范围不一致时 fail closed。
 - reject 不执行工具。
+- reject 写入 assistant 消息。
 - list 只返回 pending 且未过期 action。
 - 过期 action 不能 confirm。
 - 并发 confirm 不重复执行。
@@ -392,6 +420,8 @@ AriaAI/backend/tests/test_chat_actions.py
 - 非 object 的 `tool_input_json` fail closed。
 - stale `executing` reaper 只标记 failed/unknown，不自动重试。
 - API 级 cleanup HITAS 链路：`GET pending-actions → POST confirm → manage_project_files delete → 消息回显`。
+- `ok=false` 工具返回被标准化为失败。
+- 项目文件删除进入回收站，隐藏于正常文件列表且可恢复。
 
 建议发布前最小验证：
 
@@ -400,7 +430,7 @@ cd AriaAI/backend
 ./.venv/bin/python -m pytest tests/test_chat_actions.py tests/test_chat_phases_integration.py tests/test_chat_pending_action.py tests/test_chat_golden_set.py tests/test_tool_executor.py -q
 
 cd ../../aria-web
-npm test -- ProjectChatActionPreviewPanel.test.tsx ProjectChatMainPanel.test.tsx useProjectChatConversations.test.ts ProjectChatToolCallCard.test.tsx --run
+npm run test:project-chat
 npm run build
 ```
 
@@ -457,3 +487,4 @@ npm run test:project-chat
 - `PendingToolAction` 当前没有重试端点。失败后需要用户重新发起请求。
 - 工具执行仍在 HTTP confirm 请求中完成；对特别长的工具，后续可升级为后台 job，但 claim/幂等/授权/reaper 模型可复用。
 - Legacy token 流仍保留是为了历史消息兼容，不应作为新确认链路的主路径。
+- 当前已有 `owner/editor/viewer` 写权限边界；更细粒度的 `delete_file`/`restore_file` capability 可以在后续权限系统中继续拆分。

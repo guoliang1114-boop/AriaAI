@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +40,7 @@ class PendingActionItem(BaseModel):
     tool_name: str
     tool_input: dict[str, Any]
     action_type: str
+    risk_level: str = "medium"
     title: str
     description: str
     details: list[str]
@@ -86,6 +88,7 @@ async def list_pending_actions(
             tool_name=payload["tool_name"],
             tool_input=payload["tool_input"],
             action_type=payload["action_type"],
+            risk_level=payload.get("risk_level") or "medium",
             title=payload["title"],
             description=payload["description"],
             details=payload["details"],
@@ -110,7 +113,7 @@ async def confirm_action(
     action = session.get(PendingToolAction, action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
-    _authorize_action(session, action, current_user)
+    _authorize_action(session, action, current_user, require_write=True)
     if action.status != "pending":
         return _existing_action_response(action)
     if action.expires_at and action.expires_at < utc_now_naive():
@@ -124,11 +127,15 @@ async def confirm_action(
 
     try:
         tool_input = _load_tool_input(action)
-    except HTTPException:
+        _validate_tool_input_scope(action, tool_input)
+    except HTTPException as exc:
         action.status = "failed"
-        action.error_message = "Invalid stored tool input"
+        action.error_message = str(exc.detail)
         session.commit()
         raise
+    if not action.tool_input_hash:
+        action.tool_input_hash = _hash_tool_input(tool_input)
+        session.add(action)
 
     claim = session.execute(
         update(PendingToolAction)
@@ -165,7 +172,7 @@ async def reject_action(
     action = session.get(PendingToolAction, action_id)
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
-    _authorize_action(session, action, current_user)
+    _authorize_action(session, action, current_user, require_write=True)
     if action.status != "pending":
         return _existing_action_response(action)
 
@@ -236,6 +243,7 @@ async def get_action(
         tool_name=payload["tool_name"],
         tool_input=payload["tool_input"],
         action_type=payload["action_type"],
+        risk_level=payload.get("risk_level") or "medium",
         title=payload["title"],
         description=payload["description"],
         details=payload["details"],
@@ -249,6 +257,8 @@ def _format_action_result_message(action: PendingToolAction, result: dict[str, A
     title = action.title or action.tool_name or "工具操作"
     if result.get("success"):
         pieces = [f"已执行：{title}。"]
+        if result.get("trash") and result.get("deleted_count") is not None:
+            pieces.append(f"已移入回收站 {result.get('deleted_count')} 个文件，可从项目文件回收站恢复。")
         output = result.get("output") or result.get("result")
         if isinstance(output, dict):
             message = output.get("message") or output.get("summary")
@@ -289,6 +299,23 @@ def _load_tool_input(action: PendingToolAction) -> dict[str, Any]:
     return loaded
 
 
+def _hash_tool_input(tool_input: dict[str, Any]) -> str:
+    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _validate_tool_input_scope(action: PendingToolAction, tool_input: dict[str, Any]) -> None:
+    if action.project_id is None:
+        return
+    raw_project_id = tool_input.get("project_id")
+    try:
+        input_project_id = int(raw_project_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Stored tool input is missing project scope") from exc
+    if input_project_id != action.project_id:
+        raise HTTPException(status_code=403, detail="Stored tool input project scope mismatch")
+
+
 def _existing_action_response(action: PendingToolAction) -> ConfirmActionResponse:
     return ConfirmActionResponse(
         status=action.status,
@@ -316,7 +343,17 @@ def _authorize_conversation(session: Session, conversation_id: int, current_user
     return conversation
 
 
-def _authorize_action(session: Session, action: PendingToolAction, current_user: User) -> None:
+def _member_can_write(member: ProjectMember) -> bool:
+    return (member.role or "editor").lower() in {"owner", "editor"}
+
+
+def _authorize_action(
+    session: Session,
+    action: PendingToolAction,
+    current_user: User,
+    *,
+    require_write: bool = False,
+) -> None:
     if current_user.is_admin:
         return
     project_id = action.project_id
@@ -333,6 +370,8 @@ def _authorize_action(session: Session, action: PendingToolAction, current_user:
     ).first()
     if member is None:
         raise HTTPException(status_code=403, detail="Project membership required")
+    if require_write and not _member_can_write(member):
+        raise HTTPException(status_code=403, detail="Project write permission required")
 
 
 def _persist_action_result(bind, action_id: int, result: dict[str, Any]) -> ConfirmActionResponse:

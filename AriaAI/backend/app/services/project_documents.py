@@ -120,7 +120,7 @@ def create_markdown_project_file(
 
 def get_project_document_file_or_404(session: Session, project_id: int, file_id: int) -> ProjectFile:
     project_file = session.get(ProjectFile, file_id)
-    if not project_file or project_file.project_id != project_id:
+    if not project_file or project_file.project_id != project_id or project_file.deleted_at is not None:
         raise HTTPException(404, "File not found")
     return project_file
 

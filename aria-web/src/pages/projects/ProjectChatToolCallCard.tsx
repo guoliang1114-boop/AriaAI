@@ -63,6 +63,16 @@ function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowS
   return isZh ? (isWorkflowStep ? "需处理" : "失败") : isWorkflowStep ? "Needs attention" : "Failed";
 }
 
+function toolDisplayName(toolName: string, isZh: boolean) {
+  if (toolName === "manage_project_files") return isZh ? "管理项目文件" : "Manage project files";
+  if (toolName === "manage_project_folders") return isZh ? "管理项目文件夹" : "Manage project folders";
+  if (toolName === "write_project_office_document") return isZh ? "生成项目文档" : "Create project document";
+  if (toolName === "update_project_markdown_document") return isZh ? "更新项目文档" : "Update project document";
+  if (toolName === "read_project_file") return isZh ? "读取项目文件" : "Read project file";
+  if (toolName === "read_project_markdown_document") return isZh ? "读取项目文档" : "Read project document";
+  return toolName;
+}
+
 export function ProjectChatToolCallCard({
   call,
   isZh,
@@ -109,7 +119,7 @@ export function ProjectChatToolCallCard({
               <p className="text-sm font-semibold text-gray-950">
                 {isZh ? `步骤 ${call.step_index}/${call.step_total || 4}` : `Step ${call.step_index}/${call.step_total || 4}`}
                 <span className="mx-1 text-gray-300">·</span>
-                {stepTitle}
+                {toolDisplayName(stepTitle, isZh)}
               </p>
               <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600">
                 <StatusIcon status={call.status} />
@@ -179,7 +189,7 @@ export function ProjectChatToolCallCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-gray-900">{call.tool_name}</p>
+            <p className="text-sm font-medium text-gray-900">{toolDisplayName(call.tool_name, isZh)}</p>
             <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium">
               <StatusIcon status={call.status} />
                 {statusLabel(call.status, isZh)}

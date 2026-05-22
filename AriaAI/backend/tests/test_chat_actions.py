@@ -12,6 +12,7 @@ from app.routers.chat import router as chat_router
 from app.routers import chat_actions
 from app.routers.chat_actions import ConfirmActionRequest
 from app.routers.auth import get_current_user
+from app.services.chat.action_executor import execute_tool_by_name
 from app.services.chat.action_reaper import STALE_EXECUTING_MESSAGE, reap_stale_executing_actions
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
 from app.services.time_utils import utc_now_naive
@@ -118,7 +119,7 @@ def test_confirm_action_fails_closed_on_invalid_stored_tool_input(monkeypatch):
 
     session.refresh(action)
     assert action.status == "failed"
-    assert action.error_message == "Invalid stored tool input"
+    assert action.error_message == "Stored tool input must be an object"
     assert calls == []
 
 
@@ -167,6 +168,88 @@ def test_non_project_member_cannot_confirm_action(monkeypatch):
     assert action.status == "pending"
 
 
+def test_viewer_project_member_cannot_confirm_destructive_action(monkeypatch):
+    session = _session()
+    project = Project(name="Client Project", client="Client")
+    viewer = User(email="viewer@example.com", password_hash="x")
+    session.add(project)
+    session.add(viewer)
+    session.commit()
+    session.refresh(project)
+    session.refresh(viewer)
+    session.add(ProjectMember(project_id=project.id, user_id=viewer.id, role="viewer"))
+    conversation = Conversation(title="Approval flow", project_id=project.id)
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        project_id=project.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"project_id": project.id, "action": "delete", "file_ids": [1]}),
+        action_type="delete_files",
+        title="删除项目文件",
+        description="删除重复文件",
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        raise AssertionError("Viewer action must not execute")
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    try:
+        asyncio.run(chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, viewer))
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 403
+        assert "write permission" in str(getattr(exc, "detail", ""))
+    else:
+        raise AssertionError("Expected viewer to be rejected")
+
+    session.refresh(action)
+    assert action.status == "pending"
+
+
+def test_confirm_action_rejects_mismatched_project_scope(monkeypatch):
+    session = _session()
+    project = Project(name="Client Project", client="Client")
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    conversation = Conversation(title="Approval flow", project_id=project.id)
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        project_id=project.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"project_id": project.id + 999, "action": "delete", "file_ids": [1]}),
+        action_type="delete_files",
+        title="删除项目文件",
+        description="删除重复文件",
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        raise AssertionError("Mismatched scope must not execute")
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    try:
+        asyncio.run(chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session)))
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 403
+    else:
+        raise AssertionError("Expected mismatched project scope to fail")
+
+    session.refresh(action)
+    assert action.status == "failed"
+    assert "scope mismatch" in (action.error_message or "")
+
+
 def test_reject_action_sets_status_and_prevents_execution(monkeypatch):
     session = _session()
     conversation = _conversation(session)
@@ -202,6 +285,17 @@ def test_reject_action_sets_status_and_prevents_execution(monkeypatch):
     assert len(messages) == 1
     assert "已取消：删除项目文件" in messages[0].content
     assert "不需要了" in messages[0].content
+
+
+def test_direct_action_executor_treats_ok_false_as_failure(monkeypatch):
+    class Tool:
+        def handler(self):
+            return {"ok": False, "error": "not allowed"}
+
+    monkeypatch.setattr("app.services.chat.action_executor.registry.get", lambda name: Tool())
+    result = asyncio.run(execute_tool_by_name("mock_tool", {}))
+    assert result["success"] is False
+    assert result["ok"] is False
 
 
 def test_list_pending_actions_returns_only_pending_and_non_expired():
@@ -516,7 +610,6 @@ def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_
         user_id = user.id
         delete_file_id = pending["tool_input"]["file_ids"][0]
         keep_file_id = new_file_id if delete_file_id == old_file_id else old_file_id
-        deletes_old_file = delete_file_id == old_file_id
 
     monkeypatch.setattr(office_documents, "engine", engine)
     monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads_dir)
@@ -547,7 +640,9 @@ def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_
     assert confirmed.json()["message_id"]
 
     with Session(engine) as session:
-        assert session.get(ProjectFile, delete_file_id) is None
+        deleted_file = session.get(ProjectFile, delete_file_id)
+        assert deleted_file is not None
+        assert deleted_file.deleted_at is not None
         assert session.get(ProjectFile, keep_file_id) is not None
         stored = session.get(PendingToolAction, action_id)
         assert stored is not None
@@ -555,9 +650,6 @@ def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_
         messages = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
         assert len(messages) == 1
         assert "已执行：确认删除项目文件" in messages[0].content
-    if deletes_old_file:
-        assert not full_path.exists()
-        assert kept_full_path.exists()
-    else:
-        assert full_path.exists()
-        assert not kept_full_path.exists()
+        assert "回收站" in messages[0].content
+    assert full_path.exists()
+    assert kept_full_path.exists()

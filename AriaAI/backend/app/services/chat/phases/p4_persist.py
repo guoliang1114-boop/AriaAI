@@ -6,6 +6,7 @@ generation, and emits the final ``done`` event.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -75,6 +76,20 @@ def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] |
     if not contract or not contract.delivery_required:
         return None
     return contract.to_dict()
+
+
+def _hash_tool_input(tool_input: dict) -> str:
+    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _risk_level_for_action(action_payload: dict) -> str:
+    action_type = str(action_payload.get("action_type") or "").lower()
+    if "delete" in action_type or "destructive" in action_type:
+        return "destructive"
+    if "modify" in action_type or "write" in action_type:
+        return "high"
+    return "medium"
 
 
 def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageRequest, bind, state: ChatSessionState) -> None:
@@ -260,6 +275,9 @@ async def run_p4_persist(
                         tool_name=action_payload.get("tool_name", ""),
                         tool_input_json=json.dumps(action_payload.get("tool_input", {}), ensure_ascii=False, default=str),
                         action_type=action_payload.get("action_type", ""),
+                        risk_level=action_payload.get("risk_level") or _risk_level_for_action(action_payload),
+                        policy_at_creation=str(getattr(runtime.action_policy, "value", runtime.action_policy) or ""),
+                        tool_input_hash=_hash_tool_input(action_payload.get("tool_input", {})),
                         title=action_payload.get("title", "待确认的操作"),
                         description=action_payload.get("description", ""),
                         details_json=json.dumps(action_payload.get("details", []), ensure_ascii=False, default=str),

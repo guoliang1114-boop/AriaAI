@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from app.models.db import ProjectFile
 from app.services.chat.mode_registry import ActionPolicy
+from app.services.project_files import active_project_files_stmt
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 
@@ -96,9 +97,7 @@ def _normalized_dedupe_stem(name: str) -> str:
 
 def _project_cleanup_candidates(session: Session, project_id: int, *, limit: int = 25) -> tuple[list[int], list[str]]:
     files = session.exec(
-        select(ProjectFile)
-        .where(ProjectFile.project_id == project_id)
-        .order_by(ProjectFile.uploaded_at.desc(), ProjectFile.id.desc())
+        active_project_files_stmt(project_id).order_by(ProjectFile.uploaded_at.desc(), ProjectFile.id.desc())
     ).all()
     if not files:
         return [], []

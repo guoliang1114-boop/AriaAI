@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import ProjectFile, ProjectFolder
+from app.services.project_files import active_project_files_stmt
 from app.services.project_todos import ensure_project_exists
 
 
@@ -44,7 +45,7 @@ def delete_project_folder(session: Session, project_id: int, folder_id: int) -> 
     if not folder or folder.project_id != project_id:
         raise HTTPException(404, "Folder not found")
 
-    files = session.exec(select(ProjectFile).where(ProjectFile.folder_id == folder_id)).all()
+    files = session.exec(active_project_files_stmt(project_id).where(ProjectFile.folder_id == folder_id)).all()
     for file in files:
         file.folder_id = None
         session.add(file)

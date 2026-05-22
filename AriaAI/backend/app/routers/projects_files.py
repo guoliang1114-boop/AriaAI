@@ -45,11 +45,13 @@ from app.services.project_documents import (
     write_project_markdown_file,
 )
 from app.services.project_files import (
+    archive_project_file,
     create_project_upload,
-    delete_project_file,
     get_project_file_or_404 as get_uploaded_project_file_or_404,
+    list_archived_project_files,
     list_project_files,
     resolve_project_file_path,
+    restore_project_file,
 )
 from app.services.project_folders import (
     create_project_folder,
@@ -70,6 +72,19 @@ router = APIRouter(tags=["projects"])
 @router.get("/{project_id}/files")
 def list_files(project_id: int, session: Session = Depends(get_session)):
     return list_project_files(session, project_id)
+
+
+@router.get("/{project_id}/files/trash")
+def list_trashed_files(project_id: int, session: Session = Depends(get_session)):
+    return list_archived_project_files(session, project_id)
+
+
+@router.post("/{project_id}/files/{file_id}/restore")
+def restore_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
+    restored = restore_project_file(session, project_id, file_id)
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
+    return _refresh_instance(session, restored)
 
 
 @router.post("/{project_id}/documents", status_code=201)
@@ -381,10 +396,10 @@ async def upload_file(
 
 @router.delete("/{project_id}/files/{file_id}")
 def delete_file(project_id: int, file_id: int, session: Session = Depends(get_session)):
-    delete_project_file(session, project_id, file_id, uploads_dir=UPLOADS_DIR)
+    archive_project_file(session, project_id, file_id, reason="Manual project file delete")
     _mark_project_memory_stale(session, project_id)
     _bust_project(project_id)
-    return {"ok": True}
+    return {"ok": True, "archived": True}
 
 
 @router.get("/{project_id}/files/{file_id}/download")

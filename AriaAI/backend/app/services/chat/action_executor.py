@@ -35,7 +35,10 @@ async def execute_tool_by_name(tool_name: str, tool_input: dict[str, Any]) -> di
         if isinstance(result, dict):
             success = result.get("success")
             if success is None:
-                success = str(result.get("status") or "").lower() != "error"
+                if "ok" in result:
+                    success = bool(result.get("ok"))
+                else:
+                    success = str(result.get("status") or "").lower() != "error"
             return {"success": bool(success), **result}
         return {"success": True, "result": result}
 
