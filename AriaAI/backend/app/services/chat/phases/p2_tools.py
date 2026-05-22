@@ -5,7 +5,6 @@ special cases, collects artifacts, and manages workflow status events.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
@@ -24,6 +23,7 @@ from app.services.chat_artifacts import (
     _route_ppt_tool_for_skill,
 )
 from app.services.chat.state import ChatSessionState
+from app.services.chat.pending_actions import tool_confirmation_token
 from app.services.chat.sse import sse_event, await_with_heartbeat
 from app.services.chat.workflow import workflow_status, workflow_plan_events
 from app.services.chat.mode_registry import ActionPolicy
@@ -43,6 +43,7 @@ _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
 _PROJECT_SPACE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME, MANAGE_PROJECT_FOLDERS_TOOL_NAME})
 _MAX_TOOL_ATTEMPTS = 2
 _CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
+_tool_confirmation_token = tool_confirmation_token
 
 
 def _result_failed(result: dict | None) -> bool:
@@ -63,22 +64,6 @@ def _action_policy_value(value) -> str:
     return str(getattr(value, "value", value) or "")
 
 
-def _tool_confirmation_token(tool_name: str, tool_input: dict) -> str:
-    operation = str(
-        tool_input.get("mode")
-        or tool_input.get("action")
-        or tool_input.get("operation")
-        or ""
-    ).strip()
-    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
-    parts = ["tool", tool_name]
-    if operation:
-        parts.append(operation)
-    parts.append(digest)
-    return ":".join(parts)
-
-
 def _tool_requires_confirmation(
     required_policy: ActionPolicy,
     tool_name: str,
@@ -88,7 +73,7 @@ def _tool_requires_confirmation(
     if required_policy not in _CONFIRMATION_POLICIES:
         return False
     confirmations = set(getattr(req, "action_confirmations", []) or [])
-    return _tool_confirmation_token(tool_name, tool_input) not in confirmations
+    return tool_confirmation_token(tool_name, tool_input) not in confirmations
 
 
 def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
@@ -272,7 +257,7 @@ async def run_p2_tools(
             continue
         if _tool_requires_confirmation(required_policy, tool_name, tool_input, req):
             state.confirmation_requested = True
-            confirmation_token = _tool_confirmation_token(tool_name, tool_input)
+            confirmation_token = tool_confirmation_token(tool_name, tool_input)
             confirmation_details = _tool_confirmation_details(tool_name, tool_input)
             confirmation_output = {
                 "skipped": True,

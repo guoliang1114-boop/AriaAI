@@ -10,16 +10,20 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+from sqlmodel import Session
+
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
+from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
 from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
+from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,52 @@ def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] |
     if not contract or not contract.delivery_required:
         return None
     return contract.to_dict()
+
+
+def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageRequest, bind, state: ChatSessionState) -> None:
+    """Create a deterministic approval when the model failed to emit delete tool_use.
+
+    Cleanup/deletion is too important to depend on the model remembering to
+    express the action as a tool call. If the user explicitly asked to clean
+    project files and no pending confirmation exists yet, synthesize a frozen
+    manage_project_files delete action from conservative duplicate/junk-file
+    heuristics. The generated action still requires the user to approve it.
+    """
+    if state.pending_tool_confirmations or getattr(req, "action_confirmations", None):
+        return
+    with Session(bind) as session:
+        pending = build_project_file_cleanup_pending_action(
+            session,
+            project_id=req.project_id,
+            user_content=req.content,
+            action_policy=runtime.action_policy,
+        )
+    if not pending:
+        return
+
+    state.confirmation_requested = True
+    confirmation_token = str(pending.get("confirmation_token") or "")
+    details = pending.get("details") if isinstance(pending.get("details"), list) else []
+    summary = str(pending.get("summary") or "需要用户确认后才能删除项目空间中的文件。")
+    state.pending_tool_confirmations.append(pending)
+    state.tool_call_events.append(
+        {
+            "tool_name": MANAGE_PROJECT_FILES_TOOL_NAME,
+            "status": "confirmation_required",
+            "message": "已生成项目空间清理预览，等待用户确认后再删除文件。",
+            "summary": summary,
+            "confirmation_token": confirmation_token,
+            "details": details,
+        }
+    )
+    state.record_trace_event(
+        "deterministic_cleanup_confirmation_created",
+        stage="p4",
+        tool_name=MANAGE_PROJECT_FILES_TOOL_NAME,
+        confirmation_token=confirmation_token,
+        candidate_count=len(details),
+        source="project_file_cleanup_fallback",
+    )
 
 
 async def run_p4_persist(
@@ -173,6 +223,13 @@ async def run_p4_persist(
             artifact_contract.title,
         )
         yield sse_event({"type": "text", "content": f"\n\n{full_text}"})
+
+    _ensure_project_cleanup_confirmation(runtime, req, bind, state)
+    if state.confirmation_requested and state.pending_tool_confirmations:
+        confirmation_notice = "我已整理出一批可清理的项目空间文件。请在弹出的 Action Preview 中确认后，我再执行删除。"
+        if confirmation_notice not in full_text:
+            full_text = f"{full_text}\n\n{confirmation_notice}".strip()
+            yield sse_event({"type": "text", "content": f"\n\n{confirmation_notice}"})
 
     # Build metadata
     metadata: dict = {}

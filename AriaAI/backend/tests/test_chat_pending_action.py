@@ -2,7 +2,11 @@ import json
 from types import SimpleNamespace
 from typing import Optional
 
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.models.db import ProjectFile
 from app.routers.chat_conversations import _latest_pending_action
+from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
 
 
 def _message(role: str, content: str, metadata: Optional[dict] = None):
@@ -73,3 +77,27 @@ def test_latest_pending_action_ignores_consumed_token():
     )
 
     assert action is None
+
+
+def test_cleanup_request_builds_deterministic_delete_confirmation():
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(ProjectFile(project_id=27, name="重复方案.pptx", file_type="pptx", path="a.pptx", origin="ai_generated"))
+        session.add(ProjectFile(project_id=27, name="重复方案.pptx", file_type="pptx", path="b.pptx", origin="ai_generated"))
+        session.add(ProjectFile(project_id=27, name="找不到该文件.docx", file_type="docx", path="missing.docx", origin="ai_generated"))
+        session.commit()
+
+        pending = build_project_file_cleanup_pending_action(
+            session,
+            project_id=27,
+            user_content="现在空间里面有特别多的垃圾文件，清除",
+            action_policy="destructive_action",
+        )
+
+    assert pending is not None
+    assert pending["tool_name"] == "manage_project_files"
+    assert pending["tool_input"]["action"] == "delete"
+    assert pending["tool_input"]["file_ids"]
+    assert pending["confirmation_token"].startswith("tool:manage_project_files:delete:")
+    assert pending["details"]
