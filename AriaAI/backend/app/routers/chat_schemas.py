@@ -53,6 +53,12 @@ class MessageOut(BaseModel):
             return {}
 
 
+class PendingChatActionOut(BaseModel):
+    can_confirm: bool = True
+    source_content: str
+    call: dict
+
+
 class CreateConversationRequest(BaseModel):
     project_id: Optional[int] = None
     skill_id: Optional[int] = None

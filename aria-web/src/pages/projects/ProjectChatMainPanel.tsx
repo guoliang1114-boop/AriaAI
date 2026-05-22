@@ -47,6 +47,7 @@ interface ProjectChatMainPanelProps {
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onConfirmToolAction?: (content: string, confirmationToken: string) => void;
+  serverPendingAction?: ProjectChatPendingAction | null;
   onTaskRunUpdated?: (task: TaskRun) => void;
   onToggleSidebar: () => void;
   onKnowledgeScopeChange: (value: "project" | "client" | "global") => void;
@@ -109,6 +110,7 @@ export function ProjectChatMainPanel({
   onDownloadArtifact,
   onOpenArtifact,
   onConfirmToolAction,
+  serverPendingAction,
   onTaskRunUpdated,
   onToggleSidebar,
   quickPrompts,
@@ -151,10 +153,11 @@ export function ProjectChatMainPanel({
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [dismissedActionToken, setDismissedActionToken] = useState<string | null>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
-  const pendingAction = useMemo(
+  const localPendingAction = useMemo(
     () => findPendingAction({ messages, streamingToolCalls }),
     [messages, streamingToolCalls],
   );
+  const pendingAction = localPendingAction || serverPendingAction || null;
   const visiblePendingAction =
     pendingAction?.call.confirmation_token && pendingAction.call.confirmation_token !== dismissedActionToken
       ? pendingAction

@@ -167,6 +167,7 @@ export function ProjectChatTab({
     setActiveConvId,
     messages,
     setMessages,
+    serverPendingAction,
     activeConversation,
     isLoadingMessages,
     isLoadingConversations,
@@ -178,6 +179,8 @@ export function ProjectChatTab({
     isDeletingConversation,
     fetchConversations,
     fetchMessages,
+    refreshPendingAction,
+    clearPendingAction,
     createConversation,
     deleteConversation,
     renameConversation,
@@ -1015,8 +1018,12 @@ export function ProjectChatTab({
             onDownloadArtifact={(artifact) => void handleArtifactDownload(artifact)}
             onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
             onConfirmToolAction={(content, confirmationToken) => {
-              void handleSendMessage(content, { actionConfirmations: [confirmationToken] });
+              clearPendingAction();
+              void handleSendMessage(content, { actionConfirmations: [confirmationToken] }).finally(() => {
+                if (activeConvId) void refreshPendingAction(activeConvId);
+              });
             }}
+            serverPendingAction={serverPendingAction}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
             onTaskRunUpdated={handleTaskRunUpdated}
             onInputChange={panel.setInputValue}

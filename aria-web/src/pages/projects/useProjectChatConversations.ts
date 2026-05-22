@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../api/client";
-import type { Conversation, Message } from "../../types/api";
+import type { Conversation, Message, PendingChatActionResponse } from "../../types/api";
+import type { ProjectChatPendingAction } from "./ProjectChatActionPreviewPanel";
 import { buildDefaultChatTitle } from "./projectChatCopy";
 
 type UseProjectChatConversationsParams = {
@@ -24,6 +25,7 @@ export function useProjectChatConversations({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [serverPendingAction, setServerPendingAction] = useState<ProjectChatPendingAction | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [editingConvId, setEditingConvId] = useState<number | null>(null);
@@ -43,9 +45,11 @@ export function useProjectChatConversations({
         return;
       }
       setMessages([]);
+      setServerPendingAction(null);
       void fetchMessages(activeConvId);
     } else {
       setMessages([]);
+      setServerPendingAction(null);
     }
   }, [activeConvId]);
 
@@ -72,13 +76,51 @@ export function useProjectChatConversations({
   const fetchMessages = async (conversationId: number) => {
     setIsLoadingMessages(true);
     try {
-      const data = await api.get<Message[]>(`/chat/conversations/${conversationId}/messages`);
+      const [data, pendingAction] = await Promise.all([
+        api.get<Message[]>(`/chat/conversations/${conversationId}/messages`, {
+          params: { limit: 120, _: Date.now() },
+          headers: { "Cache-Control": "no-cache" },
+        }),
+        fetchPendingAction(conversationId),
+      ]);
       setMessages(data);
+      setServerPendingAction(pendingAction);
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     } finally {
       setIsLoadingMessages(false);
     }
+  };
+
+  const fetchPendingAction = async (conversationId: number) => {
+    try {
+      const data = await api.get<PendingChatActionResponse | null>(
+        `/chat/conversations/${conversationId}/pending-action`,
+        {
+          params: { _: Date.now() },
+          headers: { "Cache-Control": "no-cache" },
+        },
+      );
+      if (!data) return null;
+      return {
+        canConfirm: data.can_confirm,
+        call: data.call,
+        sourceContent: data.source_content,
+      };
+    } catch (error) {
+      console.error("Failed to fetch pending chat action:", error);
+      return null;
+    }
+  };
+
+  const refreshPendingAction = async (conversationId: number) => {
+    const pendingAction = await fetchPendingAction(conversationId);
+    setServerPendingAction(pendingAction);
+    return pendingAction;
+  };
+
+  const clearPendingAction = () => {
+    setServerPendingAction(null);
   };
 
   const createConversation = async (firstMessage?: string, skillId?: number | null) => {
@@ -108,6 +150,7 @@ export function useProjectChatConversations({
       if (activeConvId === conversationId) {
         setActiveConvId(null);
         setMessages([]);
+        setServerPendingAction(null);
       }
       setConversationPendingDelete(null);
     } catch (error) {
@@ -144,6 +187,7 @@ export function useProjectChatConversations({
   const startNewChat = () => {
     setActiveConvId(null);
     setMessages([]);
+    setServerPendingAction(null);
   };
 
   const openDeleteConversationDialog = (conversation: Conversation) => {
@@ -161,6 +205,7 @@ export function useProjectChatConversations({
     setActiveConvId,
     messages,
     setMessages,
+    serverPendingAction,
     activeConversation,
     isLoadingMessages,
     isLoadingConversations,
@@ -172,6 +217,8 @@ export function useProjectChatConversations({
     isDeletingConversation,
     fetchConversations,
     fetchMessages,
+    refreshPendingAction,
+    clearPendingAction,
     createConversation,
     deleteConversation,
     renameConversation,

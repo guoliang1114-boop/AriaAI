@@ -1,0 +1,75 @@
+import json
+from types import SimpleNamespace
+from typing import Optional
+
+from app.routers.chat_conversations import _latest_pending_action
+
+
+def _message(role: str, content: str, metadata: Optional[dict] = None):
+    return SimpleNamespace(
+        role=role,
+        content=content,
+        metadata_json=json.dumps(metadata or {}, ensure_ascii=False),
+    )
+
+
+def test_latest_pending_action_survives_later_assistant_reply():
+    token = "tool:manage_project_files:delete:abc123"
+    action = _latest_pending_action(
+        [
+            _message("user", "现在空间里面有特别多的垃圾文件，清除"),
+            _message(
+                "assistant",
+                "确认执行吗？",
+                {
+                    "tool_calls": [
+                        {
+                            "tool_name": "manage_project_files",
+                            "status": "confirmation_required",
+                            "confirmation_token": token,
+                        }
+                    ],
+                    "pending_tool_confirmations": [
+                        {
+                            "confirmation_token": token,
+                            "tool_name": "manage_project_files",
+                            "tool_input": {"action": "delete", "file_ids": [130, 131]},
+                        }
+                    ],
+                },
+            ),
+            _message("user", "执行"),
+            _message("assistant", "抱歉，我只有读取权限。"),
+        ]
+    )
+
+    assert action is not None
+    assert action.call["confirmation_token"] == token
+    assert action.can_confirm is True
+    assert action.source_content == "现在空间里面有特别多的垃圾文件，清除"
+
+
+def test_latest_pending_action_ignores_consumed_token():
+    token = "tool:manage_project_files:delete:abc123"
+    action = _latest_pending_action(
+        [
+            _message("user", "现在空间里面有特别多的垃圾文件，清除"),
+            _message(
+                "assistant",
+                "确认执行吗？",
+                {
+                    "pending_tool_confirmations": [
+                        {
+                            "confirmation_token": token,
+                            "tool_name": "manage_project_files",
+                            "tool_input": {"action": "delete", "file_ids": [130, 131]},
+                        }
+                    ],
+                },
+            ),
+            _message("user", "确认并执行"),
+            _message("assistant", "操作已完成。", {"resolved_action_confirmations": [token]}),
+        ]
+    )
+
+    assert action is None

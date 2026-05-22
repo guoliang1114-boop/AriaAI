@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+import json
 
 from fastapi import APIRouter, Depends
 from sqlmodel import Session
@@ -10,6 +11,7 @@ from app.routers.chat_schemas import (
     ConversationOut,
     CreateConversationRequest,
     MessageOut,
+    PendingChatActionOut,
     UpdateConversationRequest,
 )
 from app.services.chat_store import (
@@ -22,6 +24,63 @@ from app.services.chat_store import (
 )
 
 router = APIRouter()
+
+
+def _json_loads(value: str | None) -> dict:
+    try:
+        loaded = json.loads(value or "{}")
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def _confirmation_call(metadata: dict, item: dict) -> dict:
+    token = str(item.get("confirmation_token") or "")
+    for call in metadata.get("tool_calls") or []:
+        if isinstance(call, dict) and str(call.get("confirmation_token") or "") == token:
+            return call
+    return {
+        "tool_name": str(item.get("tool_name") or ""),
+        "status": "confirmation_required",
+        "message": str(item.get("summary") or "需要用户确认后才能执行修改或危险操作。"),
+        "summary": str(item.get("summary") or "需要用户确认后才能执行修改或危险操作。"),
+        "confirmation_token": token,
+        "details": item.get("details") if isinstance(item.get("details"), list) else [],
+    }
+
+
+def _latest_pending_action(messages: list) -> PendingChatActionOut | None:
+    resolved_tokens: set[str] = set()
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if getattr(message, "role", "") != "assistant":
+            continue
+        metadata = _json_loads(getattr(message, "metadata_json", "{}"))
+        for token in metadata.get("resolved_action_confirmations") or []:
+            if token:
+                resolved_tokens.add(str(token))
+        pending_items = metadata.get("pending_tool_confirmations") or []
+        if not isinstance(pending_items, list):
+            continue
+        for item in reversed(pending_items):
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("confirmation_token") or "")
+            if not token or token in resolved_tokens:
+                continue
+            source_content = ""
+            for previous in range(index - 1, -1, -1):
+                if getattr(messages[previous], "role", "") == "user":
+                    source_content = getattr(messages[previous], "content", "") or ""
+                    break
+            if not source_content:
+                continue
+            return PendingChatActionOut(
+                can_confirm=bool(item.get("tool_name") and isinstance(item.get("tool_input"), dict)),
+                source_content=source_content,
+                call=_confirmation_call(metadata, item),
+            )
+    return None
 
 
 @router.get("/conversations", response_model=List[ConversationOut])
@@ -59,6 +118,15 @@ def get_messages(
     session: Session = Depends(get_session),
 ):
     return get_conversation_messages(session, conv_id, limit=limit, before_id=before_id)
+
+
+@router.get("/conversations/{conv_id}/pending-action", response_model=Optional[PendingChatActionOut])
+def get_pending_action(
+    conv_id: int,
+    session: Session = Depends(get_session),
+):
+    messages = get_conversation_messages(session, conv_id, limit=120)
+    return _latest_pending_action(messages)
 
 
 @router.delete("/conversations/{conv_id}")

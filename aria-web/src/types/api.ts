@@ -726,6 +726,12 @@ export interface ToolCallEvent {
   has_recoverable_task?: boolean
 }
 
+export interface PendingChatActionResponse {
+  can_confirm: boolean
+  source_content: string
+  call: ToolCallEvent
+}
+
 export interface PendingToolConfirmation {
   confirmation_token?: string
   tool_name?: string

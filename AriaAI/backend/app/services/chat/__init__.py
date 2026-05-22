@@ -63,7 +63,6 @@ def _confirmed_tool_replay_block(bind, conv_id: int, confirmations: list[str]) -
                     "name": tool_name,
                     "input": tool_input,
                 }
-        return None
     return None
 
 
