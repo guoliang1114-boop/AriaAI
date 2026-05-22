@@ -33,7 +33,10 @@ async def execute_tool_by_name(tool_name: str, tool_input: dict[str, Any]) -> di
         if result is None:
             return {"success": True, "result": None}
         if isinstance(result, dict):
-            return {"success": True, **result}
+            success = result.get("success")
+            if success is None:
+                success = str(result.get("status") or "").lower() != "error"
+            return {"success": bool(success), **result}
         return {"success": True, "result": result}
 
     except Exception as exc:

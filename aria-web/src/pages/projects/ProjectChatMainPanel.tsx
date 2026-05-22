@@ -159,6 +159,7 @@ export function ProjectChatMainPanel({
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [dismissedActionToken, setDismissedActionToken] = useState<string | null>(null);
+  const [confirmingHitasActionIds, setConfirmingHitasActionIds] = useState<Set<number>>(() => new Set());
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const localPendingAction = useMemo(
     () => findPendingAction({ messages, streamingToolCalls }),
@@ -396,9 +397,20 @@ export function ProjectChatMainPanel({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  await onRejectHitasAction(action.id);
+                                  if (confirmingHitasActionIds.has(action.id)) return;
+                                  setConfirmingHitasActionIds((current) => new Set(current).add(action.id));
+                                  try {
+                                    await onRejectHitasAction(action.id);
+                                  } finally {
+                                    setConfirmingHitasActionIds((current) => {
+                                      const next = new Set(current);
+                                      next.delete(action.id);
+                                      return next;
+                                    });
+                                  }
                                 }}
-                                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                                disabled={confirmingHitasActionIds.has(action.id)}
+                                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {isZh ? "取消" : "Cancel"}
                               </button>
@@ -406,11 +418,24 @@ export function ProjectChatMainPanel({
                             <button
                               type="button"
                               onClick={async () => {
-                                await onConfirmHitasAction(action.id);
+                                if (confirmingHitasActionIds.has(action.id)) return;
+                                setConfirmingHitasActionIds((current) => new Set(current).add(action.id));
+                                try {
+                                  await onConfirmHitasAction(action.id);
+                                } finally {
+                                  setConfirmingHitasActionIds((current) => {
+                                    const next = new Set(current);
+                                    next.delete(action.id);
+                                    return next;
+                                  });
+                                }
                               }}
-                              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                              disabled={confirmingHitasActionIds.has(action.id)}
+                              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {isZh ? "确认并执行" : "Confirm and run"}
+                              {confirmingHitasActionIds.has(action.id)
+                                ? isZh ? "执行中..." : "Running..."
+                                : isZh ? "确认并执行" : "Confirm and run"}
                             </button>
                           </div>
                         </div>

@@ -1,11 +1,13 @@
 """Chat action confirmation endpoints — Human-in-the-Loop tool approval."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -98,8 +100,11 @@ async def confirm_action(
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
     if action.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Action already {action.status}")
+        return _existing_action_response(action)
     if action.expires_at and action.expires_at < datetime.utcnow():
+        action.status = "failed"
+        action.error_message = "Action expired"
+        session.commit()
         raise HTTPException(status_code=400, detail="Action expired")
 
     if not req.approved:
@@ -108,12 +113,30 @@ async def confirm_action(
         session.commit()
         return ConfirmActionResponse(status="rejected")
 
-    # Execute the tool directly (no LLM re-generation)
-    action.status = "executing"
-    session.commit()
+    try:
+        tool_input = _load_tool_input(action)
+    except HTTPException:
+        action.status = "failed"
+        action.error_message = "Invalid stored tool input"
+        session.commit()
+        raise
 
-    import json
-    tool_input = json.loads(action.tool_input_json or "{}")
+    claim = session.execute(
+        update(PendingToolAction)
+        .where(PendingToolAction.id == action_id)
+        .where(PendingToolAction.status == "pending")
+        .values(status="executing", confirmed_at=datetime.utcnow())
+    )
+    session.commit()
+    if getattr(claim, "rowcount", 0) != 1:
+        latest = session.get(PendingToolAction, action_id)
+        if latest is None:
+            raise HTTPException(status_code=404, detail="Action not found")
+        return _existing_action_response(latest)
+
+    action = session.get(PendingToolAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=404, detail="Action not found")
     result = await execute_tool_by_name(action.tool_name, tool_input)
 
     action.result_json = json.dumps(result, ensure_ascii=False, default=str)
@@ -165,7 +188,7 @@ async def reject_action(
     if action is None:
         raise HTTPException(status_code=404, detail="Action not found")
     if action.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Action already {action.status}")
+        return _existing_action_response(action)
 
     action.status = "rejected"
     action.confirmed_at = datetime.utcnow()
@@ -219,3 +242,31 @@ def _format_action_result_message(action: PendingToolAction, result: dict[str, A
         return "\n\n".join(pieces)
     error = result.get("error") or action.error_message or "未知错误"
     return f"{title} 执行失败：{error}"
+
+
+def _load_json_object(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _load_tool_input(action: PendingToolAction) -> dict[str, Any]:
+    try:
+        loaded = json.loads(action.tool_input_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid stored tool input") from exc
+    if not isinstance(loaded, dict):
+        raise HTTPException(status_code=400, detail="Stored tool input must be an object")
+    return loaded
+
+
+def _existing_action_response(action: PendingToolAction) -> ConfirmActionResponse:
+    return ConfirmActionResponse(
+        status=action.status,
+        result=_load_json_object(action.result_json),
+        error_message=action.error_message,
+    )

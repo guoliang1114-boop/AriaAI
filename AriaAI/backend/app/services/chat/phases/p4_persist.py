@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any
 
+from sqlalchemy import update
 from sqlmodel import Session
 
 from app.routers.chat_schemas import SendMessageRequest
@@ -328,6 +329,18 @@ async def run_p4_persist(
         req.content,
         metadata or None,
     )
+    if pending_action_ids and assistant_message_id:
+        try:
+            with Session(bind) as session:
+                session.execute(
+                    update(PendingToolAction)
+                    .where(PendingToolAction.id.in_(pending_action_ids))
+                    .where(PendingToolAction.message_id.is_(None))
+                    .values(message_id=assistant_message_id)
+                )
+                session.commit()
+        except Exception as exc:
+            logger.warning("[P4] failed to attach pending tool actions to assistant message: %s", exc)
     state.full_text = full_text
     state.need_title = need_title
 
