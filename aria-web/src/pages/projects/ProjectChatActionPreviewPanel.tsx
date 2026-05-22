@@ -57,7 +57,8 @@ export function ProjectChatActionPreviewPanel({
   const affectedCount = ids.length || details.length;
 
   return (
-    <div className="mx-auto mb-3 max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.10)]">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/20 px-4 py-5 backdrop-blur-[2px] sm:items-center">
+      <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
       <div className="flex flex-wrap items-center gap-3 border-b border-amber-100 bg-amber-50/80 px-4 py-3">
         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${kind.tone === "rose" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
           {kind.icon}
@@ -164,6 +165,7 @@ export function ProjectChatActionPreviewPanel({
             </button>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
