@@ -12,7 +12,9 @@ import type {
   Skill,
   TaskRun,
   ToolCallEvent,
+  MessageMetadata,
 } from "../../types/api";
+import { ProjectChatActionPreviewPanel, type ProjectChatPendingAction } from "./ProjectChatActionPreviewPanel";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMessages } from "./ProjectChatMessages";
@@ -147,7 +149,16 @@ export function ProjectChatMainPanel({
   const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
+  const [dismissedActionToken, setDismissedActionToken] = useState<string | null>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
+  const pendingAction = useMemo(
+    () => findPendingAction({ messages, streamingToolCalls }),
+    [messages, streamingToolCalls],
+  );
+  const visiblePendingAction =
+    pendingAction?.call.confirmation_token && pendingAction.call.confirmation_token !== dismissedActionToken
+      ? pendingAction
+      : null;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -325,15 +336,28 @@ export function ProjectChatMainPanel({
           </div>
         }
         selectedSkillPanel={
-          selectedSkillData ? (
-            <ProjectSkillReferencePanel
-              isZh={isZh}
-              knowledgeScope={knowledgeScope}
-              projectClientName={projectClientName}
-              skill={selectedSkillData}
-              onKnowledgeScopeChange={onKnowledgeScopeChange}
-            />
-          ) : null
+          <>
+            {visiblePendingAction && onConfirmToolAction ? (
+              <ProjectChatActionPreviewPanel
+                action={visiblePendingAction}
+                isConfirming={isLoading}
+                isZh={isZh}
+                onCancel={() => setDismissedActionToken(visiblePendingAction.call.confirmation_token || null)}
+                onConfirm={(content, confirmationToken) => {
+                  onConfirmToolAction(content, confirmationToken);
+                }}
+              />
+            ) : null}
+            {selectedSkillData ? (
+              <ProjectSkillReferencePanel
+                isZh={isZh}
+                knowledgeScope={knowledgeScope}
+                projectClientName={projectClientName}
+                skill={selectedSkillData}
+                onKnowledgeScopeChange={onKnowledgeScopeChange}
+              />
+            ) : null}
+          </>
         }
         placeholder={inputPlaceholder}
         onChange={onInputChange}
@@ -351,6 +375,47 @@ export function ProjectChatMainPanel({
       />
     </div>
   );
+}
+
+function confirmationCallFrom(calls: ToolCallEvent[] | undefined) {
+  return [...(calls || [])].reverse().find((call) => call.status === "confirmation_required" && call.confirmation_token);
+}
+
+function parseMessageMetadata(message: Message): MessageMetadata {
+  try {
+    return JSON.parse(message.metadata_json || "{}") as MessageMetadata;
+  } catch {
+    return {};
+  }
+}
+
+function findPendingAction({
+  messages,
+  streamingToolCalls,
+}: {
+  messages: Message[];
+  streamingToolCalls: ToolCallEvent[];
+}): ProjectChatPendingAction | null {
+  const streamingCall = confirmationCallFrom(streamingToolCalls);
+  if (streamingCall) {
+    const sourceContent = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+    if (sourceContent) return { call: streamingCall, sourceContent };
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+    const metadata = parseMessageMetadata(message);
+    const call = confirmationCallFrom(metadata.tool_calls);
+    if (!call) continue;
+    const sourceContent = messages
+      .slice(0, index)
+      .reverse()
+      .find((item) => item.role === "user")?.content || "";
+    if (sourceContent) return { call, sourceContent };
+  }
+
+  return null;
 }
 
 function ProjectSkillReferencePanel({
