@@ -432,6 +432,17 @@ async def run_p3_followup(
                         "details": confirmation_details,
                     }
                 )
+                state.pending_tool_confirmations.append(
+                    {
+                        "confirmation_token": confirmation_token,
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                        "tool_use_id": tool_id,
+                        "details": confirmation_details,
+                        "summary": confirmation_output["reason"],
+                        "stage": "p3",
+                    }
+                )
                 state.record_trace_event(
                     "tool_confirmation_required",
                     stage="p3",

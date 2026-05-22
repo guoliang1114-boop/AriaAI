@@ -18,16 +18,53 @@ Public API (unchanged signatures for backward compatibility):
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
 
+from sqlmodel import Session
+
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.chat_store import get_recent_message_history
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 
 logger = logging.getLogger(__name__)
+
+
+def _confirmed_tool_replay_block(bind, conv_id: int, confirmations: list[str]) -> dict | None:
+    confirmation_set = set(confirmations or [])
+    if not confirmation_set:
+        return None
+    with Session(bind) as session:
+        history = get_recent_message_history(session, conv_id, limit=12)
+    for message in reversed(history):
+        if getattr(message, "role", "") != "assistant":
+            continue
+        try:
+            metadata = json.loads(getattr(message, "metadata_json", "") or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        pending_items = metadata.get("pending_tool_confirmations") or []
+        if not isinstance(pending_items, list):
+            continue
+        for item in pending_items:
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("confirmation_token") or "")
+            tool_name = str(item.get("tool_name") or "")
+            tool_input = item.get("tool_input")
+            if token in confirmation_set and tool_name and isinstance(tool_input, dict):
+                return {
+                    "type": "tool_use",
+                    "id": str(item.get("tool_use_id") or f"confirmed-{token[-12:]}"),
+                    "name": tool_name,
+                    "input": tool_input,
+                }
+        return None
+    return None
 
 
 def prepare_chat_runtime(*args, **kwargs):
@@ -66,6 +103,7 @@ async def stream_chat_events(
 
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
+    confirmed_replay_block = _confirmed_tool_replay_block(bind, runtime.conv_id, req.action_confirmations)
 
     # ------------------------------------------------------------------
     # Emit conversation_id and prepare metrics upfront
@@ -113,6 +151,31 @@ async def stream_chat_events(
                 "duration_ms": state.stage_timings["total_stream_ms"],
             }
         )
+        return
+
+    if confirmed_replay_block:
+        state.workflow_started = True
+        state.tool_use_blocks = [confirmed_replay_block]
+        state.record_trace_event(
+            "tool_confirmation_replay",
+            stage="p0",
+            tool_name=confirmed_replay_block["name"],
+            source="pending_tool_confirmation",
+        )
+        try:
+            async for event in run_p2_tools(runtime, req, state):
+                yield event
+        except Exception as exc:
+            logger.error(f"[P2 confirmed replay error] {exc}", exc_info=True)
+            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+            return
+        state.full_text = state.text_buffer.strip()
+        try:
+            async for event in run_p4_persist(runtime, req, bind, state):
+                yield event
+        except Exception as exc:
+            logger.error(f"[P4 persist error] {exc}", exc_info=True)
+            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
         return
 
     # ==================================================================

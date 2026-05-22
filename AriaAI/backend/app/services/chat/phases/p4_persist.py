@@ -139,6 +139,14 @@ async def run_p4_persist(
         if state.confirmation_requested:
             full_text = "这个操作会修改或删除项目内容，已暂停。请确认后我再继续执行。"
             yield sse_event({"type": "text", "content": full_text})
+        elif state.tool_call_events and all(str(event.get("status") or "") == "completed" for event in state.tool_call_events):
+            summaries = [
+                str(event.get("summary") or event.get("message") or event.get("tool_name") or "").strip()
+                for event in state.tool_call_events
+            ]
+            summaries = [item for item in summaries if item]
+            full_text = "操作已完成。" + (f"\n\n{chr(10).join(f'- {item}' for item in summaries)}" if summaries else "")
+            yield sse_event({"type": "text", "content": full_text})
         else:
             full_text = (
                 "抱歉，AI 服务暂时未能生成回复。可能原因包括：\n\n"
@@ -172,6 +180,8 @@ async def run_p4_persist(
         metadata["references"] = runtime.rag_sources
     if state.tool_call_events:
         metadata["tool_calls"] = state.tool_call_events
+    if state.pending_tool_confirmations:
+        metadata["pending_tool_confirmations"] = state.pending_tool_confirmations
     if state.artifacts:
         metadata["artifacts"] = state.artifacts
     if state.pending_markdown_saves:

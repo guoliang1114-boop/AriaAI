@@ -836,6 +836,15 @@ export interface MessageMetadata {
   task_run?: TaskRun
   task_run_id?: number
   task_type?: string
+  pending_tool_confirmations?: Array<{
+    confirmation_token?: string
+    tool_name?: string
+    tool_input?: Record<string, unknown>
+    tool_use_id?: string
+    details?: string[]
+    summary?: string
+    stage?: string
+  }>
   pending_markdown_saves?: Array<{
     tool_use_id?: string
     project_id?: number

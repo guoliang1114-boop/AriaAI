@@ -402,17 +402,18 @@ function findPendingAction({
     if (sourceContent) return { call: streamingCall, sourceContent };
   }
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "assistant") continue;
-    const metadata = parseMessageMetadata(message);
+  const latestAssistantIndex = messages.map((message) => message.role).lastIndexOf("assistant");
+  if (latestAssistantIndex >= 0) {
+    const metadata = parseMessageMetadata(messages[latestAssistantIndex]);
     const call = confirmationCallFrom(metadata.tool_calls);
-    if (!call) continue;
+    const hasFrozenAction = (metadata.pending_tool_confirmations || []).some(
+      (item) => item.confirmation_token && item.confirmation_token === call?.confirmation_token,
+    );
     const sourceContent = messages
-      .slice(0, index)
+      .slice(0, latestAssistantIndex)
       .reverse()
       .find((item) => item.role === "user")?.content || "";
-    if (sourceContent) return { call, sourceContent };
+    if (call && hasFrozenAction && sourceContent) return { call, sourceContent };
   }
 
   return null;
