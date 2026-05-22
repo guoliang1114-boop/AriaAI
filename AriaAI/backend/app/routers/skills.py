@@ -41,6 +41,32 @@ CONSULTING_PROPOSAL_ADVISOR_TOOL_NAMES = [
 ]
 CONSULTING_CAPABILITY_SKILL_PREFIX = "顾问能力｜"
 CONSULTING_CAPABILITY_PROMPT_MARKER_PREFIX = "consulting-capability:"
+OFFICE_DOCUMENT_EDITOR_SKILL_NAME = "Office 文档编辑"
+OFFICE_DOCUMENT_EDITOR_PROMPT_MARKER = "office-document-editor workflow"
+OFFICE_DOCUMENT_EDITOR_TOOL_NAMES = [
+    "read_project_file",
+    "edit_project_office_document",
+    "write_project_office_document",
+    "manage_project_files",
+]
+PDF_MANAGEMENT_SKILL_NAME = "PDF 工具箱"
+PDF_MANAGEMENT_PROMPT_MARKER = "pdf-management workflow"
+PDF_MANAGEMENT_TOOL_NAMES = [
+    "read_project_file",
+    "manage_pdf",
+]
+MEETING_INTELLIGENCE_SKILL_NAME = "会议纪要提取"
+MEETING_INTELLIGENCE_PROMPT_MARKER = "meeting-intelligence workflow"
+MEETING_INTELLIGENCE_TOOL_NAMES = [
+    "update_project_markdown_document",
+    "write_project_office_document",
+]
+GOAL_DEFINITION_SKILL_NAME = "目标定义"
+GOAL_DEFINITION_PROMPT_MARKER = "goal-definition workflow"
+GOAL_DEFINITION_TOOL_NAMES = [
+    "update_project_markdown_document",
+    "write_project_office_document",
+]
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 SKILLS_DIR = Path(__file__).resolve().parents[3] / "skills"
 
@@ -205,7 +231,7 @@ def delete_skill(skill_id: int, session: Session = Depends(get_session)):
 DEFAULT_SKILLS = [
     {
         "name": "Executive Summary",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "Synthesize complex documents into a crisp C-suite-ready summary.",
         "system_prompt": (
             "You are a senior McKinsey consultant. Produce a structured executive summary with: "
@@ -224,7 +250,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "Market Sizing",
-        "category": "战略与增长",
+        "category": "战略分析",
         "description": "Top-down and bottom-up TAM/SAM/SOM analysis.",
         "system_prompt": (
             "Perform a rigorous market sizing analysis. Show both top-down and bottom-up approaches. "
@@ -243,7 +269,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "Competitor Intel",
-        "category": "战略与增长",
+        "category": "战略分析",
         "description": "Rapid competitive landscape scan with strategic implications.",
         "system_prompt": (
             "You are a competitive intelligence analyst. Create a competitor comparison matrix. "
@@ -262,7 +288,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "Full Due Diligence",
-        "category": "并购与交易",
+        "category": "交易",
         "description": "Comprehensive commercial, financial, and operational DD report.",
         "system_prompt": (
             "Conduct a full due diligence analysis covering: "
@@ -288,7 +314,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "Strategic Roadmap",
-        "category": "战略与增长",
+        "category": "战略分析",
         "description": "3-year phased transformation roadmap with milestones and KPIs.",
         "system_prompt": (
             "Create a detailed 3-year strategic roadmap. Structure: "
@@ -309,7 +335,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "Client Report Draft",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "Full client-ready PowerPoint narrative in text form.",
         "system_prompt": (
             "Draft a complete consulting report narrative as slide-by-slide storyline: "
@@ -334,7 +360,7 @@ DEFAULT_SKILLS = [
 GSTACK_PRO_SKILLS = [
     {
         "name": "根因分析",
-        "category": "运营与效能",
+        "category": "顾问基础能力",
         "description": "四阶段结构化诊断：调查→分析→假设→建议。铁律：没有找到根本原因，不输出解决方案。",
         "system_prompt": (
             "你是一位资深管理咨询顾问，专精运营诊断与问题根因分析，遵循麦肯锡假设驱动方法论。\n\n"
@@ -380,7 +406,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "提案挑战",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "Partner 级高强度审查：挑战前提假设、识别逻辑漏洞、输出三个版本方案（激进/基准/保守）。",
         "system_prompt": (
             "你是一位经验丰富的资深合伙人（Senior Partner），在报告提交给客户前做最后一轮高强度审查。"
@@ -424,7 +450,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "项目启动",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "六个强制追问，帮助顾问在动手前把真正的问题想清楚，自动生成项目简报（Project Brief）。",
         "system_prompt": (
             "你是一位麦肯锡项目经理（Engagement Manager），帮助顾问团队在项目开始前把问题想清楚。"
@@ -470,7 +496,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "项目复盘",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "项目结束后系统性提炼经验教训，生成可复用方法论资产，为下次同类项目提供起点。",
         "system_prompt": (
             "你是一位顾问团队教练，帮助团队在项目结束后系统性地沉淀经验。"
@@ -514,7 +540,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "交付审查",
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "发给客户前的最后质量关：金字塔原则、数据一致性、逻辑完整性、专业语气，五项检查不通过不放行。",
         "system_prompt": (
             "你是一位资深咨询顾问，专门负责在交付物发送给客户前做最后的质量把关。"
@@ -562,7 +588,7 @@ GSTACK_PRO_SKILLS = [
     # ── 财务咨询 ──────────────────────────────────────────────────────
     {
         "name": "财务健康诊断",
-        "category": "财务咨询",
+        "category": "企业绩效",
         "description": "快速扫描企业财务状况：盈利能力、流动性、杠杆率、增长质量，输出红黄绿三色健康报告。",
         "system_prompt": (
             "你是一位资深财务顾问（CFO 级）。请对提供的财务数据进行系统性健康诊断，覆盖四个维度：\n"
@@ -590,7 +616,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "商业案例 ROI 分析",
-        "category": "财务咨询",
+        "category": "交易",
         "description": "量化投资回报率，构建三情景（乐观/基准/悲观）敏感性分析，支持 Go/No-Go 决策。",
         "system_prompt": (
             "你是一位资深财务顾问，专精投资决策分析。请构建严谨的商业案例，包含：\n"
@@ -620,7 +646,7 @@ GSTACK_PRO_SKILLS = [
     # ── 数字化与技术 ──────────────────────────────────────────────────
     {
         "name": "AI 用例优先级矩阵",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "从业务价值与实施可行性两个维度评分，生成 AI 应用场景优先级矩阵，推荐 Quick Win 起步项目。",
         "system_prompt": (
             "你是企业 AI 战略顾问。请识别目标公司最具潜力的 AI 应用场景，从以下两个维度评分（各 1-5 分）：\n"
@@ -646,7 +672,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化成熟度评估",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "六维度评估企业数字化成熟度，对标行业标杆，生成差距分析与转型优先级路线图。",
         "system_prompt": (
             "你是数字化转型顾问。请对企业的数字化成熟度进行系统评估，覆盖六个维度：\n"
@@ -674,7 +700,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME,
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "读取项目空间里的 Word、Excel、PPT、PDF，并生成基础 Office/PDF 交付文件。",
         "system_prompt": (
             "你是 Office/PDF 文档助手，遵循 office-document-assistant v2。\n\n"
@@ -700,7 +726,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": PRESENTATION_BUILDER_SKILL_NAME,
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "基础顾问式 PPT 生成 Skill，支持战略汇报、客户提案、项目进展三类常用 preset，并可复用 digital-strategy 基础模板。",
         "system_prompt": (
             "你是一位资深咨询顾问和演示文稿架构师，负责把用户给出的业务材料、项目上下文、客户需求或分析结论转化为可直接审阅和二次编辑的 PowerPoint。\n\n"
@@ -752,7 +778,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME,
-        "category": "提案与项目交付",
+        "category": "顾问基础能力",
         "description": "资深咨询提案顾问，用于生成客户建议书、PPT 大纲、PPTX、SOW、商业案例、路线图与高管建议。",
         "system_prompt": _load_skill_package_prompt(
             CONSULTING_PROPOSAL_ADVISOR_PACKAGE_NAME,
@@ -783,7 +809,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化战略设计",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
         "system_prompt": (
             "你是企业数字化转型战略顾问，负责把数字化议题与业务战略对齐，并为客户生成可用于高层汇报、立项和后续交付拆解的数字化战略方案。\n\n"
@@ -856,7 +882,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "企业架构蓝图设计",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "基于业务能力、应用、数据、技术和安全视角，设计企业架构原则与目标蓝图。",
         "system_prompt": (
             "你是一位企业架构顾问，熟悉业务架构、应用架构、数据架构、技术架构和安全架构。请为企业设计目标架构蓝图。\n\n"
@@ -883,7 +909,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数据治理咨询方案",
-        "category": "数字化与技术",
+        "category": "核心业务运营",
         "description": "设计数据治理框架、数据标准、责任机制、质量规则与落地路线，支撑数据资产化。",
         "system_prompt": (
             "你是一位数据治理顾问。请为企业设计可落地的数据治理方案，而不是只罗列概念。\n\n"
@@ -912,7 +938,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "流程数字化改造",
-        "category": "数字化与技术",
+        "category": "核心业务运营",
         "description": "识别流程断点、自动化机会和系统支撑缺口，输出 BPR + 数字化流程改造方案。",
         "system_prompt": (
             "你是一位流程数字化与 BPR 顾问。请围绕业务流程改造提出可执行方案。\n\n"
@@ -940,7 +966,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字技术路线图",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "评估技术选型、依赖关系、建设优先级和阶段路线，形成技术路线图与投资建议。",
         "system_prompt": (
             "你是一位数字技术规划顾问。请把业务目标转化为技术能力路线图。\n\n"
@@ -968,7 +994,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化组织变革",
-        "category": "数字化与技术",
+        "category": "组织、人才",
         "description": "设计数字化组织、岗位能力、治理机制和变革节奏，帮助技术方案真正落地。",
         "system_prompt": (
             "你是一位数字化组织与变革顾问。请围绕数字化转型所需的组织能力提出方案。\n\n"
@@ -995,7 +1021,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化 ROI 商业案例",
-        "category": "数字化与技术",
+        "category": "企业绩效",
         "description": "为数字化项目构建投入产出模型、价值假设、三情景测算和 Go/No-Go 决策建议。",
         "system_prompt": (
             "你是一位数字化投资与商业案例顾问。请为数字化项目构建 ROI 论证，要求所有假设清晰、可追踪。\n\n"
@@ -1024,7 +1050,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "行业数字化蓝图",
-        "category": "数字化与技术",
+        "category": "战略分析",
         "description": "结合行业 know-how 识别典型数字化场景，输出行业解决方案蓝图与优先落地场景。",
         "system_prompt": (
             "你是一位行业数字化解决方案顾问。请结合行业特点设计数字化蓝图。\n\n"
@@ -1053,7 +1079,7 @@ GSTACK_PRO_SKILLS = [
     # ── 风险与合规 ──────────────────────────────────────────────────
     {
         "name": "风险评估矩阵",
-        "category": "风险与合规",
+        "category": "风险监管",
         "description": "系统识别项目/业务的关键风险，按发生概率×影响程度双维度评分，输出优先级矩阵与缓解方案。",
         "system_prompt": (
             "你是风险管理顾问。请对提供的项目或业务进行系统性风险评估：\n"
@@ -1077,7 +1103,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "合规差距分析",
-        "category": "风险与合规",
+        "category": "风险监管",
         "description": "对照监管要求逐条审查合规状态，识别差距并给出整改优先级清单。",
         "system_prompt": (
             "你是合规顾问。请对企业的合规状况进行系统审查：\n"
@@ -1105,7 +1131,7 @@ GSTACK_PRO_SKILLS = [
     # ── 组织与人才 ──────────────────────────────────────────────────
     {
         "name": "OKR 设计工坊",
-        "category": "组织与人才",
+        "category": "组织、人才",
         "description": "从战略目标拆解到团队级 OKR，确保上下对齐、可量化、有挑战性，同步输出追踪机制。",
         "system_prompt": (
             "你是组织管理顾问，精通 OKR 方法论（参考 Google/Intel 最佳实践）。请帮助设计 OKR 体系：\n"
@@ -1129,7 +1155,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "变革管理规划",
-        "category": "组织与人才",
+        "category": "组织、人才",
         "description": "系统规划组织变革路径：利益相关方分析、阻力诊断、沟通计划、能力建设方案。",
         "system_prompt": (
             "你是变革管理顾问（熟悉 Kotter 8步骤、ADKAR 模型）。请为提供的变革项目制定管理计划：\n"
@@ -1156,7 +1182,7 @@ GSTACK_PRO_SKILLS = [
     # ── 市场与客户 ──────────────────────────────────────────────────
     {
         "name": "客户细分与画像",
-        "category": "市场与客户",
+        "category": "客户市场",
         "description": "基于人口/行为/需求/价值维度构建客户细分模型，输出可落地的客户画像与差异化策略。",
         "system_prompt": (
             "你是市场策略顾问，专精客户洞察。请构建系统的客户细分模型：\n"
@@ -1182,7 +1208,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "GTM 上市策略",
-        "category": "市场与客户",
+        "category": "客户市场",
         "description": "为新产品/市场制定 Go-To-Market 策略：目标客户、价值主张、渠道组合、定价、启动计划。",
         "system_prompt": (
             "你是 GTM 战略顾问。请为提供的产品或市场进入机会制定完整的上市策略：\n"
@@ -1209,7 +1235,7 @@ GSTACK_PRO_SKILLS = [
     # ── 翻译与内容 ──────────────────────────────────────────────────
     {
         "name": "PDF 智能翻译",
-        "category": "数字化与技术",
+        "category": "顾问基础能力",
         "description": "一键翻译 PDF/DOCX/PPTX 文档，保留原始排版与格式，支持术语库与翻译记忆。Powered by CTools.",
         "system_prompt": (
             "你是专业文档翻译顾问，精通多语言技术文档、商业报告、法律文件的精准翻译。\n"
@@ -1249,6 +1275,90 @@ GSTACK_PRO_SKILLS = [
         ),
         "estimated_time": "~10 min",
         "tools": ["translate_document"],
+    },
+    # ── Office 文档编辑 ──────────────────────────────────────────────
+    {
+        "name": OFFICE_DOCUMENT_EDITOR_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "编辑项目空间中已有的 Office 文档（PPT、Word、Excel）。"
+            "当用户要求修改现有文件的内容、数据、格式、页面时使用。"
+            "支持：修改 PPT 页面标题/内容/数据、更新 Word 章节/段落/表格、"
+            "更改 Excel 单元格/公式/行列、添加/删除/重排页面、修复格式。"
+            "不适用于从零创建新文件——新文件请用 write_project_office_document。"
+        ),
+        "system_prompt": _load_skill_package_prompt("office-document-editor"),
+        "user_template": (
+            "请帮我修改项目空间中的现有文档：\n\n"
+            "要修改的文件（名称或 ID）：\n"
+            "修改要求（越具体越好）：\n"
+            "是否保留原文件（是/否）："
+        ),
+        "estimated_time": "~5 min",
+        "max_tokens": 16384,
+        "tools": OFFICE_DOCUMENT_EDITOR_TOOL_NAMES,
+    },
+    # ── PDF 工具箱 ──────────────────────────────────────────────────
+    {
+        "name": PDF_MANAGEMENT_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "PDF 文件管理工具箱。支持合并多个 PDF、拆分 PDF 为多个文件、"
+            "提取特定页面、读取 PDF 文本内容、添加水印。"
+            "当用户需要处理 PDF 文件时使用。"
+        ),
+        "system_prompt": _load_skill_package_prompt("pdf-management"),
+        "user_template": (
+            "请帮我处理 PDF 文件：\n\n"
+            "操作类型（合并/拆分/提取/读取/水印）：\n"
+            "目标文件（名称或 ID）：\n"
+            "具体要求："
+        ),
+        "estimated_time": "~3 min",
+        "max_tokens": 8192,
+        "tools": PDF_MANAGEMENT_TOOL_NAMES,
+    },
+    # ── 会议纪要提取 ────────────────────────────────────────────────
+    {
+        "name": MEETING_INTELLIGENCE_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "从会议录音转写、访谈笔记、工作坊记录中提取结构化会议纪要。"
+            "自动识别决策、行动项、风险、待解决问题。"
+            "当用户粘贴会议记录或要求整理会议纪要时使用。"
+        ),
+        "system_prompt": _load_skill_package_prompt("meeting-intelligence"),
+        "user_template": (
+            "请帮我整理会议纪要：\n\n"
+            "会议主题：\n"
+            "参会人：\n"
+            "会议记录/转写文本：\n\n"
+            "[粘贴会议内容]"
+        ),
+        "estimated_time": "~5 min",
+        "max_tokens": 8192,
+        "tools": MEETING_INTELLIGENCE_TOOL_NAMES,
+    },
+    # ── 目标定义 ────────────────────────────────────────────────────
+    {
+        "name": GOAL_DEFINITION_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "使用 SMART 原则和咨询框架结构化定义和验证目标。"
+            "支持项目目标定义、OKR 设定、目标拆解、目标验证。"
+            "当用户需要定义目标、设定 OKR、或验证目标是否合理时使用。"
+        ),
+        "system_prompt": _load_skill_package_prompt("goal-definition"),
+        "user_template": (
+            "请帮我定义和结构化目标：\n\n"
+            "目标描述：\n"
+            "目标类型（战略/项目/个人）：\n"
+            "时间范围：\n"
+            "当前进展（如有）："
+        ),
+        "estimated_time": "~5 min",
+        "max_tokens": 8192,
+        "tools": GOAL_DEFINITION_TOOL_NAMES,
     },
 ]
 
@@ -1356,6 +1466,10 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_PROMPT_MARKER,
         OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_PROMPT_MARKER,
         CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME: CONSULTING_PROPOSAL_ADVISOR_PROMPT_MARKER,
+        OFFICE_DOCUMENT_EDITOR_SKILL_NAME: OFFICE_DOCUMENT_EDITOR_PROMPT_MARKER,
+        PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_PROMPT_MARKER,
+        MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_PROMPT_MARKER,
+        GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_PROMPT_MARKER,
     }
     prompt_markers.update(
         {
@@ -1368,6 +1482,10 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         PRESENTATION_BUILDER_SKILL_NAME: PRESENTATION_BUILDER_TOOL_NAMES,
         OFFICE_DOCUMENT_ASSISTANT_SKILL_NAME: OFFICE_DOCUMENT_ASSISTANT_TOOL_NAMES,
         CONSULTING_PROPOSAL_ADVISOR_SKILL_NAME: CONSULTING_PROPOSAL_ADVISOR_TOOL_NAMES,
+        OFFICE_DOCUMENT_EDITOR_SKILL_NAME: OFFICE_DOCUMENT_EDITOR_TOOL_NAMES,
+        PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_TOOL_NAMES,
+        MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_TOOL_NAMES,
+        GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_TOOL_NAMES,
     }
 
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}

@@ -23,6 +23,7 @@ from app.tools.file_generators import generate_docx, generate_pdf, generate_ppt,
 
 READ_PROJECT_FILE_TOOL_NAME = "read_project_file"
 WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME = "write_project_office_document"
+EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME = "edit_project_office_document"
 MANAGE_PROJECT_FOLDERS_TOOL_NAME = "manage_project_folders"
 MANAGE_PROJECT_FILES_TOOL_NAME = "manage_project_files"
 
@@ -660,5 +661,478 @@ async def write_project_office_document(
             "path": project_file.path,
             "message": f"Created {project_file.name}",
         }
+
+    return output
+
+
+# ---------------------------------------------------------------------------
+# Edit existing Office document
+# ---------------------------------------------------------------------------
+
+def _edit_pptx(file_path: Path, edits: list[dict]) -> dict:
+    """Edit an existing PPTX file."""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+    except ImportError:
+        return {"success": False, "error": "python-pptx not installed"}
+
+    try:
+        prs = Presentation(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to open PPTX: {e}"}
+
+    slide_count = len(prs.slides)
+    changes = []
+
+    for edit in edits:
+        action = edit.get("action", "update_slide")
+        slide_index = edit.get("slide_index")
+
+        if action == "update_slide":
+            if slide_index is None or slide_index < 0 or slide_index >= slide_count:
+                changes.append(f"Skipped update_slide: invalid slide_index {slide_index}")
+                continue
+            slide = prs.slides[slide_index]
+            new_title = edit.get("title")
+            new_content = edit.get("content")
+
+            title_updated = False
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    if shape.shape_id == slide.shapes.title.shape_id if slide.shapes.title else False:
+                        if new_title:
+                            for para in shape.text_frame.paragraphs:
+                                for run in para.runs:
+                                    run.text = ""
+                                if para.runs:
+                                    para.runs[0].text = new_title
+                                else:
+                                    para.text = new_title
+                            title_updated = True
+                    elif new_content and not title_updated:
+                        pass
+
+            if new_content:
+                body_shapes = [
+                    s for s in slide.shapes
+                    if s.has_text_frame and (not slide.shapes.title or s.shape_id != slide.shapes.title.shape_id)
+                ]
+                if body_shapes:
+                    tf = body_shapes[0].text_frame
+                    for para in tf.paragraphs:
+                        for run in para.runs:
+                            run.text = ""
+                    lines = new_content.split("\n")
+                    for i, line in enumerate(lines):
+                        if i == 0:
+                            if tf.paragraphs:
+                                tf.paragraphs[0].text = line.lstrip("- ").lstrip("• ")
+                        else:
+                            p = tf.add_paragraph()
+                            p.text = line.lstrip("- ").lstrip("• ")
+                            p.level = 0
+
+            changes.append(f"Updated slide {slide_index}")
+
+        elif action == "update_text":
+            if slide_index is None or slide_index < 0 or slide_index >= slide_count:
+                changes.append(f"Skipped update_text: invalid slide_index {slide_index}")
+                continue
+            slide = prs.slides[slide_index]
+            old_text = edit.get("old_text", "")
+            new_text = edit.get("new_text", "")
+            if not old_text:
+                changes.append(f"Skipped update_text: missing old_text")
+                continue
+            replaced = 0
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        full_text = para.text
+                        if old_text in full_text:
+                            for run in para.runs:
+                                if old_text in run.text:
+                                    run.text = run.text.replace(old_text, new_text)
+                                    replaced += 1
+            changes.append(f"Replaced {replaced} occurrences of text on slide {slide_index}")
+
+        elif action == "add_slide":
+            layout_index = edit.get("layout_index", 1)
+            title = edit.get("title", "")
+            content = edit.get("content", "")
+            try:
+                layout = prs.slide_layouts[min(layout_index, len(prs.slide_layouts) - 1)]
+                slide = prs.slides.add_slide(layout)
+                if title and slide.shapes.title:
+                    slide.shapes.title.text = title
+                if content:
+                    body = [
+                        s for s in slide.shapes
+                        if s.has_text_frame and (not slide.shapes.title or s.shape_id != slide.shapes.title.shape_id)
+                    ]
+                    if body:
+                        body[0].text_frame.text = content
+                changes.append(f"Added new slide at index {len(prs.slides) - 1}")
+            except Exception as e:
+                changes.append(f"Failed to add slide: {e}")
+
+        elif action == "delete_slide":
+            if slide_index is None or slide_index < 0 or slide_index >= slide_count:
+                changes.append(f"Skipped delete_slide: invalid slide_index {slide_index}")
+                continue
+            try:
+                rId = prs.slides._sldIdLst[slide_index].get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                prs.part.drop_rel(rId)
+                prs.slides._sldIdLst.remove(prs.slides._sldIdLst[slide_index])
+                changes.append(f"Deleted slide {slide_index}")
+            except Exception as e:
+                changes.append(f"Failed to delete slide {slide_index}: {e}")
+
+    try:
+        prs.save(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to save PPTX: {e}", "changes": changes}
+
+    return {"success": True, "changes": changes}
+
+
+def _edit_docx(file_path: Path, edits: list[dict]) -> dict:
+    """Edit an existing DOCX file."""
+    try:
+        from docx import Document
+    except ImportError:
+        return {"success": False, "error": "python-docx not installed"}
+
+    try:
+        doc = Document(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to open DOCX: {e}"}
+
+    changes = []
+
+    for edit in edits:
+        action = edit.get("action", "update_text")
+
+        if action == "update_text":
+            old_text = edit.get("old_text", "")
+            new_text = edit.get("new_text", "")
+            if not old_text:
+                changes.append("Skipped update_text: missing old_text")
+                continue
+            replaced = 0
+            for para in doc.paragraphs:
+                if old_text in para.text:
+                    for run in para.runs:
+                        if old_text in run.text:
+                            run.text = run.text.replace(old_text, new_text)
+                            replaced += 1
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if old_text in cell.text:
+                            for para in cell.paragraphs:
+                                for run in para.runs:
+                                    if old_text in run.text:
+                                        run.text = run.text.replace(old_text, new_text)
+                                        replaced += 1
+            changes.append(f"Replaced {replaced} occurrences of '{old_text[:30]}'")
+
+        elif action == "replace_paragraph":
+            heading_text = edit.get("heading", "")
+            new_content = edit.get("content", "")
+            if not heading_text:
+                changes.append("Skipped replace_paragraph: missing heading")
+                continue
+            found = False
+            for i, para in enumerate(doc.paragraphs):
+                if para.style.name.startswith("Heading") and heading_text.lower() in para.text.lower():
+                    j = i + 1
+                    while j < len(doc.paragraphs) and not doc.paragraphs[j].style.name.startswith("Heading"):
+                        j += 1
+                    for k in range(j - 1, i, -1):
+                        p = doc.paragraphs[k]._element
+                        p.getparent().remove(p)
+                    if new_content:
+                        for line in new_content.split("\n"):
+                            new_para = doc.paragraphs[i].add_paragraph(line.lstrip("- ").lstrip("• "))
+                            new_para.style = doc.styles["Body Text"] if "Body Text" in [s.name for s in doc.styles] else doc.paragraphs[i].style
+                    found = True
+                    changes.append(f"Replaced content under heading '{heading_text}'")
+                    break
+            if not found:
+                changes.append(f"Heading '{heading_text}' not found")
+
+        elif action == "add_paragraph":
+            after_heading = edit.get("after_heading", "")
+            content = edit.get("content", "")
+            if not content:
+                changes.append("Skipped add_paragraph: missing content")
+                continue
+            if after_heading:
+                found = False
+                for i, para in enumerate(doc.paragraphs):
+                    if para.style.name.startswith("Heading") and after_heading.lower() in para.text.lower():
+                        j = i + 1
+                        while j < len(doc.paragraphs) and not doc.paragraphs[j].style.name.startswith("Heading"):
+                            j += 1
+                        for line in content.split("\n"):
+                            new_para = doc.add_paragraph(line.lstrip("- ").lstrip("• "))
+                            new_para.style = doc.styles["Body Text"] if "Body Text" in [s.name for s in doc.styles] else doc.paragraphs[0].style
+                            new_para._element.addprevious(doc.paragraphs[j - 1]._element)
+                        found = True
+                        changes.append(f"Added paragraph after heading '{after_heading}'")
+                        break
+                if not found:
+                    for line in content.split("\n"):
+                        doc.add_paragraph(line.lstrip("- ").lstrip("• "))
+                    changes.append(f"Heading '{after_heading}' not found, appended to end")
+            else:
+                for line in content.split("\n"):
+                    doc.add_paragraph(line.lstrip("- ").lstrip("• "))
+                changes.append("Appended paragraph to end")
+
+    try:
+        doc.save(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to save DOCX: {e}", "changes": changes}
+
+    return {"success": True, "changes": changes}
+
+
+def _edit_xlsx(file_path: Path, edits: list[dict]) -> dict:
+    """Edit an existing XLSX file."""
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return {"success": False, "error": "openpyxl not installed"}
+
+    try:
+        wb = load_workbook(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to open XLSX: {e}"}
+
+    changes = []
+
+    for edit in edits:
+        action = edit.get("action", "update_cell")
+
+        if action == "update_cell":
+            sheet_name = edit.get("sheet")
+            cell_ref = edit.get("cell")
+            value = edit.get("value")
+            if not sheet_name or not cell_ref:
+                changes.append("Skipped update_cell: missing sheet or cell")
+                continue
+            if sheet_name not in wb.sheetnames:
+                changes.append(f"Skipped update_cell: sheet '{sheet_name}' not found")
+                continue
+            ws = wb[sheet_name]
+            try:
+                ws[cell_ref] = value
+                changes.append(f"Updated {sheet_name}!{cell_ref} = {value}")
+            except Exception as e:
+                changes.append(f"Failed to update {cell_ref}: {e}")
+
+        elif action == "update_cells":
+            sheet_name = edit.get("sheet")
+            updates = edit.get("updates", {})
+            if not sheet_name:
+                changes.append("Skipped update_cells: missing sheet")
+                continue
+            if sheet_name not in wb.sheetnames:
+                changes.append(f"Skipped update_cells: sheet '{sheet_name}' not found")
+                continue
+            ws = wb[sheet_name]
+            count = 0
+            for cell_ref, value in updates.items():
+                try:
+                    ws[cell_ref] = value
+                    count += 1
+                except Exception:
+                    pass
+            changes.append(f"Updated {count} cells in {sheet_name}")
+
+        elif action == "update_row":
+            sheet_name = edit.get("sheet")
+            row_num = edit.get("row")
+            values = edit.get("values", [])
+            if not sheet_name or row_num is None:
+                changes.append("Skipped update_row: missing sheet or row")
+                continue
+            if sheet_name not in wb.sheetnames:
+                changes.append(f"Skipped update_row: sheet '{sheet_name}' not found")
+                continue
+            ws = wb[sheet_name]
+            for col_idx, value in enumerate(values, 1):
+                ws.cell(row=row_num, column=col_idx, value=value)
+            changes.append(f"Updated row {row_num} in {sheet_name} with {len(values)} values")
+
+        elif action == "add_row":
+            sheet_name = edit.get("sheet")
+            values = edit.get("values", [])
+            after_row = edit.get("after_row")
+            if not sheet_name:
+                changes.append("Skipped add_row: missing sheet")
+                continue
+            if sheet_name not in wb.sheetnames:
+                changes.append(f"Skipped add_row: sheet '{sheet_name}' not found")
+                continue
+            ws = wb[sheet_name]
+            if after_row:
+                ws.insert_rows(after_row + 1)
+                for col_idx, value in enumerate(values, 1):
+                    ws.cell(row=after_row + 1, column=col_idx, value=value)
+                changes.append(f"Inserted row after row {after_row} in {sheet_name}")
+            else:
+                next_row = ws.max_row + 1
+                for col_idx, value in enumerate(values, 1):
+                    ws.cell(row=next_row, column=col_idx, value=value)
+                changes.append(f"Appended row to {sheet_name}")
+
+        elif action == "delete_row":
+            sheet_name = edit.get("sheet")
+            row_num = edit.get("row")
+            if not sheet_name or row_num is None:
+                changes.append("Skipped delete_row: missing sheet or row")
+                continue
+            if sheet_name not in wb.sheetnames:
+                changes.append(f"Skipped delete_row: sheet '{sheet_name}' not found")
+                continue
+            ws = wb[sheet_name]
+            ws.delete_rows(row_num)
+            changes.append(f"Deleted row {row_num} in {sheet_name}")
+
+        elif action == "add_sheet":
+            sheet_name = edit.get("name", "Sheet")
+            try:
+                wb.create_sheet(title=sheet_name)
+                changes.append(f"Added sheet '{sheet_name}'")
+            except Exception as e:
+                changes.append(f"Failed to add sheet: {e}")
+
+    try:
+        wb.save(str(file_path))
+    except Exception as e:
+        return {"success": False, "error": f"Failed to save XLSX: {e}", "changes": changes}
+
+    return {"success": True, "changes": changes}
+
+
+EDITABLE_TYPES = {"docx", "xlsx", "pptx"}
+
+EDIT_PROJECT_OFFICE_DOCUMENT_DESCRIPTION = (
+    "Edit an existing Office document (PPTX, DOCX, XLSX) in the project space. "
+    "Supports: PPT — update slide title/content, add/delete slides, replace text. "
+    "DOCX — replace text, update section content, add paragraphs. "
+    "XLSX — update cells/rows, add/delete rows, add sheets. "
+    "Use read_project_file first to understand the file structure before editing."
+)
+
+
+@registry.register(
+    name=EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+    description=tool_description(EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME, EDIT_PROJECT_OFFICE_DOCUMENT_DESCRIPTION),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "file_id": {"type": "integer", "description": "Project file ID of the existing document."},
+            "file_name": {"type": "string", "description": "Project file name (alternative to file_id)."},
+            "file_type": {
+                "type": "string",
+                "enum": ["docx", "xlsx", "pptx"],
+                "description": "File type. Auto-detected from file extension if not provided.",
+            },
+            "edits": {
+                "type": "array",
+                "description": "List of edit operations to apply.",
+                "items": {"type": "object"},
+            },
+            "output_name": {
+                "type": "string",
+                "description": "Output file name. If provided, saves as a new file instead of overwriting.",
+            },
+        },
+        "required": ["file_id", "edits"],
+    },
+)
+async def edit_project_office_document(
+    *,
+    project_id: int,
+    file_id: int | None = None,
+    file_name: str | None = None,
+    file_type: str | None = None,
+    edits: list[dict] | None = None,
+    output_name: str | None = None,
+) -> dict[str, Any]:
+    if not project_id:
+        raise HTTPException(400, "Project id is required")
+    if not edits:
+        raise HTTPException(400, "edits is required")
+
+    with Session(engine) as session:
+        project_file = _find_project_file(session, project_id, file_id, file_name)
+        source_path = _file_path(project_file)
+
+        detected_type = file_type or project_file.file_type or source_path.suffix.lstrip(".").lower()
+        if detected_type not in EDITABLE_TYPES:
+            raise HTTPException(400, f"Cannot edit file type '{detected_type}'. Supported: {', '.join(sorted(EDITABLE_TYPES))}")
+
+        if output_name:
+            out_name = _safe_name(output_name, detected_type)
+            out_path = source_path.parent / out_name
+            shutil.copy2(source_path, out_path)
+            target_path = out_path
+        else:
+            target_path = source_path
+
+    if detected_type == "pptx":
+        result = _edit_pptx(target_path, edits)
+    elif detected_type == "docx":
+        result = _edit_docx(target_path, edits)
+    elif detected_type == "xlsx":
+        result = _edit_xlsx(target_path, edits)
+    else:
+        result = {"success": False, "error": f"Unsupported type: {detected_type}"}
+
+    if not result.get("success"):
+        if output_name and target_path.is_file():
+            target_path.unlink()
+        raise HTTPException(500, result.get("error") or "Failed to edit document")
+
+    with Session(engine) as session:
+        if output_name:
+            project_file = _register_generated_project_file(
+                session,
+                project_id,
+                source_path=target_path,
+                file_name=output_name,
+                file_type=detected_type,
+                folder_id=project_file.folder_id,
+                summary=f"Edited copy of {project_file.name}",
+                preview_text=f"Edited: {', '.join(result.get('changes', []))}",
+            )
+            output = {
+                "ok": True,
+                "id": project_file.id,
+                "name": project_file.name,
+                "file_type": project_file.file_type,
+                "changes": result.get("changes", []),
+                "message": f"Created edited copy: {project_file.name}",
+            }
+        else:
+            project_file.size_bytes = target_path.stat().st_size
+            session.add(project_file)
+            session.commit()
+            mark_project_memory_stale(session, project_id, trigger=f"{detected_type}_tool_edit")
+            _bust_project_cache(project_id)
+            output = {
+                "ok": True,
+                "id": project_file.id,
+                "name": project_file.name,
+                "file_type": project_file.file_type,
+                "changes": result.get("changes", []),
+                "message": f"Edited {project_file.name}",
+            }
 
     return output

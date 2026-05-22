@@ -25,6 +25,7 @@ from app.services.chat_store import purge_expired_conversations
 from app.tools import file_generators  # noqa: F401
 from app.tools import office_documents  # noqa: F401
 from app.tools import pdf_translation  # noqa: F401
+from app.tools import pdf_tools  # noqa: F401
 from app.routers.skills import DEFAULT_SKILLS, ensure_builtin_pro_skills
 from app.services.project_core import init_default_project_folders
 from sqlmodel import Session, select, SQLModel
