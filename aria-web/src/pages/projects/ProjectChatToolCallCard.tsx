@@ -5,7 +5,6 @@ import type { ToolCallEvent } from "../../types/api";
 interface ProjectChatToolCallCardProps {
   call: ToolCallEvent;
   isZh: boolean;
-  onConfirmAction?: (confirmationToken: string) => void;
   onOpenTasks?: () => void;
 }
 
@@ -67,7 +66,6 @@ function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowS
 export function ProjectChatToolCallCard({
   call,
   isZh,
-  onConfirmAction,
   onOpenTasks,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
@@ -98,7 +96,6 @@ export function ProjectChatToolCallCard({
   if (isWorkflowStep) {
     const stepTitle = call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
     const canOpenRecoverableTask = call.status === "error" && call.has_recoverable_task && onOpenTasks;
-    const canConfirmAction = call.status === "confirmation_required" && call.confirmation_token && onConfirmAction;
     return (
       <div className={`rounded-2xl border px-4 py-3.5 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}>
         <div className="flex items-start gap-3">
@@ -166,23 +163,6 @@ export function ProjectChatToolCallCard({
                     ) : null}
                   </div>
                 ) : null}
-                {canConfirmAction ? (
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2">
-                    <p className="text-xs leading-relaxed text-amber-800">
-                      {isZh
-                        ? "这个步骤会修改或删除项目内容。确认后我会按同一批参数继续执行。"
-                        : "This step will modify or delete project content. Confirm to replay the same action."}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => onConfirmAction(call.confirmation_token || "")}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {isZh ? "确认并执行" : "Confirm and run"}
-                    </button>
-                  </div>
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -208,16 +188,6 @@ export function ProjectChatToolCallCard({
           {call.message ? <p className="mt-1 text-xs text-gray-600">{call.message}</p> : null}
           {call.summary ? <p className="mt-1 text-xs text-gray-600">{call.summary}</p> : null}
           {call.error ? <p className="mt-1 text-xs text-rose-600">{call.error}</p> : null}
-          {call.status === "confirmation_required" && call.confirmation_token && onConfirmAction ? (
-            <button
-              type="button"
-              onClick={() => onConfirmAction(call.confirmation_token || "")}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {isZh ? "确认并重试" : "Confirm and retry"}
-            </button>
-          ) : null}
           {call.details?.length ? (
             <div className="mt-2 space-y-1 border-t border-white/70 pt-1.5">
               {call.details.map((detail, index) => (

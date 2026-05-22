@@ -22,14 +22,12 @@ const ChatStreamingMessage = memo<{
   onContinue?: () => void;
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
-  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onOpenTasks?: () => void;
   projectId: number;
   references: Reference[];
-  sourceContent?: string;
   status: string;
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isTruncated, isZh, onConfirmToolAction, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, sourceContent, status, toolCalls }) => {
+}>(({ artifacts, content, isTruncated, isZh, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
   const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
 
   const buildReferenceHref = (reference: Reference) => {
@@ -73,9 +71,6 @@ const ChatStreamingMessage = memo<{
                   key={`${call.tool_name}-${call.status}-${index}`}
                   call={call}
                   isZh={isZh}
-                  onConfirmAction={
-                    onConfirmToolAction && sourceContent ? (token) => onConfirmToolAction(sourceContent, token) : undefined
-                  }
                   onOpenTasks={onOpenTasks}
                 />
               ))}
@@ -116,7 +111,6 @@ type ProjectChatMessagesProps = {
   messages: ChatMessage[];
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
-  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onOpenTasks?: () => void;
   streamingContent: string;
   streamingStatus: string;
@@ -146,7 +140,6 @@ export function ProjectChatMessages({
   messages,
   onDownloadArtifact,
   onOpenArtifact,
-  onConfirmToolAction,
   onOpenTasks,
   streamingContent,
   streamingStatus,
@@ -173,7 +166,6 @@ export function ProjectChatMessages({
 }: ProjectChatMessagesProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const latestUserContent = [...messages].reverse().find((message) => message.role === "user")?.content || "";
 
   return (
     <>
@@ -212,16 +204,13 @@ export function ProjectChatMessages({
       {!isLoadingMessages && (messages.length > 0 || streamingContent || streamingStatus || isLoading) && (
         <>
           {messages.map((msg, index) => {
-            const previousUserMessage = [...messages.slice(0, index)].reverse().find((item) => item.role === "user");
             return (
               <ProjectChatMessageBubble
                 key={msg.id}
                 highlight={highlightedMessageId === msg.id}
                 msg={msg}
-                sourceContent={previousUserMessage?.content}
                 onDownloadArtifact={onDownloadArtifact}
                 onOpenArtifact={onOpenArtifact}
-                onConfirmToolAction={onConfirmToolAction}
                 onOpenTasks={onOpenTasks}
                 onApplyStakeholders={onApplyStakeholders}
                 onContinue={msg.role === "assistant" && !isLoading ? onContinue : undefined}
@@ -239,11 +228,9 @@ export function ProjectChatMessages({
               onContinue={onContinue}
               onDownloadArtifact={onDownloadArtifact}
               onOpenArtifact={onOpenArtifact}
-              onConfirmToolAction={onConfirmToolAction}
               onOpenTasks={onOpenTasks}
               projectId={projectId}
               references={streamingReferences}
-              sourceContent={latestUserContent}
               status={streamingStatus}
               toolCalls={streamingToolCalls}
             />

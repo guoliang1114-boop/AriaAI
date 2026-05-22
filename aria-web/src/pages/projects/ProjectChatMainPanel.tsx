@@ -241,7 +241,6 @@ export function ProjectChatMainPanel({
           messages={messages}
           onDownloadArtifact={onDownloadArtifact}
           onOpenArtifact={onOpenArtifact}
-          onConfirmToolAction={onConfirmToolAction}
           onOpenTasks={() => setIsTaskDrawerOpen(true)}
           streamingContent={streamingContent}
           streamingStatus={streamingStatus}

@@ -64,11 +64,9 @@ const MessageSaveButton = memo(({ onClick, title }: { onClick: () => void; title
 interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
   msg: Message;
-  sourceContent?: string;
   onDownloadArtifact?: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onOpenTasks?: () => void;
-  onConfirmToolAction?: (content: string, confirmationToken: string) => void;
   onApplyStakeholders?: (message: Message) => void;
   onSaveToNotes?: () => void;
   onContinue?: () => void;
@@ -76,7 +74,7 @@ interface ProjectChatMessageBubbleProps {
 }
 
 export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
-  ({ highlight = false, msg, sourceContent, onApplyStakeholders, onConfirmToolAction, onDownloadArtifact, onOpenArtifact, onOpenTasks, onSaveToNotes, onContinue, projectId }) => {
+  ({ highlight = false, msg, onApplyStakeholders, onDownloadArtifact, onOpenArtifact, onOpenTasks, onSaveToNotes, onContinue, projectId }) => {
     const { t, i18n } = useTranslation();
     const { resolvedTimeZone } = useAppTimeZone();
     const [savingMarkdownIndex, setSavingMarkdownIndex] = useState<number | null>(null);
@@ -184,9 +182,6 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
                   key={`${call.tool_name}-${call.status}-${index}`}
                   call={call}
                   isZh={isZh}
-                  onConfirmAction={
-                    onConfirmToolAction && sourceContent ? (token) => onConfirmToolAction(sourceContent, token) : undefined
-                  }
                   onOpenTasks={onOpenTasks}
                 />
               ))}
@@ -331,9 +326,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     prev.msg.content === next.msg.content &&
     prev.msg.metadata_json === next.msg.metadata_json &&
     prev.projectId === next.projectId &&
-    prev.sourceContent === next.sourceContent &&
     prev.onApplyStakeholders === next.onApplyStakeholders &&
-    prev.onConfirmToolAction === next.onConfirmToolAction &&
     prev.onDownloadArtifact === next.onDownloadArtifact &&
     prev.onOpenArtifact === next.onOpenArtifact &&
     prev.onOpenTasks === next.onOpenTasks &&

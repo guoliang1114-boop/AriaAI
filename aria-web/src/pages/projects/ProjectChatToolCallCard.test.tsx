@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
 
@@ -32,14 +31,10 @@ describe("ProjectChatToolCallCard", () => {
     expect(screen.queryByText("失败")).not.toBeInTheDocument();
   });
 
-  it("renders confirmation actions for workflow steps", async () => {
-    const user = userEvent.setup();
-    const onConfirmAction = vi.fn();
-
+  it("shows confirmation status without rendering an inline approval button", () => {
     render(
       <ProjectChatToolCallCard
         isZh
-        onConfirmAction={onConfirmAction}
         call={{
           tool_name: "步骤 3/4：执行 Skill / 工具",
           status: "confirmation_required",
@@ -52,8 +47,7 @@ describe("ProjectChatToolCallCard", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "确认并执行" }));
-
-    expect(onConfirmAction).toHaveBeenCalledWith("tool:manage_project_files:delete:abc123");
+    expect(screen.getByText("待确认")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认并执行" })).not.toBeInTheDocument();
   });
 });
