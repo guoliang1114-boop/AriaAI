@@ -76,6 +76,55 @@ def _tool_requires_confirmation(
     return tool_confirmation_token(tool_name, tool_input) not in confirmations
 
 
+def _build_pending_action_payload(tool_name: str, tool_input: dict, details: list[str], token: str) -> dict | None:
+    """Build a HITAS pending-action payload to be persisted in P4."""
+    action = str(tool_input.get("action") or "").lower()
+    if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and action == "delete":
+        file_ids = tool_input.get("file_ids") or []
+        if tool_input.get("file_id") is not None:
+            file_ids = [*file_ids, tool_input["file_id"]]
+        return {
+            "action_type": "delete_files",
+            "title": "确认删除项目文件",
+            "description": f"即将删除 {len(file_ids)} 个项目空间中的文件。此操作不可撤销。",
+            "details": details,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "confirmation_token": token,
+        }
+    if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and action == "delete":
+        return {
+            "action_type": "delete_folder",
+            "title": "确认删除文件夹",
+            "description": "即将删除项目空间中的文件夹。此操作不可撤销。",
+            "details": details,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "confirmation_token": token,
+        }
+    if tool_name == PROJECT_MARKDOWN_TOOL_NAME:
+        return {
+            "action_type": "modify_document",
+            "title": "确认修改文档",
+            "description": "即将修改项目 Markdown 文档内容。",
+            "details": details,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "confirmation_token": token,
+        }
+    if tool_name == WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME:
+        return {
+            "action_type": "write_document",
+            "title": "确认生成文档",
+            "description": "即将生成新的 Office 文档并保存到项目空间。",
+            "details": details,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "confirmation_token": token,
+        }
+    return None
+
+
 def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
     if tool_name == MANAGE_PROJECT_FILES_TOOL_NAME and str(tool_input.get("action") or "").lower() == "delete":
         ids = tool_input.get("file_ids") or []
@@ -266,6 +315,10 @@ async def run_p2_tools(
                 "reason": "需要用户确认后才能执行修改或危险操作。",
                 "current_policy": _action_policy_value(runtime.action_policy),
             }
+            # ── HITAS: Build server-side pending action payload for P4 persistence ──
+            hitas_action = _build_pending_action_payload(tool_name, tool_input, confirmation_details, confirmation_token)
+            if hitas_action:
+                state.pending_tool_actions.append(hitas_action)
             state.tool_call_events.append(
                 {
                     "tool_name": tool_name,

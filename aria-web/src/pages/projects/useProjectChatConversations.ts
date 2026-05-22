@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../api/client";
-import type { Conversation, Message, PendingChatActionResponse } from "../../types/api";
+import type { Conversation, Message, PendingActionsResponse, PendingChatActionResponse, PendingToolAction } from "../../types/api";
 import type { ProjectChatPendingAction } from "./ProjectChatActionPreviewPanel";
 import { buildDefaultChatTitle } from "./projectChatCopy";
 
@@ -26,6 +26,7 @@ export function useProjectChatConversations({
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [serverPendingAction, setServerPendingAction] = useState<ProjectChatPendingAction | null>(null);
+  const [pendingToolActions, setPendingToolActions] = useState<PendingToolAction[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [editingConvId, setEditingConvId] = useState<number | null>(null);
@@ -85,6 +86,7 @@ export function useProjectChatConversations({
       ]);
       setMessages(data);
       setServerPendingAction(pendingAction);
+      void fetchPendingToolActions(conversationId);
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     } finally {
@@ -117,6 +119,44 @@ export function useProjectChatConversations({
     const pendingAction = await fetchPendingAction(conversationId);
     setServerPendingAction(pendingAction);
     return pendingAction;
+  };
+
+  const fetchPendingToolActions = async (conversationId: number) => {
+    try {
+      const data = await api.get<PendingActionsResponse>(`/chat/conversations/${conversationId}/pending-actions`);
+      setPendingToolActions(data.items || []);
+    } catch (error) {
+      console.error("Failed to fetch pending tool actions:", error);
+      setPendingToolActions([]);
+    }
+  };
+
+  const confirmToolAction = async (actionId: number) => {
+    try {
+      const result = await api.post<{ status: string; result?: Record<string, unknown>; error_message?: string }>(
+        `/chat/actions/${actionId}/confirm`,
+        { approved: true },
+      );
+      // Refresh pending actions after confirmation
+      if (activeConvId) {
+        void fetchPendingToolActions(activeConvId);
+      }
+      return result;
+    } catch (error) {
+      console.error("Failed to confirm tool action:", error);
+      throw error;
+    }
+  };
+
+  const rejectToolAction = async (actionId: number) => {
+    try {
+      await api.post(`/chat/actions/${actionId}/reject`, { approved: false });
+      if (activeConvId) {
+        void fetchPendingToolActions(activeConvId);
+      }
+    } catch (error) {
+      console.error("Failed to reject tool action:", error);
+    }
   };
 
   const clearPendingAction = () => {
@@ -206,6 +246,7 @@ export function useProjectChatConversations({
     messages,
     setMessages,
     serverPendingAction,
+    pendingToolActions,
     activeConversation,
     isLoadingMessages,
     isLoadingConversations,
@@ -219,6 +260,9 @@ export function useProjectChatConversations({
     fetchMessages,
     refreshPendingAction,
     clearPendingAction,
+    fetchPendingToolActions,
+    confirmToolAction,
+    rejectToolAction,
     createConversation,
     deleteConversation,
     renameConversation,

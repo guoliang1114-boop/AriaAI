@@ -168,6 +168,7 @@ export function ProjectChatTab({
     messages,
     setMessages,
     serverPendingAction,
+    pendingToolActions,
     activeConversation,
     isLoadingMessages,
     isLoadingConversations,
@@ -181,6 +182,8 @@ export function ProjectChatTab({
     fetchMessages,
     refreshPendingAction,
     clearPendingAction,
+    confirmToolAction,
+    rejectToolAction,
     createConversation,
     deleteConversation,
     renameConversation,
@@ -1030,6 +1033,20 @@ export function ProjectChatTab({
                 if (activeConvId) void refreshPendingAction(activeConvId);
               });
             }}
+            onConfirmHitasAction={async (actionId) => {
+              const result = await confirmToolAction(actionId);
+              if (activeConvId) {
+                void fetchMessages(activeConvId);
+              }
+              return result;
+            }}
+            onRejectHitasAction={async (actionId) => {
+              await rejectToolAction(actionId);
+              if (activeConvId) {
+                void fetchMessages(activeConvId);
+              }
+            }}
+            pendingToolActions={pendingToolActions}
             serverPendingAction={serverPendingAction}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
             onTaskRunUpdated={handleTaskRunUpdated}

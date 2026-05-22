@@ -287,6 +287,60 @@ class ChatTrace(SQLModel, table=True):
         }
 
 
+class PendingToolAction(SQLModel, table=True):
+    """Human-in-the-loop pending tool execution record."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    trace_id: str = Field(default="", index=True)
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
+    message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+
+    tool_name: str = ""
+    tool_input_json: str = "{}"
+
+    action_type: str = ""       # e.g. delete_files, modify_document
+    title: str = ""             # UI title
+    description: str = ""       # UI description
+    details_json: str = "[]"    # JSON list of detail strings
+
+    status: str = "pending"     # pending | confirmed | rejected | executing | completed | failed
+    confirmed_by_user_id: Optional[int] = None
+    confirmed_at: Optional[datetime] = None
+    result_json: Optional[str] = None
+    error_message: Optional[str] = None
+
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    expires_at: Optional[datetime] = None
+
+    def get_payload(self) -> dict:
+        def parse_json(value: str, fallback):
+            try:
+                return json.loads(value or "")
+            except json.JSONDecodeError:
+                return fallback
+
+        return {
+            "id": self.id,
+            "trace_id": self.trace_id,
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "project_id": self.project_id,
+            "tool_name": self.tool_name,
+            "tool_input": parse_json(self.tool_input_json, {}),
+            "action_type": self.action_type,
+            "title": self.title,
+            "description": self.description,
+            "details": parse_json(self.details_json, []),
+            "status": self.status,
+            "confirmed_by_user_id": self.confirmed_by_user_id,
+            "confirmed_at": self.confirmed_at.isoformat() if self.confirmed_at else None,
+            "result": parse_json(self.result_json, None),
+            "error_message": self.error_message,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ── Knowledge Base ────────────────────────────────────────────────────────────
 
 class KnowledgeDocument(SQLModel, table=True):

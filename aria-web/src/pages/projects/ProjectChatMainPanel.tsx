@@ -7,6 +7,7 @@ import type {
   Conversation,
   GeneratedArtifact,
   Message,
+  PendingToolAction,
   ProjectMemoryStatusResponse,
   Reference,
   Skill,
@@ -47,6 +48,9 @@ interface ProjectChatMainPanelProps {
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onConfirmToolAction?: (content: string, confirmationToken: string) => void;
+  onConfirmHitasAction?: (actionId: number) => Promise<{ status: string } | undefined>;
+  onRejectHitasAction?: (actionId: number) => Promise<void>;
+  pendingToolActions?: PendingToolAction[];
   serverPendingAction?: ProjectChatPendingAction | null;
   onTaskRunUpdated?: (task: TaskRun) => void;
   onToggleSidebar: () => void;
@@ -339,7 +343,49 @@ export function ProjectChatMainPanel({
         }
         selectedSkillPanel={
           <>
-            {visiblePendingAction && onConfirmToolAction ? (
+            {/* HITAS: Server-side persisted pending actions — takes precedence over legacy token-based flow */}
+            {pendingToolActions && pendingToolActions.length > 0 && onConfirmHitasAction ? (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <h4 className="mb-1 text-sm font-semibold text-amber-800">
+                  {isZh ? "待确认的操作" : "Action Required"}
+                </h4>
+                {pendingToolActions.map((action) => (
+                  <div key={action.id} className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                    <div className="mb-1 text-sm font-medium text-gray-900">{action.title}</div>
+                    <div className="mb-2 text-xs text-gray-500">{action.description}</div>
+                    {action.details && action.details.length > 0 && (
+                      <ul className="mb-2 max-h-32 overflow-y-auto rounded bg-gray-50 p-2 text-xs text-gray-600">
+                        {action.details.map((detail, index) => (
+                          <li key={index} className="py-0.5">• {detail}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          await onConfirmHitasAction(action.id);
+                        }}
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90"
+                      >
+                        {isZh ? "确认执行" : "Confirm"}
+                      </button>
+                      {onRejectHitasAction && (
+                        <button
+                          onClick={async () => {
+                            await onRejectHitasAction(action.id);
+                          }}
+                          className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                        >
+                          {isZh ? "取消" : "Cancel"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {/* Legacy token-based confirmation flow (fallback) */}
+            {visiblePendingAction && onConfirmToolAction && !(pendingToolActions && pendingToolActions.length > 0) ? (
               <ProjectChatActionPreviewPanel
                 action={visiblePendingAction}
                 isConfirming={isLoading}

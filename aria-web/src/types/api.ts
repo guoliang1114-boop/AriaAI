@@ -732,6 +732,28 @@ export interface PendingChatActionResponse {
   call: ToolCallEvent
 }
 
+export interface PendingToolAction {
+  id: number
+  trace_id: string
+  conversation_id: number
+  message_id?: number
+  project_id?: number
+  tool_name: string
+  tool_input: Record<string, unknown>
+  action_type: string
+  title: string
+  description: string
+  details: string[]
+  status: string
+  created_at: string
+  expires_at?: string
+}
+
+export interface PendingActionsResponse {
+  items: PendingToolAction[]
+  has_pending: boolean
+}
+
 export interface PendingToolConfirmation {
   confirmation_token?: string
   tool_name?: string

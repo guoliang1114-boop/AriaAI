@@ -5,9 +5,11 @@ generation, and emits the final ``done`` event.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from typing import Any
 
 from sqlmodel import Session
@@ -16,7 +18,9 @@ from app.routers.chat_schemas import SendMessageRequest
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
+from app.models.db import PendingToolAction
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
+from app.services.time_utils import utc_now_naive
 from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
@@ -231,12 +235,43 @@ async def run_p4_persist(
             full_text = f"{full_text}\n\n{confirmation_notice}".strip()
             yield sse_event({"type": "text", "content": f"\n\n{confirmation_notice}"})
 
+    # ── HITAS: Persist pending tool actions to database ──
+    pending_action_ids: list[int] = []
+    if state.pending_tool_actions:
+        with Session(bind) as session:
+            for action_payload in state.pending_tool_actions:
+                try:
+                    db_action = PendingToolAction(
+                        trace_id=runtime.trace_id or f"conv-{runtime.conv_id}",
+                        conversation_id=runtime.conv_id,
+                        project_id=runtime.project_id,
+                        tool_name=action_payload.get("tool_name", ""),
+                        tool_input_json=json.dumps(action_payload.get("tool_input", {}), ensure_ascii=False, default=str),
+                        action_type=action_payload.get("action_type", ""),
+                        title=action_payload.get("title", "待确认的操作"),
+                        description=action_payload.get("description", ""),
+                        details_json=json.dumps(action_payload.get("details", []), ensure_ascii=False, default=str),
+                        status="pending",
+                        expires_at=utc_now_naive() + timedelta(hours=24),
+                    )
+                    session.add(db_action)
+                    session.commit()
+                    session.refresh(db_action)
+                    if db_action.id:
+                        pending_action_ids.append(db_action.id)
+                        # Update payload with DB id for metadata reference
+                        action_payload["pending_action_id"] = db_action.id
+                except Exception as exc:
+                    logger.warning("[P4] failed to persist pending tool action: %s", exc)
+
     # Build metadata
     metadata: dict = {}
     if runtime.rag_sources:
         metadata["references"] = runtime.rag_sources
     if state.tool_call_events:
         metadata["tool_calls"] = state.tool_call_events
+    if pending_action_ids:
+        metadata["pending_action_ids"] = pending_action_ids
     if state.pending_tool_confirmations:
         metadata["pending_tool_confirmations"] = state.pending_tool_confirmations
     if req.action_confirmations:
