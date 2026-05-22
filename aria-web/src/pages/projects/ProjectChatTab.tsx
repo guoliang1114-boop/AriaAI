@@ -1036,6 +1036,13 @@ export function ProjectChatTab({
             onConfirmHitasAction={async (actionId) => {
               try {
                 const result = await confirmToolAction(actionId);
+                if (result?.status === "completed") {
+                  toast.success(isZh ? "操作已执行" : "Action completed");
+                } else if (result?.status === "failed") {
+                  toast.error(result.error_message || (isZh ? "操作执行失败" : "Action failed"));
+                } else if (result?.status) {
+                  toast.info(isZh ? "操作状态已更新" : "Action status updated");
+                }
                 if (activeConvId) {
                   void fetchMessages(activeConvId);
                 }
@@ -1048,6 +1055,7 @@ export function ProjectChatTab({
             onRejectHitasAction={async (actionId) => {
               try {
                 await rejectToolAction(actionId);
+                toast.success(isZh ? "已取消该操作" : "Action cancelled");
                 if (activeConvId) {
                   void fetchMessages(activeConvId);
                 }

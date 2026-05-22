@@ -174,9 +174,39 @@ async def reject_action(
     action.confirmed_by_user_id = current_user.id
     if req and req.reason:
         action.error_message = req.reason
+    result = {
+        "success": False,
+        "rejected": True,
+        "reason": action.error_message or "",
+    }
+    action.result_json = json.dumps(result, ensure_ascii=False, default=str)
+    result_message = Message(
+        conversation_id=action.conversation_id,
+        role="assistant",
+        content=_format_action_rejected_message(action),
+        metadata_json=json.dumps(
+            {
+                "tool_action_result": {
+                    "pending_action_id": action.id,
+                    "tool_name": action.tool_name,
+                    "status": action.status,
+                    "result": result,
+                }
+            },
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+    session.add(result_message)
     session.commit()
+    session.refresh(result_message)
 
-    return ConfirmActionResponse(status="rejected")
+    return ConfirmActionResponse(
+        status="rejected",
+        result=result,
+        error_message=action.error_message,
+        message_id=result_message.id,
+    )
 
 
 @router.get("/actions/{action_id}")
@@ -229,6 +259,14 @@ def _format_action_result_message(action: PendingToolAction, result: dict[str, A
         return "\n\n".join(pieces)
     error = result.get("error") or action.error_message or "未知错误"
     return f"{title} 执行失败：{error}"
+
+
+def _format_action_rejected_message(action: PendingToolAction) -> str:
+    title = action.title or action.tool_name or "工具操作"
+    pieces = [f"已取消：{title}。"]
+    if action.error_message:
+        pieces.append(f"原因：{action.error_message}")
+    return "\n\n".join(pieces)
 
 
 def _load_json_object(value: str | None) -> dict[str, Any]:

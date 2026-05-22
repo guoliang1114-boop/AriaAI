@@ -197,6 +197,11 @@ def test_reject_action_sets_status_and_prevents_execution(monkeypatch):
     assert action.status == "rejected"
     assert action.confirmed_by_user_id == user.id
     assert calls == []  # Tool must NOT execute after reject
+    assert result.message_id is not None
+    messages = session.exec(select(Message).where(Message.conversation_id == conversation.id)).all()
+    assert len(messages) == 1
+    assert "已取消：删除项目文件" in messages[0].content
+    assert "不需要了" in messages[0].content
 
 
 def test_list_pending_actions_returns_only_pending_and_non_expired():
