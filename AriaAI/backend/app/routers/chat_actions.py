@@ -347,5 +347,24 @@ def _persist_action_failure(bind, action_id: int, exc: Exception) -> ConfirmActi
         action.status = "failed"
         action.error_message = error
         action.result_json = json.dumps(result, ensure_ascii=False, default=str)
+        result_message = Message(
+            conversation_id=action.conversation_id,
+            role="assistant",
+            content=_format_action_result_message(action, result),
+            metadata_json=json.dumps(
+                {
+                    "tool_action_result": {
+                        "pending_action_id": action.id,
+                        "tool_name": action.tool_name,
+                        "status": action.status,
+                        "result": result,
+                    }
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+        session.add(result_message)
         session.commit()
-    return ConfirmActionResponse(status="failed", result=result, error_message=error)
+        session.refresh(result_message)
+        return ConfirmActionResponse(status="failed", result=result, error_message=error, message_id=result_message.id)
