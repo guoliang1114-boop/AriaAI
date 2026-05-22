@@ -736,6 +736,13 @@ export function ProjectChatTab({
   }, [messages.length, panel.isAutoFollow, panel.scrollToBottom]);
 
   useEffect(() => {
+    if (!activeConvId || isLoading || isLoadingMessages) {
+      return;
+    }
+    void refreshPendingAction(activeConvId);
+  }, [activeConvId, isLoading, isLoadingMessages, messages.length]);
+
+  useEffect(() => {
     if ((streamingContent || streamingStatus || streamingToolCalls.length > 0) && panel.isAutoFollow) {
       panel.scrollToBottom(false);
     }

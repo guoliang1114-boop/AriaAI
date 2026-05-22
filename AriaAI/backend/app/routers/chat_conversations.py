@@ -22,6 +22,8 @@ from app.services.chat_store import (
     list_conversations_cached,
     update_conversation_title,
 )
+from app.services.chat.mode_registry import ActionPolicy
+from app.services.chat.pending_actions import build_project_file_cleanup_pending_action, user_requested_project_file_cleanup
 
 router = APIRouter()
 
@@ -75,11 +77,50 @@ def _latest_pending_action(messages: list) -> PendingChatActionOut | None:
                     break
             if not source_content:
                 continue
+            can_confirm = item.get("can_confirm")
             return PendingChatActionOut(
-                can_confirm=bool(item.get("tool_name") and isinstance(item.get("tool_input"), dict)),
+                can_confirm=bool(item.get("tool_name") and isinstance(item.get("tool_input"), dict))
+                if can_confirm is None
+                else bool(can_confirm),
                 source_content=source_content,
                 call=_confirmation_call(metadata, item),
             )
+    return None
+
+
+def _synthesized_pending_action(session: Session, messages: list, *, project_id: int | None) -> PendingChatActionOut | None:
+    if project_id is None:
+        return None
+    latest_resolved_index = -1
+    for index, message in enumerate(messages):
+        if getattr(message, "role", "") != "assistant":
+            continue
+        metadata = _json_loads(getattr(message, "metadata_json", "{}"))
+        if metadata.get("resolved_action_confirmations"):
+            latest_resolved_index = index
+    for index in range(len(messages) - 1, -1, -1):
+        if index < latest_resolved_index:
+            return None
+        message = messages[index]
+        if getattr(message, "role", "") != "user":
+            continue
+        source_content = getattr(message, "content", "") or ""
+        if not user_requested_project_file_cleanup(source_content):
+            continue
+        pending = build_project_file_cleanup_pending_action(
+            session,
+            project_id=project_id,
+            user_content=source_content,
+            action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+            require_candidates=False,
+        )
+        if not pending:
+            continue
+        return PendingChatActionOut(
+            can_confirm=bool(pending.get("can_confirm")),
+            source_content=source_content,
+            call=_confirmation_call({}, pending),
+        )
     return None
 
 
@@ -125,8 +166,9 @@ def get_pending_action(
     conv_id: int,
     session: Session = Depends(get_session),
 ):
+    conversation = get_conversation_or_404(session, conv_id)
     messages = get_conversation_messages(session, conv_id, limit=120)
-    return _latest_pending_action(messages)
+    return _latest_pending_action(messages) or _synthesized_pending_action(session, messages, project_id=conversation.project_id)
 
 
 @router.delete("/conversations/{conv_id}")

@@ -95,8 +95,12 @@ DESTRUCTIVE_NEGATION_TERMS = (
 # Destructive intent must also reference a concrete object class — otherwise
 # "remove the obstacle" or "drop the topic" trigger the wrong policy.
 DESTRUCTIVE_OBJECT_TERMS = (
+    "空间",
     "文件",
+    "垃圾文件",
+    "垃圾",
     "文档",
+    "资料",
     "markdown",
     " md",
     ".md",
