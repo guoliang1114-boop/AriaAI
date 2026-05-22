@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Message } from "../../types/api";
-import { findPendingAction } from "./ProjectChatMainPanel";
+import type { Message, PendingToolAction } from "../../types/api";
+import { findPendingAction, groupPendingToolActions } from "./ProjectChatMainPanel";
 
 function message(
   role: "user" | "assistant",
@@ -98,5 +98,51 @@ describe("findPendingAction", () => {
     });
 
     expect(action).toBeNull();
+  });
+});
+
+describe("groupPendingToolActions", () => {
+  const baseAction: PendingToolAction = {
+    id: 1,
+    trace_id: "trace",
+    conversation_id: 1,
+    tool_name: "manage_project_files",
+    tool_input: { action: "delete" },
+    action_type: "delete_files",
+    risk_level: "destructive",
+    title: "删除项目文件",
+    description: "删除重复文件",
+    details: ["待删除文件 ID：12"],
+    status: "pending",
+    created_at: new Date(0).toISOString(),
+  };
+
+  it("groups actions from the same approval batch into one preview unit", () => {
+    const batches = groupPendingToolActions(
+      [
+        { ...baseAction, id: 2, approval_batch_id: "hitas-1", sequence_index: 1, details: ["删除空文件夹"] },
+        { ...baseAction, id: 1, approval_batch_id: "hitas-1", sequence_index: 0, details: ["待删除文件 ID：12"] },
+      ],
+      true,
+    );
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].batchId).toBe("hitas-1");
+    expect(batches[0].primaryActionId).toBe(1);
+    expect(batches[0].actions.map((action) => action.id)).toEqual([1, 2]);
+    expect(batches[0].title).toContain("2 个步骤");
+  });
+
+  it("deduplicates legacy identical pending actions by tool input hash", () => {
+    const batches = groupPendingToolActions(
+      [
+        { ...baseAction, id: 1, tool_input_hash: "same-hash" },
+        { ...baseAction, id: 2, tool_input_hash: "same-hash", details: ["待删除文件 ID：13"] },
+      ],
+      true,
+    );
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].details).toEqual(["待删除文件 ID：12", "待删除文件 ID：13"]);
   });
 });

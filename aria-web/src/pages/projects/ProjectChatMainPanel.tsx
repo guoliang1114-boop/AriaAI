@@ -22,6 +22,8 @@ import { ProjectChatMessages } from "./ProjectChatMessages";
 import { ProjectTaskRunsDrawer } from "./ProjectTaskRunsDrawer";
 import { getProjectChatCopy, type ProjectQuickPrompt } from "./projectChatCopy";
 
+type HitasActionTarget = { actionId: number; batchId?: string };
+
 interface ProjectChatMainPanelProps {
   activeConversation?: Conversation | null;
   handleScroll: () => void;
@@ -48,8 +50,8 @@ interface ProjectChatMainPanelProps {
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onConfirmToolAction?: (content: string, confirmationToken: string) => void;
-  onConfirmHitasAction?: (actionId: number) => Promise<{ status: string } | undefined>;
-  onRejectHitasAction?: (actionId: number) => Promise<void>;
+  onConfirmHitasAction?: (target: HitasActionTarget) => Promise<{ status: string } | undefined>;
+  onRejectHitasAction?: (target: HitasActionTarget) => Promise<void>;
   pendingToolActions?: PendingToolAction[];
   serverPendingAction?: ProjectChatPendingAction | null;
   onTaskRunUpdated?: (task: TaskRun) => void;
@@ -91,6 +93,58 @@ function pendingActionBadge(action: PendingToolAction, isZh: boolean) {
   if (type.includes("modify")) return isZh ? "修改需确认" : "Modify approval";
   if (type.includes("write")) return isZh ? "写入需确认" : "Write approval";
   return isZh ? "高风险操作" : "High-risk action";
+}
+
+type PendingToolActionBatch = {
+  key: string;
+  batchId?: string;
+  primaryActionId: number;
+  title: string;
+  description: string;
+  details: string[];
+  actions: PendingToolAction[];
+};
+
+function pendingActionBatchKey(action: PendingToolAction) {
+  if (action.approval_batch_id) return `batch:${action.approval_batch_id}`;
+  if (action.tool_input_hash) return `legacy:${action.tool_name}:${action.action_type}:${action.tool_input_hash}`;
+  return `action:${action.id}`;
+}
+
+export function groupPendingToolActions(actions: PendingToolAction[], isZh: boolean): PendingToolActionBatch[] {
+  const grouped = new Map<string, PendingToolAction[]>();
+  for (const action of actions) {
+    const key = pendingActionBatchKey(action);
+    grouped.set(key, [...(grouped.get(key) || []), action]);
+  }
+  return Array.from(grouped.entries()).map(([key, batchActions]) => {
+    const ordered = [...batchActions].sort(
+      (a, b) => (a.sequence_index ?? 0) - (b.sequence_index ?? 0) || a.id - b.id,
+    );
+    const first = ordered[0];
+    const details = Array.from(new Set(ordered.flatMap((action) => action.details || [])));
+    const title =
+      ordered.length > 1
+        ? isZh
+          ? `${first.title || "待确认操作"}（${ordered.length} 个步骤）`
+          : `${first.title || "Pending action"} (${ordered.length} steps)`
+        : first.title;
+    const description =
+      ordered.length > 1
+        ? isZh
+          ? `这是同一个确认流程中的 ${ordered.length} 个确定性工具动作，确认后将按顺序执行。`
+          : `This approval flow contains ${ordered.length} deterministic tool actions and will run in sequence.`
+        : first.description;
+    return {
+      key,
+      batchId: first.approval_batch_id || undefined,
+      primaryActionId: first.id,
+      title,
+      description,
+      details,
+      actions: ordered,
+    };
+  });
 }
 
 export function ProjectChatMainPanel({
@@ -167,7 +221,7 @@ export function ProjectChatMainPanel({
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [dismissedActionToken, setDismissedActionToken] = useState<string | null>(null);
-  const [confirmingHitasActionIds, setConfirmingHitasActionIds] = useState<Set<number>>(() => new Set());
+  const [confirmingHitasActionKeys, setConfirmingHitasActionKeys] = useState<Set<string>>(() => new Set());
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const localPendingAction = useMemo(
     () => findPendingAction({ messages, streamingToolCalls }),
@@ -179,6 +233,10 @@ export function ProjectChatMainPanel({
       ? pendingAction
       : null;
   const activePendingToolActions = pendingToolActions ?? [];
+  const activePendingToolActionBatches = useMemo(
+    () => groupPendingToolActions(activePendingToolActions, isZh),
+    [activePendingToolActions, isZh],
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -357,7 +415,7 @@ export function ProjectChatMainPanel({
         selectedSkillPanel={
           <>
             {/* HITAS: Server-side persisted pending actions. Keep it as a real modal so reload/new windows cannot hide approval behind the chat input. */}
-            {activePendingToolActions.length > 0 && onConfirmHitasAction ? (
+            {activePendingToolActionBatches.length > 0 && onConfirmHitasAction ? (
               <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/25 px-4 py-5 backdrop-blur-[2px] sm:items-center">
                 <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-2xl">
                   <div className="flex items-start justify-between gap-4 border-b border-amber-100 bg-amber-50 px-5 py-4">
@@ -380,44 +438,57 @@ export function ProjectChatMainPanel({
                   </div>
                   <div className="max-h-[55vh] overflow-y-auto p-5">
                     <div className="space-y-3">
-                      {activePendingToolActions.map((action) => (
-                        <div key={action.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      {activePendingToolActionBatches.map((batch) => {
+                        const primaryAction = batch.actions[0];
+                        const isConfirmingBatch = confirmingHitasActionKeys.has(batch.key);
+                        return (
+                        <div key={batch.key} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
-                              <div className="text-sm font-semibold text-slate-950">{action.title}</div>
-                              <div className="mt-1 text-sm text-slate-600">{action.description}</div>
+                              <div className="text-sm font-semibold text-slate-950">{batch.title}</div>
+                              <div className="mt-1 text-sm text-slate-600">{batch.description}</div>
                             </div>
                             <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-                              {pendingActionBadge(action, isZh)}
+                              {pendingActionBadge(primaryAction, isZh)}
                             </span>
                           </div>
-                          {action.details && action.details.length > 0 ? (
+                          {batch.details.length > 0 ? (
                             <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
-                              {action.details.map((detail, index) => (
+                              {batch.details.map((detail, index) => (
                                 <li key={index} className="py-0.5">
                                   • {detail}
                                 </li>
                               ))}
                             </ul>
                           ) : null}
+                          {batch.actions.length > 1 ? (
+                            <div className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              {isZh
+                                ? "确认会执行同一批次里的全部动作，不会每完成一个动作再弹一次确认。"
+                                : "Approval applies to every action in this batch, so the flow will not ask again after each step."}
+                            </div>
+                          ) : null}
                           <div className="mt-4 flex justify-end gap-2">
                             {onRejectHitasAction ? (
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  if (confirmingHitasActionIds.has(action.id)) return;
-                                  setConfirmingHitasActionIds((current) => new Set(current).add(action.id));
+                                  if (isConfirmingBatch) return;
+                                  setConfirmingHitasActionKeys((current) => new Set(current).add(batch.key));
                                   try {
-                                    await onRejectHitasAction(action.id);
+                                    await onRejectHitasAction({
+                                      actionId: batch.primaryActionId,
+                                      batchId: batch.batchId,
+                                    });
                                   } finally {
-                                    setConfirmingHitasActionIds((current) => {
+                                    setConfirmingHitasActionKeys((current) => {
                                       const next = new Set(current);
-                                      next.delete(action.id);
+                                      next.delete(batch.key);
                                       return next;
                                     });
                                   }
                                 }}
-                                disabled={confirmingHitasActionIds.has(action.id)}
+                                disabled={isConfirmingBatch}
                                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {isZh ? "取消" : "Cancel"}
@@ -426,35 +497,39 @@ export function ProjectChatMainPanel({
                             <button
                               type="button"
                               onClick={async () => {
-                                if (confirmingHitasActionIds.has(action.id)) return;
-                                setConfirmingHitasActionIds((current) => new Set(current).add(action.id));
+                                if (isConfirmingBatch) return;
+                                setConfirmingHitasActionKeys((current) => new Set(current).add(batch.key));
                                 try {
-                                  await onConfirmHitasAction(action.id);
+                                  await onConfirmHitasAction({
+                                    actionId: batch.primaryActionId,
+                                    batchId: batch.batchId,
+                                  });
                                 } finally {
-                                  setConfirmingHitasActionIds((current) => {
+                                  setConfirmingHitasActionKeys((current) => {
                                     const next = new Set(current);
-                                    next.delete(action.id);
+                                    next.delete(batch.key);
                                     return next;
                                   });
                                 }
                               }}
-                              disabled={confirmingHitasActionIds.has(action.id)}
+                              disabled={isConfirmingBatch}
                               className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {confirmingHitasActionIds.has(action.id)
+                              {isConfirmingBatch
                                 ? isZh ? "执行中..." : "Running..."
                                 : isZh ? "确认并执行" : "Confirm and run"}
                             </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
               </div>
             ) : null}
             {/* Legacy token-based confirmation flow (fallback) */}
-            {visiblePendingAction && onConfirmToolAction && activePendingToolActions.length === 0 ? (
+            {visiblePendingAction && onConfirmToolAction && activePendingToolActionBatches.length === 0 ? (
               <ProjectChatActionPreviewPanel
                 action={visiblePendingAction}
                 isConfirming={isLoading}

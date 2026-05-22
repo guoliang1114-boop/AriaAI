@@ -79,6 +79,48 @@ def test_latest_pending_action_ignores_consumed_token():
     assert action is None
 
 
+def test_latest_pending_action_ignores_hitas_batch_result():
+    token = "tool:manage_project_files:delete:abc123"
+    action = _latest_pending_action(
+        [
+            _message("user", "现在空间里面有特别多的垃圾文件，清除"),
+            _message(
+                "assistant",
+                "确认执行吗？",
+                {
+                    "pending_tool_confirmations": [
+                        {
+                            "confirmation_token": token,
+                            "tool_name": "manage_project_files",
+                            "tool_input": {"action": "delete", "file_ids": [130, 131]},
+                        }
+                    ],
+                    "tool_calls": [
+                        {
+                            "tool_name": "manage_project_files",
+                            "status": "confirmation_required",
+                            "confirmation_token": token,
+                        }
+                    ],
+                },
+            ),
+            _message(
+                "assistant",
+                "已执行。",
+                {
+                    "tool_action_batch_result": {
+                        "approval_batch_id": "hitas-1",
+                        "pending_action_ids": [1],
+                        "status": "completed",
+                    }
+                },
+            ),
+        ]
+    )
+
+    assert action is None
+
+
 def test_cleanup_request_builds_deterministic_delete_confirmation():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)

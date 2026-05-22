@@ -53,11 +53,14 @@ def _confirmation_call(metadata: dict, item: dict) -> dict:
 
 def _latest_pending_action(messages: list) -> PendingChatActionOut | None:
     resolved_tokens: set[str] = set()
+    latest_tool_action_result_index = -1
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
         if getattr(message, "role", "") != "assistant":
             continue
         metadata = _json_loads(getattr(message, "metadata_json", "{}"))
+        if metadata.get("tool_action_result") or metadata.get("tool_action_batch_result"):
+            latest_tool_action_result_index = max(latest_tool_action_result_index, index)
         for token in metadata.get("resolved_action_confirmations") or []:
             if token:
                 resolved_tokens.add(str(token))
@@ -69,6 +72,8 @@ def _latest_pending_action(messages: list) -> PendingChatActionOut | None:
                 continue
             token = str(item.get("confirmation_token") or "")
             if not token or token in resolved_tokens:
+                continue
+            if latest_tool_action_result_index > index:
                 continue
             source_content = ""
             for previous in range(index - 1, -1, -1):
@@ -96,7 +101,7 @@ def _synthesized_pending_action(session: Session, messages: list, *, project_id:
         if getattr(message, "role", "") != "assistant":
             continue
         metadata = _json_loads(getattr(message, "metadata_json", "{}"))
-        if metadata.get("resolved_action_confirmations"):
+        if metadata.get("resolved_action_confirmations") or metadata.get("tool_action_result") or metadata.get("tool_action_batch_result"):
             latest_resolved_index = index
     for index in range(len(messages) - 1, -1, -1):
         if index < latest_resolved_index:

@@ -183,7 +183,9 @@ export function ProjectChatTab({
     refreshPendingAction,
     clearPendingAction,
     confirmToolAction,
+    confirmToolActionBatch,
     rejectToolAction,
+    rejectToolActionBatch,
     createConversation,
     deleteConversation,
     renameConversation,
@@ -1033,9 +1035,9 @@ export function ProjectChatTab({
                 if (activeConvId) void refreshPendingAction(activeConvId);
               });
             }}
-            onConfirmHitasAction={async (actionId) => {
+            onConfirmHitasAction={async ({ actionId, batchId }) => {
               try {
-                const result = await confirmToolAction(actionId);
+                const result = batchId ? await confirmToolActionBatch(batchId) : await confirmToolAction(actionId);
                 if (result?.status === "completed") {
                   toast.success(isZh ? "操作已执行" : "Action completed");
                 } else if (result?.status === "failed") {
@@ -1052,9 +1054,13 @@ export function ProjectChatTab({
                 throw error;
               }
             }}
-            onRejectHitasAction={async (actionId) => {
+            onRejectHitasAction={async ({ actionId, batchId }) => {
               try {
-                await rejectToolAction(actionId);
+                if (batchId) {
+                  await rejectToolActionBatch(batchId);
+                } else {
+                  await rejectToolAction(actionId);
+                }
                 toast.success(isZh ? "已取消该操作" : "Action cancelled");
                 if (activeConvId) {
                   void fetchMessages(activeConvId);

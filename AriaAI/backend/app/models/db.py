@@ -308,6 +308,8 @@ class PendingToolAction(SQLModel, table=True):
     risk_level: str = "medium"  # low | medium | high | destructive
     policy_at_creation: str = ""
     tool_input_hash: str = ""
+    approval_batch_id: str = Field(default="", index=True)
+    sequence_index: int = 0
     title: str = ""             # UI title
     description: str = ""       # UI description
     details_json: str = "[]"    # JSON list of detail strings
@@ -340,6 +342,8 @@ class PendingToolAction(SQLModel, table=True):
             "risk_level": self.risk_level,
             "policy_at_creation": self.policy_at_creation,
             "tool_input_hash": self.tool_input_hash,
+            "approval_batch_id": self.approval_batch_id,
+            "sequence_index": self.sequence_index,
             "title": self.title,
             "description": self.description,
             "details": parse_json(self.details_json, []),

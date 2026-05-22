@@ -148,6 +148,22 @@ export function useProjectChatConversations({
     }
   };
 
+  const confirmToolActionBatch = async (batchId: string) => {
+    try {
+      const result = await api.post<{ status: string; result?: Record<string, unknown>; error_message?: string }>(
+        `/chat/actions/batches/${encodeURIComponent(batchId)}/confirm`,
+        { approved: true },
+      );
+      if (activeConvId) {
+        void fetchPendingToolActions(activeConvId);
+      }
+      return result;
+    } catch (error) {
+      console.error("Failed to confirm tool action batch:", error);
+      throw error;
+    }
+  };
+
   const rejectToolAction = async (actionId: number) => {
     try {
       await api.post(`/chat/actions/${actionId}/reject`, { approved: false });
@@ -156,6 +172,18 @@ export function useProjectChatConversations({
       }
     } catch (error) {
       console.error("Failed to reject tool action:", error);
+      throw error;
+    }
+  };
+
+  const rejectToolActionBatch = async (batchId: string) => {
+    try {
+      await api.post(`/chat/actions/batches/${encodeURIComponent(batchId)}/reject`, { approved: false });
+      if (activeConvId) {
+        void fetchPendingToolActions(activeConvId);
+      }
+    } catch (error) {
+      console.error("Failed to reject tool action batch:", error);
       throw error;
     }
   };
@@ -263,7 +291,9 @@ export function useProjectChatConversations({
     clearPendingAction,
     fetchPendingToolActions,
     confirmToolAction,
+    confirmToolActionBatch,
     rejectToolAction,
+    rejectToolActionBatch,
     createConversation,
     deleteConversation,
     renameConversation,

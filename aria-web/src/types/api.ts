@@ -747,6 +747,10 @@ export interface PendingToolAction {
   tool_input: Record<string, unknown>
   action_type: string
   risk_level?: string
+  policy_at_creation?: string
+  tool_input_hash?: string
+  approval_batch_id?: string
+  sequence_index?: number
   title: string
   description: string
   details: string[]

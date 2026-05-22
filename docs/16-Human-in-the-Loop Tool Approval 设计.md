@@ -1,6 +1,6 @@
 # Human-in-the-Loop Tool Approval System (HITAS)
 
-> 当前实现版本：v1.2，2026-05-23。
+> 当前实现版本：v1.3，2026-05-23。
 > 目标：把项目对话里的高风险工具调用，从“LLM 重放确认”升级为“服务端持久化 + 用户确认 + 确定性执行”。
 
 ---
@@ -24,6 +24,7 @@ HITAS 的核心改变是：**确认前冻结工具名和工具参数；确认后
 | 原则 | 说明 |
 |---|---|
 | 服务端持久化 | 待确认动作写入 `PendingToolAction`，刷新页面、新窗口、SSE 中断后仍可恢复 |
+| 批次级审批 | 同一轮对话产生的一组高风险工具动作共享 `approval_batch_id`，前端只展示一次确认 |
 | 确定性执行 | Confirm 只执行数据库里的 `tool_name + tool_input_json`，不重新规划 |
 | 默认安全 | 所有 HITAS 端点必须认证；非管理员必须是项目成员 |
 | 幂等执行 | 重复点击 Confirm 不重复执行工具；已完成动作返回已有状态 |
@@ -57,13 +58,13 @@ P4 持久化 PendingToolAction(status=pending)
   ↓
 用户 Confirm
   ↓
-POST /chat/actions/{id}/confirm
+POST /chat/actions/batches/{batch_id}/confirm
   ↓
-后端原子 claim: pending → executing
+后端按批次原子 claim: pending → executing
   ↓
-关闭请求 session，执行冻结工具参数
+关闭请求 session，按 sequence_index 顺序执行冻结工具参数
   ↓
-新 session 写回 completed / failed + assistant 结果消息
+新 session 写回 completed / failed + 一条 assistant 汇总结果消息
   ↓
 前端刷新消息和 pending actions
 ```
@@ -73,9 +74,9 @@ POST /chat/actions/{id}/confirm
 ```text
 用户 Reject
   ↓
-POST /chat/actions/{id}/reject
+POST /chat/actions/batches/{batch_id}/reject
   ↓
-pending → rejected，写 confirmed_by_user_id / confirmed_at / reason + assistant 结果消息
+批次内 pending → rejected，写 confirmed_by_user_id / confirmed_at / reason + assistant 汇总结果消息
 ```
 
 ---
@@ -99,6 +100,8 @@ class PendingToolAction(SQLModel, table=True):
     risk_level: str = "medium"
     policy_at_creation: str = ""
     tool_input_hash: str = ""
+    approval_batch_id: str = Field(default="", index=True)
+    sequence_index: int = 0
     title: str = ""
     description: str = ""
     details_json: str = "[]"
@@ -118,6 +121,7 @@ class PendingToolAction(SQLModel, table=True):
 ```text
 AriaAI/backend/alembic/versions/012_v1_12_pending_tool_actions.py
 AriaAI/backend/alembic/versions/013_v1_13_hitas_governance_fields.py
+AriaAI/backend/alembic/versions/014_v1_14_hitas_approval_batches.py
 ```
 
 部署要求：
@@ -160,6 +164,10 @@ GET /chat/conversations/{conversation_id}/pending-actions
       "tool_name": "manage_project_files",
       "tool_input": {"action": "delete", "file_ids": [130, 131]},
       "action_type": "delete_files",
+      "risk_level": "destructive",
+      "tool_input_hash": "b4f...",
+      "approval_batch_id": "hitas-123-abc",
+      "sequence_index": 0,
       "title": "确认删除项目文件",
       "description": "即将删除 2 个项目空间中的文件。此操作不可撤销。",
       "details": ["待删除文件 ID：130, 131"],
@@ -179,27 +187,37 @@ POST /chat/actions/{action_id}/confirm
 Body: {"approved": true}
 ```
 
+兼容说明：如果 action 带 `approval_batch_id`，该端点会委托到批次 confirm，执行同一批次里的全部 pending actions。新前端优先调用批次端点：
+
+```http
+POST /chat/actions/batches/{batch_id}/confirm
+Body: {"approved": true}
+```
+
 认证：必须登录。
 授权：管理员或 action 所属项目成员。
 行为：
 
 - `approved=false` 不在 confirm 端点处理，返回 400；拒绝必须走 `/reject`。
-- 非 pending action 直接返回已有状态，保证幂等。
+- 非 pending action / batch 直接返回已有状态，保证幂等。
 - 过期 action 标记为 `failed` 并返回 400。
 - `tool_input_json` 必须是 JSON object，否则 fail closed。
 - 如果 action 绑定项目，`tool_input_json.project_id` 必须存在并与 action 项目一致，否则 fail closed。
 - 普通项目成员必须是 `owner/editor`；`viewer` 无权确认修改或删除动作。
 - 使用 `UPDATE ... WHERE status='pending'` 原子 claim，防止双击/并发重复执行。
 - claim 后关闭当前 session，工具执行完成后再新开 session 写结果。
+- 批次 confirm 按 `sequence_index` 顺序执行，每个工具结果写回各自 action；对话中写入一条 `tool_action_batch_result` 汇总消息。
 
 响应：
 
 ```json
 {
   "status": "completed",
-  "result": {"success": true, "output": {"message": "删除完成"}},
+  "result": {"success": true, "completed_count": 1, "failed_count": 0, "actions": []},
   "error_message": null,
-  "message_id": 789
+  "message_id": 789,
+  "approval_batch_id": "hitas-123-abc",
+  "action_ids": [1]
 }
 ```
 
@@ -220,11 +238,18 @@ POST /chat/actions/{action_id}/reject
 Body: {"approved": false, "reason": "不需要了"}
 ```
 
+新前端优先调用：
+
+```http
+POST /chat/actions/batches/{batch_id}/reject
+Body: {"approved": false, "reason": "不需要了"}
+```
+
 行为：
 
-- pending → rejected。
+- 单个 action 或批次内 pending actions → rejected。
 - 写 `confirmed_by_user_id`、`confirmed_at` 和可选 reason。
-- 写 `result_json` 和 assistant 消息，确保对话里留下“已取消”的可审计痕迹。
+- 写 `result_json` 和 assistant 汇总消息，确保对话里留下“已取消”的可审计痕迹。
 - 非 pending action 返回已有状态，保证幂等。
 
 ### 5.4 获取单个动作
@@ -285,9 +310,12 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 - `status = pending`
 - `expires_at = utc_now_naive() + 24h`
 - `risk_level`、`policy_at_creation`、`tool_input_hash`
+- 同一轮 `state.pending_tool_actions` 共享 `approval_batch_id`
+- `sequence_index` 记录批次内执行顺序
+- 持久化前按 `conversation_id + tool_name + tool_input_hash + status=pending` 去重，避免刷新/重试产生重复确认
 - 先创建 action，再持久化 assistant message
 - assistant message 创建后，把 `message_id` 回填到 pending action
-- message metadata 写入 `pending_action_ids`
+- message metadata 写入 `pending_action_ids` 和 `pending_action_batch_id`
 
 ### 6.5 Direct Action Executor
 
@@ -322,6 +350,8 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 
 - `fetchPendingToolActions(conversationId)` 调用 `/pending-actions`。
 - 切换对话、拉取消息、确认/拒绝后都会刷新 pending actions。
+- `confirmToolActionBatch(batchId)` 调用 `/chat/actions/batches/{batch_id}/confirm`。
+- `rejectToolActionBatch(batchId)` 调用 `/chat/actions/batches/{batch_id}/reject`。
 - confirm/reject 失败会向上抛错，由页面层 toast。
 
 ### 7.2 UI
@@ -330,7 +360,9 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 
 - HITAS 面板优先于 legacy token panel。
 - 使用固定定位全局 modal，避免被聊天输入框或滚动容器遮住。
-- 每个 action 有独立 loading/disabled 状态，防重复点击。
+- UI 按 `approval_batch_id` 聚合，同一流程只展示一个 Action Preview。
+- 老数据没有 `approval_batch_id` 时，前端按 `tool_name + action_type + tool_input_hash` 兼容聚合。
+- 每个批次有独立 loading/disabled 状态，防重复点击。
 
 文件：`aria-web/src/pages/projects/ProjectChatTab.tsx`
 
@@ -347,6 +379,8 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 - 需要“重新生成 preview”的 legacy 场景
 
 当 `pendingToolActions.length > 0` 时，HITAS modal 优先展示，legacy panel 不展示。
+
+HITAS 结果消息包含 `tool_action_batch_result`。legacy fallback 在看到 `tool_action_result` 或 `tool_action_batch_result` 后，不再重新合成旧 token 确认，避免“执行后又弹确认”的回环。
 
 ---
 
@@ -407,6 +441,9 @@ AriaAI/backend/tests/test_chat_actions.py
 覆盖：
 
 - HITAS 路由没有 `/chat/chat` 双前缀。
+- action-id confirm 对带 `approval_batch_id` 的记录会委托到批次 confirm。
+- 批次 confirm 会按顺序执行批次内全部 frozen actions，且只写一条汇总消息。
+- 前端按批次聚合 pending actions；legacy 重复 pending action 按 hash 聚合。
 - confirm 幂等，只执行一次。
 - 非项目成员无法 confirm。
 - `viewer` 成员无法 confirm destructive action。

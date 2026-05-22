@@ -13,8 +13,8 @@ from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import update
-from sqlmodel import Session
+from sqlalchemy import or_, update
+from sqlmodel import Session, select
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.artifact_intent import ArtifactContract
@@ -81,6 +81,16 @@ def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] |
 def _hash_tool_input(tool_input: dict) -> str:
     normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _approval_batch_id(runtime: ChatRuntime, action_payloads: list[dict]) -> str:
+    parts: list[str] = []
+    for payload in action_payloads:
+        tool_name = str(payload.get("tool_name") or "")
+        tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+        parts.append(f"{tool_name}:{_hash_tool_input(tool_input)}")
+    source = f"{runtime.conv_id}:{getattr(runtime, 'trace_id', '')}:{'|'.join(parts)}"
+    return f"hitas-{runtime.conv_id}-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _risk_level_for_action(action_payload: dict) -> str:
@@ -264,20 +274,65 @@ async def run_p4_persist(
 
     # ── HITAS: Persist pending tool actions to database ──
     pending_action_ids: list[int] = []
+    pending_action_batch_ids: list[str] = []
     if state.pending_tool_actions:
         with Session(bind) as session:
-            for action_payload in state.pending_tool_actions:
+            batch_id = _approval_batch_id(runtime, state.pending_tool_actions)
+            seen_pending_ids: set[int] = set()
+            now = utc_now_naive()
+            for sequence_index, action_payload in enumerate(state.pending_tool_actions):
                 try:
+                    tool_name = str(action_payload.get("tool_name") or "")
+                    tool_input = action_payload.get("tool_input") if isinstance(action_payload.get("tool_input"), dict) else {}
+                    tool_input_hash = _hash_tool_input(tool_input)
+                    tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
+                    existing = session.exec(
+                        select(PendingToolAction)
+                        .where(PendingToolAction.conversation_id == runtime.conv_id)
+                        .where(PendingToolAction.tool_name == tool_name)
+                        .where(
+                            or_(
+                                PendingToolAction.tool_input_hash == tool_input_hash,
+                                (PendingToolAction.tool_input_hash == "") & (PendingToolAction.tool_input_json == tool_input_json),
+                            )
+                        )
+                        .where(PendingToolAction.status == "pending")
+                        .order_by(PendingToolAction.created_at.desc(), PendingToolAction.id.desc())
+                    ).first()
+                    if existing and existing.expires_at and existing.expires_at < now:
+                        existing.status = "failed"
+                        existing.error_message = "Action expired"
+                        session.add(existing)
+                        session.commit()
+                        existing = None
+                    if existing:
+                        if not existing.tool_input_hash:
+                            existing.tool_input_hash = tool_input_hash
+                        if not existing.approval_batch_id:
+                            existing.approval_batch_id = batch_id
+                        existing.sequence_index = sequence_index
+                        session.add(existing)
+                        session.commit()
+                        if existing.id and existing.id not in seen_pending_ids:
+                            seen_pending_ids.add(existing.id)
+                            pending_action_ids.append(existing.id)
+                            action_payload["pending_action_id"] = existing.id
+                            action_payload["approval_batch_id"] = existing.approval_batch_id or batch_id
+                            pending_action_batch_ids.append(action_payload["approval_batch_id"])
+                        continue
+
                     db_action = PendingToolAction(
                         trace_id=str(getattr(runtime, "trace_id", "") or f"conv-{runtime.conv_id}"),
                         conversation_id=runtime.conv_id,
                         project_id=runtime.project_id,
-                        tool_name=action_payload.get("tool_name", ""),
-                        tool_input_json=json.dumps(action_payload.get("tool_input", {}), ensure_ascii=False, default=str),
+                        tool_name=tool_name,
+                        tool_input_json=tool_input_json,
                         action_type=action_payload.get("action_type", ""),
                         risk_level=action_payload.get("risk_level") or _risk_level_for_action(action_payload),
                         policy_at_creation=str(getattr(runtime.action_policy, "value", runtime.action_policy) or ""),
-                        tool_input_hash=_hash_tool_input(action_payload.get("tool_input", {})),
+                        tool_input_hash=tool_input_hash,
+                        approval_batch_id=str(action_payload.get("approval_batch_id") or batch_id),
+                        sequence_index=sequence_index,
                         title=action_payload.get("title", "待确认的操作"),
                         description=action_payload.get("description", ""),
                         details_json=json.dumps(action_payload.get("details", []), ensure_ascii=False, default=str),
@@ -288,9 +343,12 @@ async def run_p4_persist(
                     session.commit()
                     session.refresh(db_action)
                     if db_action.id:
+                        seen_pending_ids.add(db_action.id)
                         pending_action_ids.append(db_action.id)
                         # Update payload with DB id for metadata reference
                         action_payload["pending_action_id"] = db_action.id
+                        action_payload["approval_batch_id"] = db_action.approval_batch_id
+                        pending_action_batch_ids.append(db_action.approval_batch_id)
                 except Exception as exc:
                     logger.warning("[P4] failed to persist pending tool action: %s", exc)
 
@@ -302,6 +360,11 @@ async def run_p4_persist(
         metadata["tool_calls"] = state.tool_call_events
     if pending_action_ids:
         metadata["pending_action_ids"] = pending_action_ids
+        unique_batch_ids = list(dict.fromkeys(batch_id for batch_id in pending_action_batch_ids if batch_id))
+        if len(unique_batch_ids) == 1:
+            metadata["pending_action_batch_id"] = unique_batch_ids[0]
+        elif unique_batch_ids:
+            metadata["pending_action_batch_ids"] = unique_batch_ids
     if state.pending_tool_confirmations:
         metadata["pending_tool_confirmations"] = state.pending_tool_confirmations
     if req.action_confirmations:

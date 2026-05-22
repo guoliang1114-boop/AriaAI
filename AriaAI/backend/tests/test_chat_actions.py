@@ -47,6 +47,8 @@ def test_hitas_routes_are_registered_once_under_chat_prefix():
     assert "/chat/conversations/{conversation_id}/pending-actions" in paths
     assert "/chat/actions/{action_id}/confirm" in paths
     assert "/chat/actions/{action_id}/reject" in paths
+    assert "/chat/actions/batches/{batch_id}/confirm" in paths
+    assert "/chat/actions/batches/{batch_id}/reject" in paths
     assert not any(path.startswith("/chat/chat/") for path in paths)
 
 
@@ -86,6 +88,62 @@ def test_confirm_action_executes_once_and_writes_result_message(monkeypatch):
     assert len(messages) == 1
     assert "已执行：删除项目文件" in messages[0].content
     assert "删除完成" in messages[0].content
+
+
+def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
+    session = _session()
+    conversation = _conversation(session)
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        calls.append((tool_name, tool_input))
+        return {"success": True, "output": {"message": f"{tool_input['step']} 完成"}}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    batch_id = "hitas-test-batch"
+    a1 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=0,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "archive", "step": "first"}),
+        action_type="modify_files",
+        title="归档文件",
+        description="",
+    )
+    a2 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=1,
+        tool_name="manage_project_folders",
+        tool_input_json=json.dumps({"action": "delete_empty", "step": "second"}),
+        action_type="delete_folders",
+        title="删除空文件夹",
+        description="",
+    )
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+    session.refresh(a1)
+    conversation_id = conversation.id
+
+    user = _admin(session)
+    result = asyncio.run(chat_actions.confirm_action(a1.id, ConfirmActionRequest(), session, user))
+
+    assert result.status == "completed"
+    assert result.approval_batch_id == batch_id
+    assert calls == [
+        ("manage_project_files", {"action": "archive", "step": "first"}),
+        ("manage_project_folders", {"action": "delete_empty", "step": "second"}),
+    ]
+    with Session(session.get_bind()) as check:
+        stored = check.exec(select(PendingToolAction).where(PendingToolAction.approval_batch_id == batch_id)).all()
+        assert {item.status for item in stored} == {"completed"}
+        messages = check.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
+        assert len(messages) == 1
+        assert "本次确认流程" in messages[0].content
+        metadata = json.loads(messages[0].metadata_json or "{}")
+        assert metadata["tool_action_batch_result"]["approval_batch_id"] == batch_id
 
 
 def test_confirm_action_fails_closed_on_invalid_stored_tool_input(monkeypatch):
