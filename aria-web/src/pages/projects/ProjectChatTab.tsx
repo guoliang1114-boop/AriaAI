@@ -1034,16 +1034,26 @@ export function ProjectChatTab({
               });
             }}
             onConfirmHitasAction={async (actionId) => {
-              const result = await confirmToolAction(actionId);
-              if (activeConvId) {
-                void fetchMessages(activeConvId);
+              try {
+                const result = await confirmToolAction(actionId);
+                if (activeConvId) {
+                  void fetchMessages(activeConvId);
+                }
+                return result;
+              } catch (error) {
+                toast.error(isZh ? "确认执行失败，请稍后重试" : "Failed to confirm action. Please try again.");
+                throw error;
               }
-              return result;
             }}
             onRejectHitasAction={async (actionId) => {
-              await rejectToolAction(actionId);
-              if (activeConvId) {
-                void fetchMessages(activeConvId);
+              try {
+                await rejectToolAction(actionId);
+                if (activeConvId) {
+                  void fetchMessages(activeConvId);
+                }
+              } catch (error) {
+                toast.error(isZh ? "取消操作失败，请稍后重试" : "Failed to cancel action. Please try again.");
+                throw error;
               }
             }}
             pendingToolActions={pendingToolActions}

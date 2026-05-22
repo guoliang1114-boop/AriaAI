@@ -27,6 +27,7 @@ from app.services.chat_artifacts import (
 )
 from app.services.chat.state import ChatSessionState
 from app.services.chat.pending_actions import tool_confirmation_token
+from app.services.chat.phases.p2_tools import _build_pending_action_payload
 from app.services.chat.sse import sse_event, iter_with_heartbeat
 from app.services.chat.truncation import strip_truncation_marker
 from app.services.chat.tool_repair import extract_tool_use_json_blocks
@@ -416,6 +417,9 @@ async def run_p3_followup(
                         "details": confirmation_details,
                     }
                 )
+                hitas_action = _build_pending_action_payload(tool_name, tool_input, confirmation_details, confirmation_token)
+                if hitas_action:
+                    state.pending_tool_actions.append(hitas_action)
                 state.pending_tool_confirmations.append(
                     {
                         "confirmation_token": confirmation_token,

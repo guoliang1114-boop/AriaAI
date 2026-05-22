@@ -156,6 +156,7 @@ export function useProjectChatConversations({
       }
     } catch (error) {
       console.error("Failed to reject tool action:", error);
+      throw error;
     }
   };
 

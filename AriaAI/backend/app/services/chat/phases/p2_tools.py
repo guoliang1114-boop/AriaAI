@@ -122,7 +122,15 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "tool_input": tool_input,
             "confirmation_token": token,
         }
-    return None
+    return {
+        "action_type": "tool_action_requires_confirmation",
+        "title": f"确认执行 {tool_name}",
+        "description": "该操作会修改项目内容或执行高风险动作，确认后将按已保存的工具参数执行。",
+        "details": details,
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "confirmation_token": token,
+    }
 
 
 def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:

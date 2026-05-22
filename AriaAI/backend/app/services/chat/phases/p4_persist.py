@@ -103,6 +103,17 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
     details = pending.get("details") if isinstance(pending.get("details"), list) else []
     summary = str(pending.get("summary") or "需要用户确认后才能删除项目空间中的文件。")
     state.pending_tool_confirmations.append(pending)
+    state.pending_tool_actions.append(
+        {
+            "action_type": "delete_files",
+            "title": "确认删除项目文件",
+            "description": str(pending.get("summary") or "即将删除项目空间中的文件。此操作不可撤销。"),
+            "details": details,
+            "tool_name": MANAGE_PROJECT_FILES_TOOL_NAME,
+            "tool_input": pending.get("tool_input") if isinstance(pending.get("tool_input"), dict) else {},
+            "confirmation_token": confirmation_token,
+        }
+    )
     state.tool_call_events.append(
         {
             "tool_name": MANAGE_PROJECT_FILES_TOOL_NAME,
