@@ -902,7 +902,7 @@ export interface StreamEvent {
   step_index?: number
   step_total?: number
   step_title?: string
-  step_status?: 'pending' | 'running' | 'completed' | 'error'
+  step_status?: ToolCallEvent['status']
   total?: number
   current?: number
   result?: Record<string, unknown>

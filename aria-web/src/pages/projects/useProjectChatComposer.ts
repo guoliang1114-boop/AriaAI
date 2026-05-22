@@ -86,6 +86,14 @@ function buildArtifactFallbackContent(artifacts: GeneratedArtifact[], isZh = tru
     : "Generated an attachment. You can open or download it from the file card in this reply.";
 }
 
+function clearStandaloneRunningTools(calls: ToolCallEvent[], toolName?: string) {
+  return calls.filter((call) => {
+    if (call.step_index !== undefined && call.step_index !== null) return true;
+    if (call.status !== "running") return true;
+    return toolName ? call.tool_name !== toolName : false;
+  });
+}
+
 type UseProjectChatComposerParams = {
   projectId: number;
   activeConvId: number | null;
@@ -352,7 +360,7 @@ export function useProjectChatComposer({
               );
               if (hasActiveWorkflowStep && resultStatus === "confirmation_required") {
                 collectedToolCalls = attachToolDetailToActiveStep(
-                  collectedToolCalls,
+                  clearStandaloneRunningTools(collectedToolCalls),
                   resultSummary || `工具 ${toolName} 等待确认`,
                   "confirmation_required",
                   {
@@ -366,7 +374,11 @@ export function useProjectChatComposer({
                   resultStatus === "error"
                     ? `工具 ${toolName} 执行失败${completedCall.error ? `：${completedCall.error}` : ""}`
                     : `工具 ${toolName} 执行完成${resultSummary ? `：${resultSummary}` : ""}`;
-                collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, detail, resultStatus === "error" ? "error" : undefined);
+                collectedToolCalls = attachToolDetailToActiveStep(
+                  clearStandaloneRunningTools(collectedToolCalls, toolName),
+                  detail,
+                  resultStatus === "error" ? "error" : undefined,
+                );
               } else {
                 collectedToolCalls = [
                   ...collectedToolCalls.filter((call) => call.tool_name !== toolName || call.status !== "running"),
@@ -404,6 +416,11 @@ export function useProjectChatComposer({
           if (done) break;
         }
 
+        const hasWorkflowSteps = collectedToolCalls.some((call) => call.step_index !== undefined && call.step_index !== null);
+        if (hasWorkflowSteps) {
+          collectedToolCalls = clearStandaloneRunningTools(collectedToolCalls);
+          setStreamToolCalls(collectedToolCalls);
+        }
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
         const isTruncated = wasTruncated;
         resetStream();
