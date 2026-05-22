@@ -353,6 +353,7 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 - 当前实现不使用持久化 `confirmed` 中间态；确认后直接 claim 为 `executing`。
 - 已终态 action 再次 confirm/reject，返回已有状态，不重复执行。
 - 过期 pending 会转为 `failed`。
+- 超时 `executing` 会由 reaper 转为 `failed`，错误信息标记为“执行状态未知，需人工核查”，不会自动重试 destructive action。
 
 ---
 
@@ -389,6 +390,8 @@ AriaAI/backend/tests/test_chat_actions.py
 - 并发 confirm 不重复执行。
 - 工具抛异常后 action 持久化为 failed。
 - 非 object 的 `tool_input_json` fail closed。
+- stale `executing` reaper 只标记 failed/unknown，不自动重试。
+- API 级 cleanup HITAS 链路：`GET pending-actions → POST confirm → manage_project_files delete → 消息回显`。
 
 建议发布前最小验证：
 
@@ -403,9 +406,54 @@ npm run build
 
 ---
 
-## 11. 已知边界
+## 11. 崩溃恢复与后台 reaper
+
+文件：
+
+```text
+AriaAI/backend/app/services/chat/action_reaper.py
+```
+
+生产环境通过 APScheduler 每 5 分钟执行一次：
+
+```text
+hitas_stale_executing_reaper
+```
+
+行为：
+
+- 扫描 `status = executing` 且 `confirmed_at` 超过 30 分钟的 action。
+- 标记为 `failed`。
+- 写入 `result_json.requires_manual_verification = true`。
+- 写 assistant 消息提示“执行状态未知：请人工核查后再继续”。
+- **不自动重试**。尤其对删除/覆盖类 destructive action，自动重试可能造成二次破坏。
+
+---
+
+## 12. CI 要求
+
+前端测试脚本必须显式指定 Vitest 配置，避免 CI 默认 glob 或工作目录差异：
+
+```json
+{
+  "test": "vitest run --config vitest.config.ts",
+  "test:watch": "vitest --config vitest.config.ts",
+  "test:coverage": "vitest run --config vitest.config.ts --coverage"
+}
+```
+
+GitHub Actions deploy workflow 在 build 后运行：
+
+```bash
+cd aria-web
+npm run test:project-chat
+```
+
+---
+
+## 13. 已知边界
 
 - HITAS 是普通聊天工具确认系统；durable task 的 step-level 确认仍由 task orchestrator 自己管理。
 - `PendingToolAction` 当前没有重试端点。失败后需要用户重新发起请求。
-- 工具执行仍在 HTTP confirm 请求中完成；对特别长的工具，后续可升级为后台 job，但 claim/幂等/授权模型可复用。
+- 工具执行仍在 HTTP confirm 请求中完成；对特别长的工具，后续可升级为后台 job，但 claim/幂等/授权/reaper 模型可复用。
 - Legacy token 流仍保留是为了历史消息兼容，不应作为新确认链路的主路径。

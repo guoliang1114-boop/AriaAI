@@ -41,6 +41,11 @@ jobs:
           npm ci
           npm run build
 
+      - name: Frontend Tests
+        run: |
+          cd aria-web
+          npm run test:project-chat
+
       - name: Frontend Lint
         run: |
           cd aria-web

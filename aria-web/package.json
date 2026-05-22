@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "vitest run --config vitest.config.ts",
+    "test:project-chat": "vitest run --config vitest.config.ts ProjectChatActionPreviewPanel.test.tsx ProjectChatMainPanel.test.tsx useProjectChatConversations.test.ts ProjectChatToolCallCard.test.tsx --run",
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

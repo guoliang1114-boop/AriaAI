@@ -18,6 +18,7 @@ from app.routers import chat, projects, projects_memory, projects_files, project
 from app.routers import auth as auth_router
 from app.routers.auth import seed_admin_user
 from app.services import scheduler
+from app.services.chat.action_reaper import reap_stale_executing_actions_with_engine
 from app.services.chat_store import purge_expired_conversations
 
 # Import tools to register them
@@ -141,6 +142,13 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).info("Purged %s expired conversations.", purged_count)
     if SCHEDULER_ENABLED:
         scheduler.start()
+        scheduler.add_or_replace_interval_job(
+            "hitas_stale_executing_reaper",
+            minutes=5,
+            func=reap_stale_executing_actions_with_engine,
+            args=[engine],
+            metadata={"job_type": "hitas_reaper"},
+        )
     yield
     # Shutdown
     scheduler.shutdown()

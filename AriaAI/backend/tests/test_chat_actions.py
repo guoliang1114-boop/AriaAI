@@ -1,13 +1,21 @@
 import asyncio
 import json
+from datetime import timedelta
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
-from sqlalchemy.pool import StaticPool
 
-from app.models.db import Conversation, Message, PendingToolAction, Project, ProjectMember, User
+from app.database import get_session
+from app.models.db import Conversation, Message, PendingToolAction, Project, ProjectFile, ProjectMember, User
 from app.routers.chat import router as chat_router
 from app.routers import chat_actions
 from app.routers.chat_actions import ConfirmActionRequest
+from app.routers.auth import get_current_user
+from app.services.chat.action_reaper import STALE_EXECUTING_MESSAGE, reap_stale_executing_actions
+from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
+from app.services.time_utils import utc_now_naive
+from app.tools import office_documents
 
 
 def _session():
@@ -241,7 +249,6 @@ def test_expired_action_cannot_be_confirmed():
     conversation = _conversation(session)
     user = _admin(session)
 
-    from datetime import datetime, timedelta
     action = PendingToolAction(
         conversation_id=conversation.id,
         tool_name="manage_project_files",
@@ -249,7 +256,7 @@ def test_expired_action_cannot_be_confirmed():
         action_type="delete_files",
         title="过期操作",
         description="",
-        expires_at=datetime.utcnow() - timedelta(hours=1),
+        expires_at=utc_now_naive() - timedelta(hours=1),
     )
     session.add(action)
     session.commit()
@@ -380,3 +387,172 @@ def test_confirm_action_persists_failure_when_tool_raises(monkeypatch):
         messages = check.exec(select(Message).where(Message.conversation_id == stored.conversation_id)).all()
         assert len(messages) == 1
         assert "disk full" in messages[0].content
+
+
+def test_reaper_marks_stale_executing_action_as_failed_without_retry():
+    session = _session()
+    conversation = _conversation(session)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "delete", "file_ids": [1]}),
+        action_type="delete_files",
+        title="删除项目文件",
+        description="删除重复文件",
+        status="executing",
+        confirmed_at=utc_now_naive() - timedelta(minutes=60),
+    )
+    fresh = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "delete", "file_ids": [2]}),
+        action_type="delete_files",
+        title="仍在执行",
+        description="",
+        status="executing",
+        confirmed_at=utc_now_naive(),
+    )
+    session.add(action)
+    session.add(fresh)
+    session.commit()
+    session.refresh(action)
+    session.refresh(fresh)
+
+    count = reap_stale_executing_actions(session, stale_after_minutes=30)
+
+    assert count == 1
+    session.refresh(action)
+    session.refresh(fresh)
+    assert action.status == "failed"
+    assert action.error_message == STALE_EXECUTING_MESSAGE
+    assert fresh.status == "executing"
+    messages = session.exec(select(Message).where(Message.conversation_id == conversation.id)).all()
+    assert len(messages) == 1
+    assert "人工核查" in messages[0].content
+
+
+def test_cleanup_hitas_api_flow_deletes_file_and_writes_result(monkeypatch, tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'api.db'}", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+
+    with Session(engine) as session:
+        project = Project(name="Client Project", client="Client")
+        user = User(email="member@example.com", password_hash="x")
+        session.add(project)
+        session.add(user)
+        session.commit()
+        session.refresh(project)
+        session.refresh(user)
+        session.add(ProjectMember(project_id=project.id, user_id=user.id))
+        conversation = Conversation(title="Cleanup", project_id=project.id)
+        session.add(conversation)
+        session.commit()
+        session.refresh(conversation)
+
+        relative_path = f"projects/{project.id}/duplicate-old.md"
+        kept_relative_path = f"projects/{project.id}/duplicate-new.md"
+        full_path = uploads_dir / relative_path
+        kept_full_path = uploads_dir / kept_relative_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text("duplicate old", encoding="utf-8")
+        kept_full_path.write_text("duplicate new", encoding="utf-8")
+        project_file = ProjectFile(
+            project_id=project.id,
+            name="重复方案.md",
+            file_type="md",
+            path=relative_path,
+            origin="ai_generated",
+        )
+        kept_project_file = ProjectFile(
+            project_id=project.id,
+            name="重复方案.md",
+            file_type="md",
+            path=kept_relative_path,
+            origin="ai_generated",
+        )
+        session.add(project_file)
+        session.add(kept_project_file)
+        session.commit()
+        session.refresh(project_file)
+        session.refresh(kept_project_file)
+        old_file_id = project_file.id
+        new_file_id = kept_project_file.id
+
+        pending = build_project_file_cleanup_pending_action(
+            session,
+            project_id=project.id,
+            user_content="现在空间里面有特别多的垃圾文件，清除",
+            action_policy="destructive_action",
+            require_candidates=False,
+        )
+        assert pending is not None
+        assert pending["can_confirm"] is True
+        assert isinstance(pending["tool_input"], dict)
+        action = PendingToolAction(
+            trace_id=f"conv-{conversation.id}",
+            conversation_id=conversation.id,
+            project_id=project.id,
+            tool_name=str(pending["tool_name"]),
+            tool_input_json=json.dumps(pending["tool_input"], ensure_ascii=False),
+            action_type="delete_files",
+            title="确认删除项目文件",
+            description=str(pending["summary"]),
+            details_json=json.dumps(pending["details"], ensure_ascii=False),
+            status="pending",
+            expires_at=utc_now_naive() + timedelta(hours=24),
+        )
+        session.add(action)
+        session.commit()
+        session.refresh(action)
+        action_id = action.id
+        conversation_id = conversation.id
+        user_id = user.id
+        delete_file_id = pending["tool_input"]["file_ids"][0]
+        keep_file_id = new_file_id if delete_file_id == old_file_id else old_file_id
+        deletes_old_file = delete_file_id == old_file_id
+
+    monkeypatch.setattr(office_documents, "engine", engine)
+    monkeypatch.setattr(office_documents, "UPLOADS_DIR", uploads_dir)
+
+    app = FastAPI()
+    app.include_router(chat_router)
+
+    def override_session():
+        with Session(engine) as session:
+            yield session
+
+    def override_user():
+        with Session(engine) as session:
+            return session.get(User, user_id)
+
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_current_user] = override_user
+
+    client = TestClient(app)
+    listed = client.get(f"/chat/conversations/{conversation_id}/pending-actions")
+    assert listed.status_code == 200
+    assert listed.json()["has_pending"] is True
+    assert listed.json()["items"][0]["id"] == action_id
+
+    confirmed = client.post(f"/chat/actions/{action_id}/confirm", json={"approved": True})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "completed"
+    assert confirmed.json()["message_id"]
+
+    with Session(engine) as session:
+        assert session.get(ProjectFile, delete_file_id) is None
+        assert session.get(ProjectFile, keep_file_id) is not None
+        stored = session.get(PendingToolAction, action_id)
+        assert stored is not None
+        assert stored.status == "completed"
+        messages = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
+        assert len(messages) == 1
+        assert "已执行：确认删除项目文件" in messages[0].content
+    if deletes_old_file:
+        assert not full_path.exists()
+        assert kept_full_path.exists()
+    else:
+        assert full_path.exists()
+        assert not kept_full_path.exists()

@@ -131,6 +131,36 @@ def add_or_replace_date_job(
     )
 
 
+def add_or_replace_interval_job(
+    job_id: str,
+    *,
+    minutes: int,
+    func,
+    args: Optional[list] = None,
+    metadata: Optional[dict] = None,
+) -> None:
+    if not _scheduler.running:
+        return
+
+    args = args or []
+    _job_metadata[job_id] = dict(metadata or {})
+
+    def _run_job():
+        result = func(*args)
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
+
+    _scheduler.add_job(
+        _run_job,
+        trigger=IntervalTrigger(minutes=minutes),
+        id=job_id,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+
 def trigger_now(task) -> None:
     import asyncio
     from app.services.task_runner import run_task
