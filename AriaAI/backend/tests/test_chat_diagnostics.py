@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session
 
-from app.models.db import ChatTrace, Conversation, Message
+from app.models.db import ChatTrace, Conversation, Message, User
 from app.routers import chat as chat_router_module
 from app.routers import chat_diagnostics as chat_diagnostics_router_module
 from app.services import chat_diagnostics as cd
@@ -137,6 +137,13 @@ class ChatTraceDiagnosticsRouteTestCase(unittest.TestCase):
         app = FastAPI()
         app.include_router(chat_router_module.router)
         app.dependency_overrides[chat_diagnostics_router_module.get_session] = override_session
+        app.dependency_overrides[chat_diagnostics_router_module.get_current_user] = lambda: User(
+            id=1,
+            email="admin@example.com",
+            password_hash="x",
+            is_admin=True,
+            is_active=True,
+        )
         self.client = TestClient(app)
 
     def tearDown(self):

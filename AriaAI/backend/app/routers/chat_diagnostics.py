@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from app.database import get_session
 from app.models.db import User
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_schemas import TestConnectionRequest, TestModelRequest
 from app.routers.chat_security import require_conversation_access
 from app.services.chat.trace import get_latest_chat_trace
@@ -17,13 +17,19 @@ router = APIRouter()
 
 
 @router.post("/test-connection")
-async def test_connection(req: TestConnectionRequest):
+async def test_connection(
+    req: TestConnectionRequest,
+    _admin: User = Depends(require_admin),
+):
     """Test API key connectivity for a provider."""
     return await test_provider_connection(req.provider, req.model)
 
 
 @router.post("/test-model")
-async def test_model(req: TestModelRequest):
+async def test_model(
+    req: TestModelRequest,
+    _admin: User = Depends(require_admin),
+):
     """Test a model with a simple message."""
     return await run_model_test(
         message=req.message,

@@ -277,6 +277,39 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(state.p3_truncated)
 
+    async def test_p3_confirmation_token_does_not_bypass_hitas(self):
+        """Legacy confirmation tokens do not execute follow-up tools directly."""
+        tool_input = {"mode": "append", "content": "## 后续行动"}
+        confirmed_input = {**tool_input, "project_id": 1}
+        state = ChatSessionState()
+        state.text_buffer = "已读取现有材料。"
+        state.tool_use_blocks = [{"name": READ_MARKDOWN_TOOL_NAME, "input": {"action": "list"}, "id": "t1"}]
+        state.tool_result_blocks = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+
+        self.runtime.project_id = 1
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = [_tool_confirmation_token(PROJECT_MARKDOWN_TOOL_NAME, confirmed_input)]
+        self.runtime.llm.stream_response = _make_stream([
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "name": PROJECT_MARKDOWN_TOOL_NAME,
+                    "id": "p3-confirm-exact",
+                    "input": tool_input,
+                },
+                ensure_ascii=False,
+            )
+        ])
+
+        with patch("app.services.chat.phases.p3_followup.registry.execute", new=AsyncMock()) as mock_exec:
+            async for _ in run_p3_followup(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
+        self.assertEqual(len(state.pending_tool_actions), 1)
+
     # ------------------------------------------------------------------
     # P4 — Persistence
     # ------------------------------------------------------------------

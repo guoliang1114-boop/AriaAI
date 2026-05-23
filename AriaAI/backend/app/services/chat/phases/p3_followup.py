@@ -61,8 +61,10 @@ def _tool_requires_confirmation(
 ) -> bool:
     if required_policy not in _CONFIRMATION_POLICIES:
         return False
-    confirmations = set(getattr(req, "action_confirmations", []) or [])
-    return tool_confirmation_token(tool_name, tool_input) not in confirmations
+    # P3 may discover additional tool calls after the first tool result.  These
+    # calls must go through the same persisted HITAS approval path as P2; legacy
+    # request tokens are display-only and must never execute tools directly.
+    return True
 
 
 def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:

@@ -11,8 +11,9 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import Conversation, Message, PendingToolAction, ProjectMember, User
+from app.models.db import Conversation, Message, PendingToolAction, User
 from app.routers.auth import get_current_user
+from app.routers.chat_security import require_conversation_access
 from app.services.chat.action_executor import execute_tool_by_name
 from app.services.time_utils import utc_now_naive
 
@@ -618,26 +619,7 @@ def _reject_batch(
 
 
 def _authorize_conversation(session: Session, conversation_id: int, current_user: User) -> Conversation:
-    conversation = session.get(Conversation, conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    if current_user.is_admin:
-        return conversation
-    if conversation.project_id is None:
-        raise HTTPException(status_code=403, detail="Project membership required")
-    member = session.exec(
-        select(ProjectMember).where(
-            ProjectMember.project_id == conversation.project_id,
-            ProjectMember.user_id == current_user.id,
-        )
-    ).first()
-    if member is None:
-        raise HTTPException(status_code=403, detail="Project membership required")
-    return conversation
-
-
-def _member_can_write(member: ProjectMember) -> bool:
-    return (member.role or "editor").lower() in {"owner", "editor"}
+    return require_conversation_access(session, conversation_id, current_user)
 
 
 def _authorize_action(
@@ -647,24 +629,14 @@ def _authorize_action(
     *,
     require_write: bool = False,
 ) -> None:
-    if current_user.is_admin:
-        return
-    project_id = action.project_id
-    if project_id is None:
-        conversation = session.get(Conversation, action.conversation_id)
-        project_id = conversation.project_id if conversation else None
-    if project_id is None:
-        raise HTTPException(status_code=403, detail="Project membership required")
-    member = session.exec(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == current_user.id,
-        )
-    ).first()
-    if member is None:
-        raise HTTPException(status_code=403, detail="Project membership required")
-    if require_write and not _member_can_write(member):
-        raise HTTPException(status_code=403, detail="Project write permission required")
+    conversation = require_conversation_access(
+        session,
+        action.conversation_id,
+        current_user,
+        require_write=require_write,
+    )
+    if action.project_id is not None and conversation.project_id != action.project_id:
+        raise HTTPException(status_code=403, detail="Action project scope mismatch")
 
 
 def _persist_batch_action_results(

@@ -278,6 +278,42 @@ def test_non_project_member_cannot_confirm_action(monkeypatch):
     assert action.status == "pending"
 
 
+def test_standalone_conversation_owner_can_confirm_action(monkeypatch):
+    session = _session()
+    owner = User(email="owner@example.com", password_hash="x")
+    session.add(owner)
+    session.commit()
+    session.refresh(owner)
+    conversation = Conversation(title="Standalone approval", owner_user_id=owner.id)
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "archive", "file_ids": [1]}),
+        action_type="modify_files",
+        title="整理文件",
+        description="",
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    action_id = action.id
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        return {"success": True, "output": {"message": "整理完成"}}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    result = asyncio.run(chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, owner))
+
+    assert result.status == "completed"
+    with Session(session.get_bind()) as check:
+        stored = check.get(PendingToolAction, action_id)
+        assert stored is not None
+        assert stored.status == "completed"
+
+
 def test_viewer_project_member_cannot_confirm_destructive_action(monkeypatch):
     session = _session()
     project = Project(name="Client Project", client="Client")

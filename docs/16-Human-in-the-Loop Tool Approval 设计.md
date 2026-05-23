@@ -316,6 +316,7 @@ P4 将 `state.pending_tool_actions` 写入 `PendingToolAction` 表：
 - 先创建 action，再持久化 assistant message
 - assistant message 创建后，把 `message_id` 回填到 pending action
 - message metadata 写入 `pending_action_ids` 和 `pending_action_batch_id`
+- 如果 pending action 持久化失败，系统 fail closed：清空可确认动作、标记已创建的 pending 为 `failed`、在回复和 Trace 中记录“审批动作保存失败，本次不会执行任何修改或删除”。
 
 ### 6.5 Direct Action Executor
 
@@ -437,15 +438,15 @@ AriaAI/backend/app/routers/chat_security.py
 
 ### 9.2 HITAS 端点授权
 
-HITAS 端点必须满足：
+HITAS 端点复用 `chat_security.py` 的统一会话授权，必须满足：
 
 1. `current_user = Depends(get_current_user)`。
 2. 管理员可访问全部 action。
-3. 普通用户必须是 action 所属项目的 `ProjectMember`。
-4. action 没有 `project_id` 时，从 `conversation.project_id` 回推。
-5. 无法确定项目归属时拒绝访问。
+3. 项目 action 必须通过项目成员关系校验。
+4. standalone action 必须归属于 `Conversation.owner_user_id`。
+5. action.project_id 与 conversation.project_id 不一致时拒绝访问。
 6. Confirm 前校验 `tool_input.project_id == action.project_id`。
-7. 普通成员需要 `owner/editor` 角色才能确认或拒绝修改/删除动作。
+7. 普通项目成员需要 `owner/editor` 角色才能确认或拒绝修改/删除动作。
 
 这是必要约束，因为 confirm 端点会直接执行删除、覆盖等真实工具操作。
 

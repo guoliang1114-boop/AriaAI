@@ -111,7 +111,7 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
     manage_project_files delete action from conservative duplicate/junk-file
     heuristics. The generated action still requires the user to approve it.
     """
-    if state.pending_tool_confirmations or getattr(req, "action_confirmations", None):
+    if state.pending_tool_confirmations:
         return
     with Session(bind) as session:
         pending = build_project_file_cleanup_pending_action(
@@ -275,6 +275,7 @@ async def run_p4_persist(
     # ── HITAS: Persist pending tool actions to database ──
     pending_action_ids: list[int] = []
     pending_action_batch_ids: list[str] = []
+    pending_action_persist_errors: list[str] = []
     if state.pending_tool_actions:
         with Session(bind) as session:
             batch_id = _approval_batch_id(runtime, state.pending_tool_actions)
@@ -350,7 +351,48 @@ async def run_p4_persist(
                         action_payload["approval_batch_id"] = db_action.approval_batch_id
                         pending_action_batch_ids.append(db_action.approval_batch_id)
                 except Exception as exc:
-                    logger.warning("[P4] failed to persist pending tool action: %s", exc)
+                    error_message = str(exc) or exc.__class__.__name__
+                    pending_action_persist_errors.append(error_message)
+                    logger.exception("[P4] failed to persist pending tool action: %s", exc)
+
+    if pending_action_persist_errors:
+        failure_notice = (
+            "审批动作保存失败，本次不会执行任何修改或删除。请重试，或刷新页面后重新生成 Action Preview。"
+        )
+        if pending_action_ids:
+            try:
+                with Session(bind) as session:
+                    session.execute(
+                        update(PendingToolAction)
+                        .where(PendingToolAction.id.in_(pending_action_ids))
+                        .where(PendingToolAction.status == "pending")
+                        .values(status="failed", error_message=failure_notice)
+                    )
+                    session.commit()
+            except Exception as exc:
+                logger.exception("[P4] failed to fail-closed pending tool actions: %s", exc)
+        pending_action_ids = []
+        pending_action_batch_ids = []
+        state.pending_tool_actions = []
+        state.pending_tool_confirmations = []
+        state.tool_call_events.append(
+            {
+                "tool_name": "hitas",
+                "status": "error",
+                "message": failure_notice,
+                "summary": failure_notice,
+                "error": "；".join(pending_action_persist_errors[:3]),
+            }
+        )
+        state.record_trace_event(
+            "pending_action_persist_failed",
+            stage="p4",
+            error_count=len(pending_action_persist_errors),
+            errors=pending_action_persist_errors[:3],
+        )
+        if failure_notice not in full_text:
+            full_text = f"{full_text}\n\n{failure_notice}".strip()
+            yield sse_event({"type": "text", "content": f"\n\n{failure_notice}"})
 
     # Build metadata
     metadata: dict = {}

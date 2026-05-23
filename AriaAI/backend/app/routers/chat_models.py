@@ -10,7 +10,8 @@ from sqlmodel import Session
 
 from app.config import DEFAULT_MODELS, KEYCHAIN_KEY_BIGMODEL, KEYCHAIN_KEY_CLAUDE, KEYCHAIN_KEY_DEEPSEEK, KEYCHAIN_KEY_KIMI, KEYCHAIN_KEY_MIMO
 from app.database import get_session
-from app.models.db import Setting as _Setting
+from app.models.db import Setting as _Setting, User
+from app.routers.auth import get_current_user
 
 router = APIRouter()
 
@@ -67,7 +68,10 @@ def _has_provider_key(session: Session, provider: str) -> bool:
 
 
 @router.get("/models", response_model=List[ChatModelOut])
-def list_chat_models(session: Session = Depends(get_session)):
+def list_chat_models(
+    session: Session = Depends(get_session),
+    _current_user: User = Depends(get_current_user),
+):
     """Return available LLM models for chat, with availability status."""
     results: list[ChatModelOut] = []
     for provider, default_model in DEFAULT_MODELS.items():
