@@ -45,6 +45,7 @@ type ServiceLine = {
   categories: SkillCategory[];
   count: number;
   tone: string;
+  previewSkills: SkillSummary[];
 };
 
 const SKILLS_PAGE_SIZE = 12;
@@ -281,9 +282,14 @@ const getCategoryLabel = (category: string, isZh: boolean) => {
   return isZh ? labels[key]?.zh || labels.other.zh : labels[key]?.en || labels.other.en;
 };
 
-const buildServiceLines = (categories: SkillCategory[], isZh: boolean): ServiceLine[] => {
+const buildServiceLines = (categories: SkillCategory[], isZh: boolean, skills: SkillSummary[]): ServiceLine[] => {
   const byId = new Map(categories.map((category) => [category.id, category]));
   const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter(Boolean) as SkillCategory[];
+  const getPreviewSkills = (categoryIds: string[]) => {
+    return skills
+      .filter((skill) => categoryIds.includes(getSkillCategoryKey(skill)))
+      .slice(0, 3);
+  };
   const makeLine = (
     id: string,
     title: string,
@@ -301,6 +307,7 @@ const buildServiceLines = (categories: SkillCategory[], isZh: boolean): ServiceL
       categories: lineCategories,
       count: lineCategories.reduce((sum, category) => sum + category.count, 0),
       tone,
+      previewSkills: getPreviewSkills(categoryIds),
     };
   };
 
@@ -501,7 +508,7 @@ export function Skills() {
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
-  const serviceLines = useMemo(() => buildServiceLines(categories, isZh), [categories, isZh]);
+  const serviceLines = useMemo(() => buildServiceLines(categories, isZh, skills), [categories, isZh, skills]);
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
@@ -541,8 +548,8 @@ export function Skills() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 grid grid-cols-3 gap-2">
-                  {categories.slice(1, 4).map((category) => {
+                <div className="mt-5 grid grid-cols-4 gap-2">
+                  {categories.slice(1).map((category) => {
                     const Icon = getCategoryIcon(category.id);
                     return (
                       <button
@@ -552,8 +559,8 @@ export function Skills() {
                         className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
                       >
                         <Icon className="h-4 w-4 text-emerald-600" />
-                        <div className="mt-3 truncate text-xs font-semibold">{category.label}</div>
-                        <div className="mt-1 text-[11px] text-slate-500">{category.count} Skills</div>
+                        <div className="mt-2 truncate text-xs font-semibold">{category.label}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">{category.count}</div>
                       </button>
                     );
                   })}
@@ -589,6 +596,7 @@ export function Skills() {
                   key={line.id}
                   index={index}
                   line={line}
+                  isZh={isZh}
                   onOpenCategory={(categoryId) => navigate(buildCategoryPath(categoryId, launchSource.searchParams))}
                 />
               ))}
@@ -1318,10 +1326,12 @@ function ServiceLineCard({
   index,
   line,
   onOpenCategory,
+  isZh,
 }: {
   index: number;
   line: ServiceLine;
   onOpenCategory: (categoryId: string) => void;
+  isZh: boolean;
 }) {
   const leadCategory = line.categories[0];
   const Icon = leadCategory ? getCategoryIcon(leadCategory.id) : Brain;
@@ -1350,22 +1360,51 @@ function ServiceLineCard({
         <p className="mt-3 text-sm font-medium text-slate-700">{line.subtitle}</p>
         <p className="mt-2 min-h-12 text-sm leading-6 text-slate-500">{line.description}</p>
 
-        <div className="mt-5 flex flex-wrap gap-2">
-          {line.categories.map((category) => {
-            const CategoryIcon = getCategoryIcon(category.id);
-            return (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => onOpenCategory(category.id)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-950"
+        {line.previewSkills.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {line.previewSkills.map((skill) => (
+              <div
+                key={skill.id}
+                className="flex items-center gap-2 rounded-xl border border-white/80 bg-white/70 px-3 py-2 text-xs text-slate-600"
               >
-                <CategoryIcon className="h-3.5 w-3.5" />
-                {category.label}
-                <span className="text-slate-400">{category.count}</span>
-              </button>
-            );
-          })}
+                <BookOpen className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="truncate font-medium">{skill.name}</span>
+                {skill.estimated_time && (
+                  <span className="ml-auto shrink-0 text-[11px] text-slate-400">{skill.estimated_time}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            {line.categories.map((category) => {
+              const CategoryIcon = getCategoryIcon(category.id);
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => onOpenCategory(category.id)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-950"
+                >
+                  <CategoryIcon className="h-3.5 w-3.5" />
+                  {category.label}
+                  <span className="text-slate-400">{category.count}</span>
+                </button>
+              );
+            })}
+          </div>
+          {leadCategory && (
+            <button
+              type="button"
+              onClick={() => onOpenCategory(leadCategory.id)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
+            >
+              {isZh ? "查看全部" : "View all"}
+              <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
+            </button>
+          )}
         </div>
 
       </div>
