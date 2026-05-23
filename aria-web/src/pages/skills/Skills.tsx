@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   BarChart3,
@@ -509,14 +509,33 @@ export function Skills() {
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
   const serviceLines = useMemo(() => buildServiceLines(categories, isZh, skills), [categories, isZh, skills]);
+  const [search, setSearch] = useState("");
 
-  if (loading) return <SkillsLoading title={t("skills.title")} />;
+  if (loading) return <SkillsLoading title={t("skills.title")} />
 
   return (
     <>
       <PageTitle title={t("skills.title")} />
       <div className="min-h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,#ecfdf5_0%,transparent_30%),radial-gradient(circle_at_top_right,#eff6ff_0%,transparent_32%),linear-gradient(180deg,#f8fafc_0%,#f7faf9_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+            <Breadcrumb items={[{ label: isZh ? "首页" : "Home", to: "/" }, { label: isZh ? "技能" : "Skills" }]} isZh={isZh} />
+            <div className="relative w-full md:w-72">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && search.trim()) {
+                    navigate(`/skills/all?q=${encodeURIComponent(search.trim())}`);
+                  }
+                }}
+                placeholder={isZh ? "搜索所有 Skill..." : "Search all skills..."}
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+          </div>
+
           <section className="relative overflow-hidden rounded-[2.25rem] border border-slate-200/70 bg-white/82 p-8 shadow-[0_22px_70px_rgba(15,23,42,0.07)] backdrop-blur">
             <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-emerald-100/70 blur-3xl" />
             <div className="absolute bottom-0 left-1/3 h-52 w-52 rounded-full bg-sky-100/60 blur-3xl" />
@@ -666,14 +685,16 @@ export function SkillCategoryPage() {
       <PageTitle title={activeCategoryInfo?.label || t("skills.title")} />
       <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#eef6f3_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <button
-            type="button"
-            onClick={() => navigate(buildSkillsPath(launchSource.searchParams))}
-            className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {isZh ? "返回能力分类" : "Back to categories"}
-          </button>
+          <div className="mb-5">
+            <Breadcrumb
+              items={[
+                { label: isZh ? "首页" : "Home", to: "/" },
+                { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
+                { label: activeCategoryInfo?.label || "" },
+              ]}
+              isZh={isZh}
+            />
+          </div>
 
           <section className={`relative overflow-hidden rounded-[2rem] border border-slate-200 bg-gradient-to-br ${getCategoryGradient(activeCategoryInfo?.id || "all")} p-8 text-slate-950 shadow-[0_22px_70px_rgba(15,23,42,0.07)]`}>
             <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/70 blur-3xl" />
@@ -836,23 +857,16 @@ export function SkillDetailPage() {
       <PageTitle title={skill.name} />
       <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#f5f8f7_100%)]">
         <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => navigate(buildCategoryPath(getSkillCategoryKey(skill), launchSource.searchParams))}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {isZh ? "返回所属分类" : "Back to category"}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary"
-            >
-              <MessageSquare className="h-4 w-4" />
-              {t("skills.useSkill")}
-            </button>
+          <div className="mb-5">
+            <Breadcrumb
+              items={[
+                { label: isZh ? "首页" : "Home", to: "/" },
+                { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
+                { label: getCategoryLabel(skillCategoryKey, isZh), to: buildCategoryPath(skillCategoryKey, launchSource.searchParams) },
+                { label: skill.name },
+              ]}
+              isZh={isZh}
+            />
           </div>
 
           <section className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
@@ -965,6 +979,29 @@ function SkillsLoading({ title }: { title: string }) {
         <Zap className="h-8 w-8 animate-pulse text-primary" />
       </div>
     </>
+  );
+}
+
+function Breadcrumb({
+  items,
+  isZh,
+}: {
+  items: { label: string; to?: string }[];
+  isZh: boolean;
+}) {
+  return (
+    <nav className="flex items-center gap-1.5 text-sm text-slate-500">
+      {items.map((item, index) => (
+        <span key={item.label} className="flex items-center gap-1.5">
+          {index > 0 && <span className="text-slate-300">/</span>}
+          {item.to ? (
+            <Link to={item.to} className="transition hover:text-slate-950">{item.label}</Link>
+          ) : (
+            <span className="text-slate-950 font-medium">{item.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
   );
 }
 
