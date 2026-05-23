@@ -129,8 +129,8 @@ const getSkillCategoryKey = (skill: Pick<SkillSummary, "name" | "description" | 
 const categoryOrder = [
   "all",
   "strategy",
-  "market",
   "manda",
+  "market",
   "org",
   "finance",
   "operations",
