@@ -146,6 +146,58 @@ def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
         assert metadata["tool_action_batch_result"]["approval_batch_id"] == batch_id
 
 
+def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
+    session = _session()
+    conversation = _conversation(session)
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        calls.append((tool_name, tool_input))
+        if tool_input["step"] == "first":
+            return {"success": False, "error": "first failed"}
+        return {"success": True}
+
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    batch_id = "hitas-stop-on-failure"
+    a1 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=0,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "delete", "step": "first"}),
+        action_type="delete_files",
+        title="删除文件",
+        description="",
+    )
+    a2 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=1,
+        tool_name="manage_project_folders",
+        tool_input_json=json.dumps({"action": "delete", "step": "second"}),
+        action_type="delete_folder",
+        title="删除文件夹",
+        description="",
+    )
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+    session.refresh(a1)
+    conversation_id = conversation.id
+
+    result = asyncio.run(chat_actions.confirm_action(a1.id, ConfirmActionRequest(), session, _admin(session)))
+
+    assert result.status == "failed"
+    assert calls == [("manage_project_files", {"action": "delete", "step": "first"})]
+    with Session(session.get_bind()) as check:
+        stored = check.exec(select(PendingToolAction).where(PendingToolAction.approval_batch_id == batch_id)).all()
+        statuses = {item.sequence_index: item.status for item in stored}
+        assert statuses == {0: "failed", 1: "skipped"}
+        messages = check.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
+        assert len(messages) == 1
+        assert "已跳过" in messages[0].content
+
+
 def test_confirm_action_fails_closed_on_invalid_stored_tool_input(monkeypatch):
     session = _session()
     conversation = _conversation(session)

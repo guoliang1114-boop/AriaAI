@@ -140,15 +140,6 @@ def _upgrade_policy_for_confirmed_followup(
 ) -> IntentDecision:
     if intent_decision.action_policy == ActionPolicy.DESTRUCTIVE_ACTION:
         return intent_decision
-    if getattr(req, "action_confirmations", None):
-        return replace(
-            intent_decision,
-            action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
-            confidence=max(intent_decision.confidence, 0.9),
-            reason="confirmation_token_replay",
-            method=f"{intent_decision.method}+confirmation_replay",
-            trace={**(intent_decision.trace or {}), "policy_upgrade": "confirmation_token_replay"},
-        )
     if req.project_id and _looks_like_confirmation_followup(req.content) and _recent_assistant_has_deletion_plan(history):
         return replace(
             intent_decision,
@@ -266,6 +257,9 @@ def prepare_chat_runtime(
     *,
     intent_decision: IntentDecision | None = None,
     intent_prepared_async: bool = False,
+    owner_user_id: int | None = None,
+    persist_user: bool = True,
+    create_conversation: bool = True,
 ) -> ChatRuntime:
     """Build a fully-populated ``ChatRuntime`` from a user request.
 
@@ -297,13 +291,26 @@ def prepare_chat_runtime(
 
     # 2. Conversation
     step_started_at = time.perf_counter()
-    conv = get_or_create_conversation(
-        session,
-        req.conversation_id,
-        project_id=req.project_id,
-        skill_id=effective_skill_id,
-    )
+    if req.conversation_id:
+        conv = get_or_create_conversation(
+            session,
+            req.conversation_id,
+            project_id=req.project_id,
+            skill_id=effective_skill_id,
+            owner_user_id=owner_user_id,
+        )
+    elif create_conversation:
+        conv = get_or_create_conversation(
+            session,
+            req.conversation_id,
+            project_id=req.project_id,
+            skill_id=effective_skill_id,
+            owner_user_id=owner_user_id,
+        )
+    else:
+        conv = None
     prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
+    conv_id = int(conv.id or 0) if conv is not None else 0
 
     # 3. Persist user message
     metadata = build_message_metadata(
@@ -313,7 +320,8 @@ def prepare_chat_runtime(
         file_ids=req.file_ids,
     )
     step_started_at = time.perf_counter()
-    persist_user_message(session, conv.id, req.content, metadata)
+    if persist_user and conv_id:
+        persist_user_message(session, conv_id, req.content, metadata)
     prepare_metrics["user_message_saved_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
     # 4. Settings & context
@@ -362,7 +370,7 @@ def prepare_chat_runtime(
 
     # 6. Message history
     step_started_at = time.perf_counter()
-    history = get_recent_message_history(session, conv.id, limit=CHAT_HISTORY_WINDOW)
+    history = get_recent_message_history(session, conv_id, limit=CHAT_HISTORY_WINDOW) if conv_id else []
     api_messages = [
         {"role": msg.role, "content": msg.content}
         for msg in history
@@ -383,7 +391,7 @@ def prepare_chat_runtime(
     runtime_tools = filter_tools_for_policy(chat_ctx.tools, intent_decision.action_policy)
 
     return ChatRuntime(
-        conv_id=conv.id,
+        conv_id=conv_id,
         project_id=req.project_id,
         selected_model=runtime_model,
         llm=llm,
@@ -406,7 +414,14 @@ def prepare_chat_runtime(
     )
 
 
-async def prepare_chat_runtime_async(session: Session, req: SendMessageRequest) -> ChatRuntime:
+async def prepare_chat_runtime_async(
+    session: Session,
+    req: SendMessageRequest,
+    *,
+    owner_user_id: int | None = None,
+    persist_user: bool = True,
+    create_conversation: bool = True,
+) -> ChatRuntime:
     """Build ``ChatRuntime`` after a full async IntentRouter pre-route.
 
     This is the canonical path for API requests.  It lets the LLM-assisted
@@ -440,4 +455,7 @@ async def prepare_chat_runtime_async(session: Session, req: SendMessageRequest) 
         req,
         intent_decision=intent_decision,
         intent_prepared_async=True,
+        owner_user_id=owner_user_id,
+        persist_user=persist_user,
+        create_conversation=create_conversation,
     )

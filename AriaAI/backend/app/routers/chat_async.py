@@ -13,7 +13,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import TaskEvent, TaskRun
+from app.models.db import TaskEvent, TaskRun, User
+from app.routers.auth import get_current_user
+from app.routers.chat_security import require_chat_request_access, require_conversation_access
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_streaming import prepare_chat_runtime_async, stream_chat_events
 from app.services.time_utils import utc_now_naive
@@ -161,14 +163,27 @@ async def _execute_chat_in_background(runtime, req: SendMessageRequest, bind, ta
 
 
 @router.post("/send-async", response_model=SendAsyncResponse)
-async def send_message_async(req: SendMessageRequest, session: Session = Depends(get_session)):
+async def send_message_async(
+    req: SendMessageRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Submit a chat request to run in the background.
 
     Returns immediately with a conversation_id. The assistant message will be
     saved to the conversation once the stream completes. Poll
     /chat/conversations/{conv_id}/messages to retrieve the result.
     """
-    runtime = await prepare_chat_runtime_async(session, req)
+    conversation = require_chat_request_access(
+        session,
+        conversation_id=req.conversation_id,
+        project_id=req.project_id,
+        current_user=current_user,
+        require_write=True,
+    )
+    if conversation and req.project_id is None and conversation.project_id is not None:
+        req.project_id = conversation.project_id
+    runtime = await prepare_chat_runtime_async(session, req, owner_user_id=current_user.id)
     bind = session.get_bind()
     task_run = _create_background_chat_run(session, runtime, req)
 
@@ -188,7 +203,11 @@ async def send_message_async(req: SendMessageRequest, session: Session = Depends
 
 
 @router.get("/tasks/{conversation_id}", response_model=ChatTaskStatusResponse)
-def get_chat_task_status(conversation_id: int, session: Session = Depends(get_session)):
+def get_chat_task_status(
+    conversation_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Check whether a background chat task is still running.
 
     Uses in-memory registry for live tasks and falls back to TaskRun DB state.
@@ -197,6 +216,7 @@ def get_chat_task_status(conversation_id: int, session: Session = Depends(get_se
     """
     from app.services.chat_store import get_conversation_messages
 
+    require_conversation_access(session, conversation_id, current_user)
     is_running = conversation_id in _background_chat_tasks
     status_record = _background_chat_status.get(conversation_id, {})
     task_run = _latest_background_chat_run(session, conversation_id)

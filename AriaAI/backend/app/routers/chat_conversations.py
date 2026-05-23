@@ -14,6 +14,13 @@ from app.routers.chat_schemas import (
     PendingChatActionOut,
     UpdateConversationRequest,
 )
+from app.models.db import User
+from app.routers.auth import get_current_user
+from app.routers.chat_security import (
+    member_project_ids,
+    require_conversation_access,
+    require_project_access,
+)
 from app.services.chat_store import (
     create_conversation_record,
     delete_conversation_with_messages,
@@ -134,25 +141,41 @@ def list_conversations(
     project_id: Optional[int] = None,
     standalone: bool = False,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    return list_conversations_cached(session, project_id=project_id, standalone=standalone)
+    if project_id is not None:
+        require_project_access(session, project_id, current_user)
+    return list_conversations_cached(
+        session,
+        project_id=project_id,
+        standalone=standalone,
+        accessible_project_ids=member_project_ids(session, current_user),
+        owner_user_id=None if current_user.is_admin else current_user.id,
+    )
 
 
 @router.get("/conversations/{conv_id}", response_model=ConversationOut)
-def get_conversation(conv_id: int, session: Session = Depends(get_session)):
-    return get_conversation_or_404(session, conv_id)
+def get_conversation(
+    conv_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return require_conversation_access(session, conv_id, current_user)
 
 
 @router.post("/conversations", response_model=ConversationOut)
 def create_conversation(
     req: CreateConversationRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_access(session, req.project_id, current_user, require_write=True)
     return create_conversation_record(
         session,
         project_id=req.project_id,
         skill_id=req.skill_id,
         title=req.title or "",
+        owner_user_id=current_user.id,
     )
 
 
@@ -162,7 +185,9 @@ def get_messages(
     limit: int = 30,
     before_id: Optional[int] = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
+    require_conversation_access(session, conv_id, current_user)
     return get_conversation_messages(session, conv_id, limit=limit, before_id=before_id)
 
 
@@ -170,14 +195,20 @@ def get_messages(
 def get_pending_action(
     conv_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    conversation = get_conversation_or_404(session, conv_id)
+    conversation = require_conversation_access(session, conv_id, current_user)
     messages = get_conversation_messages(session, conv_id, limit=120)
     return _latest_pending_action(messages) or _synthesized_pending_action(session, messages, project_id=conversation.project_id)
 
 
 @router.delete("/conversations/{conv_id}")
-def delete_conversation(conv_id: int, session: Session = Depends(get_session)):
+def delete_conversation(
+    conv_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    require_conversation_access(session, conv_id, current_user, require_write=True)
     delete_conversation_with_messages(session, conv_id)
     return {"ok": True}
 
@@ -187,8 +218,9 @@ def patch_conversation(
     conv_id: int,
     req: UpdateConversationRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    conv = get_conversation_or_404(session, conv_id)
+    conv = require_conversation_access(session, conv_id, current_user, require_write=True)
     title = (req.title or "").strip()
     if not title:
         return conv

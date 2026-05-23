@@ -53,7 +53,7 @@ describe("findPendingAction", () => {
     });
 
     expect(action?.call.confirmation_token).toBe(token);
-    expect(action?.canConfirm).toBe(true);
+    expect(action?.canConfirm).toBe(false);
     expect(action?.sourceContent).toBe("现在空间里面有特别多的垃圾文件，清除");
   });
 

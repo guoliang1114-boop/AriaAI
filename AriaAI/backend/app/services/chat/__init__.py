@@ -102,7 +102,10 @@ async def stream_chat_events(
 
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
-    confirmed_replay_block = _confirmed_tool_replay_block(bind, runtime.conv_id, req.action_confirmations)
+    # Legacy token replay is intentionally disabled. HITAS approvals now execute
+    # persisted PendingToolAction records directly and must not ask the LLM or the
+    # chat stream to replay high-risk tools.
+    confirmed_replay_block = None
 
     # ------------------------------------------------------------------
     # Emit conversation_id and prepare metrics upfront

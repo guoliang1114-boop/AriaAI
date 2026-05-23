@@ -84,6 +84,7 @@ export interface StreamDoneEvent {
   truncated?: boolean;
   project_id?: number;
   skill_id?: number;
+  assistant_message_id?: number;
   skill_progress?: unknown;
   pending_tool_confirmations?: PendingToolConfirmation[];
   resolved_action_confirmations?: string[];

@@ -119,7 +119,7 @@ from app.services.chat_artifacts import (
 )
 
 
-def prepare_chat_runtime(session, req):
+def prepare_chat_runtime(session, req, **kwargs):
     """Compatibility wrapper for the legacy ``chat_streaming`` module.
 
     Some older tests and integrations patch provider/context helpers on this
@@ -134,14 +134,14 @@ def prepare_chat_runtime(session, req):
         _chat_runtime_module.build_chat_context = build_chat_context
         _chat_runtime_module._load_provider_module = _load_provider_module
         _chat_runtime_module.get_selected_model = get_selected_model
-        return _prepare_chat_runtime(session, req)
+        return _prepare_chat_runtime(session, req, **kwargs)
     finally:
         _chat_runtime_module.build_chat_context = original_build_context
         _chat_runtime_module._load_provider_module = original_load_provider
         _chat_runtime_module.get_selected_model = original_get_model
 
 
-async def prepare_chat_runtime_async(session, req):
+async def prepare_chat_runtime_async(session, req, **kwargs):
     """Async compatibility wrapper that performs full pre-routing before prepare."""
 
     original_build_context = _chat_runtime_module.build_chat_context
@@ -151,7 +151,7 @@ async def prepare_chat_runtime_async(session, req):
         _chat_runtime_module.build_chat_context = build_chat_context
         _chat_runtime_module._load_provider_module = _load_provider_module
         _chat_runtime_module.get_selected_model = get_selected_model
-        return await _prepare_chat_runtime_async(session, req)
+        return await _prepare_chat_runtime_async(session, req, **kwargs)
     finally:
         _chat_runtime_module.build_chat_context = original_build_context
         _chat_runtime_module._load_provider_module = original_load_provider

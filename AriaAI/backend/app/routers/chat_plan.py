@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.database import get_session
+from app.models.db import User
+from app.routers.auth import get_current_user
+from app.routers.chat_security import require_chat_request_access
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_streaming import prepare_chat_runtime_async
 
@@ -74,14 +77,32 @@ def _extract_tool_uses_from_text(text: str) -> list[dict]:
 
 
 @router.post("/plan", response_model=ChatPlanResponse)
-async def generate_chat_plan(req: SendMessageRequest, session: Session = Depends(get_session)):
+async def generate_chat_plan(
+    req: SendMessageRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """Generate an execution plan for the user's request without executing tools.
 
     Uses a single LLM call with tool definitions embedded in the prompt.
     The model describes the plan in natural language and may include tool_use
     JSON blocks indicating which tools it would call.
     """
-    runtime = await prepare_chat_runtime_async(session, req)
+    conversation = require_chat_request_access(
+        session,
+        conversation_id=req.conversation_id,
+        project_id=req.project_id,
+        current_user=current_user,
+    )
+    if conversation and req.project_id is None and conversation.project_id is not None:
+        req.project_id = conversation.project_id
+    runtime = await prepare_chat_runtime_async(
+        session,
+        req,
+        owner_user_id=current_user.id,
+        persist_user=False,
+        create_conversation=False,
+    )
 
     # Embed tool definitions in the system prompt so the model knows what's available
     # without being triggered to actually call them.
@@ -101,7 +122,9 @@ async def generate_chat_plan(req: SendMessageRequest, session: Session = Depends
         "6. 如果需要调用工具，可以在回复中嵌入 tool_use JSON 块来表明意图"
     )
 
-    plan_messages = runtime.api_messages + [
+    plan_messages = [
+        *runtime.api_messages,
+        {"role": "user", "content": req.content},
         {
             "role": "user",
             "content": (

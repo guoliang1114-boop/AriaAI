@@ -213,6 +213,7 @@ class Conversation(SQLModel, table=True):
     title: str = "New Workstream"
     project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
     skill_id: Optional[int] = Field(default=None, foreign_key="skill.id")
+    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=utc_now_naive)
     updated_at: datetime = Field(default_factory=utc_now_naive)
 
@@ -314,7 +315,7 @@ class PendingToolAction(SQLModel, table=True):
     description: str = ""       # UI description
     details_json: str = "[]"    # JSON list of detail strings
 
-    status: str = "pending"     # pending | confirmed | rejected | executing | completed | failed
+    status: str = "pending"     # pending | confirmed | rejected | executing | completed | failed | skipped
     confirmed_by_user_id: Optional[int] = None
     confirmed_at: Optional[datetime] = None
     result_json: Optional[str] = None

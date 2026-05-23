@@ -9,7 +9,9 @@ from fastapi.responses import PlainTextResponse, Response
 from sqlmodel import Session
 
 from app.database import get_session
-from app.models.db import Message
+from app.models.db import Message, User
+from app.routers.auth import get_current_user
+from app.routers.chat_security import require_conversation_access
 from app.routers.chat_schemas import ExportConversationRequest
 from app.services.chat_exports import build_markdown_export_content, safe_export_filename
 from app.services.chat_store import get_conversation_or_404, get_full_message_history
@@ -23,8 +25,9 @@ async def export_conversation(
     conv_id: int,
     req: ExportConversationRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    conv = get_conversation_or_404(session, conv_id)
+    conv = require_conversation_access(session, conv_id, current_user)
     messages = get_full_message_history(session, conv_id)
     if not messages:
         raise HTTPException(400, "Conversation has no messages")

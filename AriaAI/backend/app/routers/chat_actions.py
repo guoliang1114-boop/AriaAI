@@ -333,10 +333,12 @@ def _format_batch_action_result_message(actions: list[PendingToolAction], batch_
 
     completed_count = int(batch_result.get("completed_count") or 0)
     failed_count = int(batch_result.get("failed_count") or 0)
+    skipped_count = int(batch_result.get("skipped_count") or 0)
     total = len(actions)
     pieces = [f"已执行本次确认流程：{completed_count}/{total} 个操作完成。"]
-    if failed_count:
-        pieces[0] = f"本次确认流程部分失败：{completed_count}/{total} 个操作完成，{failed_count} 个失败。"
+    if failed_count or skipped_count:
+        skipped_text = f"，{skipped_count} 个已跳过" if skipped_count else ""
+        pieces[0] = f"本次确认流程部分失败：{completed_count}/{total} 个操作完成，{failed_count} 个失败{skipped_text}。"
 
     action_by_id = {action.id: action for action in actions}
     lines: list[str] = []
@@ -346,7 +348,7 @@ def _format_batch_action_result_message(actions: list[PendingToolAction], batch_
         action = action_by_id.get(item.get("pending_action_id"))
         title = action.title if action else str(item.get("tool_name") or "工具操作")
         result = item.get("result") if isinstance(item.get("result"), dict) else {}
-        status = "完成" if result.get("success") else "失败"
+        status = "跳过" if result.get("skipped") else "完成" if result.get("success") else "失败"
         lines.append(f"{index}. {title}：{status}，{_result_summary(result)}")
     if lines:
         pieces.append("\n".join(lines))
@@ -429,6 +431,8 @@ def _batch_status(actions: list[PendingToolAction]) -> str:
     if "pending" in statuses:
         return "pending"
     if "failed" in statuses:
+        return "failed"
+    if "skipped" in statuses:
         return "failed"
     if statuses == {"rejected"}:
         return "rejected"
@@ -528,11 +532,21 @@ async def _confirm_batch(
 
 async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict[str, Any]]) -> ConfirmActionResponse:
     executions: list[dict[str, Any]] = []
+    previous_failed = False
     for spec in execution_specs:
-        try:
-            result = await execute_tool_by_name(str(spec["tool_name"]), spec["tool_input"])
-        except Exception as exc:
-            result = {"success": False, "error": str(exc) or exc.__class__.__name__}
+        if previous_failed:
+            result = {
+                "success": False,
+                "skipped": True,
+                "error": "Skipped because a previous action in this approval batch failed.",
+            }
+        else:
+            try:
+                result = await execute_tool_by_name(str(spec["tool_name"]), spec["tool_input"])
+            except Exception as exc:
+                result = {"success": False, "error": str(exc) or exc.__class__.__name__}
+        if not result.get("success"):
+            previous_failed = True
         executions.append(
             {
                 "pending_action_id": spec["id"],
@@ -670,6 +684,7 @@ def _persist_batch_action_results(
         result_by_id = {item.get("pending_action_id"): item for item in executions}
         completed_count = 0
         failed_count = 0
+        skipped_count = 0
         action_results: list[dict[str, Any]] = []
         for action in actions:
             item = result_by_id.get(action.id) or {}
@@ -678,6 +693,10 @@ def _persist_batch_action_results(
             if result.get("success"):
                 action.status = "completed"
                 completed_count += 1
+            elif result.get("skipped"):
+                action.status = "skipped"
+                action.error_message = str(result.get("error") or "Skipped because a previous action failed")
+                skipped_count += 1
             else:
                 action.status = "failed"
                 action.error_message = str(result.get("error") or "Unknown error")
@@ -693,11 +712,12 @@ def _persist_batch_action_results(
             )
             session.add(action)
 
-        batch_status = "completed" if failed_count == 0 else "failed"
+        batch_status = "completed" if failed_count == 0 and skipped_count == 0 else "failed"
         batch_result = {
-            "success": failed_count == 0,
+            "success": failed_count == 0 and skipped_count == 0,
             "completed_count": completed_count,
             "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "actions": action_results,
         }
         result_message = Message(

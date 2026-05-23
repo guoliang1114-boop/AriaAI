@@ -21,10 +21,14 @@ def list_conversations_cached(
     session: Session,
     project_id: Optional[int] = None,
     standalone: bool = False,
+    *,
+    accessible_project_ids: Optional[list[int]] = None,
+    owner_user_id: Optional[int] = None,
 ):
     purge_expired_conversations(session)
 
-    cache_key = f"list:{project_id or ''}:{'s' if standalone else ''}"
+    project_scope = ",".join(str(item) for item in sorted(accessible_project_ids or []))
+    cache_key = f"list:{project_id or ''}:{'s' if standalone else ''}:owner:{owner_user_id or ''}:projects:{project_scope}"
     cached = conversations_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -34,6 +38,21 @@ def list_conversations_cached(
         stmt = stmt.where(Conversation.project_id == project_id)
     elif standalone:
         stmt = stmt.where(Conversation.project_id == None)  # noqa: E711
+        if owner_user_id is not None:
+            stmt = stmt.where(Conversation.owner_user_id == owner_user_id)
+    elif accessible_project_ids is not None:
+        from sqlalchemy import or_
+
+        project_filter = Conversation.project_id.in_(accessible_project_ids) if accessible_project_ids else False
+        if owner_user_id is not None:
+            stmt = stmt.where(
+                or_(
+                    project_filter,
+                    (Conversation.project_id == None) & (Conversation.owner_user_id == owner_user_id),  # noqa: E711
+                )
+            )
+        else:
+            stmt = stmt.where(project_filter)
 
     result = session.exec(stmt).all()
     conversations_cache.set(cache_key, result, _CONV_TTL)
@@ -72,8 +91,9 @@ def create_conversation_record(
     project_id: Optional[int] = None,
     skill_id: Optional[int] = None,
     title: str = "",
+    owner_user_id: Optional[int] = None,
 ) -> Conversation:
-    conv = Conversation(project_id=project_id, skill_id=skill_id, title=title)
+    conv = Conversation(project_id=project_id, skill_id=skill_id, title=title, owner_user_id=owner_user_id)
     session.add(conv)
     session.commit()
     session.refresh(conv)
@@ -86,10 +106,11 @@ def get_or_create_conversation(
     conversation_id: Optional[int],
     project_id: Optional[int] = None,
     skill_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
 ) -> Conversation:
     if conversation_id:
         return get_conversation_or_404(session, conversation_id)
-    return create_conversation_record(session, project_id=project_id, skill_id=skill_id)
+    return create_conversation_record(session, project_id=project_id, skill_id=skill_id, owner_user_id=owner_user_id)
 
 
 def get_conversation_messages(

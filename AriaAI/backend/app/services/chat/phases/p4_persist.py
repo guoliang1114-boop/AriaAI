@@ -442,7 +442,7 @@ async def run_p4_persist(
         logger.warning("[P4] failed to persist chat trace: %s", exc)
 
     logger.info(f"[chat timing] conv={runtime.conv_id} metrics={state.stage_timings}")
-    yield sse_event({"type": "done", **metadata})
+    yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
     if need_title and full_text:
         schedule_title_generation(

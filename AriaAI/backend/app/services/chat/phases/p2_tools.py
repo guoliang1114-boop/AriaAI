@@ -72,8 +72,7 @@ def _tool_requires_confirmation(
 ) -> bool:
     if required_policy not in _CONFIRMATION_POLICIES:
         return False
-    confirmations = set(getattr(req, "action_confirmations", []) or [])
-    return tool_confirmation_token(tool_name, tool_input) not in confirmations
+    return True
 
 
 def _build_pending_action_payload(tool_name: str, tool_input: dict, details: list[str], token: str) -> dict | None:

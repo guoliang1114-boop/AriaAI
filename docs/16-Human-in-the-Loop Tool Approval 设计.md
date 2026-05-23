@@ -411,10 +411,31 @@ HITAS 结果消息包含 `tool_action_batch_result`。legacy fallback 在看到 
 - 已终态 action 再次 confirm/reject，返回已有状态，不重复执行。
 - 过期 pending 会转为 `failed`。
 - 超时 `executing` 会由 reaper 转为 `failed`，错误信息标记为“执行状态未知，需人工核查”，不会自动重试 destructive action。
+- 批次执行默认 stop-on-failure：前置 action 失败后，后续 action 标记为 `skipped`，不继续执行潜在依赖或危险动作。
 
 ---
 
 ## 9. 安全与权限
+
+聊天系统的用户接入边界分两层：
+
+### 9.1 Chat 路由统一授权
+
+所有项目对话入口必须先通过统一授权：
+
+```text
+AriaAI/backend/app/routers/chat_security.py
+```
+
+规则：
+
+- 已登录只是第一层，不能代表项目可见。
+- 访问项目对话、消息、trace、export、mentionables、send、send-async、plan 前必须校验项目成员关系。
+- 项目写入型动作（发送消息、创建项目对话、删除/重命名对话、确认工具动作）要求 `owner/editor`。
+- `conversation_id + project_id` 同时出现时必须二次校验二者一致，防止 ID 混淆。
+- standalone 对话使用 `Conversation.owner_user_id` 归属到创建人；历史无 owner 的 standalone 对话默认不向普通用户开放。
+
+### 9.2 HITAS 端点授权
 
 HITAS 端点必须满足：
 
@@ -427,6 +448,16 @@ HITAS 端点必须满足：
 7. 普通成员需要 `owner/editor` 角色才能确认或拒绝修改/删除动作。
 
 这是必要约束，因为 confirm 端点会直接执行删除、覆盖等真实工具操作。
+
+### 9.3 Legacy token 流降级
+
+旧的 `action_confirmations` token replay 不再作为执行通道：
+
+- 后端 `stream_chat_events` 不再通过 token 从历史消息 replay tool_use。
+- P2/P3 对 `MODIFY_EXISTING_FILE` / `DESTRUCTIVE_ACTION` 始终创建 HITAS pending action。
+- 前端旧 Action Preview 只能“重新生成确认预览”，不能直接确认执行。
+
+这样可以避免两套确认机制并存，也避免 confirm 后重新走 LLM/stream 时产生不确定行为。
 
 ---
 
@@ -443,6 +474,7 @@ AriaAI/backend/tests/test_chat_actions.py
 - HITAS 路由没有 `/chat/chat` 双前缀。
 - action-id confirm 对带 `approval_batch_id` 的记录会委托到批次 confirm。
 - 批次 confirm 会按顺序执行批次内全部 frozen actions，且只写一条汇总消息。
+- 批次执行 stop-on-failure：前一步失败时后续动作标记 skipped，不继续执行。
 - 前端按批次聚合 pending actions；legacy 重复 pending action 按 hash 聚合。
 - confirm 幂等，只执行一次。
 - 非项目成员无法 confirm。
@@ -457,6 +489,7 @@ AriaAI/backend/tests/test_chat_actions.py
 - 非 object 的 `tool_input_json` fail closed。
 - stale `executing` reaper 只标记 failed/unknown，不自动重试。
 - API 级 cleanup HITAS 链路：`GET pending-actions → POST confirm → manage_project_files delete → 消息回显`。
+- Chat 路由项目成员授权：非成员不能列出、创建、读取或执行项目对话。
 - `ok=false` 工具返回被标准化为失败。
 - 项目文件删除进入回收站，隐藏于正常文件列表且可恢复。
 
@@ -523,5 +556,5 @@ npm run test:project-chat
 - HITAS 是普通聊天工具确认系统；durable task 的 step-level 确认仍由 task orchestrator 自己管理。
 - `PendingToolAction` 当前没有重试端点。失败后需要用户重新发起请求。
 - 工具执行仍在 HTTP confirm 请求中完成；对特别长的工具，后续可升级为后台 job，但 claim/幂等/授权/reaper 模型可复用。
-- Legacy token 流仍保留是为了历史消息兼容，不应作为新确认链路的主路径。
+- Legacy token 流只保留展示/重新生成预览能力，不再承担执行。
 - 当前已有 `owner/editor/viewer` 写权限边界；更细粒度的 `delete_file`/`restore_file` capability 可以在后续权限系统中继续拆分。

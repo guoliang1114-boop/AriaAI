@@ -890,15 +890,8 @@ export function ProjectChatTab({
       // Generate plan instead of sending
       setIsGeneratingPlan(true);
       setPlanPendingContent(content);
-      let conversationId = activeConvId;
+      const conversationId = activeConvId;
       const skillId = !!selectedSkillId && skillArmedRef.current ? selectedSkillId || undefined : undefined;
-      if (!conversationId) {
-        conversationId = await createConversation(content, skillId || null);
-        if (!conversationId) {
-          setIsGeneratingPlan(false);
-          return false;
-        }
-      }
       const mentions = (await import("./projectChatMentions")).parseMentions(content);
       const mentionContext = mentions.length > 0 ? {
         file_ids: mentions.filter((m: { type: string }) => m.type === "file").map((m: { id: number }) => m.id),

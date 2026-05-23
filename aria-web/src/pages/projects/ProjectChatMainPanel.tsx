@@ -592,7 +592,7 @@ export function findPendingAction({
   const streamingCall = confirmationCallFrom(streamingToolCalls);
   if (streamingCall) {
     const sourceContent = [...messages].reverse().find((message) => message.role === "user")?.content || "";
-    if (sourceContent) return { canConfirm: true, call: streamingCall, sourceContent };
+    if (sourceContent) return { canConfirm: false, call: streamingCall, sourceContent };
   }
 
   const resolvedTokens = new Set<string>();
@@ -605,14 +605,11 @@ export function findPendingAction({
     });
     const call = confirmationCallFrom(metadata.tool_calls);
     if (call?.confirmation_token && resolvedTokens.has(call.confirmation_token)) continue;
-    const hasFrozenAction = (metadata.pending_tool_confirmations || []).some(
-      (item) => item.confirmation_token && item.confirmation_token === call?.confirmation_token,
-    );
     const sourceContent = messages
       .slice(0, index)
       .reverse()
       .find((item) => item.role === "user")?.content || "";
-    if (call && sourceContent) return { canConfirm: hasFrozenAction, call, sourceContent };
+    if (call && sourceContent) return { canConfirm: false, call, sourceContent };
   }
 
   return null;

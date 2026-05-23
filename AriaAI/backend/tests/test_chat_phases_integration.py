@@ -624,8 +624,8 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(state.confirmation_requested)
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
 
-    async def test_p2_confirmation_token_replays_exact_tool_input(self):
-        """An exact confirmation token lets the previously blocked tool call execute."""
+    async def test_p2_confirmation_token_does_not_bypass_hitas(self):
+        """Legacy confirmation tokens no longer execute tools through the chat stream."""
         tool_input = {"mode": "append", "content": "## 会后行动清单"}
         confirmed_input = {**tool_input, "project_id": 1}
         state = ChatSessionState()
@@ -645,8 +645,9 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
             async for _ in run_p2_tools(self.runtime, self.req, state):
                 pass
 
-        mock_exec.assert_awaited_once()
-        self.assertEqual(state.tool_call_events[-1]["status"], "completed")
+        mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
 
     async def test_p2_requires_confirmation_for_project_file_delete_tool(self):
         """Project-space file deletion must pause for explicit confirmation."""

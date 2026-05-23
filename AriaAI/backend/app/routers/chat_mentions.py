@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models.db import ClientRecord, ClientStakeholder, Milestone, Project, ProjectFile
+from app.models.db import ClientRecord, ClientStakeholder, Milestone, Project, ProjectFile, User
+from app.routers.auth import get_current_user
+from app.routers.chat_security import require_project_access
 from app.services.project_files import active_project_files_stmt
 from app.services.stakeholder_contexts import find_client_by_name
 
@@ -44,8 +46,10 @@ class MentionablesOut(BaseModel):
 def list_mentionables(
     project_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Return files, stakeholders, and milestones for a project that can be @-mentioned."""
+    require_project_access(session, project_id, current_user)
     project = session.get(Project, project_id)
     if not project:
         return MentionablesOut(files=[], stakeholders=[], milestones=[])

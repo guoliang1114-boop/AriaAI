@@ -203,6 +203,7 @@ export function useProjectChatComposer({
       let latestTaskRun: TaskRun | null = null;
       let latestTaskType = "";
       let wasTruncated = false;
+      let assistantMessageId: number | null = null;
 
       const mentions = parseMentions(trimmed);
       const mentionContext =
@@ -406,6 +407,9 @@ export function useProjectChatComposer({
                 setStreamArtifacts(collectedArtifacts);
               }
             } else if (payload.type === "done") {
+              if (typeof payload.assistant_message_id === "number") {
+                assistantMessageId = payload.assistant_message_id;
+              }
               if (payload.task_run_id || payload.task_type || payload.task) {
                 serverPersistedAssistant = true;
               }
@@ -443,7 +447,9 @@ export function useProjectChatComposer({
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
         const isTruncated = wasTruncated;
         resetStream();
-        if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
+        if (assistantMessageId) {
+          await fetchMessages(conversationId);
+        } else if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
           const assistantMessage = buildAssistantMessage({
             artifacts: collectedArtifacts,
             content: finalContent,
