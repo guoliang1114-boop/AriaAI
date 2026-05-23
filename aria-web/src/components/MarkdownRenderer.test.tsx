@@ -96,6 +96,15 @@ describe('MarkdownRenderer', () => {
     expect(link?.getAttribute('href')).toBe('/about')
   })
 
+  it('drops raw HTML from markdown', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'<img src=x onerror=alert(1)><script>alert(1)</script>safe'} />
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect(screen.getByText('safe')).toBeInTheDocument()
+  })
+
   it('renders table', () => {
     const md = '| H1 | H2 |\n|---|---|\n| A | B |'
     const { container } = render(<MarkdownRenderer content={md} />)

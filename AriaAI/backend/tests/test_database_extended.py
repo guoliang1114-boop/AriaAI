@@ -1,5 +1,7 @@
 """Extended tests for database module — get_database_migration_governance."""
+from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from app.database import _normalize_alembic_revision, get_database_migration_governance
 
@@ -60,6 +62,24 @@ class GetDatabaseMigrationGovernanceTestCase(unittest.TestCase):
         result = get_database_migration_governance()
         self.assertTrue(result["idempotent_bootstrap"])
 
+    def test_hitas_schema_guard_revision_is_known(self):
+        result = get_database_migration_governance()
+        self.assertIn("016_v1_16", result["known_revisions"])
+
+    def test_hitas_schema_guard_covers_required_columns(self):
+        backend_dir = Path(__file__).resolve().parents[1]
+        migration_path = backend_dir / "alembic" / "versions" / "016_v1_16_hitas_schema_guard.py"
+        migration_source = migration_path.read_text(encoding="utf-8")
+        for expected in [
+            "risk_level",
+            "policy_at_creation",
+            "tool_input_hash",
+            "approval_batch_id",
+            "sequence_index",
+            "owner_user_id",
+        ]:
+            self.assertIn(expected, migration_source)
+
 
 class DatabaseHealthTestCase(unittest.TestCase):
     def test_get_database_health(self):
@@ -70,6 +90,24 @@ class DatabaseHealthTestCase(unittest.TestCase):
         self.assertIn("tables", result)
         self.assertIsInstance(result["tables"], list)
         self.assertGreater(result["table_count"], 0)
+
+
+class TestDatabaseUtilityIsolationTestCase(unittest.TestCase):
+    def test_xdist_worker_uses_dedicated_postgres_schema(self):
+        from tests import test_database as test_database_module
+
+        with patch.dict("os.environ", {"PYTEST_XDIST_WORKER": "gw0"}, clear=False), patch.object(
+            test_database_module, "TEST_DATABASE_URL", "postgresql://postgres:password@localhost/test"
+        ):
+            self.assertEqual(test_database_module._xdist_schema_name(), "ariaai_test_gw0")
+
+    def test_xdist_schema_is_disabled_for_non_postgres_urls(self):
+        from tests import test_database as test_database_module
+
+        with patch.dict("os.environ", {"PYTEST_XDIST_WORKER": "gw0"}, clear=False), patch.object(
+            test_database_module, "TEST_DATABASE_URL", "sqlite:///tmp/test.db"
+        ):
+            self.assertIsNone(test_database_module._xdist_schema_name())
 
 
 if __name__ == "__main__":

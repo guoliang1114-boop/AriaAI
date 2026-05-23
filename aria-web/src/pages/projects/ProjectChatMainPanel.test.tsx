@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message, PendingToolAction } from "../../types/api";
-import { findPendingAction, groupPendingToolActions } from "./ProjectChatMainPanel";
+import { findPendingAction, groupPendingToolActions } from "./projectChatPendingActions";
 
 function message(
   role: "user" | "assistant",

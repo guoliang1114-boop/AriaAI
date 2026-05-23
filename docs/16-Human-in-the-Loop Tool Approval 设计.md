@@ -122,7 +122,11 @@ class PendingToolAction(SQLModel, table=True):
 AriaAI/backend/alembic/versions/012_v1_12_pending_tool_actions.py
 AriaAI/backend/alembic/versions/013_v1_13_hitas_governance_fields.py
 AriaAI/backend/alembic/versions/014_v1_14_hitas_approval_batches.py
+AriaAI/backend/alembic/versions/015_v1_15_chat_owner_scope.py
+AriaAI/backend/alembic/versions/016_v1_16_hitas_schema_guard.py
 ```
+
+`016_v1_16_hitas_schema_guard.py` 是生产安全守护迁移：对曾经经历过部分迁移历史的数据库，幂等补齐 `tool_input_hash`、`risk_level`、`policy_at_creation`、`approval_batch_id`、`sequence_index` 与 `conversation.owner_user_id` 等关键字段。它不替代 012-015 的主迁移，只作为部署前的 schema 校验和兜底。
 
 部署要求：
 
@@ -207,6 +211,7 @@ Body: {"approved": true}
 - 使用 `UPDATE ... WHERE status='pending'` 原子 claim，防止双击/并发重复执行。
 - claim 后关闭当前 session，工具执行完成后再新开 session 写结果。
 - 批次 confirm 按 `sequence_index` 顺序执行，每个工具结果写回各自 action；对话中写入一条 `tool_action_batch_result` 汇总消息。
+- Office/PDF/生成类长耗时工具在 claim 后进入 in-process background job，confirm 立即返回 `status=executing`；最终结果仍由后台 job 写入 `tool_action_result` / `tool_action_batch_result`。如果进程中断，reaper 会标记为“状态未知/失败，需人工核查”，不自动重试 destructive action。
 
 响应：
 
@@ -531,7 +536,26 @@ hitas_stale_executing_reaper
 
 ---
 
-## 12. CI 要求
+## 12. 运行时指标与告警
+
+管理员可调用：
+
+```http
+GET /chat/actions/metrics?window_minutes=1440&stale_after_minutes=30
+```
+
+指标基于 `PendingToolAction` 单一事实源计算：
+
+- `confirmation_failure_rate`：已完成/失败/跳过动作中的失败占比。
+- `stale_executing_actions`：超过阈值仍处于 `executing` 的动作数。
+- `partial_failed_batches`：同一 `approval_batch_id` 中既有 completed 又有 failed/skipped 的批次数。
+- `alerts`：当失败率过高、stale executing 存在、batch 部分失败存在时输出可告警事件。
+
+当前实现是 admin health snapshot；后续可把同一计算接入 Prometheus、日志告警或周报。
+
+---
+
+## 13. CI 要求
 
 前端测试脚本必须显式指定 Vitest 配置，避免 CI 默认 glob 或工作目录差异：
 
@@ -550,12 +574,14 @@ cd aria-web
 npm run test:project-chat
 ```
 
+后端测试如果启用 `pytest-xdist` 并行运行，`tests/test_database.py` 会按 `PYTEST_XDIST_WORKER` 自动切到独立 PostgreSQL schema，避免多个 worker 共享 `ariaai_test` 时互相 `drop_all_tables/create_all`。
+
 ---
 
-## 13. 已知边界
+## 14. 已知边界
 
 - HITAS 是普通聊天工具确认系统；durable task 的 step-level 确认仍由 task orchestrator 自己管理。
 - `PendingToolAction` 当前没有重试端点。失败后需要用户重新发起请求。
-- 工具执行仍在 HTTP confirm 请求中完成；对特别长的工具，后续可升级为后台 job，但 claim/幂等/授权/reaper 模型可复用。
+- 长耗时工具已接入 in-process background job；这不是外部持久队列。进程崩溃后的安全恢复仍依赖 reaper 标记“状态未知/失败，需人工核查”。
 - Legacy token 流只保留展示/重新生成预览能力，不再承担执行。
 - 当前已有 `owner/editor/viewer` 写权限边界；更细粒度的 `delete_file`/`restore_file` capability 可以在后续权限系统中继续拆分。

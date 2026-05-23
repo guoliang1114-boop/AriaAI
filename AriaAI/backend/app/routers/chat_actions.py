@@ -12,9 +12,11 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import Conversation, Message, PendingToolAction, User
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, require_admin
 from app.routers.chat_security import require_conversation_access
+from app.services.chat.action_background import schedule_background_job, should_execute_in_background
 from app.services.chat.action_executor import execute_tool_by_name
+from app.services.chat.action_metrics import build_hitas_action_metrics
 from app.services.time_utils import utc_now_naive
 
 router = APIRouter(tags=["chat-actions"])
@@ -59,6 +61,20 @@ class PendingActionItem(BaseModel):
 class PendingActionsResponse(BaseModel):
     items: list[PendingActionItem]
     has_pending: bool
+
+
+class ActionMetricsResponse(BaseModel):
+    window_minutes: int
+    stale_after_minutes: int
+    total_actions: int
+    resolved_actions: int
+    failed_actions: int
+    confirmation_failure_rate: float
+    stale_executing_actions: int
+    partial_failed_batches: int
+    by_status: dict[str, int]
+    by_risk_level: dict[str, int]
+    alerts: list[dict[str, Any]]
 
 
 def _pending_action_item(action: PendingToolAction) -> PendingActionItem:
@@ -126,6 +142,23 @@ async def list_pending_actions(
     return PendingActionsResponse(items=items, has_pending=len(items) > 0)
 
 
+@router.get("/actions/metrics")
+def get_action_metrics(
+    window_minutes: int = 24 * 60,
+    stale_after_minutes: int = 30,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(require_admin),
+) -> ActionMetricsResponse:
+    """Return admin-facing HITAS runtime metrics and alert candidates."""
+    return ActionMetricsResponse(
+        **build_hitas_action_metrics(
+            session,
+            window_minutes=window_minutes,
+            stale_after_minutes=stale_after_minutes,
+        )
+    )
+
+
 @router.post("/actions/{action_id}/confirm")
 async def confirm_action(
     action_id: int,
@@ -177,7 +210,20 @@ async def confirm_action(
 
     bind = session.get_bind()
     tool_name = action.tool_name
+    approval_batch_id = action.approval_batch_id or None
     session.close()
+
+    if should_execute_in_background(tool_name, tool_input):
+        schedule_background_job(
+            f"hitas-action-{action_id}",
+            lambda: _execute_action_in_background(bind, action_id, tool_name, tool_input),
+        )
+        return ConfirmActionResponse(
+            status="executing",
+            result={"success": True, "queued": True, "background": True},
+            approval_batch_id=approval_batch_id,
+            action_ids=[action_id],
+        )
 
     try:
         result = await execute_tool_by_name(tool_name, tool_input)
@@ -528,7 +574,34 @@ async def _confirm_batch(
 
     bind = session.get_bind()
     session.close()
+    if any(should_execute_in_background(str(spec["tool_name"]), spec["tool_input"]) for spec in execution_specs):
+        schedule_background_job(
+            f"hitas-batch-{batch_id}",
+            lambda: _execute_batch_actions_in_background(bind, batch_id, execution_specs),
+        )
+        return ConfirmActionResponse(
+            status="executing",
+            result={"success": True, "queued": True, "background": True},
+            approval_batch_id=batch_id,
+            action_ids=action_ids,
+        )
     return await _execute_batch_actions(bind, batch_id, execution_specs)
+
+
+async def _execute_action_in_background(bind, action_id: int, tool_name: str, tool_input: dict[str, Any]) -> None:
+    try:
+        result = await execute_tool_by_name(tool_name, tool_input)
+        _persist_action_result(bind, action_id, result)
+    except Exception as exc:
+        _persist_action_failure(bind, action_id, exc)
+
+
+async def _execute_batch_actions_in_background(
+    bind,
+    batch_id: str,
+    execution_specs: list[dict[str, Any]],
+) -> None:
+    await _execute_batch_actions(bind, batch_id, execution_specs)
 
 
 async def _execute_batch_actions(bind, batch_id: str, execution_specs: list[dict[str, Any]]) -> ConfirmActionResponse:

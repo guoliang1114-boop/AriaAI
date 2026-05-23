@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
 import type { ComponentPropsWithoutRef, ReactNode } from 'react'
-import { sanitizeMarkdownHref, stripMarkdownToolUseJson } from './markdownSecurity'
+import { sanitizeMarkdownHref, stripMarkdownToolUseJson, stripUnsafeMarkdownHtml } from './markdownSecurity'
 
 interface MarkdownRendererProps {
   content: string
@@ -14,6 +14,34 @@ type CodeRendererProps = ComponentPropsWithoutRef<'code'> & {
   node?: unknown
   children?: ReactNode
 }
+
+const MARKDOWN_ALLOWED_ELEMENTS = [
+  'a',
+  'blockquote',
+  'br',
+  'code',
+  'del',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  'strong',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+]
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
   const [copied, setCopied] = useState(false)
@@ -45,11 +73,16 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
-  const safeContent = stripMarkdownToolUseJson(content)
+  const safeContent = stripUnsafeMarkdownHtml(stripMarkdownToolUseJson(content))
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      skipHtml
+      allowedElements={MARKDOWN_ALLOWED_ELEMENTS}
+      urlTransform={(url) =>
+        sanitizeMarkdownHref(url, typeof window === 'undefined' ? 'http://localhost' : window.location.origin) || ''
+      }
       components={{
         code({ className, children, ...props }: CodeRendererProps) {
           const match = /language-(\w+)/.exec(className || '')

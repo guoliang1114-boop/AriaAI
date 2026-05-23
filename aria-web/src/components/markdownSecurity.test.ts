@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeMarkdownHref } from './markdownSecurity'
+import { sanitizeMarkdownHref, stripUnsafeMarkdownHtml } from './markdownSecurity'
 
 describe('sanitizeMarkdownHref', () => {
   it('returns null for empty or null href', () => {
@@ -40,6 +40,14 @@ describe('sanitizeMarkdownHref', () => {
     expect(sanitizeMarkdownHref('data:text/html,<h1>hi</h1>')).toBeNull()
   })
 
+  it('blocks protocol-relative URLs', () => {
+    expect(sanitizeMarkdownHref('//evil.example/path')).toBeNull()
+  })
+
+  it('blocks javascript protocol with control characters', () => {
+    expect(sanitizeMarkdownHref('java\u0000script:alert(1)')).toBeNull()
+  })
+
   it('resolves bare strings as relative paths against origin', () => {
     // sanitizeMarkdownHref uses `new URL(href, origin)` which resolves
     // bare strings as relative paths — this is expected browser behavior
@@ -50,5 +58,11 @@ describe('sanitizeMarkdownHref', () => {
   it('resolves relative URLs against origin', () => {
     const result = sanitizeMarkdownHref('page', 'https://example.com')
     expect(result).toBe('https://example.com/page')
+  })
+})
+
+describe('stripUnsafeMarkdownHtml', () => {
+  it('removes script and style blocks before markdown rendering', () => {
+    expect(stripUnsafeMarkdownHtml('<script>alert(1)</script><style>body{}</style>safe')).toBe('safe')
   })
 })

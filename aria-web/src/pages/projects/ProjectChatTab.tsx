@@ -1033,6 +1033,8 @@ export function ProjectChatTab({
                 const result = batchId ? await confirmToolActionBatch(batchId) : await confirmToolAction(actionId);
                 if (result?.status === "completed") {
                   toast.success(isZh ? "操作已执行" : "Action completed");
+                } else if (result?.status === "executing") {
+                  toast.info(isZh ? "已确认，正在后台执行" : "Confirmed. Running in the background.");
                 } else if (result?.status === "failed") {
                   toast.error(result.error_message || (isZh ? "操作执行失败" : "Action failed"));
                 } else if (result?.status) {

@@ -6,11 +6,14 @@ export function sanitizeMarkdownHref(
 ) {
   const trimmed = (href || "").trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/") || trimmed.startsWith("#")) return trimmed;
-  if (trimmed.startsWith("mailto:") || trimmed.startsWith("tel:")) return trimmed;
+  const normalized = trimmed.replace(/[\u0000-\u001F\u007F]/g, "");
+  const lower = normalized.toLowerCase();
+  if (normalized.startsWith("//")) return null;
+  if (normalized.startsWith("/") || normalized.startsWith("#")) return normalized;
+  if (lower.startsWith("mailto:") || lower.startsWith("tel:")) return normalized;
 
   try {
-    const parsed = new URL(trimmed, origin);
+    const parsed = new URL(normalized, origin);
     if (["http:", "https:"].includes(parsed.protocol)) {
       return parsed.toString();
     }
@@ -19,6 +22,12 @@ export function sanitizeMarkdownHref(
   }
 
   return null;
+}
+
+export function stripUnsafeMarkdownHtml(content: string) {
+  return content
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
 }
 
 function findJsonObjectEnd(text: string, start: number) {

@@ -13,6 +13,7 @@ from app.routers import chat_actions
 from app.routers.chat_actions import ConfirmActionRequest
 from app.routers.auth import get_current_user
 from app.services.chat.action_executor import execute_tool_by_name
+from app.services.chat.action_metrics import build_hitas_action_metrics
 from app.services.chat.action_reaper import STALE_EXECUTING_MESSAGE, reap_stale_executing_actions
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
 from app.services.time_utils import utc_now_naive
@@ -47,6 +48,7 @@ def test_hitas_routes_are_registered_once_under_chat_prefix():
     assert "/chat/conversations/{conversation_id}/pending-actions" in paths
     assert "/chat/actions/{action_id}/confirm" in paths
     assert "/chat/actions/{action_id}/reject" in paths
+    assert "/chat/actions/metrics" in paths
     assert "/chat/actions/batches/{batch_id}/confirm" in paths
     assert "/chat/actions/batches/{batch_id}/reject" in paths
     assert not any(path.startswith("/chat/chat/") for path in paths)
@@ -146,6 +148,42 @@ def test_confirm_action_with_batch_executes_all_actions_once(monkeypatch):
         assert metadata["tool_action_batch_result"]["approval_batch_id"] == batch_id
 
 
+def test_long_running_action_is_queued_for_background_execution(monkeypatch):
+    session = _session()
+    conversation = _conversation(session)
+    scheduled: list[tuple[str, object]] = []
+
+    def fake_schedule(job_name: str, job_factory):
+        scheduled.append((job_name, job_factory))
+
+    async def fake_execute(tool_name: str, tool_input: dict):
+        raise AssertionError("Background action should not execute inline")
+
+    monkeypatch.setattr(chat_actions, "schedule_background_job", fake_schedule)
+    monkeypatch.setattr(chat_actions, "execute_tool_by_name", fake_execute)
+    action = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="write_project_office_document",
+        tool_input_json=json.dumps({"file_type": "pptx", "title": "客户汇报", "slides": []}),
+        action_type="write_office_document",
+        title="生成 PPT",
+        description="",
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+
+    result = asyncio.run(chat_actions.confirm_action(action.id, ConfirmActionRequest(), session, _admin(session)))
+
+    assert result.status == "executing"
+    assert result.result == {"success": True, "queued": True, "background": True}
+    assert scheduled and scheduled[0][0] == f"hitas-action-{action.id}"
+    with Session(session.get_bind()) as check:
+        stored = check.get(PendingToolAction, action.id)
+        assert stored is not None
+        assert stored.status == "executing"
+
+
 def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
     session = _session()
     conversation = _conversation(session)
@@ -196,6 +234,64 @@ def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
         messages = check.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
         assert len(messages) == 1
         assert "已跳过" in messages[0].content
+
+
+def test_hitas_metrics_reports_failure_rate_stale_actions_and_partial_batches():
+    session = _session()
+    conversation = _conversation(session)
+    completed = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id="batch-partial",
+        sequence_index=0,
+        tool_name="manage_project_files",
+        tool_input_json="{}",
+        action_type="delete_files",
+        title="完成",
+        status="completed",
+        confirmed_at=utc_now_naive(),
+    )
+    failed = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id="batch-partial",
+        sequence_index=1,
+        tool_name="manage_project_files",
+        tool_input_json="{}",
+        action_type="delete_files",
+        title="失败",
+        status="failed",
+        confirmed_at=utc_now_naive(),
+    )
+    stale = PendingToolAction(
+        conversation_id=conversation.id,
+        tool_name="write_project_office_document",
+        tool_input_json="{}",
+        action_type="write_office_document",
+        title="卡住",
+        status="executing",
+        confirmed_at=utc_now_naive() - timedelta(minutes=60),
+    )
+    session.add(completed)
+    session.add(failed)
+    session.add(stale)
+    session.commit()
+
+    metrics = build_hitas_action_metrics(
+        session,
+        stale_after_minutes=30,
+        failure_rate_alert_threshold=0.2,
+        min_resolved_for_failure_rate_alert=2,
+    )
+
+    assert metrics["resolved_actions"] == 2
+    assert metrics["failed_actions"] == 1
+    assert metrics["confirmation_failure_rate"] == 0.5
+    assert metrics["stale_executing_actions"] == 1
+    assert metrics["partial_failed_batches"] == 1
+    assert {alert["code"] for alert in metrics["alerts"]} == {
+        "hitas_confirmation_failure_rate_high",
+        "hitas_stale_executing_actions",
+        "hitas_batch_partial_failures",
+    }
 
 
 def test_persist_batch_results_marks_dangling_executing_action_failed():
