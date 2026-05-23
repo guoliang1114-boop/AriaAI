@@ -10,7 +10,7 @@ from app.services.context_builder.query_classifiers import (
     is_client_project_portfolio_query,
     is_workspace_project_inventory_query,
 )
-from app.services.artifact_intent import detect_artifact_intent, is_question_like
+from app.services.artifact_intent import detect_artifact_intent, is_question_like, primary_user_request_text
 from app.services.tool_descriptions import tool_required_policy
 from app.tools.office_documents import (
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
@@ -255,12 +255,13 @@ def _is_destructive_request(text: str) -> bool:
 
 def detect_action_policy(content: str, *, project_id: int | None = None, force_skill: bool = False) -> tuple[ActionPolicy, str, float]:
     """Return the strictest explicit policy suggested by the user message."""
-    text = _normalize(content)
+    routing_content = primary_user_request_text(content)
+    text = _normalize(routing_content)
     if not text:
         return ActionPolicy.DIRECT_ANSWER, "empty", 0.99
     if _is_destructive_request(text):
         return ActionPolicy.DESTRUCTIVE_ACTION, "destructive_terms", 0.98
-    if is_question_like(content):
+    if is_question_like(routing_content):
         return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "question", 0.86
     explicit_modify = _has_any(text, MODIFY_TERMS) and (
         _has_any(text, DOCUMENT_TERMS)
@@ -273,7 +274,7 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
         _has_any(text, ("生成", "制作", "整理一份", "做一份", "准备一份", "输出", "create", "write", "generate"))
         and (_has_any(text, DOCUMENT_TERMS) or _has_any(text, OFFICE_ARTIFACT_TERMS))
     )
-    artifact_intent = detect_artifact_intent(content)
+    artifact_intent = detect_artifact_intent(routing_content)
     if artifact_intent.requested:
         return ActionPolicy.WRITE_ARTIFACT, artifact_intent.reason, artifact_intent.confidence
     if explicit_write:
@@ -294,16 +295,17 @@ def classify_chat_mode_and_policy(
     skill_id: int | None = None,
     force_skill: bool = False,
 ) -> IntentDecision:
-    policy, reason, confidence = detect_action_policy(content, project_id=project_id, force_skill=force_skill)
+    routing_content = primary_user_request_text(content)
+    policy, reason, confidence = detect_action_policy(routing_content, project_id=project_id, force_skill=force_skill)
     if force_skill or skill_id:
         return IntentDecision(ChatMode.SKILL_EXECUTION, policy, max(confidence, 0.9), f"skill:{reason}")
     if project_id:
-        if is_client_project_portfolio_query(content):
+        if is_client_project_portfolio_query(routing_content):
             return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.READ_ONLY_TOOL, 0.78, "rule:client_portfolio", "rule_fallback")
-        if is_workspace_project_inventory_query(content):
+        if is_workspace_project_inventory_query(routing_content):
             return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback")
         return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason)
-    if is_workspace_project_inventory_query(content):
+    if is_workspace_project_inventory_query(routing_content):
         return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback")
     return IntentDecision(ChatMode.STANDALONE_QA, ActionPolicy.DIRECT_ANSWER, confidence, reason)
 

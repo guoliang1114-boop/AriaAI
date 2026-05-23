@@ -115,6 +115,31 @@ _OUTPUT_KIND_ALIASES = {
 
 _SUPPORTED_OUTPUT_KINDS = {"pptx", "xlsx", "docx", "pdf", "md"}
 
+REFERENCE_CONTEXT_MARKERS = (
+    "以下是别的 ai",
+    "以下是别的ai",
+    "以下是其他 ai",
+    "以下是其他ai",
+    "以下是另一位 ai",
+    "以下是另一位ai",
+    "下面是别的 ai",
+    "下面是别的ai",
+    "下面是其他 ai",
+    "下面是其他ai",
+    "这是别的 ai",
+    "这是别的ai",
+    "别的 ai 给出的建议",
+    "别的 ai 给出的分析",
+    "别的ai给出的建议",
+    "别的ai给出的分析",
+    "其他 ai 给出的建议",
+    "其他ai给出的建议",
+    "外部 ai 给出的建议",
+    "外部ai给出的建议",
+    "当然你要辩证地看",
+    "你要辩证地看",
+)
+
 
 def _normalize(content: str) -> str:
     return (content or "").strip().lower()
@@ -126,6 +151,33 @@ def _has_any(text: str, terms: tuple[str, ...]) -> bool:
 
 def is_question_like(content: str) -> bool:
     return _normalize(content).startswith(QUESTION_PREFIXES)
+
+
+def primary_user_request_text(content: str) -> str:
+    """Return the part that expresses the user's own intent.
+
+    Users often paste external review text after their actual ask, for example:
+    "请分析当前里程碑。以下是别的 AI 给出的建议：...生成 MD...".  Routing and
+    policy decisions must use the first sentence as the user's intent, while the
+    pasted block is only reference context.  Keep the split conservative so
+    normal prompts like "请根据以下内容生成报告" are unaffected.
+    """
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    marker_positions = [
+        lowered.find(marker)
+        for marker in REFERENCE_CONTEXT_MARKERS
+        if lowered.find(marker) >= 0
+    ]
+    if not marker_positions:
+        return text
+    split_at = min(marker_positions)
+    prefix = text[:split_at].strip(" \t\r\n，,。；;：:")
+    if len(prefix) < 8:
+        return text
+    return prefix
 
 
 def normalize_output_kind(value: Any) -> str:
@@ -199,10 +251,10 @@ def detect_artifact_intent(content: str) -> ArtifactIntent:
     direct answer.  A request must include a supported artifact format and a
     creation verb such as "写一个", "生成", "导出", or "create".
     """
-    text = _normalize(content)
+    text = _normalize(primary_user_request_text(content))
     if not text:
         return ArtifactIntent(False, reason="empty")
-    if is_question_like(content):
+    if is_question_like(text):
         return ArtifactIntent(False, reason="question_prefix")
 
     output_kind = ""

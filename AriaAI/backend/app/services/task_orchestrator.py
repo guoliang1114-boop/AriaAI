@@ -32,7 +32,7 @@ from app.services.consulting_capabilities import (
     should_create_text_artifact_for_capability,
     validate_capability_markdown,
 )
-from app.services.artifact_intent import ArtifactContract, detect_artifact_intent
+from app.services.artifact_intent import ArtifactContract, detect_artifact_intent, primary_user_request_text
 from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
 from app.services.project_core import init_default_project_folders
 from app.services.project_documents import create_project_document_record
@@ -203,20 +203,21 @@ def _task_route_from_decision(decision: RouterDecision) -> TaskRoute:
 
 
 def _rule_based_router_decision(content: str) -> RouterDecision:
-    normalized = (content or "").strip().lower()
+    routing_content = primary_user_request_text(content)
+    normalized = (routing_content or "").strip().lower()
     if not normalized:
         return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
-    if _looks_like_direct_memory_summary(content):
+    if _looks_like_direct_memory_summary(routing_content):
         return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
-    if _looks_like_direct_project_memory_analysis(content):
+    if _looks_like_direct_project_memory_analysis(routing_content):
         return RouterDecision("analyze", confidence=0.95, reason="rule:direct_project_memory_analysis", output_kind="chat")
-    if _looks_like_direct_diagnostic(content):
+    if _looks_like_direct_diagnostic(routing_content):
         return RouterDecision("analyze", confidence=0.95, reason="rule:direct_diagnostic", output_kind="chat")
-    if _looks_like_existing_artifact_modify(content):
+    if _looks_like_existing_artifact_modify(routing_content):
         return RouterDecision("direct", confidence=0.93, reason="rule:modify_existing_file", output_kind="chat")
 
-    consulting_capability = match_consulting_capability(content)
-    artifact_intent = detect_artifact_intent(content)
+    consulting_capability = match_consulting_capability(routing_content)
+    artifact_intent = detect_artifact_intent(routing_content)
     if artifact_intent.requested:
         task_type = _infer_task_type_from_output_kind(artifact_intent.output_kind)
         if task_type:
@@ -243,7 +244,7 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
         return RouterDecision("artifact", "create_text_artifact", 0.84, "rule:markdown", output_kind="md")
     if wants_docx and wants_create:
         return RouterDecision("artifact", "generate_project_docx", 0.82, "rule:docx", output_kind="docx")
-    if should_create_text_artifact_for_capability(content, consulting_capability):
+    if should_create_text_artifact_for_capability(routing_content, consulting_capability):
         return RouterDecision(
             "artifact",
             "create_text_artifact",
