@@ -157,11 +157,29 @@ def test_router_keeps_structured_memory_overview_as_direct_answer():
     assert route.response_mode == "direct"
 
 
+def test_router_keeps_structured_memory_milestone_analysis_as_direct_answer():
+    content = "请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。"
+    route = asyncio.run(route_project_task_request(content))
+
+    assert route.task_type is None
+    assert route.reason == "rule:direct_project_memory_analysis"
+    assert route.response_mode == "analyze"
+    assert detect_project_task_type(content) is None
+
+
 def test_router_allows_memory_summary_when_user_explicitly_asks_for_file():
     content = "请基于当前项目的结构化记忆，生成一个 md 文档，整理项目概览摘要和风险。"
     route = asyncio.run(route_project_task_request(content))
 
     assert route.task_type == "create_text_artifact"
+
+
+def test_router_allows_milestone_plan_when_user_explicitly_asks_for_artifact():
+    content = "请基于当前项目的结构化记忆，生成一份里程碑推进计划。"
+    route = asyncio.run(route_project_task_request(content))
+
+    assert route.task_type == "create_text_artifact"
+    assert route.response_mode == "artifact"
 
 
 def test_router_treats_write_excel_questionnaire_as_artifact():

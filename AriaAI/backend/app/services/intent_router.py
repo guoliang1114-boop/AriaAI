@@ -126,11 +126,16 @@ def _confidence(value: Any, fallback: float) -> float:
         return fallback
 
 
-def _task_route_for_rules(content: str) -> Any | None:
-    """Return a deterministic task route when the user explicitly asks for one."""
+def _route_for_rules(content: str) -> Any | None:
+    """Return the deterministic project route, including direct-answer guards."""
     from app.services.task_orchestrator import rule_based_project_task_route
 
-    route = rule_based_project_task_route(content)
+    return rule_based_project_task_route(content)
+
+
+def _task_route_for_rules(content: str) -> Any | None:
+    """Return a deterministic task route when the user explicitly asks for one."""
+    route = _route_for_rules(content)
     if route.task_type and route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE:
         return route
     return None
@@ -160,10 +165,16 @@ def _clamp_policy(rule_policy: ActionPolicy, proposed_policy: ActionPolicy) -> A
 
 
 def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = None) -> IntentDecision:
+    rule_route = None
     if req.force_skill or effective_skill_id:
         task_route = None
     else:
-        task_route = _task_route_for_rules(req.content) if req.project_id else None
+        rule_route = _route_for_rules(req.content) if req.project_id else None
+        task_route = (
+            rule_route
+            if rule_route and rule_route.task_type and rule_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
+            else None
+        )
     artifact_contract = ArtifactContract()
     if task_route:
         artifact_contract = ArtifactContract(
@@ -201,6 +212,29 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
         force_skill=req.force_skill,
     )
     artifact_contract = contract_from_artifact_intent(detect_artifact_intent(req.content), source=decision.method)
+    if (
+        rule_route
+        and not task_route
+        and rule_route.response_mode in {"direct", "answer", "analyze", "chat"}
+        and rule_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
+    ):
+        return IntentDecision(
+            chat_mode=decision.chat_mode,
+            action_policy=decision.action_policy,
+            task_route=None,
+            artifact_contract=artifact_contract,
+            confidence=rule_route.confidence,
+            reason=rule_route.reason,
+            method="rule_direct_router",
+            trace=_decision_trace(
+                method="rule_direct_router",
+                final_chat_mode=decision.chat_mode,
+                final_action_policy=decision.action_policy,
+                artifact_contract=artifact_contract,
+                confidence=rule_route.confidence,
+                reason=rule_route.reason,
+            ),
+        )
     return IntentDecision(
         chat_mode=decision.chat_mode,
         action_policy=decision.action_policy,

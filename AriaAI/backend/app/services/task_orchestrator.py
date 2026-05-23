@@ -208,6 +208,8 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
         return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
     if _looks_like_direct_memory_summary(content):
         return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
+    if _looks_like_direct_project_memory_analysis(content):
+        return RouterDecision("analyze", confidence=0.95, reason="rule:direct_project_memory_analysis", output_kind="chat")
     if _looks_like_direct_diagnostic(content):
         return RouterDecision("analyze", confidence=0.95, reason="rule:direct_diagnostic", output_kind="chat")
     if _looks_like_existing_artifact_modify(content):
@@ -403,6 +405,36 @@ def _looks_like_direct_memory_summary(content: str) -> bool:
         any(term in text for term in summary_terms)
         and any(term in text for term in memory_terms)
         and (any(term in text for term in concise_terms) or "风险" in text or "下一步" in text)
+    )
+
+
+def _looks_like_direct_project_memory_analysis(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    memory_terms = ("结构化记忆", "当前项目", "项目记忆", "project memory", "structured memory")
+    analysis_terms = (
+        "分析", "指出", "识别", "评估", "判断", "盘点", "看一下", "看看", "复盘",
+        "analyze", "assess", "review",
+    )
+    progress_terms = (
+        "里程碑", "推进", "进展", "完成", "已完成", "延迟", "延期", "滞后",
+        "事项", "当前阶段", "当前状态", "下一步", "接下来", "milestone",
+        "progress", "delay", "status", "next step",
+    )
+    explicit_deliverable_terms = (
+        "生成文件", "输出文件", "生成文档", "生成报告", "生成材料", "创建文档", "保存",
+        "导出", "下载", "保存为", "写成文档", "整理成文档", "形成文档", "起草文档",
+        "交付物", "ppt", "pptx", "excel", "xlsx", "word", "docx", "pdf", "markdown",
+        "md", "生成一个", "生成一份", "创建一个", "创建一份", "制作一个", "制作一份",
+        "准备一份", "写一份", "做一份", "起草一份", "输出一份",
+    )
+    if any(term in text for term in explicit_deliverable_terms):
+        return False
+    return (
+        any(term in text for term in memory_terms)
+        and any(term in text for term in analysis_terms)
+        and any(term in text for term in progress_terms)
     )
 
 

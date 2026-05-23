@@ -2,7 +2,7 @@
 set -euo pipefail
 
 DOMAIN="aria.d2cgo.co"
-NGINX_CONF="/www/wwwroot/AriaAI/deployment/nginx_ariaai.conf"
+NGINX_CONF="/www/wwwroot/AriaAI/deploy/nginx_ariaai.conf"
 
 echo "=== SSL Setup for $DOMAIN ==="
 
@@ -43,4 +43,4 @@ echo "Certificate: /etc/letsencrypt/live/$DOMAIN/"
 echo "Auto-renewal: daily at 03:00"
 echo ""
 echo "To add daily database backup, run: crontab -e"
-echo "Add: 0 2 * * * /www/wwwroot/AriaAI/deployment/backup.sh"
+echo "Add: 0 2 * * * /www/wwwroot/AriaAI/deploy/backup.sh"

@@ -92,6 +92,48 @@ def test_llm_router_cannot_upgrade_read_only_to_write_without_user_intent():
     assert decision.trace["llm_payload"]["action_policy"] == "write_artifact"
 
 
+def test_project_memory_milestone_analysis_stays_chat_not_artifact():
+    req = SendMessageRequest(
+        content="请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。",
+        project_id=26,
+    )
+
+    decision = classify_chat_intent(req)
+
+    assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.task_route is None
+    assert decision.artifact_contract.delivery_required is False
+
+
+def test_project_memory_milestone_analysis_blocks_llm_artifact_guess():
+    called = False
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal called
+        called = True
+        return (
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.92,'
+            '"reason":"model guessed milestone artifact",'
+            '"artifact_contract":{"delivery_required":true,"output_kind":"md","title":"里程碑推进分析",'
+            '"allowed_tools":["update_project_markdown_document"]}}'
+        )
+
+    req = SendMessageRequest(
+        content="请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。",
+        project_id=26,
+    )
+
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm, model="test"))
+
+    assert called is False
+    assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.task_route is None
+    assert decision.artifact_contract.delivery_required is False
+    assert decision.method == "rule_direct_router"
+
+
 def test_llm_router_can_controlled_upgrade_ambiguous_artifact_contract():
     async def fake_llm(*args, **kwargs):
         return (

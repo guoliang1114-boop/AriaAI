@@ -10,6 +10,10 @@
 | `deploy.sh` | 服务器端部署脚本 |
 | `setup-server.sh` | 新服务器初始化脚本 |
 | `.env.example` | 环境变量配置模板 |
+| `baota-deploy.sh` | 宝塔面板部署脚本 |
+| `backup.sh` | 数据库备份脚本 |
+| `setup_ssl.sh` | SSL 证书配置脚本 |
+| `nginx_ariaai.conf` | Nginx 配置文件 |
 
 ## 快速导航
 

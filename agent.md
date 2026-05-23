@@ -249,7 +249,7 @@ curl -fsS https://aria.d2cgo.co/
 curl -fsS https://aria.d2cgo.co/api/health
 ```
 
-See `DEPLOY.md` and `deploy/AUTO_DEPLOY.md` for more detail.
+See `DEPLOY.md` and `deploy/AUTO_DEPLOY.md` for more detail. Deployment scripts, nginx config, SSL setup, and backup are all in `deploy/`.
 
 ---
 
