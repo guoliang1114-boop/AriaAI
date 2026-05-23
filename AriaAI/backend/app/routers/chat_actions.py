@@ -651,6 +651,18 @@ def _persist_batch_action_results(
             .where(PendingToolAction.id.in_(action_ids))
             .order_by(PendingToolAction.sequence_index.asc(), PendingToolAction.id.asc())
         ).all()
+        actions_by_id = {action.id: action for action in actions if action.id is not None}
+        dangling_stmt = (
+            select(PendingToolAction)
+            .where(PendingToolAction.approval_batch_id == batch_id)
+            .where(PendingToolAction.status == "executing")
+        )
+        if action_ids:
+            dangling_stmt = dangling_stmt.where(~PendingToolAction.id.in_(action_ids))
+        for action in session.exec(dangling_stmt).all():
+            if action.id is not None:
+                actions_by_id[action.id] = action
+        actions = sorted(actions_by_id.values(), key=lambda action: (action.sequence_index, action.id or 0))
         if not actions:
             raise HTTPException(status_code=404, detail="Action batch not found")
         result_by_id = {item.get("pending_action_id"): item for item in executions}
@@ -660,7 +672,15 @@ def _persist_batch_action_results(
         action_results: list[dict[str, Any]] = []
         for action in actions:
             item = result_by_id.get(action.id) or {}
-            result = item.get("result") if isinstance(item.get("result"), dict) else {"success": False, "error": "Missing result"}
+            result = (
+                item.get("result")
+                if isinstance(item.get("result"), dict)
+                else {
+                    "success": False,
+                    "error": "Missing execution result; action status unknown.",
+                    "requires_manual_verification": True,
+                }
+            )
             action.result_json = json.dumps(result, ensure_ascii=False, default=str)
             if result.get("success"):
                 action.status = "completed"
@@ -683,6 +703,23 @@ def _persist_batch_action_results(
                 }
             )
             session.add(action)
+        missing_action_ids = [action_id for action_id in action_ids if action_id not in actions_by_id]
+        for missing_action_id in missing_action_ids:
+            result = {
+                "success": False,
+                "error": "Execution result could not be attached because the pending action record is missing.",
+                "requires_manual_verification": True,
+            }
+            failed_count += 1
+            action_results.append(
+                {
+                    "pending_action_id": missing_action_id,
+                    "tool_name": "unknown",
+                    "status": "failed",
+                    "result": result,
+                    "error_message": result["error"],
+                }
+            )
 
         batch_status = "completed" if failed_count == 0 and skipped_count == 0 else "failed"
         batch_result = {

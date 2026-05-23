@@ -198,6 +198,59 @@ def test_confirm_action_batch_stops_after_first_failure(monkeypatch):
         assert "已跳过" in messages[0].content
 
 
+def test_persist_batch_results_marks_dangling_executing_action_failed():
+    session = _session()
+    conversation = _conversation(session)
+    batch_id = "hitas-dangling-executing"
+    a1 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=0,
+        tool_name="manage_project_files",
+        tool_input_json=json.dumps({"action": "delete", "step": "first"}),
+        action_type="delete_files",
+        title="删除文件",
+        status="executing",
+    )
+    a2 = PendingToolAction(
+        conversation_id=conversation.id,
+        approval_batch_id=batch_id,
+        sequence_index=1,
+        tool_name="manage_project_folders",
+        tool_input_json=json.dumps({"action": "delete", "step": "second"}),
+        action_type="delete_folder",
+        title="删除文件夹",
+        status="executing",
+    )
+    session.add(a1)
+    session.add(a2)
+    session.commit()
+    session.refresh(a1)
+    session.refresh(a2)
+
+    result = chat_actions._persist_batch_action_results(
+        session.get_bind(),
+        batch_id,
+        [
+            {
+                "pending_action_id": a1.id,
+                "tool_name": "manage_project_files",
+                "result": {"success": True},
+            }
+        ],
+    )
+
+    assert result.status == "failed"
+    assert result.result["completed_count"] == 1
+    assert result.result["failed_count"] == 1
+    with Session(session.get_bind()) as check:
+        stored = check.exec(select(PendingToolAction).where(PendingToolAction.approval_batch_id == batch_id)).all()
+        statuses = {item.sequence_index: item.status for item in stored}
+        assert statuses == {0: "completed", 1: "failed"}
+        dangling = next(item for item in stored if item.sequence_index == 1)
+        assert "Missing execution result" in (dangling.error_message or "")
+
+
 def test_confirm_action_fails_closed_on_invalid_stored_tool_input(monkeypatch):
     session = _session()
     conversation = _conversation(session)

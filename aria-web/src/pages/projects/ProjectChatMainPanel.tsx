@@ -596,14 +596,19 @@ export function findPendingAction({
   }
 
   const resolvedTokens = new Set<string>();
+  let hasNewerToolActionResult = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role !== "assistant") continue;
     const metadata = parseMessageMetadata(message);
+    if (metadata.tool_action_result || metadata.tool_action_batch_result) {
+      hasNewerToolActionResult = true;
+    }
     (metadata.resolved_action_confirmations || []).forEach((token) => {
       if (token) resolvedTokens.add(token);
     });
     const call = confirmationCallFrom(metadata.tool_calls);
+    if (call && hasNewerToolActionResult) continue;
     if (call?.confirmation_token && resolvedTokens.has(call.confirmation_token)) continue;
     const sourceContent = messages
       .slice(0, index)

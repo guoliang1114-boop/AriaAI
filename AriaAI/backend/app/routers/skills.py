@@ -1508,6 +1508,9 @@ def ensure_builtin_pro_skills(session: Session) -> int:
             if not existing_skill.category:
                 existing_skill.category = skill_def["category"]
                 patched = True
+            elif existing_skill.category != skill_def["category"]:
+                existing_skill.category = skill_def["category"]
+                patched = True
             prompt_marker = prompt_markers.get(existing_skill.name)
             if prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
                 existing_skill.description = skill_def.get("description", existing_skill.description)

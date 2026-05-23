@@ -99,6 +99,45 @@ describe("findPendingAction", () => {
 
     expect(action).toBeNull();
   });
+
+  it("does not resurface legacy approval after HITAS writes an action result", () => {
+    const token = "tool:manage_project_files:delete:abc123";
+    const action = findPendingAction({
+      streamingToolCalls: [],
+      messages: [
+        message("user", "现在空间里面有特别多的垃圾文件，清除", undefined, 1),
+        message(
+          "assistant",
+          "确认执行吗？",
+          {
+            tool_calls: [
+              {
+                tool_name: "manage_project_files",
+                status: "confirmation_required",
+                confirmation_token: token,
+              },
+            ],
+          },
+          2,
+        ),
+        message("user", "确认并执行", undefined, 3),
+        message(
+          "assistant",
+          "已执行：确认删除项目文件。",
+          {
+            tool_action_result: {
+              pending_action_id: 12,
+              tool_name: "manage_project_files",
+              status: "completed",
+            },
+          },
+          4,
+        ),
+      ],
+    });
+
+    expect(action).toBeNull();
+  });
 });
 
 describe("groupPendingToolActions", () => {

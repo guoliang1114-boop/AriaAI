@@ -886,6 +886,8 @@ export interface MessageMetadata {
   task_type?: string
   pending_tool_confirmations?: PendingToolConfirmation[]
   resolved_action_confirmations?: string[]
+  tool_action_result?: Record<string, unknown>
+  tool_action_batch_result?: Record<string, unknown>
   pending_markdown_saves?: Array<{
     tool_use_id?: string
     project_id?: number
