@@ -164,6 +164,23 @@ def _clamp_policy(rule_policy: ActionPolicy, proposed_policy: ActionPolicy) -> A
     return rule_policy
 
 
+def _policy_for_high_confidence_direct_route(route: Any, fallback: ActionPolicy) -> ActionPolicy:
+    """Remove tools for deterministic answers that should use injected context.
+
+    Project-memory summaries and analyses are already supported by the assembled
+    structured project context.  Keeping READ_ONLY_TOOL here exposes read tools
+    to the model and encourages unnecessary file inspection before answering.
+    """
+    reason = str(getattr(route, "reason", "") or "")
+    if reason in {
+        "rule:direct_memory_summary",
+        "rule:direct_project_memory_analysis",
+        "rule:direct_diagnostic",
+    }:
+        return ActionPolicy.DIRECT_ANSWER
+    return fallback
+
+
 def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = None) -> IntentDecision:
     rule_route = None
     if req.force_skill or effective_skill_id:
@@ -218,9 +235,10 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
         and rule_route.response_mode in {"direct", "answer", "analyze", "chat"}
         and rule_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
     ):
+        final_policy = _policy_for_high_confidence_direct_route(rule_route, decision.action_policy)
         return IntentDecision(
             chat_mode=decision.chat_mode,
-            action_policy=decision.action_policy,
+            action_policy=final_policy,
             task_route=None,
             artifact_contract=artifact_contract,
             confidence=rule_route.confidence,
@@ -229,7 +247,7 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
             trace=_decision_trace(
                 method="rule_direct_router",
                 final_chat_mode=decision.chat_mode,
-                final_action_policy=decision.action_policy,
+                final_action_policy=final_policy,
                 artifact_contract=artifact_contract,
                 confidence=rule_route.confidence,
                 reason=rule_route.reason,

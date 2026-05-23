@@ -421,7 +421,8 @@ def _looks_like_direct_project_memory_analysis(content: str) -> bool:
     progress_terms = (
         "里程碑", "推进", "进展", "完成", "已完成", "延迟", "延期", "滞后",
         "事项", "当前阶段", "当前状态", "下一步", "接下来", "milestone",
-        "progress", "delay", "status", "next step",
+        "progress", "delay", "status", "next step", "风险", "阻塞", "阻塞点",
+        "缓解", "动作", "建议", "risk", "blocker", "mitigation", "recommendation",
     )
     explicit_deliverable_terms = (
         "生成文件", "输出文件", "生成文档", "生成报告", "生成材料", "创建文档", "保存",

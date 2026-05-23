@@ -78,8 +78,12 @@ def test_llm_router_can_clarify_ambiguous_portfolio_mode():
     assert decision.trace["llm_payload"]["chat_mode"] == "cross_project_portfolio"
 
 
-def test_llm_router_cannot_upgrade_read_only_to_write_without_user_intent():
+def test_llm_router_cannot_upgrade_direct_memory_analysis_to_write_without_user_intent():
+    called = False
+
     async def fake_llm(*args, **kwargs):
+        nonlocal called
+        called = True
         return '{"chat_mode":"project_deep_dive","action_policy":"write_artifact","confidence":0.91,"reason":"model guessed artifact"}'
 
     req = SendMessageRequest(
@@ -87,9 +91,9 @@ def test_llm_router_cannot_upgrade_read_only_to_write_without_user_intent():
         project_id=26,
     )
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
-    assert decision.trace["final_action_policy"] == "read_only_tool"
-    assert decision.trace["llm_payload"]["action_policy"] == "write_artifact"
+    assert called is False
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.trace["final_action_policy"] == "direct_answer"
 
 
 def test_project_memory_milestone_analysis_stays_chat_not_artifact():
@@ -101,7 +105,7 @@ def test_project_memory_milestone_analysis_stays_chat_not_artifact():
     decision = classify_chat_intent(req)
 
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
 
@@ -128,7 +132,7 @@ def test_project_memory_milestone_analysis_blocks_llm_artifact_guess():
 
     assert called is False
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
     assert decision.method == "rule_direct_router"
@@ -160,7 +164,7 @@ def test_project_memory_analysis_with_quoted_ai_advice_blocks_artifact_guess():
 
     assert called is False
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
     assert decision.method == "rule_direct_router"

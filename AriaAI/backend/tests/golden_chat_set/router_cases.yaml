@@ -5,30 +5,34 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: direct_answer
     forbid_tools:
+      - read_project_markdown_document
       - update_project_markdown_document
 
-  - id: project_risk_analysis_read_only
+  - id: project_risk_analysis_direct_answer
     content: "请基于当前项目的结构化记忆，识别最重要的项目风险和阻塞点，并给出建议的缓解动作。"
     project_id: 26
     expected_chat_mode: project_deep_dive
-    expected_action_policy: read_only_tool
+    expected_action_policy: direct_answer
     forbid_tools:
+      - read_project_markdown_document
       - update_project_markdown_document
 
-  - id: project_milestone_progress_analysis_read_only
+  - id: project_milestone_progress_analysis_direct_answer
     content: "请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。"
     project_id: 26
     expected_chat_mode: project_deep_dive
-    expected_action_policy: read_only_tool
+    expected_action_policy: direct_answer
     forbid_tools:
+      - read_project_markdown_document
       - update_project_markdown_document
 
   - id: project_milestone_progress_analysis_with_quoted_ai_advice
     content: "请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。以下是别的 AI 给出的建议，当然你要辩证地看：模型还在调 MD 工具，可能是 prompt 里有生成文档的暗示；建议生成一份推进计划。"
     project_id: 26
     expected_chat_mode: project_deep_dive
-    expected_action_policy: read_only_tool
+    expected_action_policy: direct_answer
     forbid_tools:
+      - read_project_markdown_document
       - update_project_markdown_document
 
   - id: explicit_markdown_artifact
