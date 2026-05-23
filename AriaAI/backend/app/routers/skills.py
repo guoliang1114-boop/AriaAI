@@ -809,7 +809,7 @@ GSTACK_PRO_SKILLS = [
     # ── 数字化与技术 ──────────────────────────────────────────────────
     {
         "name": "AI 用例优先级矩阵",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "从业务价值与实施可行性两个维度评分，生成 AI 应用场景优先级矩阵，推荐 Quick Win 起步项目。",
         "system_prompt": (
             "你是企业 AI 战略顾问。请识别目标公司最具潜力的 AI 应用场景，从以下两个维度评分（各 1-5 分）：\n"
@@ -835,7 +835,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化成熟度评估",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "六维度评估企业数字化成熟度，对标行业标杆，生成差距分析与转型优先级路线图。",
         "system_prompt": (
             "你是数字化转型顾问。请对企业的数字化成熟度进行系统评估，覆盖六个维度：\n"
@@ -972,7 +972,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化战略设计",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "基于 digital-strategy 方法论，输出数字化转型战略、成熟度诊断、能力蓝图、路线图、治理与投资方案。",
         "system_prompt": (
             "你是企业数字化转型战略顾问，负责把数字化议题与业务战略对齐，并为客户生成可用于高层汇报、立项和后续交付拆解的数字化战略方案。\n\n"
@@ -1045,7 +1045,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "企业架构蓝图设计",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "基于业务能力、应用、数据、技术和安全视角，设计企业架构原则与目标蓝图。",
         "system_prompt": (
             "你是一位企业架构顾问，熟悉业务架构、应用架构、数据架构、技术架构和安全架构。请为企业设计目标架构蓝图。\n\n"
@@ -1072,7 +1072,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数据治理咨询方案",
-        "category": "核心业务运营",
+        "category": "数字化与技术",
         "description": "设计数据治理框架、数据标准、责任机制、质量规则与落地路线，支撑数据资产化。",
         "system_prompt": (
             "你是一位数据治理顾问。请为企业设计可落地的数据治理方案，而不是只罗列概念。\n\n"
@@ -1101,7 +1101,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "流程数字化改造",
-        "category": "核心业务运营",
+        "category": "数字化与技术",
         "description": "识别流程断点、自动化机会和系统支撑缺口，输出 BPR + 数字化流程改造方案。",
         "system_prompt": (
             "你是一位流程数字化与 BPR 顾问。请围绕业务流程改造提出可执行方案。\n\n"
@@ -1129,7 +1129,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字技术路线图",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "评估技术选型、依赖关系、建设优先级和阶段路线，形成技术路线图与投资建议。",
         "system_prompt": (
             "你是一位数字技术规划顾问。请把业务目标转化为技术能力路线图。\n\n"
@@ -1157,7 +1157,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化组织变革",
-        "category": "组织、人才",
+        "category": "数字化与技术",
         "description": "设计数字化组织、岗位能力、治理机制和变革节奏，帮助技术方案真正落地。",
         "system_prompt": (
             "你是一位数字化组织与变革顾问。请围绕数字化转型所需的组织能力提出方案。\n\n"
@@ -1184,7 +1184,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "数字化 ROI 商业案例",
-        "category": "企业绩效",
+        "category": "数字化与技术",
         "description": "为数字化项目构建投入产出模型、价值假设、三情景测算和 Go/No-Go 决策建议。",
         "system_prompt": (
             "你是一位数字化投资与商业案例顾问。请为数字化项目构建 ROI 论证，要求所有假设清晰、可追踪。\n\n"
@@ -1213,7 +1213,7 @@ GSTACK_PRO_SKILLS = [
     },
     {
         "name": "行业数字化蓝图",
-        "category": "战略分析",
+        "category": "数字化与技术",
         "description": "结合行业 know-how 识别典型数字化场景，输出行业解决方案蓝图与优先落地场景。",
         "system_prompt": (
             "你是一位行业数字化解决方案顾问。请结合行业特点设计数字化蓝图。\n\n"
@@ -1676,11 +1676,11 @@ def ensure_builtin_pro_skills(session: Session) -> int:
                 patched = True
             prompt_marker = prompt_markers.get(existing_skill.name)
             if prompt_marker and prompt_marker not in (existing_skill.system_prompt or ""):
-                existing_skill.description = skill_def.get("description", existing_skill.description)
-                existing_skill.system_prompt = skill_def.get("system_prompt", existing_skill.system_prompt)
-                existing_skill.user_template = skill_def.get("user_template", existing_skill.user_template)
-                existing_skill.estimated_time = skill_def.get("estimated_time", existing_skill.estimated_time)
-                patched = True
+                for field in ("description", "system_prompt", "user_template", "estimated_time"):
+                    next_value = skill_def.get(field, getattr(existing_skill, field))
+                    if getattr(existing_skill, field) != next_value:
+                        setattr(existing_skill, field, next_value)
+                        patched = True
             if existing_skill.name in template_tool_names:
                 tool_names = skill_def.get("tools", [])
                 try:

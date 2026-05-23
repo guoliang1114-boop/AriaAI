@@ -177,6 +177,7 @@ class DBSeedSkillDefinitionTestCase(unittest.TestCase):
         valid_categories = {
             "顾问基础能力", "战略分析", "交易", "客户市场",
             "组织、人才", "企业绩效", "核心业务运营", "风险监管",
+            "数字化与技术",
         }
         for skill_def in GSTACK_PRO_SKILLS:
             cat = skill_def.get("category", "")

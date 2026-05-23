@@ -115,8 +115,47 @@ const getCategoryKey = (category: string) => {
   return "other";
 };
 
+const isDigitalCapabilitySkill = (skill: Pick<SkillSummary, "name" | "description" | "category">) => {
+  const baseKey = getCategoryKey(skill.category);
+  if (["audit", "assurance", "tax"].includes(baseKey)) return false;
+
+  const category = normalizeCategory(skill.category).toLowerCase();
+  const name = skill.name.toLowerCase();
+  const description = skill.description.toLowerCase();
+  const text = `${name} ${description}`;
+
+  if (category.includes("数字化") || category.includes("digital") || category.includes("technology")) {
+    return true;
+  }
+
+  const nameSignals = [
+    "ai 用例",
+    "ai应用",
+    "数字化",
+    "数字技术",
+    "企业架构",
+    "数据治理",
+    "流程数字化",
+    "行业数字化",
+  ];
+  if (nameSignals.some((signal) => name.includes(signal))) return true;
+
+  const descriptionSignals = [
+    "数字化转型",
+    "数字化项目",
+    "数字化方案",
+    "技术架构",
+    "数据治理",
+    "流程数字化",
+    "数据平台",
+    "ai 应用场景",
+  ];
+  return descriptionSignals.some((signal) => text.includes(signal));
+};
+
 const getSkillCategoryKey = (skill: Pick<SkillSummary, "name" | "description" | "category">) => {
   const baseKey = getCategoryKey(skill.category);
+  if (isDigitalCapabilitySkill(skill)) return "digital";
   if (baseKey !== "common") return baseKey;
 
   const text = `${skill.name} ${skill.description}`.toLowerCase();

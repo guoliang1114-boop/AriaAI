@@ -5692,6 +5692,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
 
     def test_builtin_digital_skills_are_seeded_idempotently(self):
         expected_digital_skills = {
+            "AI 用例优先级矩阵",
             "数字化战略设计",
             "数字化成熟度评估",
             "企业架构蓝图设计",
