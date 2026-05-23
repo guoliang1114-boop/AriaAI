@@ -3,10 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowRight,
   BarChart3,
   BookOpen,
   Brain,
   Briefcase,
+  Calculator,
   CheckCircle2,
   ClipboardList,
   Clock3,
@@ -15,9 +17,12 @@ import {
   DollarSign,
   FileText,
   Layers3,
+  LayoutGrid,
   MessageSquare,
+  Receipt,
   Search,
   Shield,
+  ShieldCheck,
   Sparkles,
   Target,
   TrendingUp,
@@ -78,6 +83,9 @@ const getCategoryKey = (category: string) => {
       "data",
       "other",
       "all",
+      "audit",
+      "assurance",
+      "tax",
     ].includes(normalized)
   ) return normalized;
   if (
@@ -101,6 +109,9 @@ const getCategoryKey = (category: string) => {
   if (normalized.includes("org") || normalized.includes("talent") || normalized.includes("组织") || normalized.includes("人才")) return "org";
   if (normalized.includes("m&a") || normalized.includes("transactions") || normalized.includes("并购") || normalized.includes("交易")) return "manda";
   if (normalized.includes("data") || normalized.includes("数据")) return "data";
+  if (normalized.includes("audit") || normalized.includes("审计")) return "audit";
+  if (normalized.includes("assurance") || normalized.includes("鉴证")) return "assurance";
+  if (normalized.includes("tax") || normalized.includes("税务") || normalized.includes("税")) return "tax";
   return "other";
 };
 
@@ -138,6 +149,9 @@ const categoryOrder = [
   "risk",
   "digital",
   "data",
+  "audit",
+  "assurance",
+  "tax",
   "consulting_scoping",
   "consulting_delivery",
   "consulting_review",
@@ -158,6 +172,9 @@ const getCategoryIcon = (category: string) => {
   if (key === "org") return Users;
   if (key === "manda") return BarChart3;
   if (key === "data") return BarChart3;
+  if (key === "audit") return ClipboardList;
+  if (key === "assurance") return CheckCircle2;
+  if (key === "tax") return Calculator;
   return Brain;
 };
 
@@ -172,6 +189,9 @@ const getCategoryTone = (category: string) => {
   if (key === "operations") return "bg-teal-50 text-teal-700 border-teal-100";
   if (key.startsWith("consulting_")) return "bg-violet-50 text-violet-700 border-violet-100";
   if (key === "common") return "bg-indigo-50 text-indigo-700 border-indigo-100";
+  if (key === "audit") return "bg-sky-50 text-sky-700 border-sky-100";
+  if (key === "assurance") return "bg-blue-50 text-blue-700 border-blue-100";
+  if (key === "tax") return "bg-emerald-50 text-emerald-700 border-emerald-100";
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
 
@@ -185,6 +205,9 @@ const getCategoryGradient = (category: string) => {
   if (key === "strategy") return "from-blue-50 via-indigo-50 to-violet-50";
   if (key === "finance") return "from-amber-50 via-orange-50 to-yellow-50";
   if (key === "risk") return "from-rose-50 via-red-50 to-orange-50";
+  if (key === "audit") return "from-sky-50 via-blue-50 to-indigo-50";
+  if (key === "assurance") return "from-blue-50 via-indigo-50 to-violet-50";
+  if (key === "tax") return "from-emerald-50 via-teal-50 to-cyan-50";
   return "from-slate-50 via-white to-slate-100";
 };
 
@@ -255,6 +278,18 @@ const getCategoryDescription = (category: string, isZh: boolean) => {
       zh: "其他可复用的专业能力。",
       en: "Other reusable expert capabilities.",
     },
+    audit: {
+      zh: "财务报表审计、IT审计、数据分析与审计程序执行。",
+      en: "Financial statement audits, IT audits, data analytics, and audit procedures.",
+    },
+    assurance: {
+      zh: "内部控制鉴证、会计报告鉴证、可持续发展鉴证与合规审查。",
+      en: "Internal control assurance, reporting assurance, sustainability assurance, and compliance reviews.",
+    },
+    tax: {
+      zh: "企业税、间接税、国际税、转让定价与税务合规优化。",
+      en: "Corporate tax, indirect tax, international tax, transfer pricing, and tax compliance optimization.",
+    },
   };
   return isZh ? descriptions[key]?.zh || descriptions.other.zh : descriptions[key]?.en || descriptions.other.en;
 };
@@ -278,6 +313,9 @@ const getCategoryLabel = (category: string, isZh: boolean) => {
     manda: { zh: "并购与交易", en: "M&A & Transactions" },
     data: { zh: "数据与洞察", en: "Data & Insights" },
     other: { zh: "其他能力", en: "Other Capabilities" },
+    audit: { zh: "审计", en: "Audit" },
+    assurance: { zh: "鉴证", en: "Assurance" },
+    tax: { zh: "税务", en: "Tax" },
   };
   return isZh ? labels[key]?.zh || labels.other.zh : labels[key]?.en || labels.other.en;
 };
@@ -371,6 +409,130 @@ const buildServiceLines = (categories: SkillCategory[], isZh: boolean, skills: S
   ].filter((line) => line.categories.length > 0);
 };
 
+// ── 业务线映射（Practice Lines）─────────────────────────
+
+type PracticeGroup = {
+  label: { zh: string; en: string };
+  categoryIds: string[];
+};
+
+type PracticeLineMeta = {
+  id: string;
+  title: { zh: string; en: string };
+  subtitle: { zh: string; en: string };
+  description: { zh: string; en: string };
+  icon: typeof ShieldCheck;
+  accentClass: string;
+  cardTintClass: string;
+  badgeTone: string; // e.g. "bg-blue-50 text-blue-700"
+};
+
+const PRACTICE_LINE_META: Record<string, PracticeLineMeta> = {
+  "audit-assurance": {
+    id: "audit-assurance",
+    title: { zh: "审计鉴证", en: "Audit & Assurance" },
+    subtitle: { zh: "Audit & Assurance", en: "Audit & Assurance" },
+    description: { zh: "面向审计、鉴证、内控和可持续信息披露的专业能力。", en: "Capabilities for audit, assurance, controls, and sustainability reporting." },
+    icon: ShieldCheck,
+    accentClass: "bg-blue-200",
+    cardTintClass: "from-sky-50/80 via-white to-white",
+    badgeTone: "border border-blue-100 bg-blue-50/70 text-blue-700",
+  },
+  tax: {
+    id: "tax",
+    title: { zh: "税务", en: "Tax" },
+    subtitle: { zh: "Tax", en: "Tax" },
+    description: { zh: "覆盖企业税、国际税、转让定价、税务合规和筹划优化。", en: "Covers corporate tax, international tax, transfer pricing, compliance, and planning." },
+    icon: Receipt,
+    accentClass: "bg-emerald-200",
+    cardTintClass: "from-emerald-50/80 via-white to-white",
+    badgeTone: "border border-emerald-100 bg-emerald-50/70 text-emerald-700",
+  },
+  consulting: {
+    id: "consulting",
+    title: { zh: "咨询", en: "Consulting" },
+    subtitle: { zh: "Consulting", en: "Consulting" },
+    description: { zh: "按咨询业务线组织，覆盖战略、客户、组织、技术、数据和风险。", en: "Organized by consulting practice lines across strategy, customer, people, technology, data, and risk." },
+    icon: Compass,
+    accentClass: "bg-indigo-200",
+    cardTintClass: "from-indigo-50/75 via-white to-white",
+    badgeTone: "border border-indigo-100 bg-indigo-50/70 text-indigo-700",
+  },
+};
+
+const GENERAL_LINE_META: PracticeLineMeta = {
+  id: "general",
+  title: { zh: "通用能力", en: "General Capabilities" },
+  subtitle: { zh: "跨业务线共享的基础服务与工具", en: "Cross-practice foundational services & tools" },
+  description: { zh: "适用于提案、交付、复盘、资料整理和跨业务线基础工作。", en: "Reusable capabilities for proposals, delivery, retrospectives, synthesis, and cross-practice work." },
+  icon: LayoutGrid,
+  accentClass: "bg-slate-200",
+  cardTintClass: "from-slate-50 via-white to-white",
+  badgeTone: "border border-slate-200 bg-slate-50 text-slate-700",
+};
+
+const PRACTICE_LINE_IDS = ["audit-assurance", "tax", "consulting", "general"] as const;
+const CORE_PRACTICE_LINE_IDS = ["audit-assurance", "tax", "consulting"] as const;
+type PracticeLineId = (typeof PRACTICE_LINE_IDS)[number];
+
+/** 每个业务线内部分组定义 */
+const PRACTICE_LINE_GROUPS: Record<string, PracticeGroup[]> = {
+  "audit-assurance": [
+    { label: { zh: "审计", en: "Audit" }, categoryIds: ["audit"] },
+    { label: { zh: "鉴证", en: "Assurance" }, categoryIds: ["assurance", "consulting_review", "consulting_learning"] },
+  ],
+  tax: [
+    { label: { zh: "税务", en: "Tax" }, categoryIds: ["tax", "finance"] },
+  ],
+  consulting: [
+    { label: { zh: "战略与企业交易", en: "Strategy & Transactions" }, categoryIds: ["strategy", "manda"] },
+    { label: { zh: "客户业务", en: "Customer" }, categoryIds: ["market"] },
+    { label: { zh: "人力资本", en: "Human Capital" }, categoryIds: ["org"] },
+    { label: { zh: "企业技术与绩效", en: "Technology & Performance" }, categoryIds: ["digital", "operations"] },
+    { label: { zh: "AI与数据", en: "AI & Data" }, categoryIds: ["data"] },
+    { label: { zh: "网络安全", en: "Cybersecurity" }, categoryIds: [] },
+    { label: { zh: "风险合规", en: "Risk & Compliance" }, categoryIds: ["risk"] },
+  ],
+  general: [
+    { label: { zh: "基础服务", en: "Foundation" }, categoryIds: ["common", "consulting_scoping", "consulting_delivery"] },
+    { label: { zh: "其他", en: "Other" }, categoryIds: ["other"] },
+  ],
+};
+
+/** Category ID → Practice Line ID */
+const CATEGORY_TO_PRACTICE_LINE: Record<string, string> = {
+  // 审计鉴证
+  audit: "audit-assurance",
+  assurance: "audit-assurance",
+  consulting_review: "audit-assurance",
+  consulting_learning: "audit-assurance",
+  // 税务
+  tax: "tax",
+  finance: "tax",
+  // 咨询
+  strategy: "consulting",
+  manda: "consulting",
+  market: "consulting",
+  org: "consulting",
+  digital: "consulting",
+  data: "consulting",
+  operations: "consulting",
+  risk: "consulting",
+};
+
+/** 通用能力业务线元数据 */
+const getPracticeLineId = (categoryId: string): string | null => {
+  return CATEGORY_TO_PRACTICE_LINE[categoryId] || null;
+};
+
+const isPracticeLineId = (value: string | null): value is PracticeLineId => {
+  return Boolean(value && (PRACTICE_LINE_IDS as readonly string[]).includes(value));
+};
+
+const getPracticeLineMeta = (lineId: PracticeLineId): PracticeLineMeta => {
+  return lineId === "general" ? GENERAL_LINE_META : PRACTICE_LINE_META[lineId];
+};
+
 const safeDecode = (value?: string) => {
   try {
     return decodeURIComponent(value || "all");
@@ -385,8 +547,16 @@ const buildCategoryPath = (categoryId: string, searchParams: URLSearchParams) =>
   return `/skills/${encodeURIComponent(categoryId)}${query ? `?${query}` : ""}`;
 };
 
+const buildPracticeLinePath = (lineId: PracticeLineId, searchParams: URLSearchParams) => {
+  const params = new URLSearchParams(searchParams);
+  params.set("line", lineId);
+  const query = params.toString();
+  return `/skills/all${query ? `?${query}` : ""}`;
+};
+
 const buildSkillsPath = (searchParams: URLSearchParams) => {
   const params = new URLSearchParams(searchParams);
+  params.delete("line");
   const query = params.toString();
   return `/skills${query ? `?${query}` : ""}`;
 };
@@ -502,13 +672,531 @@ function useLaunchSource() {
   };
 }
 
+function PracticeLineCard({
+  lineMeta,
+  categories,
+  onLineClick,
+  isZh,
+  prominence = "core",
+}: {
+  lineMeta: PracticeLineMeta;
+  categories: SkillCategory[];
+  onLineClick: () => void;
+  isZh: boolean;
+  prominence?: "core" | "support";
+}) {
+  const groups = PRACTICE_LINE_GROUPS[lineMeta.id] || [];
+  const Icon = lineMeta.icon;
+  const totalCount = categories.reduce((sum, category) => sum + category.count, 0);
+  const visibleGroups = groups.slice(0, prominence === "support" ? 4 : 3);
+  const hiddenGroupCount = Math.max(0, groups.length - visibleGroups.length);
+  const isSupport = prominence === "support";
+  const groupSummary = visibleGroups
+    .map((group) => (isZh ? group.label.zh : group.label.en))
+    .concat(hiddenGroupCount > 0 ? [isZh ? `+${hiddenGroupCount}` : `+${hiddenGroupCount}`] : []);
+
+  return (
+    <button
+      type="button"
+      onClick={onLineClick}
+      className={`group relative flex h-full w-full flex-col overflow-hidden rounded-[1.5rem] border border-white/80 ${isSupport ? "min-h-40 bg-gradient-to-r p-6 md:min-h-36" : "min-h-40 bg-gradient-to-br p-5"} ${lineMeta.cardTintClass} text-left shadow-[0_1px_0_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-white hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20`}
+    >
+      <div className={`absolute inset-x-0 top-0 h-1 ${lineMeta.accentClass}`} />
+      <div className={isSupport ? "grid h-full gap-5 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.7fr)_auto] md:items-center" : "flex flex-col gap-4"}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className={`${isSupport ? "h-12 w-12" : "h-11 w-11"} flex shrink-0 items-center justify-center rounded-2xl border border-white bg-white/80 text-slate-600 shadow-sm`}>
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className={`${isSupport ? "text-xl" : "text-lg"} block font-semibold text-slate-950`}>
+                {isZh ? lineMeta.title.zh : lineMeta.title.en}
+              </span>
+              <span className="mt-0.5 block text-xs font-medium text-slate-400">
+                {isZh ? lineMeta.subtitle.zh : lineMeta.subtitle.en}
+              </span>
+            </span>
+          </div>
+          <span className="inline-flex shrink-0 items-center rounded-full border border-white/80 bg-white/75 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+            {totalCount}
+          </span>
+        </div>
+
+        <div className="min-w-0">
+          <p className="line-clamp-2 text-sm leading-6 text-slate-600">
+            {isZh ? lineMeta.description.zh : lineMeta.description.en}
+          </p>
+          <div className={`${isSupport ? "gap-2" : "gap-1.5"} mt-3 flex flex-wrap`}>
+            {groupSummary.map((label) => (
+              <span
+                key={label}
+                className={`${isSupport ? "px-3 py-1.5" : "px-2.5 py-1"} rounded-full border border-white/80 bg-white/58 text-xs font-medium text-slate-500`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <span className={`mt-auto inline-flex items-center gap-1.5 pt-1 text-xs font-semibold text-slate-600 transition group-hover:text-primary ${isSupport ? "justify-self-start rounded-full border border-white/80 bg-white/70 px-3.5 py-2 shadow-sm md:mt-0 md:shrink-0 md:justify-self-end md:pt-2" : ""}`}>
+          {isZh ? "进入子能力" : "Open capabilities"}
+          <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function CapabilityFramework({
+  categoryBuckets,
+  isZh,
+  onLineClick,
+}: {
+  categoryBuckets: Record<PracticeLineId, SkillCategory[]>;
+  isZh: boolean;
+  onLineClick: (lineId: PracticeLineId) => void;
+}) {
+  return (
+    <section className="mt-4 overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
+      <div className="flex flex-col gap-1 px-1 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-950">
+            {isZh ? "咨询公司能力框架" : "Firm-wide capability framework"}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {isZh
+              ? "上层是专业服务主线，下层是交付、提案和知识工作的通用能力底座。"
+              : "Professional service lines sit above a shared foundation for proposals, delivery, and knowledge work."}
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+          {isZh ? "覆盖全域服务能力" : "Full-service coverage"}
+        </span>
+      </div>
+
+      <div className="mt-4 rounded-[1.5rem] border border-slate-100 bg-slate-50/65 p-4">
+        <div className="mb-3 flex items-center gap-3">
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+            {isZh ? "专业服务主线" : "Professional services"}
+          </span>
+          <div className="h-px flex-1 bg-slate-200/80" />
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-3">
+          {CORE_PRACTICE_LINE_IDS.map((lineId) => (
+            <PracticeLineCard
+              key={lineId}
+              categories={categoryBuckets[lineId]}
+              isZh={isZh}
+              lineMeta={getPracticeLineMeta(lineId)}
+              onLineClick={() => onLineClick(lineId)}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-center py-3">
+          <div className="h-6 w-px bg-slate-200" />
+        </div>
+
+        <div className="mb-3 flex items-center gap-3">
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+            {isZh ? "通用能力底座" : "Shared capability foundation"}
+          </span>
+          <div className="h-px flex-1 bg-slate-200/80" />
+        </div>
+
+        <PracticeLineCard
+          categories={categoryBuckets.general}
+          isZh={isZh}
+          lineMeta={GENERAL_LINE_META}
+          onLineClick={() => onLineClick("general")}
+          prominence="support"
+        />
+      </div>
+    </section>
+  );
+}
+
+type CapabilityArea = {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  categoryIds: string[];
+  icon: typeof Brain;
+};
+
+type LineFrameworkConfig = {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  journey: string[];
+  areas: CapabilityArea[];
+};
+
+function buildLineFrameworkConfig(lineId: PracticeLineId, isZh: boolean): LineFrameworkConfig {
+  if (lineId === "audit-assurance") {
+    return {
+      eyebrow: isZh ? "审计鉴证能力框架" : "Audit & assurance capability framework",
+      title: isZh ? "从可信报告出发，组织审计与鉴证能力" : "Organize audit and assurance capabilities around trusted reporting",
+      subtitle: "Audit & Assurance",
+      description: isZh
+        ? "围绕财务报告可信度、内控有效性、鉴证要求和质量复核，形成审计鉴证工作的专业能力体系。"
+        : "A capability system for reporting reliability, control effectiveness, assurance requirements, and quality review.",
+      journey: isZh
+        ? ["理解业务与风险", "执行审计与鉴证程序", "挑战关键判断", "沉淀质量与经验"]
+        : ["Understand business and risk", "Execute audit and assurance work", "Challenge key judgments", "Capture quality and learning"],
+      areas: [
+        {
+          id: "audit",
+          title: isZh ? "审计" : "Audit",
+          subtitle: isZh ? "财务报表与审计程序" : "Financial statements and audit procedures",
+          description: isZh
+            ? "覆盖审计计划、程序执行、数据分析、底稿组织和审计判断。"
+            : "Audit planning, procedures, analytics, workpaper organization, and audit judgment.",
+          categoryIds: ["audit"],
+          icon: ClipboardList,
+        },
+        {
+          id: "assurance",
+          title: isZh ? "鉴证" : "Assurance",
+          subtitle: isZh ? "内控、报告和可持续鉴证" : "Controls, reporting, and sustainability assurance",
+          description: isZh
+            ? "围绕内控、专项报告、可持续披露和合规鉴证形成独立判断。"
+            : "Independent judgment for controls, special reports, sustainability disclosures, and compliance assurance.",
+          categoryIds: ["assurance"],
+          icon: CheckCircle2,
+        },
+        {
+          id: "review-quality",
+          title: isZh ? "复核与质量挑战" : "Review & Quality Challenge",
+          subtitle: isZh ? "关键假设、红旗和质量控制" : "Key assumptions, red flags, and quality control",
+          description: isZh
+            ? "识别重大判断、底稿质量、披露逻辑和报告风险，提升交付质量。"
+            : "Review major judgments, workpaper quality, disclosure logic, and report risk.",
+          categoryIds: ["consulting_review"],
+          icon: ShieldCheck,
+        },
+        {
+          id: "learning",
+          title: isZh ? "经验沉淀" : "Learning",
+          subtitle: isZh ? "复盘、模板和可复用资产" : "Retrospectives, templates, and reusable assets",
+          description: isZh
+            ? "把项目经验转化为复盘结论、方法模板和下次执行起点。"
+            : "Turn project experience into retrospectives, templates, and starting points for future work.",
+          categoryIds: ["consulting_learning"],
+          icon: BookOpen,
+        },
+      ],
+    };
+  }
+
+  if (lineId === "tax") {
+    return {
+      eyebrow: isZh ? "税务能力框架" : "Tax capability framework",
+      title: isZh ? "从合规确定性出发，组织税务专业能力" : "Organize tax capabilities around compliance certainty",
+      subtitle: "Tax",
+      description: isZh
+        ? "围绕税务合规、筹划优化、交易税务和财务影响，帮助企业在规则约束下提升经营确定性。"
+        : "Capabilities for tax compliance, planning, transaction tax, and financial impact under regulatory constraints.",
+      journey: isZh
+        ? ["识别税务事实", "判断规则影响", "设计筹划路径", "量化财务结果"]
+        : ["Identify tax facts", "Assess rule impact", "Design planning paths", "Quantify financial results"],
+      areas: [
+        {
+          id: "tax-compliance",
+          title: isZh ? "税务合规与筹划" : "Tax Compliance & Planning",
+          subtitle: isZh ? "申报、合规和税务优化" : "Filing, compliance, and optimization",
+          description: isZh
+            ? "覆盖企业税、间接税、国际税、税务合规和筹划优化。"
+            : "Corporate tax, indirect tax, international tax, compliance, and planning.",
+          categoryIds: ["tax"],
+          icon: Receipt,
+        },
+        {
+          id: "finance-impact",
+          title: isZh ? "财务影响与测算" : "Financial Impact",
+          subtitle: isZh ? "测算、假设和经营影响" : "Modeling, assumptions, and business impact",
+          description: isZh
+            ? "把税务判断转化为财务影响、测算框架和经营决策依据。"
+            : "Translate tax judgments into financial impact, modeling frames, and business decisions.",
+          categoryIds: ["finance"],
+          icon: DollarSign,
+        },
+      ],
+    };
+  }
+
+  if (lineId === "general") {
+    return {
+      eyebrow: isZh ? "通用能力框架" : "General capability framework",
+      title: isZh ? "用通用能力支撑提案、交付和知识沉淀" : "Use shared capabilities to support proposals, delivery, and knowledge work",
+      subtitle: "General Capabilities",
+      description: isZh
+        ? "通用能力不是单一业务线，而是支撑专业服务交付的基础层：启动、交付、复核、复盘和资料组织。"
+        : "A shared foundation for professional delivery: scoping, delivery, review, learning, and knowledge organization.",
+      journey: isZh
+        ? ["定义问题和范围", "组织交付产出", "复核质量", "沉淀可复用资产"]
+        : ["Define problem and scope", "Organize deliverables", "Review quality", "Capture reusable assets"],
+      areas: [
+        {
+          id: "scoping",
+          title: isZh ? "项目启动与范围" : "Scoping",
+          subtitle: isZh ? "问题定义、边界和计划" : "Problem, boundary, and plan",
+          description: isZh
+            ? "帮助项目快速明确问题、目标、边界、利益相关方和第一步行动。"
+            : "Clarify problem, goals, boundaries, stakeholders, and first actions.",
+          categoryIds: ["consulting_scoping"],
+          icon: Target,
+        },
+        {
+          id: "delivery",
+          title: isZh ? "交付与表达" : "Delivery",
+          subtitle: isZh ? "报告、提案和结构化表达" : "Reports, proposals, and structured expression",
+          description: isZh
+            ? "把项目材料组织成客户可读、可讨论、可推进的交付内容。"
+            : "Turn project material into client-ready deliverables for discussion and action.",
+          categoryIds: ["consulting_delivery", "common"],
+          icon: FileText,
+        },
+        {
+          id: "review",
+          title: isZh ? "复核与挑战" : "Review",
+          subtitle: isZh ? "红旗、假设和质量控制" : "Red flags, assumptions, and quality control",
+          description: isZh
+            ? "用于检查逻辑、假设、材料质量和客户沟通风险。"
+            : "Check logic, assumptions, material quality, and client communication risk.",
+          categoryIds: ["consulting_review"],
+          icon: ShieldCheck,
+        },
+        {
+          id: "learning",
+          title: isZh ? "复盘与沉淀" : "Learning",
+          subtitle: isZh ? "经验教训和知识资产" : "Lessons and reusable knowledge",
+          description: isZh
+            ? "把项目经验沉淀成复盘、模板、方法论和后续复用资产。"
+            : "Convert project experience into retrospectives, templates, methods, and reusable assets.",
+          categoryIds: ["consulting_learning", "other"],
+          icon: BookOpen,
+        },
+      ],
+    };
+  }
+
+  return {
+    eyebrow: isZh ? "咨询能力框架" : "Consulting capability framework",
+    title: isZh ? "从企业增长问题出发，组织咨询能力" : "Organize consulting capabilities around enterprise growth questions",
+    subtitle: "Consulting Capability Framework",
+    description: isZh
+      ? "咨询不是能力清单的堆叠，而是一套帮助客户识别增长、设计路径、组织承接并控制风险的专业框架。"
+      : "Consulting is not a flat list of skills. It is a professional system for growth, path design, execution readiness, and risk control.",
+    journey: isZh
+      ? ["识别增长机会", "设计交易与市场路径", "组织运营承接", "风险、数字和数据支撑"]
+      : ["Find growth", "Design transaction and market paths", "Mobilize operations", "Support with risk, digital, and data"],
+    areas: [
+      {
+        id: "strategy-growth",
+        title: isZh ? "战略与增长" : "Strategy & Growth",
+        subtitle: isZh ? "方向选择与增长路径" : "Direction choices and growth path",
+        description: isZh
+          ? "回答企业要去哪里、选择哪些赛道、如何设计增长路径和战略优先级。"
+          : "Answer where to play, which arenas to prioritize, and how to design the growth path.",
+        categoryIds: ["strategy"],
+        icon: TrendingUp,
+      },
+      {
+        id: "transactions",
+        title: isZh ? "并购与交易" : "M&A & Transactions",
+        subtitle: isZh ? "资本路径与交易整合" : "Capital path and transaction integration",
+        description: isZh
+          ? "围绕投资并购、商业尽调、交易逻辑和整合规划，支撑非有机增长。"
+          : "Support inorganic growth through investment thesis, due diligence, transaction logic, and integration planning.",
+        categoryIds: ["manda"],
+        icon: BarChart3,
+      },
+      {
+        id: "market-customer",
+        title: isZh ? "市场与客户" : "Market & Customer",
+        subtitle: isZh ? "客户洞察、品牌和渠道" : "Customer insight, brand, and channels",
+        description: isZh
+          ? "把市场机会转化为客户价值、品牌定位、渠道打法和增长运营。"
+          : "Translate market opportunities into customer value, brand positioning, channel plays, and growth operations.",
+        categoryIds: ["market"],
+        icon: Users,
+      },
+      {
+        id: "organization-talent",
+        title: isZh ? "组织与人才" : "Organization & Talent",
+        subtitle: isZh ? "组织设计与变革承接" : "Organization design and change readiness",
+        description: isZh
+          ? "设计组织、机制、人才和变革路径，让战略能够被团队稳定承接。"
+          : "Design organization, mechanisms, talent systems, and change paths so strategy can be absorbed by teams.",
+        categoryIds: ["org"],
+        icon: Users,
+      },
+      {
+        id: "operations-efficiency",
+        title: isZh ? "运营与效能" : "Operations & Performance",
+        subtitle: isZh ? "流程、成本与效率提升" : "Process, cost, and productivity",
+        description: isZh
+          ? "围绕流程、供应链、经营管理和效率改善，把战略落到可执行的运营体系。"
+          : "Turn strategy into an executable operating model across processes, supply chain, and performance.",
+        categoryIds: ["operations"],
+        icon: Briefcase,
+      },
+      {
+        id: "risk-compliance",
+        title: isZh ? "风险与合规" : "Risk & Compliance",
+        subtitle: isZh ? "控制风险与建立治理机制" : "Risk control and governance mechanisms",
+        description: isZh
+          ? "围绕风险识别、控制机制、合规要求和治理体系，让增长更可控。"
+          : "Build risk discovery, control mechanisms, compliance readiness, and governance systems.",
+        categoryIds: ["risk"],
+        icon: Shield,
+      },
+      {
+        id: "digital-technology",
+        title: isZh ? "数字化与技术" : "Digital & Technology",
+        subtitle: isZh ? "技术架构与数字化转型" : "Technology architecture and digital transformation",
+        description: isZh
+          ? "规划数字化转型、系统能力、技术架构和业务技术融合路径。"
+          : "Plan digital transformation, system capabilities, technology architecture, and business-technology alignment.",
+        categoryIds: ["digital"],
+        icon: Cpu,
+      },
+      {
+        id: "data-insights",
+        title: isZh ? "数据与洞察" : "Data & Insights",
+        subtitle: isZh ? "数据资产与分析洞察" : "Data assets and analytical insight",
+        description: isZh
+          ? "把数据资产、指标体系和分析模型转化为更清晰的经营判断。"
+          : "Turn data assets, metric systems, and analytical models into clearer management decisions.",
+        categoryIds: ["data"],
+        icon: BarChart3,
+      },
+    ],
+  };
+}
+
+function LineCapabilityFramework({
+  categories,
+  isZh,
+  lineId,
+  onCategoryClick,
+}: {
+  categories: SkillCategory[];
+  isZh: boolean;
+  lineId: PracticeLineId;
+  onCategoryClick: (categoryId: string) => void;
+}) {
+  const config = buildLineFrameworkConfig(lineId, isZh);
+  const categoryMap = new Map(categories.map((category) => [category.id, category]));
+  const getCount = (categoryIds: string[]) =>
+    categoryIds.reduce((sum, id) => sum + (categoryMap.get(id)?.count ?? 0), 0);
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_20px_52px_rgba(15,23,42,0.07)]">
+      <div className="bg-gradient-to-br from-white via-sky-50 to-blue-50 px-6 py-6 xl:px-7">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-4xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/75 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">
+              <Compass className="h-3.5 w-3.5" />
+              {config.eyebrow}
+            </div>
+            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">
+              {config.title}
+            </h2>
+            <p className="mt-1 text-sm font-medium text-blue-700">{config.subtitle}</p>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              {config.description}
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:w-[520px]">
+            {config.journey.map((item, index) => (
+              <div
+                key={item}
+                className="rounded-2xl border border-white/80 bg-white/70 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm"
+              >
+                <span className="mr-2 text-blue-600">{String(index + 1).padStart(2, "0")}</span>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 bg-slate-50/75 p-4 md:grid-cols-2 xl:grid-cols-4 xl:p-5">
+        {config.areas.map((area) => {
+          const Icon = area.icon;
+          const count = getCount(area.categoryIds);
+          const primaryCategoryId = area.categoryIds[0] || "all";
+          return (
+            <button
+              key={area.id}
+              type="button"
+              onClick={() => onCategoryClick(primaryCategoryId)}
+              className="group flex min-h-64 flex-col rounded-[1.25rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_14px_32px_rgba(15,23,42,0.07)]"
+            >
+              <div className="h-1 w-10 rounded-full bg-blue-500" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="mt-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {count}
+                </span>
+              </div>
+
+              <div className="mt-4 text-left">
+                <h3 className="text-base font-semibold text-slate-950">{area.title}</h3>
+                <p className="mt-1 text-xs font-medium text-slate-400">{area.subtitle}</p>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{area.description}</p>
+              </div>
+
+              <div className="mt-auto pt-5">
+                <div className="flex flex-wrap gap-2">
+                  {area.categoryIds.map((categoryId) => {
+                    const category = categoryMap.get(categoryId);
+                    return (
+                      <span
+                        key={categoryId}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary/25 hover:bg-white hover:text-primary hover:shadow-sm"
+                      >
+                        <span>{category?.label ?? getCategoryLabel(categoryId, isZh)}</span>
+                        <span className="text-slate-400">{category?.count ?? 0}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function Skills() {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
-  const [search, setSearch] = useState("");
+
+  const categoryBuckets = useMemo(() => {
+    const withoutAll = categories.filter((category) => category.id !== "all");
+    return Object.fromEntries(
+      PRACTICE_LINE_IDS.map((lineId) => [
+        lineId,
+        withoutAll.filter((category) => {
+          const practiceLineId = getPracticeLineId(category.id);
+          return lineId === "general" ? !practiceLineId || practiceLineId === "general" : practiceLineId === lineId;
+        }),
+      ]),
+    ) as Record<PracticeLineId, SkillCategory[]>;
+  }, [categories]);
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
@@ -516,51 +1204,39 @@ export function Skills() {
     <>
       <PageTitle title={t("skills.title")} />
       <div className="min-h-full bg-slate-50">
-        <div className="mx-auto max-w-5xl px-6 py-8">
-          <Breadcrumb items={[{ label: isZh ? "首页" : "Home", to: "/" }, { label: isZh ? "技能" : "Skills" }]} isZh={isZh} />
-
-          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-950">{isZh ? "技能" : "Skills"}</h1>
-              <p className="mt-1 text-sm text-slate-500">{skills.length} {isZh ? "个可用能力" : "available"}</p>
+        <div className="w-full px-6 py-5 xl:px-8 2xl:px-10">
+          <section className="relative overflow-hidden rounded-[1.5rem] border border-blue-100 bg-gradient-to-br from-white via-sky-50 to-blue-100/70 px-5 py-4 shadow-[0_14px_36px_rgba(15,23,42,0.055)] md:px-6">
+            <div className="relative max-w-4xl">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur">
+                <LayoutGrid className="h-4 w-4" />
+                {isZh ? "技能中心" : "Skill Center"}
+              </div>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]">
+                {isZh ? "全域能力，专业纵深" : "Full-spectrum capability, professional depth"}
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                {isZh
+                  ? "按业务线组织，覆盖审计、税务与咨询全栈能力；从客户问题定义到交付产出，快速找到适合当前场景的专业 Skill。"
+                  : "Organized by practice lines, covering audit, tax, and consulting capabilities."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+                  {isZh ? "全部能力" : "All skills"}: <span className="font-semibold text-slate-950">{skills.length}</span>
+                </span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 shadow-sm">
+                  {isZh ? "3 个核心业务 + 1 个支撑能力" : "3 core practices + 1 support layer"}
+                </span>
+              </div>
             </div>
-            <div className="relative w-full md:w-64">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && search.trim()) {
-                    navigate(`/skills/all?q=${encodeURIComponent(search.trim())}`);
-                  }
-                }}
-                placeholder={isZh ? "搜索..." : "Search..."}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              />
-            </div>
-          </div>
+          </section>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {categories.slice(1).map((category) => {
-              const Icon = getCategoryIcon(category.id);
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:shadow-sm"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{category.label}</div>
-                    <div className="text-xs text-slate-500">{category.count} {isZh ? "个" : ""}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
+
+          <CapabilityFramework
+            categoryBuckets={categoryBuckets}
+            isZh={isZh}
+            onLineClick={(lineId) => navigate(buildPracticeLinePath(lineId, launchSource.searchParams))}
+          />
         </div>
       </div>
     </>
@@ -578,14 +1254,37 @@ export function SkillCategoryPage() {
   const [activeType, setActiveType] = useState<SkillTypeFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const activeCategory = safeDecode(categoryId);
+  const requestedPracticeLine = launchSource.searchParams.get("line");
+  const activePracticeLineId = isPracticeLineId(requestedPracticeLine) ? requestedPracticeLine : null;
+  const activePracticeLineMeta = activePracticeLineId ? getPracticeLineMeta(activePracticeLineId) : null;
+
+  const lineSkillCount = useMemo(() => {
+    if (!activePracticeLineId) return skills.length;
+    return skills.filter((skill) => {
+      const categoryKey = getSkillCategoryKey(skill);
+      return (getPracticeLineId(categoryKey) || "general") === activePracticeLineId;
+    }).length;
+  }, [activePracticeLineId, skills]);
+
+  const visibleCategories = useMemo(() => {
+    if (!activePracticeLineId) return categories;
+    const scoped = categories.filter((category) => {
+      if (category.id === "all") return false;
+      return (getPracticeLineId(category.id) || "general") === activePracticeLineId;
+    });
+    return [{ id: "all", label: isZh ? "全部" : "All", count: lineSkillCount }, ...scoped];
+  }, [activePracticeLineId, categories, isZh, lineSkillCount]);
 
   const activeCategoryInfo = useMemo(() => {
     const activeKey = activeCategory === "all" ? "all" : getCategoryKey(activeCategory);
-    return categories.find((category) => category.id === activeKey) ?? categories[0];
-  }, [activeCategory, categories]);
+    return visibleCategories.find((category) => category.id === activeKey) ?? visibleCategories[0];
+  }, [activeCategory, visibleCategories]);
 
   const filteredSkills = useMemo(() => {
     return skills.filter((skill) => {
+      const categoryKey = getSkillCategoryKey(skill);
+      const matchesLine =
+        !activePracticeLineId || (getPracticeLineId(categoryKey) || "general") === activePracticeLineId;
       const normalizedSearch = search.trim().toLowerCase();
       const matchesSearch =
         !normalizedSearch ||
@@ -593,7 +1292,7 @@ export function SkillCategoryPage() {
         skill.description.toLowerCase().includes(normalizedSearch) ||
         skill.category.toLowerCase().includes(normalizedSearch);
       const matchesCategory =
-        activeCategoryInfo?.id === "all" || getSkillCategoryKey(skill) === activeCategoryInfo?.id;
+        activeCategoryInfo?.id === "all" || categoryKey === activeCategoryInfo?.id;
       const minutes = extractMinutes(skill.estimated_time);
       const isQuick = minutes <= 10;
       const matchesType =
@@ -601,13 +1300,13 @@ export function SkillCategoryPage() {
         (activeType === "quick" && isQuick) ||
         (activeType === "deep" && !isQuick);
 
-      return matchesSearch && matchesCategory && matchesType;
+      return matchesLine && matchesSearch && matchesCategory && matchesType;
     });
-  }, [activeCategoryInfo, activeType, search, skills]);
+  }, [activeCategoryInfo, activePracticeLineId, activeType, search, skills]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeCategoryInfo?.id, activeType, search]);
+  }, [activeCategoryInfo?.id, activePracticeLineId, activeType, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredSkills.length / SKILLS_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -615,77 +1314,106 @@ export function SkillCategoryPage() {
     (safeCurrentPage - 1) * SKILLS_PAGE_SIZE,
     safeCurrentPage * SKILLS_PAGE_SIZE,
   );
-  const CategoryIcon = activeCategoryInfo?.id === "all" ? Layers3 : getCategoryIcon(activeCategoryInfo?.id || "all");
+  const isLineLandingPage = activeCategoryInfo?.id === "all";
+  const showLineFramework = Boolean(activePracticeLineId && isLineLandingPage && !search.trim() && activeType === "all");
+  const CategoryIcon = activePracticeLineMeta?.icon || (activeCategoryInfo?.id === "all" ? Layers3 : getCategoryIcon(activeCategoryInfo?.id || "all"));
+  const pageLabel = activePracticeLineMeta && isLineLandingPage
+    ? (isZh ? activePracticeLineMeta.title.zh : activePracticeLineMeta.title.en)
+    : activeCategoryInfo?.label || t("skills.title");
+  const pageDescription = activePracticeLineMeta && isLineLandingPage
+    ? (isZh ? activePracticeLineMeta.description.zh : activePracticeLineMeta.description.en)
+    : "";
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
   return (
     <>
-      <PageTitle title={activeCategoryInfo?.label || t("skills.title")} />
+      <PageTitle title={pageLabel} />
       <div className="min-h-full bg-slate-50">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
           <Breadcrumb
             items={[
               { label: isZh ? "首页" : "Home", to: "/" },
               { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
-              { label: activeCategoryInfo?.label || "" },
+              { label: pageLabel },
             ]}
             isZh={isZh}
           />
 
           <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-950">{activeCategoryInfo?.label}</h1>
-              <p className="mt-1 text-sm text-slate-500">{filteredSkills.length} {isZh ? "个能力" : "skills"}</p>
-            </div>
-            <div className="flex gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={isZh ? "搜索..." : "Search..."}
-                  className="w-48 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                />
-              </div>
-              <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
-                {(["all", "quick", "deep"] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setActiveType(type)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                      activeType === type ? "bg-emerald-50 text-emerald-800" : "text-slate-500 hover:text-slate-900"
-                    }`}
-                  >
-                    {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
-                  </button>
-                ))}
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm">
+                  <CategoryIcon className="h-4 w-4" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-semibold text-slate-950">{pageLabel}</h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {filteredSkills.length} {isZh ? "个能力" : "skills"}
+                    {pageDescription ? <span className="ml-2 text-slate-400">{pageDescription}</span> : null}
+                  </p>
+                </div>
               </div>
             </div>
+            {!showLineFramework ? (
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={isZh ? "搜索..." : "Search..."}
+                    className="w-48 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+                <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+                  {(["all", "quick", "deep"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setActiveType(type)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        activeType === type ? "bg-emerald-50 text-emerald-800" : "text-slate-500 hover:text-slate-900"
+                      }`}
+                    >
+                      {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                  normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-slate-200 bg-white text-slate-500 hover:text-slate-900"
-                }`}
-              >
-                {category.label}
-                <span className="ml-1 opacity-50">{category.count}</span>
-              </button>
-            ))}
-          </div>
+          {!showLineFramework ? (
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+              {visibleCategories.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                  className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                    normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-slate-200 bg-white text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {category.label}
+                  <span className="ml-1 opacity-50">{category.count}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
 
-          {filteredSkills.length === 0 ? (
+          {showLineFramework && activePracticeLineId ? (
+            <LineCapabilityFramework
+              categories={visibleCategories}
+              isZh={isZh}
+              lineId={activePracticeLineId}
+              onCategoryClick={(catId) => navigate(buildCategoryPath(catId, launchSource.searchParams))}
+            />
+          ) : filteredSkills.length === 0 ? (
             <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center text-slate-500">
               <Brain className="mx-auto mb-3 h-8 w-8 text-slate-300" />
               <p className="text-sm">{t("skills.noSkills")}</p>
@@ -698,7 +1426,7 @@ export function SkillCategoryPage() {
             </div>
           )}
 
-          {filteredSkills.length > SKILLS_PAGE_SIZE ? (
+          {!showLineFramework && filteredSkills.length > SKILLS_PAGE_SIZE ? (
             <SkillPagination
               currentPage={safeCurrentPage}
               isZh={isZh}
