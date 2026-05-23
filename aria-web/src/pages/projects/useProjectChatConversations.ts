@@ -14,6 +14,10 @@ type UseProjectChatConversationsParams = {
   onRenameConversationError: () => void;
 };
 
+type RefreshOptions = {
+  silent?: boolean;
+};
+
 export function useProjectChatConversations({
   autoSelectFirstConversation = true,
   projectId,
@@ -59,8 +63,10 @@ export function useProjectChatConversations({
     [activeConvId, conversations],
   );
 
-  const fetchConversations = async () => {
-    setIsLoadingConversations(true);
+  const fetchConversations = async (options: RefreshOptions = {}) => {
+    if (!options.silent) {
+      setIsLoadingConversations(true);
+    }
     try {
       const data = await api.get<Conversation[]>(`/chat/conversations?project_id=${projectId}`);
       setConversations(data);
@@ -70,12 +76,16 @@ export function useProjectChatConversations({
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
     } finally {
-      setIsLoadingConversations(false);
+      if (!options.silent) {
+        setIsLoadingConversations(false);
+      }
     }
   };
 
-  const fetchMessages = async (conversationId: number) => {
-    setIsLoadingMessages(true);
+  const fetchMessages = async (conversationId: number, options: RefreshOptions = {}) => {
+    if (!options.silent) {
+      setIsLoadingMessages(true);
+    }
     try {
       const [data, pendingAction] = await Promise.all([
         api.get<Message[]>(`/chat/conversations/${conversationId}/messages`, {
@@ -90,7 +100,9 @@ export function useProjectChatConversations({
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     } finally {
-      setIsLoadingMessages(false);
+      if (!options.silent) {
+        setIsLoadingMessages(false);
+      }
     }
   };
 

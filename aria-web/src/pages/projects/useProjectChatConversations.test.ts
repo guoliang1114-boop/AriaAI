@@ -132,6 +132,46 @@ describe("useProjectChatConversations", () => {
     expect(result.current.isLoadingMessages).toBe(false);
   });
 
+  it("can refresh messages silently without showing the message loading skeleton", async () => {
+    mockGet.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() =>
+      useProjectChatConversations(defaultProps),
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoadingConversations).toBe(false);
+    });
+
+    const msgs = [makeMessage({ id: 42, conversation_id: 7, content: "Server message" })];
+    let resolveMessages: (value: Message[]) => void = () => {};
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes("/messages")) {
+        return new Promise<Message[]>((resolve) => {
+          resolveMessages = resolve;
+        });
+      }
+      if (url.includes("/pending-action")) return Promise.resolve(null);
+      if (url.includes("/pending-actions")) return Promise.resolve({ items: [] });
+      return Promise.resolve([]);
+    });
+
+    let refreshPromise: Promise<void> = Promise.resolve();
+    act(() => {
+      refreshPromise = result.current.fetchMessages(7, { silent: true });
+    });
+
+    expect(result.current.isLoadingMessages).toBe(false);
+
+    await act(async () => {
+      resolveMessages(msgs);
+      await refreshPromise;
+    });
+
+    expect(result.current.messages).toEqual(msgs);
+    expect(result.current.isLoadingMessages).toBe(false);
+  });
+
   it("handles fetch conversations error gracefully", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockGet.mockRejectedValue(new Error("Network error"));

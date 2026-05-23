@@ -28,6 +28,7 @@ function buildAssistantMessage({
   artifacts,
   content,
   conversationId,
+  id,
   projectId,
   references,
   toolCalls,
@@ -39,6 +40,7 @@ function buildAssistantMessage({
   artifacts: GeneratedArtifact[];
   content: string;
   conversationId: number;
+  id?: number;
   projectId: number;
   references: Reference[];
   toolCalls: ToolCallEvent[];
@@ -65,13 +67,23 @@ function buildAssistantMessage({
     metadata.task_type = taskType || taskRun.task_type;
   }
   return {
-    id: Date.now() + 1,
+    id: id ?? Date.now() + 1,
     conversation_id: conversationId,
     role: "assistant",
     content,
     metadata_json: JSON.stringify(metadata),
     created_at: new Date().toISOString(),
   };
+}
+
+function upsertMessageById(messages: Message[], message: Message) {
+  const existingIndex = messages.findIndex((item) => item.id === message.id);
+  if (existingIndex < 0) {
+    return [...messages, message];
+  }
+  const next = [...messages];
+  next[existingIndex] = message;
+  return next;
 }
 
 function summarizeToolResult(result: Record<string, unknown>, fallbackMessage?: string) {
@@ -114,8 +126,8 @@ type UseProjectChatComposerParams = {
   selectedModel: string;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   createConversation: (firstMessage?: string, skillId?: number | null) => Promise<number | null>;
-  fetchMessages: (conversationId: number) => Promise<void>;
-  fetchConversations: () => Promise<void>;
+  fetchMessages: (conversationId: number, options?: { silent?: boolean }) => Promise<void>;
+  fetchConversations: (options?: { silent?: boolean }) => Promise<void>;
   isNearBottomRef: React.MutableRefObject<boolean>;
   scrollToBottom: (smooth?: boolean) => void;
   onSendError: () => void;
@@ -446,14 +458,20 @@ export function useProjectChatComposer({
         }
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
         const isTruncated = wasTruncated;
-        resetStream();
-        if (assistantMessageId) {
-          await fetchMessages(conversationId);
-        } else if (finalContent || collectedToolCalls.length > 0 || collectedArtifacts.length > 0) {
+        const hasLocalAssistantPayload =
+          !!finalContent
+          || collectedToolCalls.length > 0
+          || collectedArtifacts.length > 0
+          || collectedReferences.length > 0
+          || collectedPendingToolConfirmations.length > 0
+          || !!latestTaskRun;
+
+        if (hasLocalAssistantPayload) {
           const assistantMessage = buildAssistantMessage({
             artifacts: collectedArtifacts,
             content: finalContent,
             conversationId,
+            id: assistantMessageId ?? undefined,
             projectId,
             references: collectedReferences,
             toolCalls: collectedToolCalls,
@@ -468,11 +486,16 @@ export function useProjectChatComposer({
               truncated: true,
             });
           }
-          setMessages((prev) => [...prev, assistantMessage]);
+          setMessages((prev) => upsertMessageById(prev, assistantMessage));
+          resetStream();
+          if (assistantMessageId) {
+            void fetchMessages(conversationId, { silent: true });
+          }
         } else {
-          await fetchMessages(conversationId);
+          resetStream();
+          void fetchMessages(conversationId, { silent: true });
         }
-        void fetchConversations();
+        void fetchConversations({ silent: true });
         return true;
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -526,7 +549,7 @@ export function useProjectChatComposer({
           void fetchConversations();
         } else {
           onSendError();
-          await fetchMessages(conversationId);
+          await fetchMessages(conversationId, { silent: true });
         }
         return false;
       } finally {
