@@ -73,6 +73,7 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
+from app.services.chat.runtime import prepare_chat_runtime
 from contextlib import ExitStack, contextmanager
 
 @contextmanager
@@ -5736,7 +5737,7 @@ class BuiltinSkillsTestCase(unittest.TestCase):
                 select(Skill).where(Skill.name == skills_router_module.PRESENTATION_BUILDER_SKILL_NAME)
             ).one()
 
-        self.assertEqual(skill.category, "提案与项目交付")
+        self.assertEqual(skill.category, "顾问基础能力")
         self.assertIn("presentation-builder workflow", skill.system_prompt)
         self.assertIn("deck_type", skill.system_prompt)
         self.assertIn("generate_ppt_from_skill", skill.system_prompt)
@@ -5745,6 +5746,46 @@ class BuiltinSkillsTestCase(unittest.TestCase):
         tool_defs = json.loads(skill.tools_definition_json)
         tool_def_names = {tool.get("name") for tool in tool_defs}
         self.assertEqual(tool_def_names, {"generate_ppt_from_skill"})
+
+    def test_all_seeded_skills_can_prepare_for_chat_and_project_chat(self):
+        with Session(self.engine) as session:
+            skills_router_module.ensure_builtin_pro_skills(session)
+            project = Project(
+                name="Skill Runtime Smoke",
+                client="Client",
+                description="Project context for skill smoke tests.",
+                context_summary="Structured memory is available.",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            skills = session.exec(select(Skill)).all()
+
+            self.assertGreater(len(skills), 0)
+            for skill in skills:
+                for project_id in (None, project.id):
+                    req = chat_router_module.SendMessageRequest(
+                        content=f"请使用这个 Skill 生成一份交付物：{skill.name}",
+                        project_id=project_id,
+                        skill_id=skill.id,
+                        force_skill=True,
+                    )
+                    runtime = prepare_chat_runtime(
+                        session,
+                        req,
+                        persist_user=False,
+                        create_conversation=False,
+                    )
+                    self.assertEqual(runtime.skill_name, skill.name)
+                    self.assertEqual(str(getattr(runtime.chat_mode, "value", runtime.chat_mode)), "skill_execution")
+                    self.assertNotEqual(str(getattr(runtime.action_policy, "value", runtime.action_policy)), "direct_answer")
+                    self.assertNotEqual(str(getattr(runtime.tool_access_policy, "value", runtime.tool_access_policy)), "none")
+                    if skill.tools:
+                        runtime_tool_names = {tool.get("name") for tool in (runtime.tools or []) if isinstance(tool, dict)}
+                        self.assertTrue(
+                            runtime_tool_names,
+                            f"Skill '{skill.name}' lost all tools in {'project chat' if project_id else 'chat'}",
+                        )
 
     def test_existing_digital_strategy_skill_tools_are_upgraded(self):
         old_skill = Skill(

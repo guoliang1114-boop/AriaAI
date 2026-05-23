@@ -35,6 +35,22 @@ class ChatRuntime:
     artifact_contract: ArtifactContract | None = None
     intent_prepared_async: bool = False
 
+    def __post_init__(self) -> None:
+        """Keep explicitly selected Skill runtimes executable on fallback paths.
+
+        The normal runtime builder always writes deterministic intent policy
+        onto ChatRuntime. Some tests and recovery paths construct ChatRuntime
+        directly, though; if they provide a Skill and its tools while leaving
+        the strict default policy in place, P1/P2 will suppress every planned
+        tool call. Promote that narrow case to read-on-demand access. This
+        still blocks modify/destructive tools unless the regular intent router
+        grants a higher action policy.
+        """
+        if self.skill_name and self.tools and str(self.action_policy or "") == "direct_answer":
+            self.action_policy = "read_only_tool"
+        if self.skill_name and self.tools and str(self.tool_access_policy or "") == "none":
+            self.tool_access_policy = "read_on_demand"
+
 
 def _tool_progress_payload(tool_name: str, tool_input: dict) -> dict:
     if tool_name in ("generate_ppt", "generate_ppt_from_skill"):
