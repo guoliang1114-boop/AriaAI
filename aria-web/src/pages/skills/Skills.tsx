@@ -855,79 +855,67 @@ export function SkillDetailPage() {
             </button>
           </div>
 
-          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-8 shadow-[0_22px_70px_rgba(15,23,42,0.07)]">
-            <div className={`absolute inset-0 bg-gradient-to-br ${getCategoryGradient(skill.category)} opacity-80`} />
-            <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/70 blur-3xl" />
-            <div className="relative grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
-              <div>
-                <div className="mb-4 flex flex-wrap items-center gap-3">
-                  <span className={`inline-flex items-center gap-2 rounded-full border bg-white/75 px-3 py-1.5 text-xs font-semibold ${tone}`}>
-                    <Icon className="h-3.5 w-3.5" />
-                    {getCategoryLabel(skillCategoryKey, isZh)}
-                  </span>
-                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/75 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                    <Clock3 className="h-3.5 w-3.5" />
-                    {skill.estimated_time || t("skills.timeFallback")}
-                  </span>
-                  {isQuick && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                      <Zap className="h-3.5 w-3.5" />
-                      {isZh ? "快速执行" : "Quick"}
-                    </span>
-                  )}
-                </div>
-                <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-slate-950">{skill.name}</h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{skill.description}</p>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
-                  {getCategoryDescription(skillCategoryKey, isZh)}
-                </p>
-              </div>
+          <section className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
+                <Icon className="h-3.5 w-3.5" />
+                {getCategoryLabel(skillCategoryKey, isZh)}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Clock3 className="h-3.5 w-3.5" />
+                {skill.estimated_time || t("skills.timeFallback")}
+              </span>
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{skill.name}</h1>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">{skill.description}</p>
 
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white/75 p-5 backdrop-blur">
-                <div className="text-sm font-semibold text-slate-950">{isZh ? "使用概览" : "Usage overview"}</div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <SkillMetric label={isZh ? "类型" : "Type"} value={isQuick ? t("skills.types.quick") : t("skills.types.deep")} />
-                  <SkillMetric label={isZh ? "工具" : "Tools"} value={toolNames.length ? String(toolNames.length) : isZh ? "无" : "None"} />
-                  <SkillMetric label={isZh ? "分类" : "Category"} value={getCategoryLabel(skillCategoryKey, isZh)} />
-                  <SkillMetric label={isZh ? "预计时间" : "Est. time"} value={skill.estimated_time || t("skills.timeFallback")} />
-                </div>
-                <div className="mt-4 rounded-2xl bg-slate-50 p-3">
-                  <p className="text-xs leading-5 text-slate-500">
-                    {isZh ? "建议先补充足够背景，再启动 Skill；项目或客户入口会自动带入上下文。" : "Add enough context before launching. Project and client entry points automatically carry context into chat."}
-                  </p>
-                </div>
-              </div>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary"
+              >
+                <MessageSquare className="h-4 w-4" />
+                {t("skills.useSkill")}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(buildCategoryPath(skillCategoryKey, launchSource.searchParams))}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {isZh ? "返回分类" : "Back"}
+              </button>
             </div>
           </section>
 
           <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
-            <div className="space-y-6">
-              <DetailSection
-                icon={BookOpen}
-                title={isZh ? "这个能力解决什么问题" : "What this Skill is for"}
-                description={isZh ? "适用场景和核心价值" : "Use cases and core value"}
-                items={[
-                  skill.description,
-                  getCategoryDescription(skillCategoryKey, isZh),
-                  isZh ? "适合需要结构化思考、快速形成专业交付草稿的场景。" : "Best for turning messy context into a structured professional draft.",
-                ]}
-              />
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-6">
+              <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "建议输入" : "Recommended inputs"}</h2>
+                <div className="mt-4 space-y-2">
+                  {inputHints.map((item, index) => (
+                    <div key={item} className="flex gap-3 rounded-xl bg-slate-50 p-3">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600">{index + 1}</span>
+                      <p className="text-sm leading-6 text-slate-600">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-              <DetailSection
-                icon={ClipboardList}
-                title={isZh ? "建议输入" : "Recommended inputs"}
-                description={isZh ? "准备这些信息可以获得更好的输出" : "Prepare these for better results"}
-                items={inputHints}
-              />
-
-              <DetailSection
-                icon={CheckCircle2}
-                title={isZh ? "预期输出" : "Expected outputs"}
-                description={isZh ? "使用后可以获得的内容" : "What you'll get after using this Skill"}
-                items={outputHints}
-              />
+              <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "预期输出" : "Expected outputs"}</h2>
+                <div className="mt-4 space-y-2">
+                  {outputHints.map((item) => (
+                    <div key={item} className="flex items-start gap-2 rounded-xl bg-emerald-50/50 p-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <p className="text-sm leading-5 text-slate-600">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
               <PromptPreview
                 isZh={isZh}
@@ -938,68 +926,29 @@ export function SkillDetailPage() {
 
             <aside className="space-y-6">
               <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-base font-semibold text-slate-950">{isZh ? "怎么使用" : "How to use"}</h2>
-                <p className="mt-1 text-xs text-slate-500">{isZh ? "按步骤操作，获得最佳效果" : "Follow these steps for best results"}</p>
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "使用步骤" : "Steps"}</h2>
                 <div className="mt-4 space-y-3">
                   {usageSteps.map((step, index) => (
-                    <div key={step} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                        {index + 1}
-                      </div>
-                      <p className="text-sm leading-6 text-slate-600">{step}</p>
+                    <div key={step} className="flex gap-3">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">{index + 1}</span>
+                      <p className="text-sm leading-5 text-slate-600">{step}</p>
                     </div>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(buildSkillChatPath(skill.id, launchSource.searchParams))}
-                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  {t("skills.useSkill")}
-                </button>
               </div>
 
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-base font-semibold text-slate-950">{isZh ? "可用工具" : "Available tools"}</h2>
-                <p className="mt-1 text-xs text-slate-500">{isZh ? "该能力在执行时可以调用的工具" : "Tools this Skill can use during execution"}</p>
-                {toolNames.length ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
+              {toolNames.length > 0 && (
+                <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <h2 className="text-base font-semibold text-slate-950">{isZh ? "可用工具" : "Tools"}</h2>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {toolNames.map((tool) => (
                       <span key={tool} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
                         {tool}
                       </span>
                     ))}
                   </div>
-                ) : (
-                  <p className="mt-3 text-sm leading-6 text-slate-500">
-                    {isZh ? "这个 Skill 当前不依赖额外工具，主要通过对话和上下文完成。" : "This Skill does not require extra tools yet; it mainly works through chat and context."}
-                  </p>
-                )}
-              </div>
-
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-base font-semibold text-slate-950">{isZh ? "适用场景" : "Best for"}</h2>
-                <p className="mt-1 text-xs text-slate-500">{isZh ? "这个能力最适合解决的问题" : "Problems this Skill is best suited for"}</p>
-                <div className="mt-4 space-y-2">
-                  {(isZh ? [
-                    "需要快速形成专业交付草稿",
-                    "需要结构化思考复杂问题",
-                    "需要统一团队输出标准",
-                    "需要复用咨询方法论",
-                  ] : [
-                    "Need to quickly form professional deliverable drafts",
-                    "Need to structure complex problems",
-                    "Need to standardize team outputs",
-                    "Need to reuse consulting methodologies",
-                  ]).map((scenario) => (
-                    <div key={scenario} className="flex items-start gap-2 rounded-xl bg-emerald-50/50 p-3">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                      <p className="text-sm leading-5 text-slate-600">{scenario}</p>
-                    </div>
-                  ))}
                 </div>
-              </div>
+              )}
             </aside>
           </div>
         </div>
