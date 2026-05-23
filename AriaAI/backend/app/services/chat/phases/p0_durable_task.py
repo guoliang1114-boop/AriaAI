@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from sqlmodel import Session
 
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat_store import persist_assistant_message
 from app.services.task_orchestrator import (
@@ -75,6 +75,7 @@ async def run_p0_durable_task(
         )
         runtime.chat_mode = intent_decision.chat_mode
         runtime.action_policy = intent_decision.action_policy
+        runtime.tool_access_policy = intent_decision.tool_access_policy
         runtime.intent_method = intent_decision.method
         runtime.intent_reason = intent_decision.reason
         runtime.intent_trace = intent_decision.trace
@@ -89,6 +90,7 @@ async def run_p0_durable_task(
     try:
         runtime.chat_mode = ChatMode.TASK_ORCHESTRATION
         runtime.action_policy = ActionPolicy.DURABLE_TASK
+        runtime.tool_access_policy = ToolAccessPolicy.WRITE_ALLOWED
         runtime.intent_method = task_route.method if hasattr(task_route, "method") else runtime.intent_method
         runtime.intent_reason = task_route.reason or runtime.intent_reason
         yield sse_event(

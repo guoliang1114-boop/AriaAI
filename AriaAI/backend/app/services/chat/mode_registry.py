@@ -29,6 +29,14 @@ class ActionPolicy(str, Enum):
     DESTRUCTIVE_ACTION = "destructive_action"
 
 
+class ToolAccessPolicy(str, Enum):
+    NONE = "none"
+    INJECTED_CONTEXT_ONLY = "injected_context_only"
+    READ_ON_DEMAND = "read_on_demand"
+    EXPLICIT_FILE_READ = "explicit_file_read"
+    WRITE_ALLOWED = "write_allowed"
+
+
 class HistoryStrategy(str, Enum):
     FULL = "full"
     RECENT = "recent"

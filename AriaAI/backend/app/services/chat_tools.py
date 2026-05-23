@@ -27,6 +27,7 @@ class ChatRuntime:
     # intent_decision.action_policy; this default exists only as a safety net so
     # that any code path that forgets to set it does not silently open write tools.
     action_policy: str = "direct_answer"
+    tool_access_policy: str = "none"
     intent_reason: str = ""
     intent_method: str = ""
     intent_trace: dict | None = None

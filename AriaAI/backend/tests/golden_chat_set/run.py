@@ -8,7 +8,7 @@ import yaml
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.intent_router import classify_chat_intent
-from app.services.policy_guards import policy_allows_tool
+from app.services.policy_guards import filter_tools_for_access, policy_allows_tool
 
 
 def _load_cases() -> list[dict]:
@@ -41,17 +41,23 @@ def _case_failures(case: dict) -> list[str]:
         failures.append(
             f"action_policy expected={case['expected_action_policy']} actual={decision.action_policy.value}"
         )
+    if case.get("expected_tool_access_policy") and decision.tool_access_policy.value != case["expected_tool_access_policy"]:
+        failures.append(
+            f"tool_access_policy expected={case['expected_tool_access_policy']} actual={decision.tool_access_policy.value}"
+        )
 
     for tool_check in case.get("forbid_tools") or []:
         tool_name, tool_input = _tool_check_parts(tool_check)
         allowed, _, _ = policy_allows_tool(decision.action_policy, tool_name, tool_input)
-        if allowed:
-            failures.append(f"unexpectedly allowed {tool_name}")
+        visible = bool(filter_tools_for_access([{"name": tool_name}], decision.action_policy, decision.tool_access_policy))
+        if allowed and visible:
+            failures.append(f"unexpectedly exposed {tool_name}")
 
     for tool_check in case.get("allow_tools") or []:
         tool_name, tool_input = _tool_check_parts(tool_check)
         allowed, _, _ = policy_allows_tool(decision.action_policy, tool_name, tool_input)
-        if not allowed:
+        visible = bool(filter_tools_for_access([{"name": tool_name}], decision.action_policy, decision.tool_access_policy))
+        if not (allowed and visible):
             failures.append(f"unexpectedly blocked {tool_name}")
 
     return failures

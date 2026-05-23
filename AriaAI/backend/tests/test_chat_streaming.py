@@ -34,10 +34,10 @@ from app.services.chat_streaming import (
     _try_extract_tool_use_json,
     _user_requested_project_markdown_write,
 )
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
-from app.services.policy_guards import classify_chat_mode_and_policy, policy_allows_tool
+from app.services.policy_guards import classify_chat_mode_and_policy, filter_tools_for_access, policy_allows_tool
 from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
 
 
@@ -415,10 +415,19 @@ class ProjectMarkdownWriteIntentTests(unittest.TestCase):
 
 
 class ChatModeActionPolicyTests(unittest.TestCase):
-    def test_project_risk_question_defaults_to_read_only(self):
+    def test_project_risk_question_uses_injected_context_without_tools(self):
         decision = classify_chat_mode_and_policy("识别项目风险并给出缓解动作", project_id=26)
         self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
-        self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+        self.assertEqual(decision.action_policy, ActionPolicy.DIRECT_ANSWER)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+        self.assertEqual(
+            filter_tools_for_access(
+                [{"name": "read_project_markdown_document"}],
+                decision.action_policy,
+                decision.tool_access_policy,
+            ),
+            [],
+        )
 
     def test_direct_project_question_cannot_write_markdown(self):
         allowed, reason, required = policy_allows_tool(
@@ -433,6 +442,7 @@ class ChatModeActionPolicyTests(unittest.TestCase):
     def test_explicit_markdown_request_allows_create(self):
         decision = classify_chat_mode_and_policy("请生成一个 md 文档保存项目风险清单", project_id=26)
         self.assertEqual(decision.action_policy, ActionPolicy.WRITE_ARTIFACT)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.WRITE_ALLOWED)
         allowed, _, _ = policy_allows_tool(
             decision.action_policy,
             "update_project_markdown_document",
@@ -444,6 +454,7 @@ class ChatModeActionPolicyTests(unittest.TestCase):
         decision = classify_chat_mode_and_policy("请给我写一个全面而丰富的访谈问卷Excel", project_id=26)
         self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
         self.assertEqual(decision.action_policy, ActionPolicy.WRITE_ARTIFACT)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.WRITE_ALLOWED)
         allowed, _, required = policy_allows_tool(
             decision.action_policy,
             "write_project_office_document",
@@ -455,6 +466,20 @@ class ChatModeActionPolicyTests(unittest.TestCase):
     def test_excel_how_to_question_stays_read_only(self):
         decision = classify_chat_mode_and_policy("如何写 Excel 公式？", project_id=26)
         self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+
+    def test_explicit_file_read_enables_read_tools(self):
+        decision = classify_chat_mode_and_policy("请读取 risk.md 并总结一下", project_id=26)
+        self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.EXPLICIT_FILE_READ)
+        self.assertEqual(
+            [tool["name"] for tool in filter_tools_for_access(
+                [{"name": "read_project_markdown_document"}, {"name": "update_project_markdown_document"}],
+                decision.action_policy,
+                decision.tool_access_policy,
+            ) or []],
+            ["read_project_markdown_document"],
+        )
 
     def test_chat_trace_payload_records_router_and_tool_decisions(self):
         runtime = ChatRuntime(
@@ -470,6 +495,7 @@ class ChatModeActionPolicyTests(unittest.TestCase):
             temperature=0.2,
             chat_mode=ChatMode.PROJECT_DEEP_DIVE,
             action_policy=ActionPolicy.READ_ONLY_TOOL,
+            tool_access_policy=ToolAccessPolicy.READ_ON_DEMAND,
             intent_reason="rule:test",
             intent_method="rule_first",
         )
@@ -492,6 +518,8 @@ class ChatModeActionPolicyTests(unittest.TestCase):
 
         self.assertEqual(payload["chat_mode"], "project_deep_dive")
         self.assertEqual(payload["action_policy"], "read_only_tool")
+        self.assertEqual(payload["tool_access_policy"], "read_on_demand")
+        self.assertEqual(payload["metadata"]["tool_access_policy"], "read_on_demand")
         self.assertEqual(payload["model_used"], "glm-5.1")
         self.assertEqual(payload["tool_decisions"][0]["status"], "blocked")
         self.assertEqual(payload["fallback_events"][0]["type"], "tool_input_repaired")

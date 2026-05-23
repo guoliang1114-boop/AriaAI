@@ -28,9 +28,9 @@ from app.services.provider_selector import (
 )
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
-from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
-from app.services.policy_guards import filter_tools_for_policy
+from app.services.policy_guards import filter_tools_for_access
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -144,6 +144,7 @@ def _upgrade_policy_for_confirmed_followup(
         return replace(
             intent_decision,
             action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
             confidence=max(intent_decision.confidence, 0.86),
             reason="confirmation_followup_after_deletion_plan",
             method=f"{intent_decision.method}+confirmation_followup",
@@ -282,6 +283,7 @@ def prepare_chat_runtime(
     prepare_metrics["skill_decision"] = skill_decision.reason
     prepare_metrics["chat_mode"] = intent_decision.chat_mode.value
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
+    prepare_metrics["tool_access_policy"] = intent_decision.tool_access_policy.value
     prepare_metrics["intent_reason"] = intent_decision.reason
     prepare_metrics["intent_method"] = intent_decision.method
     prepare_metrics["intent_trace"] = intent_decision.trace
@@ -383,12 +385,17 @@ def prepare_chat_runtime(
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
+    prepare_metrics["tool_access_policy"] = intent_decision.tool_access_policy.value
     prepare_metrics["intent_reason"] = intent_decision.reason
     prepare_metrics["intent_method"] = intent_decision.method
     prepare_metrics["intent_trace"] = intent_decision.trace
     prepare_metrics["context_mode"] = context_mode
     prepare_metrics["prepare_total_ms"] = round((time.perf_counter() - prepare_started_at) * 1000)
-    runtime_tools = filter_tools_for_policy(chat_ctx.tools, intent_decision.action_policy)
+    runtime_tools = filter_tools_for_access(
+        chat_ctx.tools,
+        intent_decision.action_policy,
+        intent_decision.tool_access_policy,
+    )
 
     return ChatRuntime(
         conv_id=conv_id,
@@ -405,6 +412,7 @@ def prepare_chat_runtime(
         prepare_metrics=prepare_metrics,
         chat_mode=intent_decision.chat_mode,
         action_policy=intent_decision.action_policy,
+        tool_access_policy=intent_decision.tool_access_policy,
         intent_reason=intent_decision.reason,
         intent_method=intent_decision.method,
         intent_trace=intent_decision.trace,

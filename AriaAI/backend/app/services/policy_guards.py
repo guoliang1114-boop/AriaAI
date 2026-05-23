@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.context_builder.query_classifiers import (
     is_client_project_portfolio_query,
     is_workspace_project_inventory_query,
@@ -200,6 +200,76 @@ READ_FILE_TERMS = (
     "inspect",
 )
 
+READ_TARGET_TERMS = (
+    "文件",
+    "文档",
+    "资料",
+    "markdown",
+    ".md",
+    " md",
+    "ppt",
+    "pptx",
+    "word",
+    "docx",
+    "excel",
+    "xlsx",
+    "pdf",
+    "项目空间",
+    "file",
+    "document",
+    "attachment",
+)
+
+FILE_LIST_TERMS = (
+    "文件列表",
+    "有哪些文件",
+    "有什么文件",
+    "列出文件",
+    "项目空间文件",
+    "空间文件",
+    "markdown 文件",
+    "markdown文档",
+    "list files",
+    "show files",
+)
+
+PROJECT_ANALYSIS_TERMS = (
+    "分析",
+    "评估",
+    "诊断",
+    "总结",
+    "梳理",
+    "指出",
+    "识别",
+    "判断",
+    "盘点",
+    "复盘",
+    "审查",
+    "检查",
+    "对比",
+    "比较",
+    "风险",
+    "阻塞",
+    "阻塞点",
+    "干系人",
+    "里程碑",
+    "推进",
+    "进展",
+    "下一步",
+    "当前状态",
+    "关键信息",
+    "analyze",
+    "assess",
+    "evaluate",
+    "diagnose",
+    "summarize",
+    "review",
+    "risk",
+    "milestone",
+    "progress",
+    "stakeholder",
+)
+
 CONCISE_SUMMARY_TERMS = (
     "概览摘要",
     "简短摘要",
@@ -221,6 +291,7 @@ class IntentDecision:
     confidence: float
     reason: str
     method: str = "policy_guard"
+    tool_access_policy: ToolAccessPolicy = ToolAccessPolicy.NONE
 
 
 def _normalize(content: str) -> str:
@@ -253,6 +324,18 @@ def _is_destructive_request(text: str) -> bool:
     return True
 
 
+def _is_explicit_file_read_request(text: str) -> bool:
+    if not text:
+        return False
+    if _has_any(text, FILE_LIST_TERMS):
+        return True
+    if "file_id" in text or "文件 id" in text or "文件id" in text:
+        return True
+    if _has_any(text, READ_FILE_TERMS) and _has_any(text, READ_TARGET_TERMS):
+        return True
+    return False
+
+
 def detect_action_policy(content: str, *, project_id: int | None = None, force_skill: bool = False) -> tuple[ActionPolicy, str, float]:
     """Return the strictest explicit policy suggested by the user message."""
     routing_content = primary_user_request_text(content)
@@ -279,13 +362,44 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
         return ActionPolicy.WRITE_ARTIFACT, artifact_intent.reason, artifact_intent.confidence
     if explicit_write:
         return ActionPolicy.WRITE_ARTIFACT, "explicit_write", 0.9
+    if project_id and _has_any(text, PROJECT_ANALYSIS_TERMS) and not _is_explicit_file_read_request(text):
+        return ActionPolicy.DIRECT_ANSWER, "project_analysis", 0.82
     if project_id and _has_any(text, CONCISE_SUMMARY_TERMS):
         return ActionPolicy.DIRECT_ANSWER, "concise_project_summary", 0.88
-    if project_id and _has_any(text, READ_FILE_TERMS):
+    if project_id and _is_explicit_file_read_request(text):
         return ActionPolicy.READ_ONLY_TOOL, "explicit_read", 0.84
     if force_skill:
         return ActionPolicy.READ_ONLY_TOOL, "forced_skill", 0.86
     return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "default", 0.72
+
+
+def detect_tool_access_policy(
+    content: str,
+    *,
+    project_id: int | None = None,
+    action_policy: ActionPolicy | str = ActionPolicy.DIRECT_ANSWER,
+    force_skill: bool = False,
+) -> ToolAccessPolicy:
+    """Classify tool visibility independently from side-effect permission."""
+    current = ActionPolicy(action_policy) if isinstance(action_policy, str) else action_policy
+    routing_content = primary_user_request_text(content)
+    text = _normalize(routing_content)
+    if current in {
+        ActionPolicy.WRITE_ARTIFACT,
+        ActionPolicy.MODIFY_EXISTING_FILE,
+        ActionPolicy.DURABLE_TASK,
+        ActionPolicy.DESTRUCTIVE_ACTION,
+    }:
+        return ToolAccessPolicy.WRITE_ALLOWED
+    if not project_id and not force_skill:
+        return ToolAccessPolicy.NONE
+    if _is_explicit_file_read_request(text):
+        return ToolAccessPolicy.EXPLICIT_FILE_READ
+    if force_skill:
+        return ToolAccessPolicy.READ_ON_DEMAND
+    if project_id:
+        return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+    return ToolAccessPolicy.NONE
 
 
 def classify_chat_mode_and_policy(
@@ -297,17 +411,23 @@ def classify_chat_mode_and_policy(
 ) -> IntentDecision:
     routing_content = primary_user_request_text(content)
     policy, reason, confidence = detect_action_policy(routing_content, project_id=project_id, force_skill=force_skill)
+    tool_access = detect_tool_access_policy(
+        routing_content,
+        project_id=project_id,
+        action_policy=policy,
+        force_skill=force_skill,
+    )
     if force_skill or skill_id:
-        return IntentDecision(ChatMode.SKILL_EXECUTION, policy, max(confidence, 0.9), f"skill:{reason}")
+        return IntentDecision(ChatMode.SKILL_EXECUTION, policy, max(confidence, 0.9), f"skill:{reason}", tool_access_policy=tool_access)
     if project_id:
         if is_client_project_portfolio_query(routing_content):
-            return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.READ_ONLY_TOOL, 0.78, "rule:client_portfolio", "rule_fallback")
+            return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, policy, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=tool_access)
         if is_workspace_project_inventory_query(routing_content):
-            return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback")
-        return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason)
+            return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+        return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason, tool_access_policy=tool_access)
     if is_workspace_project_inventory_query(routing_content):
-        return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback")
-    return IntentDecision(ChatMode.STANDALONE_QA, ActionPolicy.DIRECT_ANSWER, confidence, reason)
+        return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+    return IntentDecision(ChatMode.STANDALONE_QA, ActionPolicy.DIRECT_ANSWER, confidence, reason, tool_access_policy=ToolAccessPolicy.NONE)
 
 
 def _required_policy_for_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> ActionPolicy:
@@ -390,6 +510,23 @@ def filter_tools_for_policy(tools: list[dict] | None, action_policy: ActionPolic
         if allowed:
             filtered.append(tool)
     return filtered
+
+
+def filter_tools_for_access(
+    tools: list[dict] | None,
+    action_policy: ActionPolicy | str,
+    tool_access_policy: ToolAccessPolicy | str,
+) -> list[dict] | None:
+    if not tools:
+        return tools
+    access = ToolAccessPolicy(tool_access_policy) if isinstance(tool_access_policy, str) else tool_access_policy
+    if access in {ToolAccessPolicy.NONE, ToolAccessPolicy.INJECTED_CONTEXT_ONLY}:
+        return []
+    if access in {ToolAccessPolicy.READ_ON_DEMAND, ToolAccessPolicy.EXPLICIT_FILE_READ}:
+        return filter_tools_for_policy(tools, ActionPolicy.READ_ONLY_TOOL)
+    if access == ToolAccessPolicy.WRITE_ALLOWED:
+        return filter_tools_for_policy(tools, action_policy)
+    return []
 
 
 def user_requested_project_markdown_write(content: str) -> bool:

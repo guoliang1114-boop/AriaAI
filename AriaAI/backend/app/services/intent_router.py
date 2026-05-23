@@ -26,7 +26,7 @@ from app.services.artifact_intent import (
     contract_from_llm_payload,
     detect_artifact_intent,
 )
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.policy_guards import POLICY_RANK, classify_chat_mode_and_policy
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
@@ -49,6 +49,7 @@ class IntentDecision:
     confidence: float
     reason: str
     method: str
+    tool_access_policy: ToolAccessPolicy = ToolAccessPolicy.NONE
     artifact_contract: ArtifactContract = field(default_factory=ArtifactContract)
     trace: dict[str, Any] = field(default_factory=dict)
 
@@ -60,6 +61,7 @@ def _decision_trace(
     llm_payload: dict[str, Any] | None = None,
     final_chat_mode: ChatMode | None = None,
     final_action_policy: ActionPolicy | None = None,
+    final_tool_access_policy: ToolAccessPolicy | None = None,
     artifact_contract: ArtifactContract | None = None,
     confidence: float | None = None,
     reason: str = "",
@@ -68,6 +70,7 @@ def _decision_trace(
         "method": method,
         "final_chat_mode": final_chat_mode.value if final_chat_mode else "",
         "final_action_policy": final_action_policy.value if final_action_policy else "",
+        "final_tool_access_policy": final_tool_access_policy.value if final_tool_access_policy else "",
         "confidence": confidence,
         "reason": reason,
     }
@@ -75,6 +78,7 @@ def _decision_trace(
         trace["rule_baseline"] = {
             "chat_mode": rule.chat_mode.value,
             "action_policy": rule.action_policy.value,
+            "tool_access_policy": rule.tool_access_policy.value,
             "confidence": rule.confidence,
             "reason": rule.reason,
             "method": rule.method,
@@ -164,23 +168,6 @@ def _clamp_policy(rule_policy: ActionPolicy, proposed_policy: ActionPolicy) -> A
     return rule_policy
 
 
-def _policy_for_high_confidence_direct_route(route: Any, fallback: ActionPolicy) -> ActionPolicy:
-    """Remove tools for deterministic answers that should use injected context.
-
-    Project-memory summaries and analyses are already supported by the assembled
-    structured project context.  Keeping READ_ONLY_TOOL here exposes read tools
-    to the model and encourages unnecessary file inspection before answering.
-    """
-    reason = str(getattr(route, "reason", "") or "")
-    if reason in {
-        "rule:direct_memory_summary",
-        "rule:direct_project_memory_analysis",
-        "rule:direct_diagnostic",
-    }:
-        return ActionPolicy.DIRECT_ANSWER
-    return fallback
-
-
 def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = None) -> IntentDecision:
     rule_route = None
     if req.force_skill or effective_skill_id:
@@ -207,6 +194,7 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
         return IntentDecision(
             chat_mode=ChatMode.TASK_ORCHESTRATION,
             action_policy=ActionPolicy.DURABLE_TASK,
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
             task_route=task_route,
             artifact_contract=artifact_contract,
             confidence=task_route.confidence,
@@ -216,6 +204,7 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
                 method="rule_task_router",
                 final_chat_mode=ChatMode.TASK_ORCHESTRATION,
                 final_action_policy=ActionPolicy.DURABLE_TASK,
+                final_tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
                 artifact_contract=artifact_contract,
                 confidence=task_route.confidence,
                 reason=task_route.reason or "rule:durable_task",
@@ -235,10 +224,10 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
         and rule_route.response_mode in {"direct", "answer", "analyze", "chat"}
         and rule_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
     ):
-        final_policy = _policy_for_high_confidence_direct_route(rule_route, decision.action_policy)
         return IntentDecision(
             chat_mode=decision.chat_mode,
-            action_policy=final_policy,
+            action_policy=decision.action_policy,
+            tool_access_policy=decision.tool_access_policy,
             task_route=None,
             artifact_contract=artifact_contract,
             confidence=rule_route.confidence,
@@ -247,7 +236,8 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
             trace=_decision_trace(
                 method="rule_direct_router",
                 final_chat_mode=decision.chat_mode,
-                final_action_policy=final_policy,
+                final_action_policy=decision.action_policy,
+                final_tool_access_policy=decision.tool_access_policy,
                 artifact_contract=artifact_contract,
                 confidence=rule_route.confidence,
                 reason=rule_route.reason,
@@ -256,6 +246,7 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
     return IntentDecision(
         chat_mode=decision.chat_mode,
         action_policy=decision.action_policy,
+        tool_access_policy=decision.tool_access_policy,
         task_route=None,
         artifact_contract=artifact_contract,
         confidence=decision.confidence,
@@ -265,6 +256,7 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
             method=decision.method,
             final_chat_mode=decision.chat_mode,
             final_action_policy=decision.action_policy,
+            final_tool_access_policy=decision.tool_access_policy,
             artifact_contract=artifact_contract,
             confidence=decision.confidence,
             reason=decision.reason,
@@ -317,6 +309,7 @@ async def classify_chat_intent_async(
         "Use read_only_tool when the assistant may read project context or files. "
         "Use write_artifact / modify_existing_file / destructive_action only when the user explicitly asks for that side effect. "
         "Use task_orchestration + durable_task for explicit file or office deliverable workflows. "
+        "Tool access is controlled by a separate deterministic tool_access_policy and must not be inferred from analysis requests. "
         "For ambiguous non-destructive deliverable requests, you may return artifact_contract with delivery_required=true, "
         "output_kind, title, and allowed_tools. Only do this when the user wants a real file delivered. "
         "Never infer destructive or write permissions from vague analysis requests."
@@ -328,12 +321,14 @@ async def classify_chat_intent_async(
         "rule_baseline": {
             "chat_mode": rule.chat_mode.value,
             "action_policy": rule.action_policy.value,
+            "tool_access_policy": rule.tool_access_policy.value,
             "confidence": rule.confidence,
             "reason": rule.reason,
         },
         "response_schema": {
             "chat_mode": "standalone_qa|project_deep_dive|cross_project_portfolio|workspace_inventory|skill_execution|task_orchestration",
             "action_policy": "direct_answer|read_only_tool|write_artifact|modify_existing_file|durable_task|destructive_action",
+            "tool_access_policy": "diagnostic only; deterministic router owns this field",
             "confidence": "number 0-1",
             "reason": "short string",
             "artifact_contract": {
@@ -367,6 +362,7 @@ async def classify_chat_intent_async(
         return IntentDecision(
             chat_mode=rule.chat_mode,
             action_policy=rule.action_policy,
+            tool_access_policy=rule.tool_access_policy,
             task_route=rule.task_route,
             artifact_contract=rule.artifact_contract,
             confidence=rule.confidence,
@@ -378,6 +374,7 @@ async def classify_chat_intent_async(
                 llm_payload=data,
                 final_chat_mode=rule.chat_mode,
                 final_action_policy=rule.action_policy,
+                final_tool_access_policy=rule.tool_access_policy,
                 artifact_contract=rule.artifact_contract,
                 confidence=rule.confidence,
                 reason=rule.reason,
@@ -385,6 +382,7 @@ async def classify_chat_intent_async(
         )
 
     final_policy = _clamp_policy(rule.action_policy, proposed_policy)
+    final_tool_access = rule.tool_access_policy
     proposed_contract = contract_from_llm_payload(data)
     proposed_route = None
     if _can_llm_upgrade_to_artifact(proposed_contract, confidence, req):
@@ -392,9 +390,11 @@ async def classify_chat_intent_async(
         if proposed_route is not None:
             proposed_mode = ChatMode.TASK_ORCHESTRATION
             final_policy = ActionPolicy.DURABLE_TASK
+            final_tool_access = ToolAccessPolicy.WRITE_ALLOWED
     if proposed_mode == ChatMode.TASK_ORCHESTRATION and final_policy != ActionPolicy.DURABLE_TASK:
         proposed_mode = rule.chat_mode
         proposed_route = None
+        final_tool_access = rule.tool_access_policy
     if rule.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE and (
         proposed_mode != rule.chat_mode or final_policy != rule.action_policy
     ):
@@ -413,6 +413,7 @@ async def classify_chat_intent_async(
         return IntentDecision(
             chat_mode=rule.chat_mode,
             action_policy=rule.action_policy,
+            tool_access_policy=rule.tool_access_policy,
             task_route=rule.task_route,
             artifact_contract=rule.artifact_contract,
             confidence=rule.confidence,
@@ -424,6 +425,7 @@ async def classify_chat_intent_async(
                 llm_payload=data,
                 final_chat_mode=rule.chat_mode,
                 final_action_policy=rule.action_policy,
+                final_tool_access_policy=rule.tool_access_policy,
                 artifact_contract=rule.artifact_contract,
                 confidence=rule.confidence,
                 reason=rule.reason,
@@ -434,6 +436,7 @@ async def classify_chat_intent_async(
     return IntentDecision(
         chat_mode=proposed_mode,
         action_policy=final_policy,
+        tool_access_policy=final_tool_access,
         task_route=proposed_route,
         artifact_contract=final_contract,
         confidence=confidence,
@@ -445,6 +448,7 @@ async def classify_chat_intent_async(
             llm_payload=data,
             final_chat_mode=proposed_mode,
             final_action_policy=final_policy,
+            final_tool_access_policy=final_tool_access,
             artifact_contract=final_contract,
             confidence=confidence,
             reason=str(data.get("reason") or rule.reason or "llm_router"),

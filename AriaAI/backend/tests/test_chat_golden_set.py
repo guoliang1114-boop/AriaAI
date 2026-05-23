@@ -6,9 +6,9 @@ from pathlib import Path
 import yaml
 
 from app.routers.chat_schemas import SendMessageRequest
-from app.services.chat.mode_registry import ActionPolicy, ChatMode
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
-from app.services.policy_guards import filter_tools_for_policy, policy_allows_tool
+from app.services.policy_guards import filter_tools_for_access, filter_tools_for_policy, policy_allows_tool
 from app.services.tool_descriptions import load_tool_spec, tool_description
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 
@@ -31,6 +31,9 @@ def test_router_golden_set_cases_are_stable():
         assert decision.action_policy.value == case["expected_action_policy"], case["id"]
         assert decision.trace["final_chat_mode"] == case["expected_chat_mode"], case["id"]
         assert decision.trace["final_action_policy"] == case["expected_action_policy"], case["id"]
+        if case.get("expected_tool_access_policy"):
+            assert decision.tool_access_policy.value == case["expected_tool_access_policy"], case["id"]
+            assert decision.trace["final_tool_access_policy"] == case["expected_tool_access_policy"], case["id"]
 
 
 def test_router_golden_set_tool_permissions_are_stable():
@@ -50,7 +53,8 @@ def test_router_golden_set_tool_permissions_are_stable():
                 tool_name,
                 tool_input,
             )
-            assert not allowed, f"{case['id']} unexpectedly allowed {tool_name}"
+            visible = bool(filter_tools_for_access([{"name": tool_name}], decision.action_policy, decision.tool_access_policy))
+            assert not (allowed and visible), f"{case['id']} unexpectedly exposed {tool_name}"
         for tool_check in case.get("allow_tools") or []:
             tool_name = tool_check["name"] if isinstance(tool_check, dict) else tool_check
             tool_input = tool_check.get("input", {"mode": "create", "content": "# Test"}) if isinstance(tool_check, dict) else {"mode": "create", "content": "# Test"}
@@ -59,7 +63,8 @@ def test_router_golden_set_tool_permissions_are_stable():
                 tool_name,
                 tool_input,
             )
-            assert allowed, f"{case['id']} unexpectedly blocked {tool_name}"
+            visible = bool(filter_tools_for_access([{"name": tool_name}], decision.action_policy, decision.tool_access_policy))
+            assert allowed and visible, f"{case['id']} unexpectedly blocked {tool_name}"
 
 
 def test_llm_router_can_clarify_ambiguous_portfolio_mode():
@@ -72,7 +77,8 @@ def test_llm_router_can_clarify_ambiguous_portfolio_mode():
     )
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert decision.chat_mode == ChatMode.CROSS_PROJECT_PORTFOLIO
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.method == "llm_router"
     assert decision.trace["rule_baseline"]["chat_mode"] == "project_deep_dive"
     assert decision.trace["llm_payload"]["chat_mode"] == "cross_project_portfolio"
@@ -93,7 +99,9 @@ def test_llm_router_cannot_upgrade_direct_memory_analysis_to_write_without_user_
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert called is False
     assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.trace["final_action_policy"] == "direct_answer"
+    assert decision.trace["final_tool_access_policy"] == "injected_context_only"
 
 
 def test_project_memory_milestone_analysis_stays_chat_not_artifact():
@@ -106,6 +114,7 @@ def test_project_memory_milestone_analysis_stays_chat_not_artifact():
 
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
     assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
 
@@ -133,6 +142,7 @@ def test_project_memory_milestone_analysis_blocks_llm_artifact_guess():
     assert called is False
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
     assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
     assert decision.method == "rule_direct_router"
@@ -165,6 +175,7 @@ def test_project_memory_analysis_with_quoted_ai_advice_blocks_artifact_guess():
     assert called is False
     assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
     assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.task_route is None
     assert decision.artifact_contract.delivery_required is False
     assert decision.method == "rule_direct_router"
@@ -190,6 +201,7 @@ def test_llm_router_can_controlled_upgrade_ambiguous_artifact_contract():
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert decision.chat_mode == ChatMode.TASK_ORCHESTRATION
     assert decision.action_policy == ActionPolicy.DURABLE_TASK
+    assert decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED
     assert decision.task_route is not None
     assert decision.task_route.task_type == "generate_project_excel"
     assert decision.artifact_contract.delivery_required is True
@@ -207,7 +219,8 @@ def test_llm_router_rejects_artifact_upgrade_without_contract():
     )
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert decision.chat_mode != ChatMode.TASK_ORCHESTRATION
-    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
+    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     assert decision.task_route is None
 
 
@@ -223,6 +236,7 @@ def test_unified_router_short_circuits_explicit_office_generation():
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert decision.chat_mode == ChatMode.TASK_ORCHESTRATION
     assert decision.action_policy == ActionPolicy.DURABLE_TASK
+    assert decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED
     assert decision.task_route is not None
     assert decision.task_route.task_type == "generate_client_ppt"
     assert called is False
@@ -260,3 +274,27 @@ def test_filter_tools_for_policy_uses_tool_default_policy_for_all_policies():
     filtered = filter_tools_for_policy(tools, ActionPolicy.WRITE_ARTIFACT)
 
     assert [tool["name"] for tool in filtered or []] == ["read_project_markdown_document", "update_project_markdown_document"]
+
+
+def test_tool_access_policy_hides_read_tools_for_injected_context_answers():
+    tools = [
+        {"name": "read_project_markdown_document"},
+        {"name": "read_project_file"},
+        {"name": "update_project_markdown_document"},
+    ]
+
+    filtered = filter_tools_for_access(tools, ActionPolicy.READ_ONLY_TOOL, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+
+    assert filtered == []
+
+
+def test_tool_access_policy_allows_read_tools_for_explicit_file_read():
+    tools = [
+        {"name": "read_project_markdown_document"},
+        {"name": "read_project_file"},
+        {"name": "update_project_markdown_document"},
+    ]
+
+    filtered = filter_tools_for_access(tools, ActionPolicy.READ_ONLY_TOOL, ToolAccessPolicy.EXPLICIT_FILE_READ)
+
+    assert [tool["name"] for tool in filtered or []] == ["read_project_markdown_document", "read_project_file"]
