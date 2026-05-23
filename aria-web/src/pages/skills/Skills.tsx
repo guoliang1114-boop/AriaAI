@@ -508,20 +508,24 @@ export function Skills() {
   const navigate = useNavigate();
   const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
-  const serviceLines = useMemo(() => buildServiceLines(categories, isZh, skills), [categories, isZh, skills]);
   const [search, setSearch] = useState("");
 
-  if (loading) return <SkillsLoading title={t("skills.title")} />
+  if (loading) return <SkillsLoading title={t("skills.title")} />;
 
   return (
     <>
       <PageTitle title={t("skills.title")} />
-      <div className="min-h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,#ecfdf5_0%,transparent_30%),radial-gradient(circle_at_top_right,#eff6ff_0%,transparent_32%),linear-gradient(180deg,#f8fafc_0%,#f7faf9_100%)]">
-        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-            <Breadcrumb items={[{ label: isZh ? "首页" : "Home", to: "/" }, { label: isZh ? "技能" : "Skills" }]} isZh={isZh} />
-            <div className="relative w-full md:w-72">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <div className="min-h-full bg-slate-50">
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <Breadcrumb items={[{ label: isZh ? "首页" : "Home", to: "/" }, { label: isZh ? "技能" : "Skills" }]} isZh={isZh} />
+
+          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-950">{isZh ? "技能" : "Skills"}</h1>
+              <p className="mt-1 text-sm text-slate-500">{skills.length} {isZh ? "个可用能力" : "available"}</p>
+            </div>
+            <div className="relative w-full md:w-64">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -530,98 +534,33 @@ export function Skills() {
                     navigate(`/skills/all?q=${encodeURIComponent(search.trim())}`);
                   }
                 }}
-                placeholder={isZh ? "搜索所有 Skill..." : "Search all skills..."}
-                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                placeholder={isZh ? "搜索..." : "Search..."}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
               />
             </div>
           </div>
 
-          <section className="relative overflow-hidden rounded-[2.25rem] border border-slate-200/70 bg-white/82 p-8 shadow-[0_22px_70px_rgba(15,23,42,0.07)] backdrop-blur">
-            <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-emerald-100/70 blur-3xl" />
-            <div className="absolute bottom-0 left-1/3 h-52 w-52 rounded-full bg-sky-100/60 blur-3xl" />
-            <div className="relative grid gap-8 xl:grid-cols-[1fr_380px] xl:items-end">
-              <div className="max-w-4xl">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>{isZh ? "能力分类优先" : "Capability-first browsing"}</span>
-                </div>
-                <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-                  {isZh ? "择路而后行，执术以成事" : "Pick the domain, then choose the Skill"}
-                </h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                  {isZh
-                    ? "市场和客户、组织和人才、数字化转型这些分类才是用户真正理解工作的入口。这里做成能力地图，点击分类直接进入详情页。"
-                    : "Market and customers, organization and talent, and digital transformation are the real entry points. Click a category to open its dedicated Skill page."}
-                </p>
-              </div>
-
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/85 p-5 text-slate-900 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
-                    <Compass className="h-5 w-5" />
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {categories.slice(1).map((category) => {
+              const Icon = getCategoryIcon(category.id);
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:shadow-sm"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+                    <Icon className="h-5 w-5" />
                   </div>
-                  <div>
-                    <div className="text-sm font-semibold">{isZh ? "能力地图" : "Capability map"}</div>
-                    <div className="text-xs text-slate-500">
-                      {isZh ? `${categories.length - 1} 个分类 · ${skills.length} 个 Skill` : `${categories.length - 1} categories · ${skills.length} skills`}
-                    </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">{category.label}</div>
+                    <div className="text-xs text-slate-500">{category.count} {isZh ? "个" : ""}</div>
                   </div>
-                </div>
-                <div className="mt-5 grid grid-cols-4 gap-2">
-                  {categories.slice(1).map((category) => {
-                    const Icon = getCategoryIcon(category.id);
-                    return (
-                      <button
-                        key={category.id}
-                        type="button"
-                        onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                        className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60"
-                      >
-                        <Icon className="h-4 w-4 text-emerald-600" />
-                        <div className="mt-2 truncate text-xs font-semibold">{category.label}</div>
-                        <div className="mt-1 text-[11px] text-slate-500">{category.count}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="mt-6 rounded-[1.75rem] border border-slate-200 bg-white/88 p-5 shadow-sm backdrop-blur">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                  <Layers3 className="h-3.5 w-3.5" />
-                  {isZh ? "服务线能力地图" : "Service-line capability map"}
-                </div>
-                <h2 className="mt-3 text-xl font-semibold text-slate-950">
-                  {isZh ? "按专业服务线组织能力，而不是只按标签平铺" : "Organize capabilities by professional service lines, not just tags"}
-                </h2>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                  {isZh
-                    ? "参考大型咨询公司的服务线表达方式，把 Aria Skill 归入更容易理解的能力组合。点击任一能力域即可进入具体 Skill 列表。"
-                    : "Inspired by large consulting firms' service-line taxonomy, Aria groups Skills into clearer capability portfolios. Click any capability area to open its Skill list."}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                {isZh ? `${serviceLines.length} 条服务线 · ${skills.length} 个 Skill` : `${serviceLines.length} service lines · ${skills.length} Skills`}
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-              {serviceLines.map((line, index) => (
-                <ServiceLineCard
-                  key={line.id}
-                  index={index}
-                  line={line}
-                  isZh={isZh}
-                  onOpenCategory={(categoryId) => navigate(buildCategoryPath(categoryId, launchSource.searchParams))}
-                />
-              ))}
-            </div>
-          </section>
-
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </>
@@ -683,113 +622,80 @@ export function SkillCategoryPage() {
   return (
     <>
       <PageTitle title={activeCategoryInfo?.label || t("skills.title")} />
-      <div className="min-h-full bg-[linear-gradient(180deg,#f8fafc_0%,#eef6f3_100%)]">
-        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <div className="mb-5">
-            <Breadcrumb
-              items={[
-                { label: isZh ? "首页" : "Home", to: "/" },
-                { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
-                { label: activeCategoryInfo?.label || "" },
-              ]}
-              isZh={isZh}
-            />
-          </div>
+      <div className="min-h-full bg-slate-50">
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <Breadcrumb
+            items={[
+              { label: isZh ? "首页" : "Home", to: "/" },
+              { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
+              { label: activeCategoryInfo?.label || "" },
+            ]}
+            isZh={isZh}
+          />
 
-          <section className={`relative overflow-hidden rounded-[2rem] border border-slate-200 bg-gradient-to-br ${getCategoryGradient(activeCategoryInfo?.id || "all")} p-8 text-slate-950 shadow-[0_22px_70px_rgba(15,23,42,0.07)]`}>
-            <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/70 blur-3xl" />
-            <div className="absolute -bottom-20 left-20 h-56 w-56 rounded-full bg-slate-200/35 blur-3xl" />
-            <div className="relative grid gap-8 xl:grid-cols-[1fr_360px] xl:items-end">
-              <div>
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-700 backdrop-blur">
-                  <CategoryIcon className="h-3.5 w-3.5" />
-                  <span>{isZh ? "能力详情" : "Capability detail"}</span>
-                </div>
-                <h1 className="text-4xl font-semibold tracking-tight">{activeCategoryInfo?.label}</h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                  {getCategoryDescription(activeCategoryInfo?.id || "all", isZh)}
-                </p>
-              </div>
-
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white/70 p-5 backdrop-blur">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
-                    <CheckCircle2 className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold">{isZh ? "当前分类能力" : "Skills in this category"}</div>
-                    <div className="text-3xl font-semibold">{filteredSkills.length}</div>
-                  </div>
-                </div>
-                <p className="mt-4 text-sm leading-6 text-slate-500">
-                  {isZh ? "可以直接启动能力，也可以切换到其他分类继续浏览。" : "Launch a Skill directly, or switch to another category below."}
-                </p>
-              </div>
+          <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-950">{activeCategoryInfo?.label}</h1>
+              <p className="mt-1 text-sm text-slate-500">{filteredSkills.length} {isZh ? "个能力" : "skills"}</p>
             </div>
-          </section>
-
-          <section className="mt-6 rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
-            <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
-
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {categories.map((category) => (
+            <div className="flex gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={isZh ? "搜索..." : "Search..."}
+                  className="w-48 rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-white p-0.5">
+                {(["all", "quick", "deep"] as const).map((type) => (
                   <button
-                    key={category.id}
+                    key={type}
                     type="button"
-                    onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
-                    className={`shrink-0 rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
-                      normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950"
+                    onClick={() => setActiveType(type)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      activeType === type ? "bg-emerald-50 text-emerald-800" : "text-slate-500 hover:text-slate-900"
                     }`}
                   >
-                    {category.label}
-                    <span className="ml-2 opacity-60">{category.count}</span>
+                    {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
                   </button>
                 ))}
               </div>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <div className="relative w-full md:w-72">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder={isZh ? "搜索本分类 Skill" : "Search this category"}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
-                  />
-                </div>
-                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                  {(["all", "quick", "deep"] as const).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setActiveType(type)}
-                      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                        activeType === type ? "bg-emerald-50 text-emerald-800 shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
-                      }`}
-                    >
-                      {type === "all" ? t("skills.types.all") : type === "quick" ? t("skills.types.quick") : t("skills.types.deep")}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
-          </section>
+          </div>
+
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {categories.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => navigate(buildCategoryPath(category.id, launchSource.searchParams))}
+                className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  normalizeCategory(category.id) === normalizeCategory(activeCategoryInfo?.id || "all")
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                {category.label}
+                <span className="ml-1 opacity-50">{category.count}</span>
+              </button>
+            ))}
+          </div>
+
+          <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
 
           {filteredSkills.length === 0 ? (
-            <div className="mt-8 rounded-[1.5rem] border border-dashed border-slate-300 bg-white/80 px-6 py-20 text-center text-slate-500">
-              <Brain className="mx-auto mb-4 h-10 w-10 text-slate-300" />
-              <h3 className="text-lg font-semibold text-slate-700">{t("skills.noSkills")}</h3>
-              <p className="mt-2 text-sm">{t("skills.createFirst")}</p>
+            <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center text-slate-500">
+              <Brain className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+              <p className="text-sm">{t("skills.noSkills")}</p>
             </div>
           ) : (
-            <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {paginatedSkills.map((skill) => (
                 <SkillCard key={skill.id} skill={skill} onUse={() => navigate(buildSkillDetailPath(skill.id, launchSource.searchParams))} />
               ))}
-            </section>
+            </div>
           )}
 
           {filteredSkills.length > SKILLS_PAGE_SIZE ? (
@@ -1456,42 +1362,21 @@ function SkillCard({
 }) {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const skillCategoryKey = getSkillCategoryKey(skill);
-  const Icon = getCategoryIcon(skillCategoryKey);
-  const tone = getCategoryTone(skillCategoryKey);
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
-  const categoryLabel = getCategoryLabel(skillCategoryKey, isZh);
 
   return (
-    <div className="flex h-full flex-col rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-11 w-11 items-center justify-center rounded-xl border ${tone}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${tone}`}>{categoryLabel}</span>
+    <button
+      type="button"
+      onClick={onUse}
+      className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:shadow-sm"
+    >
+      <h4 className="text-sm font-semibold text-slate-900">{skill.name}</h4>
+      <p className="mt-1.5 flex-1 line-clamp-2 text-xs leading-5 text-slate-500">{skill.description}</p>
+      <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+        <Clock3 className="h-3.5 w-3.5" />
+        <span>{skill.estimated_time || t("skills.timeFallback")}</span>
+        {isQuick && <span className="text-emerald-600">· {t("skills.types.quick")}</span>}
       </div>
-
-      <h4 className="mt-4 text-base font-semibold text-slate-900">{skill.name}</h4>
-      <p className="mt-2 flex-1 line-clamp-3 text-sm leading-6 text-slate-600">{skill.description}</p>
-
-      <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
-        <span className={`${isQuick ? "text-emerald-700" : "text-primary"} font-medium`}>
-          {isQuick ? t("skills.types.quick") : t("skills.types.deep")}
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-slate-500">
-          <Clock3 className="h-4 w-4" />
-          {skill.estimated_time || t("skills.timeFallback")}
-        </span>
-      </div>
-
-      <button
-        type="button"
-        onClick={onUse}
-        className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary transition hover:bg-primary/10"
-      >
-        <BookOpen className="h-4 w-4" />
-        <span>{isZh ? "查看详情" : "View details"}</span>
-      </button>
-    </div>
+    </button>
   );
 }
