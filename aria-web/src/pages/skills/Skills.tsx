@@ -869,20 +869,33 @@ export function SkillDetailPage() {
                     <Clock3 className="h-3.5 w-3.5" />
                     {skill.estimated_time || t("skills.timeFallback")}
                   </span>
+                  {isQuick && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                      <Zap className="h-3.5 w-3.5" />
+                      {isZh ? "快速执行" : "Quick"}
+                    </span>
+                  )}
                 </div>
                 <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-slate-950">{skill.name}</h1>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{skill.description}</p>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
+                  {getCategoryDescription(skillCategoryKey, isZh)}
+                </p>
               </div>
 
               <div className="rounded-[1.5rem] border border-slate-200 bg-white/75 p-5 backdrop-blur">
-                <div className="text-sm font-semibold text-slate-950">{isZh ? "使用定位" : "Usage profile"}</div>
+                <div className="text-sm font-semibold text-slate-950">{isZh ? "使用概览" : "Usage overview"}</div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <SkillMetric label={isZh ? "类型" : "Type"} value={isQuick ? t("skills.types.quick") : t("skills.types.deep")} />
                   <SkillMetric label={isZh ? "工具" : "Tools"} value={toolNames.length ? String(toolNames.length) : isZh ? "无" : "None"} />
+                  <SkillMetric label={isZh ? "分类" : "Category"} value={getCategoryLabel(skillCategoryKey, isZh)} />
+                  <SkillMetric label={isZh ? "预计时间" : "Est. time"} value={skill.estimated_time || t("skills.timeFallback")} />
                 </div>
-                <p className="mt-4 text-sm leading-6 text-slate-500">
-                  {isZh ? "建议先补充足够背景，再启动 Skill；项目或客户入口会自动带入上下文。" : "Add enough context before launching. Project and client entry points automatically carry context into chat."}
-                </p>
+                <div className="mt-4 rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs leading-5 text-slate-500">
+                    {isZh ? "建议先补充足够背景，再启动 Skill；项目或客户入口会自动带入上下文。" : "Add enough context before launching. Project and client entry points automatically carry context into chat."}
+                  </p>
+                </div>
               </div>
             </div>
           </section>
@@ -894,6 +907,7 @@ export function SkillDetailPage() {
               <DetailSection
                 icon={BookOpen}
                 title={isZh ? "这个能力解决什么问题" : "What this Skill is for"}
+                description={isZh ? "适用场景和核心价值" : "Use cases and core value"}
                 items={[
                   skill.description,
                   getCategoryDescription(skillCategoryKey, isZh),
@@ -904,12 +918,14 @@ export function SkillDetailPage() {
               <DetailSection
                 icon={ClipboardList}
                 title={isZh ? "建议输入" : "Recommended inputs"}
+                description={isZh ? "准备这些信息可以获得更好的输出" : "Prepare these for better results"}
                 items={inputHints}
               />
 
               <DetailSection
                 icon={CheckCircle2}
                 title={isZh ? "预期输出" : "Expected outputs"}
+                description={isZh ? "使用后可以获得的内容" : "What you'll get after using this Skill"}
                 items={outputHints}
               />
 
@@ -923,6 +939,7 @@ export function SkillDetailPage() {
             <aside className="space-y-6">
               <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-slate-950">{isZh ? "怎么使用" : "How to use"}</h2>
+                <p className="mt-1 text-xs text-slate-500">{isZh ? "按步骤操作，获得最佳效果" : "Follow these steps for best results"}</p>
                 <div className="mt-4 space-y-3">
                   {usageSteps.map((step, index) => (
                     <div key={step} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
@@ -945,6 +962,7 @@ export function SkillDetailPage() {
 
               <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-slate-950">{isZh ? "可用工具" : "Available tools"}</h2>
+                <p className="mt-1 text-xs text-slate-500">{isZh ? "该能力在执行时可以调用的工具" : "Tools this Skill can use during execution"}</p>
                 {toolNames.length ? (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {toolNames.map((tool) => (
@@ -958,6 +976,29 @@ export function SkillDetailPage() {
                     {isZh ? "这个 Skill 当前不依赖额外工具，主要通过对话和上下文完成。" : "This Skill does not require extra tools yet; it mainly works through chat and context."}
                   </p>
                 )}
+              </div>
+
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-950">{isZh ? "适用场景" : "Best for"}</h2>
+                <p className="mt-1 text-xs text-slate-500">{isZh ? "这个能力最适合解决的问题" : "Problems this Skill is best suited for"}</p>
+                <div className="mt-4 space-y-2">
+                  {(isZh ? [
+                    "需要快速形成专业交付草稿",
+                    "需要结构化思考复杂问题",
+                    "需要统一团队输出标准",
+                    "需要复用咨询方法论",
+                  ] : [
+                    "Need to quickly form professional deliverable drafts",
+                    "Need to structure complex problems",
+                    "Need to standardize team outputs",
+                    "Need to reuse consulting methodologies",
+                  ]).map((scenario) => (
+                    <div key={scenario} className="flex items-start gap-2 rounded-xl bg-emerald-50/50 p-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <p className="text-sm leading-5 text-slate-600">{scenario}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </aside>
           </div>
@@ -1166,23 +1207,31 @@ function DetailSection({
   icon: Icon,
   items,
   title,
+  description,
 }: {
   icon: typeof Brain;
   items: string[];
   title: string;
+  description?: string;
 }) {
   return (
     <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <div className="rounded-2xl bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
           <Icon className="h-5 w-5" />
         </div>
-        <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+          {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+        </div>
       </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {items.map((item) => (
-          <div key={item} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-sm leading-6 text-slate-600">
-            {item}
+      <div className="mt-5 space-y-3">
+        {items.map((item, index) => (
+          <div key={item} className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+              {index + 1}
+            </div>
+            <p className="text-sm leading-6 text-slate-600">{item}</p>
           </div>
         ))}
       </div>
