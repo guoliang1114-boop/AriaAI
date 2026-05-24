@@ -387,10 +387,25 @@ class SkillLoadingTestCase(unittest.TestCase):
         skill_path = Path(__file__).resolve().parents[2] / "skills" / "goal-definition" / "SKILL.md"
         self.assertTrue(skill_path.is_file(), f"Skill file not found: {skill_path}")
 
+    def test_visual_skill_mds_exist(self):
+        for package_name in ["bpmn", "archimate", "architecture", "infocard", "mindmap"]:
+            skill_path = Path(__file__).resolve().parents[2] / "skills" / package_name / "SKILL.md"
+            self.assertTrue(skill_path.is_file(), f"Skill file not found: {skill_path}")
+
     def test_skill_packages_load_content(self):
         from app.routers.skills import _load_skill_package_prompt
 
-        for package_name in ["office-document-editor", "pdf-management", "meeting-intelligence", "goal-definition"]:
+        for package_name in [
+            "office-document-editor",
+            "pdf-management",
+            "meeting-intelligence",
+            "goal-definition",
+            "bpmn",
+            "archimate",
+            "architecture",
+            "infocard",
+            "mindmap",
+        ]:
             content = _load_skill_package_prompt(package_name)
             self.assertTrue(len(content) > 100, f"Skill '{package_name}' loaded empty or too short content")
             self.assertNotIn("---", content[:50], f"Skill '{package_name}' still has YAML frontmatter")
@@ -405,12 +420,14 @@ class SkillLoadingTestCase(unittest.TestCase):
             PDF_MANAGEMENT_TOOL_NAMES,
             MEETING_INTELLIGENCE_TOOL_NAMES,
             GOAL_DEFINITION_TOOL_NAMES,
+            VISUAL_MARKDOWN_TOOL_NAMES,
         )
 
         self.assertIn("edit_project_office_document", OFFICE_DOCUMENT_EDITOR_TOOL_NAMES)
         self.assertIn("manage_pdf", PDF_MANAGEMENT_TOOL_NAMES)
         self.assertIn("update_project_markdown_document", MEETING_INTELLIGENCE_TOOL_NAMES)
         self.assertIn("update_project_markdown_document", GOAL_DEFINITION_TOOL_NAMES)
+        self.assertIn("update_project_markdown_document", VISUAL_MARKDOWN_TOOL_NAMES)
 
     def test_skills_in_gstack_pro_skills(self):
         from app.routers.skills import GSTACK_PRO_SKILLS
@@ -420,6 +437,11 @@ class SkillLoadingTestCase(unittest.TestCase):
         self.assertIn("PDF 工具箱", skill_names)
         self.assertIn("会议纪要提取", skill_names)
         self.assertIn("目标定义", skill_names)
+        self.assertIn("BPMN 流程图生成", skill_names)
+        self.assertIn("ArchiMate 企业架构图", skill_names)
+        self.assertIn("架构图设计", skill_names)
+        self.assertIn("信息卡片生成", skill_names)
+        self.assertIn("思维导图生成", skill_names)
 
 
 if __name__ == "__main__":

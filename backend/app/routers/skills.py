@@ -14,6 +14,7 @@ from app.models.db import Skill
 from app.services.consulting_capabilities import CONSULTING_CAPABILITIES, ConsultingCapability
 from app.tools import file_generators as _file_generators  # noqa: F401 - register file generation tools
 from app.tools import office_documents as _office_documents  # noqa: F401 - register office document tools
+from app.tools import project_markdown as _project_markdown  # noqa: F401 - register markdown document tools
 from app.tools import registry as tool_registry
 from app.services.cache import TTLCache
 
@@ -67,6 +68,17 @@ GOAL_DEFINITION_TOOL_NAMES = [
     "update_project_markdown_document",
     "write_project_office_document",
 ]
+VISUAL_MARKDOWN_TOOL_NAMES = ["update_project_markdown_document"]
+BPMN_DIAGRAM_SKILL_NAME = "BPMN 流程图生成"
+BPMN_DIAGRAM_PROMPT_MARKER = "Business Process & Integration Diagram Generator"
+ARCHIMATE_DIAGRAM_SKILL_NAME = "ArchiMate 企业架构图"
+ARCHIMATE_DIAGRAM_PROMPT_MARKER = "Enterprise Architecture Diagram Generator (ArchiMate)"
+ARCHITECTURE_DIAGRAM_SKILL_NAME = "架构图设计"
+ARCHITECTURE_DIAGRAM_PROMPT_MARKER = "Architecture Diagram Generator"
+INFOCARD_SKILL_NAME = "信息卡片生成"
+INFOCARD_PROMPT_MARKER = "Infocard Generator"
+MINDMAP_SKILL_NAME = "思维导图生成"
+MINDMAP_PROMPT_MARKER = "Mind Map Diagram Generator"
 OBSOLETE_BUILTIN_SKILL_NAMES = {"顾问品牌演示文稿", "顾问品牌H5演示"}
 SKILLS_DIR = Path(__file__).resolve().parents[3] / "skills"
 
@@ -98,7 +110,9 @@ def _load_skill_package_prompt(package_name: str, reference_files: list[str] | N
 
     parts = [_strip_skill_frontmatter(skill_path.read_text(encoding="utf-8")).strip()]
     for reference_name in reference_files or []:
-        reference_path = skill_dir / "references" / reference_name
+        reference_path = skill_dir / reference_name
+        if not reference_path.is_file():
+            reference_path = skill_dir / "references" / reference_name
         if reference_path.is_file():
             parts.append(
                 f"## Bundled Reference: {reference_name}\n\n"
@@ -1523,6 +1537,157 @@ GSTACK_PRO_SKILLS = [
         "max_tokens": 8192,
         "tools": GOAL_DEFINITION_TOOL_NAMES,
     },
+    # ── 可视化与图解 Skill ──────────────────────────────────────────
+    {
+        "name": BPMN_DIAGRAM_SKILL_NAME,
+        "category": "数字化与技术",
+        "description": (
+            "使用 PlantUML BPMN、EIP 和 Lean Mapping 图元生成业务流程图、审批流、"
+            "系统编排、消息路由、ETL 流程和价值流图。适合把客户流程、项目流程、"
+            "系统集成流程沉淀为可渲染的 Markdown/PlantUML 交付物。"
+        ),
+        "system_prompt": _load_skill_package_prompt(
+            "bpmn",
+            [
+                "examples/approval-workflow.md",
+                "examples/order-processing.md",
+                "examples/eip-messaging.md",
+                "examples/etl-pipeline.md",
+                "examples/value-stream.md",
+            ],
+        ),
+        "user_template": (
+            "请帮我生成一张 BPMN / 流程图：\n\n"
+            "流程名称：\n"
+            "参与角色 / 系统：\n"
+            "主要步骤：\n"
+            "关键判断 / 异常路径：\n"
+            "是否需要保存到项目空间（是/否）："
+        ),
+        "estimated_time": "~5 min",
+        "max_tokens": 12288,
+        "tools": VISUAL_MARKDOWN_TOOL_NAMES,
+    },
+    {
+        "name": ARCHIMATE_DIAGRAM_SKILL_NAME,
+        "category": "数字化与技术",
+        "description": (
+            "使用 ArchiMate/PlantUML 生成企业架构图，覆盖业务层、应用层、数据层、技术层、"
+            "动机视图和迁移规划。适合 TOGAF 视角、企业架构蓝图、能力地图和架构演进路线。"
+        ),
+        "system_prompt": _load_skill_package_prompt(
+            "archimate",
+            [
+                "examples/business-capability.md",
+                "examples/enterprise-landscape.md",
+                "examples/data-architecture.md",
+                "examples/migration-planning.md",
+            ],
+        ),
+        "user_template": (
+            "请帮我生成一张 ArchiMate 企业架构图：\n\n"
+            "客户 / 组织背景：\n"
+            "架构视角（业务能力/应用集成/数据架构/迁移规划）：\n"
+            "关键业务能力：\n"
+            "关键系统 / 数据 / 技术组件：\n"
+            "是否需要保存到项目空间（是/否）："
+        ),
+        "estimated_time": "~8 min",
+        "max_tokens": 16384,
+        "tools": VISUAL_MARKDOWN_TOOL_NAMES,
+    },
+    {
+        "name": ARCHITECTURE_DIAGRAM_SKILL_NAME,
+        "category": "数字化与技术",
+        "description": (
+            "生成面向客户汇报的系统架构图、分层架构图、微服务拓扑、数据/AI 平台架构图。"
+            "使用 Markdown 内嵌 HTML/CSS，适合制作可读性更强的方案图和技术蓝图。"
+        ),
+        "system_prompt": _load_skill_package_prompt(
+            "architecture",
+            [
+                "layouts/layer-layouts.md",
+                "layouts/hub-spoke.md",
+                "layouts/pipeline.md",
+                "layouts/three-column.md",
+                "styles/frost-clean.md",
+                "styles/tech-blueprint.md",
+                "styles/steel-blue.md",
+            ],
+        ),
+        "user_template": (
+            "请帮我生成一张架构图：\n\n"
+            "架构主题：\n"
+            "目标受众（业务/技术/高管）：\n"
+            "主要层次（用户层/应用层/数据层/基础设施等）：\n"
+            "关键组件和关系：\n"
+            "偏好样式（简洁/科技/正式）：\n"
+            "是否需要保存到项目空间（是/否）："
+        ),
+        "estimated_time": "~8 min",
+        "max_tokens": 16384,
+        "tools": VISUAL_MARKDOWN_TOOL_NAMES,
+    },
+    {
+        "name": INFOCARD_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "生成可扫读的信息卡片、客户简报、风险看板、路线图、指标板、对比表和政策 memo。"
+            "适合把聊天洞察、会议结论、项目状态和客户信息转成高质量 Markdown/HTML 视觉交付物。"
+        ),
+        "system_prompt": _load_skill_package_prompt(
+            "infocard",
+            [
+                "layouts/metric-board.md",
+                "layouts/risk-register.md",
+                "layouts/timeline-flow.md",
+                "layouts/comparison.md",
+                "layouts/roadmap-board.md",
+                "styles/corporate-clean.md",
+                "styles/soft-neutral.md",
+                "styles/trust-center.md",
+            ],
+        ),
+        "user_template": (
+            "请帮我生成一张信息卡片 / 客户简报：\n\n"
+            "主题：\n"
+            "核心信息 / 数据：\n"
+            "目标受众：\n"
+            "希望呈现形式（风险看板/路线图/对比/指标板/摘要卡）：\n"
+            "是否需要保存到项目空间（是/否）："
+        ),
+        "estimated_time": "~5 min",
+        "max_tokens": 16384,
+        "tools": VISUAL_MARKDOWN_TOOL_NAMES,
+    },
+    {
+        "name": MINDMAP_SKILL_NAME,
+        "category": "顾问基础能力",
+        "description": (
+            "使用 PlantUML mindmap 语法生成层级思维导图，适合需求梳理、会议内容归类、"
+            "项目工作分解、战略主题拆解、知识结构化和决策树。"
+        ),
+        "system_prompt": _load_skill_package_prompt(
+            "mindmap",
+            [
+                "examples/basic-hierarchy.md",
+                "examples/bilateral-layout.md",
+                "examples/project-planning.md",
+                "examples/rich-text-content.md",
+            ],
+        ),
+        "user_template": (
+            "请帮我生成一张思维导图：\n\n"
+            "中心主题：\n"
+            "已有内容 / 材料：\n"
+            "希望分几层展开：\n"
+            "是否左右分支展示：\n"
+            "是否需要保存到项目空间（是/否）："
+        ),
+        "estimated_time": "~4 min",
+        "max_tokens": 12288,
+        "tools": VISUAL_MARKDOWN_TOOL_NAMES,
+    },
 ]
 
 
@@ -1633,6 +1798,11 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_PROMPT_MARKER,
         MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_PROMPT_MARKER,
         GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_PROMPT_MARKER,
+        BPMN_DIAGRAM_SKILL_NAME: BPMN_DIAGRAM_PROMPT_MARKER,
+        ARCHIMATE_DIAGRAM_SKILL_NAME: ARCHIMATE_DIAGRAM_PROMPT_MARKER,
+        ARCHITECTURE_DIAGRAM_SKILL_NAME: ARCHITECTURE_DIAGRAM_PROMPT_MARKER,
+        INFOCARD_SKILL_NAME: INFOCARD_PROMPT_MARKER,
+        MINDMAP_SKILL_NAME: MINDMAP_PROMPT_MARKER,
     }
     prompt_markers.update(
         {
@@ -1649,6 +1819,11 @@ def ensure_builtin_pro_skills(session: Session) -> int:
         PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_TOOL_NAMES,
         MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_TOOL_NAMES,
         GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_TOOL_NAMES,
+        BPMN_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+        ARCHIMATE_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+        ARCHITECTURE_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+        INFOCARD_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+        MINDMAP_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
     }
 
     existing = {skill.name: skill for skill in session.exec(select(Skill)).all()}

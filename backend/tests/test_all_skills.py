@@ -19,6 +19,11 @@ from app.routers.skills import (
     PDF_MANAGEMENT_SKILL_NAME,
     MEETING_INTELLIGENCE_SKILL_NAME,
     GOAL_DEFINITION_SKILL_NAME,
+    BPMN_DIAGRAM_SKILL_NAME,
+    ARCHIMATE_DIAGRAM_SKILL_NAME,
+    ARCHITECTURE_DIAGRAM_SKILL_NAME,
+    INFOCARD_SKILL_NAME,
+    MINDMAP_SKILL_NAME,
     # Tool name lists
     DIGITAL_STRATEGY_TOOL_NAMES,
     PRESENTATION_BUILDER_TOOL_NAMES,
@@ -28,6 +33,7 @@ from app.routers.skills import (
     PDF_MANAGEMENT_TOOL_NAMES,
     MEETING_INTELLIGENCE_TOOL_NAMES,
     GOAL_DEFINITION_TOOL_NAMES,
+    VISUAL_MARKDOWN_TOOL_NAMES,
     # Prompt markers
     DIGITAL_STRATEGY_PROMPT_MARKER,
     PRESENTATION_BUILDER_PROMPT_MARKER,
@@ -37,6 +43,11 @@ from app.routers.skills import (
     PDF_MANAGEMENT_PROMPT_MARKER,
     MEETING_INTELLIGENCE_PROMPT_MARKER,
     GOAL_DEFINITION_PROMPT_MARKER,
+    BPMN_DIAGRAM_PROMPT_MARKER,
+    ARCHIMATE_DIAGRAM_PROMPT_MARKER,
+    ARCHITECTURE_DIAGRAM_PROMPT_MARKER,
+    INFOCARD_PROMPT_MARKER,
+    MINDMAP_PROMPT_MARKER,
     # Other
     GSTACK_PRO_SKILLS,
     DEFAULT_SKILLS,
@@ -65,6 +76,11 @@ FILE_SKILLS = [
     "pdf-management",
     "meeting-intelligence",
     "goal-definition",
+    "bpmn",
+    "archimate",
+    "architecture",
+    "infocard",
+    "mindmap",
 ]
 
 
@@ -93,7 +109,10 @@ class FileSkillExistenceTestCase(unittest.TestCase):
         for name in FILE_SKILLS:
             skill_path = SKILLS_ROOT / name / "SKILL.md"
             content = skill_path.read_text(encoding="utf-8-sig").lower()
-            has_workflow = "workflow" in content or "when to use" in content or "usage" in content
+            has_workflow = any(
+                marker in content
+                for marker in ["workflow", "when to use", "usage", "quick start", "critical rules"]
+            )
             self.assertTrue(has_workflow, f"'{name}' SKILL.md missing workflow/usage section")
 
 
@@ -194,6 +213,11 @@ class DBSeedSkillDefinitionTestCase(unittest.TestCase):
             PDF_MANAGEMENT_SKILL_NAME: "pdf-management",
             MEETING_INTELLIGENCE_SKILL_NAME: "meeting-intelligence",
             GOAL_DEFINITION_SKILL_NAME: "goal-definition",
+            BPMN_DIAGRAM_SKILL_NAME: "bpmn",
+            ARCHIMATE_DIAGRAM_SKILL_NAME: "archimate",
+            ARCHITECTURE_DIAGRAM_SKILL_NAME: "architecture",
+            INFOCARD_SKILL_NAME: "infocard",
+            MINDMAP_SKILL_NAME: "mindmap",
         }
         for skill_def in GSTACK_PRO_SKILLS:
             name = skill_def["name"]
@@ -218,6 +242,11 @@ class SkillRegistrationTestCase(unittest.TestCase):
             PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_PROMPT_MARKER,
             MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_PROMPT_MARKER,
             GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_PROMPT_MARKER,
+            BPMN_DIAGRAM_SKILL_NAME: BPMN_DIAGRAM_PROMPT_MARKER,
+            ARCHIMATE_DIAGRAM_SKILL_NAME: ARCHIMATE_DIAGRAM_PROMPT_MARKER,
+            ARCHITECTURE_DIAGRAM_SKILL_NAME: ARCHITECTURE_DIAGRAM_PROMPT_MARKER,
+            INFOCARD_SKILL_NAME: INFOCARD_PROMPT_MARKER,
+            MINDMAP_SKILL_NAME: MINDMAP_PROMPT_MARKER,
         }
         for name, marker in expected.items():
             self.assertTrue(marker, f"Empty prompt marker for '{name}'")
@@ -233,6 +262,11 @@ class SkillRegistrationTestCase(unittest.TestCase):
             PDF_MANAGEMENT_SKILL_NAME: PDF_MANAGEMENT_TOOL_NAMES,
             MEETING_INTELLIGENCE_SKILL_NAME: MEETING_INTELLIGENCE_TOOL_NAMES,
             GOAL_DEFINITION_SKILL_NAME: GOAL_DEFINITION_TOOL_NAMES,
+            BPMN_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+            ARCHIMATE_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+            ARCHITECTURE_DIAGRAM_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+            INFOCARD_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
+            MINDMAP_SKILL_NAME: VISUAL_MARKDOWN_TOOL_NAMES,
         }
         for name, tools in expected.items():
             self.assertIsInstance(tools, list, f"Tool names for '{name}' should be list")
@@ -288,6 +322,7 @@ class ToolRegistryTestCase(unittest.TestCase):
             ("PDF_MANAGEMENT", PDF_MANAGEMENT_TOOL_NAMES),
             ("MEETING_INTELLIGENCE", MEETING_INTELLIGENCE_TOOL_NAMES),
             ("GOAL_DEFINITION", GOAL_DEFINITION_TOOL_NAMES),
+            ("VISUAL_MARKDOWN", VISUAL_MARKDOWN_TOOL_NAMES),
         ]
         for list_name, tool_names in all_tool_lists:
             for tool_name in tool_names:
@@ -350,6 +385,11 @@ class EnsureBuiltinProSkillsTestCase(unittest.TestCase):
                 PDF_MANAGEMENT_SKILL_NAME,
                 MEETING_INTELLIGENCE_SKILL_NAME,
                 GOAL_DEFINITION_SKILL_NAME,
+                BPMN_DIAGRAM_SKILL_NAME,
+                ARCHIMATE_DIAGRAM_SKILL_NAME,
+                ARCHITECTURE_DIAGRAM_SKILL_NAME,
+                INFOCARD_SKILL_NAME,
+                MINDMAP_SKILL_NAME,
             ]:
                 self.assertIn(name, skill_names, f"Skill '{name}' not seeded")
 
@@ -422,6 +462,22 @@ class EnsureBuiltinProSkillsTestCase(unittest.TestCase):
             tool_names = {t.get("name") for t in tool_defs if isinstance(t, dict)}
             self.assertIn("update_project_markdown_document", tool_names)
 
+    def test_seeded_visual_skills_have_markdown_tool(self):
+        with Session(self.engine) as session:
+            ensure_builtin_pro_skills(session)
+            for name in [
+                BPMN_DIAGRAM_SKILL_NAME,
+                ARCHIMATE_DIAGRAM_SKILL_NAME,
+                ARCHITECTURE_DIAGRAM_SKILL_NAME,
+                INFOCARD_SKILL_NAME,
+                MINDMAP_SKILL_NAME,
+            ]:
+                skill = session.exec(select(Skill).where(Skill.name == name)).one_or_none()
+                self.assertIsNotNone(skill, name)
+                tool_defs = json.loads(skill.tools_definition_json or "[]")
+                tool_names = {t.get("name") for t in tool_defs if isinstance(t, dict)}
+                self.assertIn("update_project_markdown_document", tool_names, name)
+
 
 # ── 6. Consulting capabilities ───────────────────────────────────────────────
 
@@ -476,6 +532,11 @@ class SkillNameConsistencyTestCase(unittest.TestCase):
             PDF_MANAGEMENT_SKILL_NAME,
             MEETING_INTELLIGENCE_SKILL_NAME,
             GOAL_DEFINITION_SKILL_NAME,
+            BPMN_DIAGRAM_SKILL_NAME,
+            ARCHIMATE_DIAGRAM_SKILL_NAME,
+            ARCHITECTURE_DIAGRAM_SKILL_NAME,
+            INFOCARD_SKILL_NAME,
+            MINDMAP_SKILL_NAME,
         ]
         for name in expected_constants:
             self.assertIn(name, gstack_names, f"Constant '{name}' not in GSTACK_PRO_SKILLS")
