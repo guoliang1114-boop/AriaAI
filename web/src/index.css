@@ -132,45 +132,6 @@ samp {
   font-family: var(--font-mono);
 }
 
-/* Project workspace is a dense operational surface. Keep its type tighter than
-   marketing/dashboard pages while preserving readable body copy. */
-.project-ui {
-  font-size: 0.8125rem;
-}
-
-.project-ui button,
-.project-ui input,
-.project-ui textarea,
-.project-ui select {
-  font-size: 0.8125rem;
-  line-height: 1.35;
-}
-
-.project-ui .text-sm {
-  font-size: 0.8125rem;
-  line-height: 1.45;
-}
-
-.project-ui .text-base {
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.project-ui .text-lg {
-  font-size: 1rem;
-  line-height: 1.45;
-}
-
-.project-ui .text-xl {
-  font-size: 1.125rem;
-  line-height: 1.35;
-}
-
-.project-ui .text-2xl {
-  font-size: 1.25rem;
-  line-height: 1.3;
-}
-
 /* === Typography Classes === */
 .font-manrope {
   font-family: var(--font-display);
@@ -1285,21 +1246,35 @@ samp {
   text-decoration: underline;
 }
 
-/* Project workspace typography: keep dense operational screens on one readable scale. */
+/* Project workspace is a dense operational surface. Keep its type tighter than
+   marketing/dashboard pages while preserving readable body copy. */
 .project-ui {
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.8125rem;
 }
 
+.project-ui button,
+.project-ui input,
+.project-ui textarea,
+.project-ui select {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.project-ui .text-sm,
 .project-ui .text-\[14px\],
 .project-ui .text-\[15px\] {
-  font-size: 0.875rem;
-  line-height: 1.6;
+  font-size: 0.8125rem;
+  line-height: 1.45;
 }
 
 .project-ui .text-base {
-  font-size: 0.9375rem;
-  line-height: 1.55;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.project-ui .text-\[16px\] {
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
 .project-ui .text-lg {
@@ -1309,12 +1284,12 @@ samp {
 
 .project-ui .text-xl {
   font-size: 1.125rem;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .project-ui .text-2xl {
   font-size: 1.25rem;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .project-ui .font-bold {
