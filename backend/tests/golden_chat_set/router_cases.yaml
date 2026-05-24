@@ -19,6 +19,18 @@ cases:
       - read_project_markdown_document
       - update_project_markdown_document
 
+  - id: project_risk_question_read_only_no_write
+    content: "这个项目的风险是什么？"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: read_only_tool
+    expected_tool_access_policy: read_on_demand
+    forbid_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: create
+          content: "# 风险分析"
+
   - id: project_milestone_progress_analysis_direct_answer
     content: "请基于当前项目的结构化记忆，分析当前里程碑推进情况，指出已经完成的进展、可能延迟的事项，以及接下来最需要推进的里程碑。"
     project_id: 26

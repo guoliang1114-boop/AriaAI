@@ -24,6 +24,7 @@ from app.services.task_orchestrator import (
     task_run_chat_brief,
 )
 from app.services.intent_router import classify_chat_intent_async
+from app.services.chat.markdown_followup import save_previous_answer_as_markdown
 from app.services.title_generator import schedule_title_generation
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event, task_stream_flush_pause
@@ -63,6 +64,89 @@ async def run_p0_durable_task(
     ``state.durable_task_completed = True`` so the orchestrator can return early.
     """
     stream_started_at = time.perf_counter()
+    if req.project_id:
+        save_result = save_previous_answer_as_markdown(
+            bind=bind,
+            conversation_id=runtime.conv_id,
+            project_id=req.project_id,
+            user_content=req.content,
+        )
+        if save_result is not None:
+            state.durable_task_completed = True
+            status_ok = bool(save_result.get("ok"))
+            if status_ok:
+                file_name = str(save_result.get("name") or "Markdown 文件")
+                full_text = f"已将上一条回复保存为 Markdown 文件：{file_name}"
+                metadata = {
+                    "project_id": req.project_id,
+                    "tool_calls": [
+                        {
+                            "tool_name": "save_previous_answer_as_markdown",
+                            "status": "completed",
+                            "message": "已保存上一条 AI 回复为项目 Markdown 文件。",
+                            "summary": file_name,
+                        }
+                    ],
+                    "artifacts": [
+                        {
+                            "id": save_result.get("id"),
+                            "project_file_id": save_result.get("project_file_id"),
+                            "name": save_result.get("name"),
+                            "file_type": "md",
+                            "path": save_result.get("path"),
+                            "description": "Saved previous assistant answer as Markdown.",
+                        }
+                    ],
+                    "markdown_followup_save": save_result,
+                    "stage_timings": {
+                        **state.stage_timings,
+                        "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
+                    },
+                }
+            else:
+                full_text = f"没有保存成功：{save_result.get('error') or '未找到可保存的上一条回复。'}"
+                metadata = {
+                    "project_id": req.project_id,
+                    "tool_calls": [
+                        {
+                            "tool_name": "save_previous_answer_as_markdown",
+                            "status": "error",
+                            "message": "保存上一条 AI 回复失败。",
+                            "summary": full_text,
+                            "error": save_result.get("error"),
+                        }
+                    ],
+                    "markdown_followup_save": save_result,
+                    "stage_timings": {
+                        **state.stage_timings,
+                        "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
+                    },
+                }
+            state.full_text = full_text
+            state.stage_timings.update(metadata["stage_timings"])
+            yield sse_event({"type": "text", "content": full_text})
+            yield sse_event(
+                {
+                    "type": "timing",
+                    "key": "total_stream_ms",
+                    "duration_ms": metadata["stage_timings"]["total_stream_ms"],
+                }
+            )
+            need_title, assistant_message_id = persist_assistant_message(
+                bind,
+                runtime.conv_id,
+                full_text,
+                req.content,
+                metadata,
+            )
+            state.need_title = need_title
+            try:
+                persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
+            except Exception as exc:
+                logger.warning("[P0] failed to persist markdown follow-up trace: %s", exc)
+            yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
+            return
+
     task_route = runtime.intent_task_route if req.project_id else None
     if task_route is not None and not isinstance(getattr(task_route, "task_type", None), str):
         task_route = None
