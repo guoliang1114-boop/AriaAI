@@ -57,7 +57,7 @@ export function ProjectDetailHeader({
           </button>
 
           <div className="min-w-0 flex-shrink-0 basis-[360px]">
-            <div className="truncate text-[11px] text-slate-500">
+            <div className="truncate text-xs text-slate-500">
               {project.client || t("nav.projects")}
             </div>
             <div className="flex min-w-0 items-center gap-2">
@@ -65,14 +65,14 @@ export function ProjectDetailHeader({
                 {project.name}
               </div>
               <span
-                className={`hidden flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold md:inline-flex ${statusClassName}`}
+                className={`hidden flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold md:inline-flex ${statusClassName}`}
               >
                 <Circle className="h-1.5 w-1.5 fill-current" />
                 {statusLabel}
               </span>
               <button
                 onClick={handleMeetingPrep}
-                className="hidden flex-shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm transition hover:border-primary/30 hover:text-primary sm:inline-flex"
+                className="hidden flex-shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:border-primary/30 hover:text-primary sm:inline-flex"
                 title={isZh ? "会前准备" : "Meeting Prep"}
               >
                 <CalendarDays className="h-3.5 w-3.5" />

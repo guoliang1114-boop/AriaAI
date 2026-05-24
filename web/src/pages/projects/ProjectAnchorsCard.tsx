@@ -95,9 +95,9 @@ export function ProjectAnchorsCard({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-gray-900">{group.title}</div>
-                <div className="mt-0.5 text-[11px] text-gray-500">{group.description}</div>
+                <div className="mt-0.5 text-xs text-gray-500">{group.description}</div>
               </div>
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${group.tone}`}>
+              <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${group.tone}`}>
                 {group.items.length}
               </span>
             </div>

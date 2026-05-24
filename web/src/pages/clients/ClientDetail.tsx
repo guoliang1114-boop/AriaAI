@@ -242,7 +242,7 @@ export function ClientDetail() {
                       <Building2 className="h-3.5 w-3.5" />
                       <span>{isZh ? '客户档案' : 'Client Record'}</span>
                     </div>
-                    <h1 className="truncate text-4xl font-semibold tracking-tight text-slate-900">{client.name}</h1>
+                    <h1 className="truncate text-2xl font-semibold text-slate-900">{client.name}</h1>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-sm text-slate-600">
                         {client.industry || (isZh ? '未填写行业' : 'No industry yet')}
@@ -553,7 +553,7 @@ function SummaryCard({
 
   return (
     <div className={`rounded-[1.5rem] border p-5 shadow-sm ${toneClass}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
       <p className="mt-3 text-2xl font-semibold text-slate-900">{value}</p>
     </div>
   )

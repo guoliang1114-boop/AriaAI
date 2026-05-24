@@ -27,16 +27,16 @@ export function ProjectDocumentsListView({
       <table className="w-full">
         <thead className="bg-gray-50 border-b border-gray-200">
           <tr>
-            <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-3">
+            <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">
               {isZh ? "名称" : "Name"}
             </th>
-            <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-3 w-32">
+            <th className="text-left text-xs font-medium text-gray-500 px-4 py-3 w-32">
               {isZh ? "类型" : "Type"}
             </th>
-            <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-3 w-52">
+            <th className="text-left text-xs font-medium text-gray-500 px-4 py-3 w-52">
               {isZh ? "修改时间" : "Modified"}
             </th>
-            <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-3 w-20">
+            <th className="text-right text-xs font-medium text-gray-500 px-4 py-3 w-20">
               {isZh ? "操作" : "Action"}
             </th>
           </tr>
@@ -82,7 +82,7 @@ export function ProjectDocumentsListView({
                   <span className="font-medium text-gray-900 text-sm">{file.name}</span>
                 </div>
               </td>
-              <td className="px-4 py-3 text-sm text-gray-500 uppercase">{file.file_type}</td>
+              <td className="px-4 py-3 text-sm text-gray-500">{file.file_type}</td>
               <td className="px-4 py-3 text-sm text-gray-400">
                 {formatDateTime(file.uploaded_at, isZh ? "zh-CN" : "en-GB", { hour12: false }, getResolvedAppTimeZone())}
               </td>

@@ -550,7 +550,7 @@ export function ClientMemoryPage() {
                   {snapshotDiff.fields.length ? (
                     snapshotDiff.fields.slice(0, 8).map((field) => (
                       <div key={field.field} className="rounded-xl border border-outline bg-surface-muted/40 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-on-surface-muted">{field.label}</div>
+                        <div className="text-xs font-semibold text-on-surface-muted">{field.label}</div>
                         {field.kind === 'list' ? (
                           <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
                             <div className="rounded-lg bg-emerald-50 p-2 text-emerald-800">

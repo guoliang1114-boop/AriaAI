@@ -595,7 +595,7 @@ function ProjectSkillReferencePanel({
         </p>
         {skill.user_template ? (
           <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
-            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">Template</p>
+            <p className="mb-1 text-xs font-medium text-gray-400">Template</p>
             <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-gray-500">
               {skill.user_template}
             </p>
@@ -666,7 +666,7 @@ const ContextPill = forwardRef<HTMLDivElement, {
     <button
       type="button"
       onClick={onToggle}
-      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition-colors ${
+      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors ${
         active
           ? secondary
             ? "bg-gray-100/80 text-gray-600"

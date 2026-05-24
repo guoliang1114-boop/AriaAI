@@ -98,7 +98,7 @@ export function ProjectChatActionPreviewPanel({
           {call.summary || call.message ? (
             <p className="mt-1 text-xs leading-5 text-slate-500">{call.summary || call.message}</p>
           ) : null}
-          <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          <p className="mt-2 text-xs leading-5 text-slate-400">
             {canConfirm
               ? isZh
                 ? "确认会用同一批工具参数重放，不会让模型重新猜测要删除或修改什么。"

@@ -183,7 +183,7 @@ export function ContactDetail() {
                   <UserRound className="h-3.5 w-3.5" />
                   <span>{isZh ? '联系人详情' : 'Contact detail'}</span>
                 </div>
-                <h1 className="text-4xl font-semibold tracking-tight text-slate-900">{stakeholder.name}</h1>
+                <h1 className="text-2xl font-semibold text-slate-900">{stakeholder.name}</h1>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
                   {[stakeholder.role, stakeholder.organization_level, client.name].filter(Boolean).join(' · ') ||
                     (isZh ? '补充 TA 的角色、公司与沟通背景，形成可复用的人际关系洞察。' : 'Add role, company, and communication context to build reusable relationship insight.')}
@@ -715,7 +715,7 @@ function OnePagerBlock({ items, title }: { items: Array<[string, string | undefi
       <div className="mt-3 space-y-3">
         {items.map(([label, value]) => (
           <div key={label}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</div>
+            <div className="text-xs font-semibold text-slate-500">{label}</div>
             <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">
               {value?.trim() || '—'}
             </div>
@@ -729,7 +729,7 @@ function OnePagerBlock({ items, title }: { items: Array<[string, string | undefi
 function DetailRow({ icon, label, value }: { icon: ReactNode; label: string; value?: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+      <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
         {icon}
         {label}
       </div>

@@ -321,7 +321,7 @@ export function ClientStakeholdersStructuredCard({
                     ) : null}
                     {historyId === stakeholder.id && (
                       <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                        <div className="text-xs font-semibold text-gray-500 mb-2">
                           {isZh ? "变更历史" : "Change History"}
                         </div>
                         {loadingHistory ? (
@@ -397,7 +397,7 @@ function GroupPanel({
 }) {
   return (
     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{title}</div>
+      <div className="text-xs font-semibold text-emerald-700">{title}</div>
       <div className="mt-3 flex flex-wrap gap-2">
         {items.map(([label, count]) => (
           <span
@@ -515,14 +515,14 @@ function StakeholderForm({
 
 function Badge({ muted, value }: { muted?: boolean; value: string }) {
   const style = muted ? "border-gray-200 bg-white text-gray-600" : relationshipStyles[value.toLowerCase()] || relationshipStyles.unknown;
-  return <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${style}`}>{value}</span>;
+  return <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${style}`}>{value}</span>;
 }
 
 function Insight({ label, value }: { label: string; value?: string }) {
   if (!value?.trim()) return null;
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">{label}</div>
+      <div className="text-xs font-semibold text-blue-700">{label}</div>
       <div className="mt-1 whitespace-pre-wrap text-gray-700">{value}</div>
     </div>
   );

@@ -115,7 +115,7 @@ export function ProjectStakeholdersHero({
           { label: isZh ? "覆盖度" : "Coverage", value: `${stakeholderScore}/4` },
         ].map((item) => (
           <div key={item.label} className="rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm">
-            <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{item.label}</div>
+            <div className="text-xs font-medium text-gray-500">{item.label}</div>
             <div className="mt-2 truncate text-lg font-semibold text-gray-950">{item.value}</div>
           </div>
         ))}
@@ -228,7 +228,7 @@ export function StakeholderRelationshipMap({
                     <div className="font-medium text-gray-950">{contact.name}</div>
                     <div className="mt-1 text-xs text-gray-500">{contact.role}</div>
                   </div>
-                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
                     {contact.source}
                   </span>
                 </div>
@@ -366,7 +366,7 @@ export function ClientRelationshipContextCard({
       </div>
       <div className="mt-4 space-y-4">
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "决策模式" : "Decision patterns"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "决策模式" : "Decision patterns"}</div>
           <div className="mt-2">
             <BulletList
               emptyText={isZh ? "客户记忆尚未沉淀决策模式。" : "No decision patterns captured yet."}
@@ -375,7 +375,7 @@ export function ClientRelationshipContextCard({
           </div>
         </div>
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "敏感议题" : "Sensitive topics"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "敏感议题" : "Sensitive topics"}</div>
           <div className="mt-2">
             <BulletList
               emptyText={isZh ? "客户记忆尚未沉淀敏感议题。" : "No sensitive topics captured yet."}

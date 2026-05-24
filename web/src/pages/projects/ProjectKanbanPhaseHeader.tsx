@@ -43,8 +43,8 @@ export function ProjectKanbanPhaseHeader({
 
           <div className="flex items-center gap-8">
             <div className="text-center">
-              <p className="text-3xl font-bold text-gray-900">{totalProjects}</p>
-              <p className="mt-0.5 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <p className="text-2xl font-semibold text-gray-900">{totalProjects}</p>
+              <p className="mt-0.5 text-xs font-medium text-gray-500">
                 {isZh ? "项目" : "Projects"}
               </p>
             </div>
@@ -54,7 +54,7 @@ export function ProjectKanbanPhaseHeader({
                   CNY {(totalValue / 10000).toFixed(0)}
                   {isZh ? "万" : "K"}
                 </p>
-                <p className="mt-0.5 text-xs font-medium uppercase tracking-wider text-gray-500">
+                <p className="mt-0.5 text-xs font-medium text-gray-500">
                   {isZh ? "金额" : "Value"}
                 </p>
               </div>

@@ -56,7 +56,7 @@ function StatusBadge({ status, isZh }: { status: string; isZh: boolean }) {
     archived: 'bg-slate-100 text-slate-500 border-slate-200',
   }
   return (
-    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${toneMap[status] || toneMap.lead}`}>
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${toneMap[status] || toneMap.lead}`}>
       {getStageLabel(status, isZh)}
     </span>
   )
@@ -65,7 +65,7 @@ function StatusBadge({ status, isZh }: { status: string; isZh: boolean }) {
 function MemoryIndicator({ stale, version }: { stale?: boolean; version?: number }) {
   const isFresh = !stale && (version ?? 0) > 0
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isFresh ? 'text-emerald-600' : 'text-amber-600'}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${isFresh ? 'text-emerald-600' : 'text-amber-600'}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${isFresh ? 'bg-emerald-500' : 'bg-amber-500'}`} />
       {isFresh ? 'v' + version : 'stale'}
     </span>
@@ -182,7 +182,7 @@ export function Workspace() {
           {/* Header */}
           <div className="rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-4 shadow-[0_18px_48px_-42px_rgba(37,99,235,0.35)] backdrop-blur sm:px-5 lg:flex lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <h1 className="truncate text-[20px] font-semibold tracking-normal text-slate-950 sm:text-[22px]">
+              <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-xl">
                 {isZh ? '今日工作台' : "Today's Workspace"}
               </h1>
               <p className="mt-1 text-sm leading-6 text-slate-500">

@@ -571,7 +571,7 @@ export function ClientMemorySettings() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-outline bg-surface">
-        <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_180px_150px_160px_150px] gap-4 border-b border-outline bg-surface-container-low px-5 py-3 text-xs font-semibold uppercase tracking-wide text-on-surface-muted">
+        <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_180px_150px_160px_150px] gap-4 border-b border-outline bg-surface-container-low px-5 py-3 text-xs font-semibold text-on-surface-muted">
           <div>{isZh ? '客户' : 'Client'}</div>
           <div>{isZh ? '关联项目与覆盖' : 'Project Coverage'}</div>
           <div>{isZh ? '记忆状态' : 'Memory Status'}</div>

@@ -83,7 +83,7 @@ export function MarkdownDiffViewer({
         <div className="flex-1 overflow-y-auto px-5 py-3">
           {showOld ? (
             <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+              <p className="mb-2 text-xs font-medium text-gray-400">
                 {isZh ? "原内容" : "Original"}
               </p>
               <pre className="whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
@@ -93,7 +93,7 @@ export function MarkdownDiffViewer({
           ) : null}
           {showNew ? (
             <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+              <p className="mb-2 text-xs font-medium text-gray-400">
                 {isZh ? "新内容" : "New"}
               </p>
               <pre className="whitespace-pre-wrap text-xs leading-relaxed text-gray-600">

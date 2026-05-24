@@ -101,15 +101,15 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[11px] text-slate-400">{isZh ? "工具决策" : "Tool decisions"}</p>
+              <p className="text-xs text-slate-400">{isZh ? "工具决策" : "Tool decisions"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{toolDecisions.length}</p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[11px] text-slate-400">{isZh ? "生成物" : "Artifacts"}</p>
+              <p className="text-xs text-slate-400">{isZh ? "生成物" : "Artifacts"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{artifacts.length}</p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-[11px] text-slate-400">{isZh ? "Prompt 层" : "Prompt layers"}</p>
+              <p className="text-xs text-slate-400">{isZh ? "Prompt 层" : "Prompt layers"}</p>
               <p className="mt-1 text-sm font-semibold text-slate-800">{promptLayers.length}</p>
             </div>
           </div>

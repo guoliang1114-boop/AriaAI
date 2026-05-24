@@ -124,7 +124,7 @@ export function ProjectOverviewSummaryCard({
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-gray-900">{title}</h3>
                 {generatingSummary && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-[11px] text-indigo-600">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-indigo-600">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     {isZh ? "流式生成中" : "Streaming"}
                   </span>

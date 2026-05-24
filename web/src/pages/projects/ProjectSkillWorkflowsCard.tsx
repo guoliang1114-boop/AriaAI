@@ -100,7 +100,7 @@ export function ProjectSkillWorkflowsCard({
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-xs font-medium text-slate-500">{label}</div>
       <div className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</div>
     </div>
   );

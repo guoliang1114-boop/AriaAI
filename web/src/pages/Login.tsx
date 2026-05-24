@@ -56,7 +56,7 @@ export function Login() {
             <div className="w-12 h-12 rounded-2xl bg-gradient-primary flex items-center justify-center">
               <Sparkles className="w-6 h-6 text-white" />
             </div>
-            <span className="font-manrope text-2xl font-bold text-on-surface">
+            <span className="font-manrope text-xl font-semibold text-on-surface">
               Aria AI
             </span>
           </div>
@@ -160,26 +160,26 @@ export function Login() {
           <span className="inline-block w-fit px-4 py-1.5 text-label-sm text-white/80 bg-white/10 rounded-full mb-6 backdrop-blur-sm">
             CONSULTING ELITE EDITION
           </span>
-          <h2 className="text-4xl font-manrope font-bold mb-4 leading-tight">
+          <h2 className="mb-4 font-manrope text-2xl font-semibold leading-tight">
             {t('login.tagline')}
           </h2>
-          <p className="text-lg text-white/70 max-w-md leading-relaxed">
+          <p className="max-w-md text-base leading-7 text-white/70">
             {t('login.description')}
           </p>
 
           <div className="mt-10 flex items-center gap-8">
             <div>
-              <div className="text-3xl font-manrope font-bold">142+</div>
+              <div className="font-manrope text-2xl font-semibold">142+</div>
               <div className="text-sm text-white/50">{t('login.activeSkills')}</div>
             </div>
             <div className="w-px h-12 bg-white/20" />
             <div>
-              <div className="text-3xl font-manrope font-bold">50+</div>
+              <div className="font-manrope text-2xl font-semibold">50+</div>
               <div className="text-sm text-white/50">{t('login.enterpriseClients')}</div>
             </div>
             <div className="w-px h-12 bg-white/20" />
             <div>
-              <div className="text-3xl font-manrope font-bold">99.9%</div>
+              <div className="font-manrope text-2xl font-semibold">99.9%</div>
               <div className="text-sm text-white/50">{t('login.uptime')}</div>
             </div>
           </div>

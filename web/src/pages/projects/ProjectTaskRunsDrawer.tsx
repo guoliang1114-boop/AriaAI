@@ -79,7 +79,7 @@ function StepRow({ events, isZh, step }: { events: TaskRunEvent[]; isZh: boolean
             <p className="text-sm font-semibold text-slate-950">
               {step.sort_order}. {step.title}
             </p>
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass(step.status)}`}>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(step.status)}`}>
               {statusCopy(step.status, isZh)}
             </span>
           </div>
@@ -214,7 +214,7 @@ export function ProjectTaskRunsDrawer({
       <aside className="relative flex h-full w-full max-w-5xl flex-col bg-slate-50 shadow-2xl sm:w-[88vw] xl:w-[980px]">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{isZh ? "项目任务" : "Project tasks"}</p>
+            <p className="text-xs font-medium text-slate-400">{isZh ? "项目任务" : "Project tasks"}</p>
             <h2 className="mt-1 text-lg font-semibold text-slate-950">{isZh ? "任务详情" : "Task details"}</h2>
             <p className="mt-1 text-sm text-slate-500">
               {isZh ? "查看每一步、日志、生成物，并处理失败任务。" : "Inspect steps, logs, artifacts, and failed runs."}
@@ -257,7 +257,7 @@ export function ProjectTaskRunsDrawer({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="max-h-10 overflow-hidden text-sm font-semibold leading-5 text-slate-900">{task.goal || task.task_type}</p>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass(task.status)}`}>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(task.status)}`}>
                         {statusCopy(task.status, isZh)}
                       </span>
                     </div>

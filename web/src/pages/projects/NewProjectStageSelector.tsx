@@ -21,7 +21,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
         <span className="text-xs text-on-surface-muted ml-1">— {currentStage.description}</span>
       </div>
 
-      <p className="text-xs font-medium text-on-surface-muted uppercase tracking-wide mb-2">商机阶段</p>
+      <p className="text-xs font-medium text-on-surface-muted mb-2">商机阶段</p>
       <div className="grid grid-cols-5 gap-2 mb-4">
         {PROJECT_STAGE_CONFIGS.filter(stage => stage.phase === 'business').map(stage => {
           const Icon = stage.icon
@@ -45,7 +45,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
         })}
       </div>
 
-      <p className="text-xs font-medium text-on-surface-muted uppercase tracking-wide mb-2">交付阶段</p>
+      <p className="text-xs font-medium text-on-surface-muted mb-2">交付阶段</p>
       <div className="grid grid-cols-4 gap-2 mb-4">
         {PROJECT_STAGE_CONFIGS.filter(stage => stage.phase === 'delivery').map(stage => {
           const Icon = stage.icon

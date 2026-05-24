@@ -213,17 +213,17 @@ export function MessageSettings() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-outline/10 bg-surface-container-low p-5">
               <div className="text-sm text-on-surface-muted">{isZh ? '消息总数' : 'Messages'}</div>
-              <div className="mt-2 text-3xl font-semibold text-on-surface">{messages.length}</div>
+              <div className="mt-2 text-2xl font-semibold text-on-surface">{messages.length}</div>
             </div>
             <div className="rounded-3xl border border-outline/10 bg-surface-container-low p-5">
               <div className="text-sm text-on-surface-muted">{isZh ? '已发布' : 'Published'}</div>
-              <div className="mt-2 text-3xl font-semibold text-on-surface">
+              <div className="mt-2 text-2xl font-semibold text-on-surface">
                 {messages.filter((message) => message.is_published).length}
               </div>
             </div>
             <div className="rounded-3xl border border-outline/10 bg-surface-container-low p-5">
               <div className="text-sm text-on-surface-muted">{isZh ? '累计已读' : 'Total reads'}</div>
-              <div className="mt-2 text-3xl font-semibold text-on-surface">{totalRead}</div>
+              <div className="mt-2 text-2xl font-semibold text-on-surface">{totalRead}</div>
             </div>
           </div>
 

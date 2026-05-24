@@ -86,7 +86,7 @@ export function ProjectSettingsStageField({
         {isZh ? "项目阶段" : "Project Stage"}
       </label>
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+        <p className="text-xs font-medium text-gray-400">
           {isZh ? "商务阶段" : "Business Phase"}
         </p>
         <StageOptionGroup
@@ -97,7 +97,7 @@ export function ProjectSettingsStageField({
           value={value}
         />
 
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+        <p className="text-xs font-medium text-gray-400">
           {isZh ? "交付阶段" : "Delivery Phase"}
         </p>
         <StageOptionGroup

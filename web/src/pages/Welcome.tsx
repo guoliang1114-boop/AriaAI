@@ -421,7 +421,7 @@ export function Welcome() {
 
           <div className="rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-4 shadow-[0_18px_48px_-42px_rgba(37,99,235,0.35)] backdrop-blur sm:px-5 lg:flex lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <h1 className="truncate text-[20px] font-semibold tracking-normal text-slate-950 sm:text-[22px]">
+              <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-xl">
                 {greeting}，{user?.display_name || (isZh ? '欢迎回来' : 'Welcome back')}
               </h1>
               <p className="mt-1 text-sm leading-6 text-slate-500">
@@ -490,7 +490,7 @@ export function Welcome() {
                         {client.industry || (isZh ? '行业未填' : 'No industry')} · {client.project_names.length} {isZh ? '个项目' : 'projects'}
                       </div>
                     </div>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone.badge}`}>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${tone.badge}`}>
                       {status}
                     </span>
                   </div>
@@ -530,7 +530,7 @@ export function Welcome() {
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="line-clamp-2 text-sm font-semibold text-slate-900 sm:line-clamp-1">{item.title}</span>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{item.label}</span>
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">{item.label}</span>
                       </span>
                       <span className="mt-1 block truncate text-xs text-slate-500">{item.meta}</span>
                     </span>

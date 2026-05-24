@@ -313,7 +313,7 @@ function ProgressCard({
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <p className="text-xs font-semibold text-gray-700">{title}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-400 mt-0.5">
             {doneCount}/{steps.length} {completedLabel}
           </p>
         </div>
@@ -327,7 +327,7 @@ function ProgressCard({
           type="button"
           onClick={copyLogs}
           disabled={!allLogs}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-white px-2 py-1 text-[11px] text-gray-400 transition-colors hover:border-primary/20 hover:text-primary disabled:opacity-40"
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-white px-2 py-1 text-xs text-gray-400 transition-colors hover:border-primary/20 hover:text-primary disabled:opacity-40"
         >
           <Copy className="w-3 h-3" />
           复制日志
@@ -351,7 +351,7 @@ function ProgressCard({
                   ) : isActive ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
                   ) : (
-                    <span className="text-[10px] font-semibold">{index + 1}</span>
+                    <span className="text-xs font-semibold">{index + 1}</span>
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -360,13 +360,13 @@ function ProgressCard({
                       {step.label}
                     </p>
                     {index === activeIndex && (
-                      <span className="text-[10px] text-primary/60 bg-primary/10 rounded-full px-1.5 py-0.5">进行中</span>
+                      <span className="text-xs text-primary/60 bg-primary/10 rounded-full px-1.5 py-0.5">进行中</span>
                     )}
                     {step.logs.length > 0 && (
-                      <span className="text-[10px] text-gray-400 bg-white/80 rounded-full px-1.5 py-0.5">{step.logs.length} 条日志</span>
+                      <span className="text-xs text-gray-400 bg-white/80 rounded-full px-1.5 py-0.5">{step.logs.length} 条日志</span>
                     )}
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
+                  <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
                 </div>
                 <ChevronDown className={`w-3.5 h-3.5 mt-1 text-gray-300 transition-transform ${expanded ? 'rotate-180' : ''}`} />
               </button>
@@ -375,13 +375,13 @@ function ProgressCard({
                   {step.logs.length ? (
                     <div className="space-y-1.5">
                       {step.logs.map((log, logIndex) => (
-                        <p key={`${step.key}-${logIndex}`} className="font-mono text-[11px] leading-relaxed text-gray-500">
+                        <p key={`${step.key}-${logIndex}`} className="font-mono text-xs leading-relaxed text-gray-500">
                           {log}
                         </p>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-gray-400">暂无明细日志，等待执行事件返回。</p>
+                    <p className="text-xs text-gray-400">暂无明细日志，等待执行事件返回。</p>
                   )}
                 </div>
               )}
@@ -414,11 +414,11 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
       >
         <div>
           <p className="text-xs font-semibold text-gray-700">AI 正文</p>
-          <p className="mt-0.5 text-[11px] text-gray-400">
+          <p className="mt-0.5 text-xs text-gray-400">
             执行期间默认隐藏正文，只展示 Skill 清单。已生成约 {content.length.toLocaleString()} 字。
           </p>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-1 text-[11px] text-gray-400">
+        <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-1 text-xs text-gray-400">
           {expanded ? '收起正文' : '查看正文'}
           <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </span>
@@ -1573,7 +1573,7 @@ export function Chat() {
             aria-label={t('chat.collapseSidebar')}
           >
             <ChevronLeft className="w-4 h-4" />
-            <span className="pointer-events-none absolute right-10 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/collapse:opacity-100">
+            <span className="pointer-events-none absolute right-10 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/collapse:opacity-100">
               {t('chat.collapseSidebar')}
             </span>
           </button>
@@ -1594,7 +1594,7 @@ export function Chat() {
                 value={sidebarSearch}
                 onChange={e => setSidebarSearch(e.target.value)}
                 placeholder={t('chat.searchConversations')}
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 rounded-md text-[12px] text-slate-700 placeholder:text-slate-400 outline-none border border-slate-200 focus:border-primary/40 focus:bg-white transition-colors"
+                className="w-full pl-8 pr-3 py-2 bg-slate-50 rounded-md text-xs text-slate-700 placeholder:text-slate-400 outline-none border border-slate-200 focus:border-primary/40 focus:bg-white transition-colors"
               />
               {sidebarSearch && (
                 <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
@@ -1623,12 +1623,12 @@ export function Chat() {
                 <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-primary/10 mb-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] truncate text-primary font-medium">{t('chat.newConversation')}</p>
+                    <p className="text-sm truncate text-primary font-medium">{t('chat.newConversation')}</p>
                   </div>
                 </div>
                 {conversationGroups.map(group => (
                   <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
+                    <p className="px-3 pt-3 pb-1 text-xs font-semibold text-slate-400">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
                         onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
@@ -1636,8 +1636,8 @@ export function Chat() {
                       >
                         <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] truncate text-slate-700">{conv.title || t('chat.newConversation')}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                          <p className="text-sm truncate text-slate-700">{conv.title || t('chat.newConversation')}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
                         </div>
                       </Link>
                     ))}
@@ -1650,7 +1650,7 @@ export function Chat() {
               <div className="pt-1">
                 {conversationGroups.map(group => (
                   <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{group.label}</p>
+                    <p className="px-3 pt-3 pb-1 text-xs font-semibold text-slate-400">{group.label}</p>
                     {group.items.map(conv => (
                       <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
                         onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
@@ -1666,12 +1666,12 @@ export function Chat() {
                           conversationId === String(conv.id) ? 'bg-primary' : 'bg-gray-200'
                         }`} />
                         <div className="flex-1 min-w-0">
-                          <p className={`text-[13px] truncate transition-colors ${
+                          <p className={`text-sm truncate transition-colors ${
                             conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-slate-700'
                           }`}>
                             {conv.title || t('chat.newConversation')}
                           </p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
                         </div>
                         <button
                           onClick={e => deleteConversation(e, conv.id)}
@@ -1712,7 +1712,7 @@ export function Chat() {
                 <h1 className="text-[15px] font-semibold text-slate-900 truncate">
                   {conversation?.title || t('chat.newConversation')}
                 </h1>
-                <p className="mt-0.5 hidden truncate text-[11px] text-slate-400 sm:block">
+                <p className="mt-0.5 hidden truncate text-xs text-slate-400 sm:block">
                   {selectedProjectData
                     ? `Project · ${selectedProjectData.name}`
                     : selectedSkillData
@@ -1787,7 +1787,7 @@ export function Chat() {
                           <Icon className={`w-3.5 h-3.5 ${card.color}`} />
                         </div>
                         <div>
-                          <p className={`text-[13px] font-semibold ${card.color} mb-0.5`}>{card.label}</p>
+                          <p className={`text-sm font-semibold ${card.color} mb-0.5`}>{card.label}</p>
                           <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{card.prompt}</p>
                         </div>
                       </button>
@@ -1809,7 +1809,7 @@ export function Chat() {
                       <Sparkles className="w-3.5 h-3.5 text-white" />
                     </div>
                     <div className="w-full flex-1 min-w-0">
-                      <p className="text-[11px] font-medium text-gray-300 mb-2">Aria</p>
+                      <p className="text-xs font-medium text-gray-300 mb-2">Aria</p>
                       <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
                         {streamingContent ? (
                           <>
@@ -2013,7 +2013,7 @@ export function Chat() {
                 </button>
               )}
             </div>
-            <p className="hidden text-[11px] text-gray-300 mt-2 text-center tracking-wide sm:block">
+            <p className="hidden text-xs text-gray-300 mt-2 text-center sm:block">
               {t('chat.shiftEnter')} · {t('chat.enterToSend')}
             </p>
           </div>
@@ -2416,7 +2416,7 @@ function MessageRow({ message }: { message: Message }) {
           : 'bg-primary shadow-sm shadow-primary/20'
       }`}>
         {isUser ? (
-          <span className="text-[10px] font-semibold text-slate-500">{t('chat.you')}</span>
+          <span className="text-xs font-semibold text-slate-500">{t('chat.you')}</span>
         ) : (
           <Sparkles className="w-3.5 h-3.5 text-white" />
         )}
@@ -2425,7 +2425,7 @@ function MessageRow({ message }: { message: Message }) {
       {/* Content + actions */}
       <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-stretch'}`}>
         {/* Role label */}
-        <p className="text-[11px] font-medium text-slate-400 mb-1.5 px-0.5">
+        <p className="text-xs font-medium text-slate-400 mb-1.5 px-0.5">
           {isUser ? t('chat.you') : 'Aria'}
         </p>
 
@@ -2451,7 +2451,7 @@ function MessageRow({ message }: { message: Message }) {
         {!isUser && references.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {references.map((ref, i) => (
-              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white text-[11px] text-slate-500 border border-slate-200">
+              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white text-xs text-slate-500 border border-slate-200">
                 {ref.type === 'skill' && <Wrench className="w-3 h-3" />}
                 {ref.type === 'doc' && <BookOpen className="w-3 h-3" />}
                 {ref.type === 'file' && <FileIcon className="w-3 h-3" />}
@@ -2470,7 +2470,7 @@ function MessageRow({ message }: { message: Message }) {
               .map((item) => (
                 <span
                   key={item.key}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/10 bg-primary/[0.04] px-2 py-0.5 text-[11px] text-primary/80"
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/10 bg-primary/[0.04] px-2 py-0.5 text-xs text-primary/80"
                 >
                   <Clock className="h-3 w-3" />
                   {item.label} {formatDuration(item.durationMs)}
@@ -2479,7 +2479,7 @@ function MessageRow({ message }: { message: Message }) {
           </div>
         )}
         <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
-          <span className="text-[11px] text-slate-300 px-0.5">{formatTime(message.created_at)}</span>
+          <span className="text-xs text-slate-300 px-0.5">{formatTime(message.created_at)}</span>
           <CopyButton text={message.content} />
         </div>
       </div>
@@ -2503,7 +2503,7 @@ const ContextPill = forwardRef<HTMLDivElement, {
     <button
       onClick={onToggle}
       aria-expanded={open}
-      className={`flex max-w-[70vw] items-center gap-1.5 truncate px-2.5 py-1 rounded-lg text-[12px] transition-colors sm:max-w-none ${
+      className={`flex max-w-[70vw] items-center gap-1.5 truncate px-2.5 py-1 rounded-lg text-xs transition-colors sm:max-w-none ${
         active
           ? secondary
             ? 'bg-gray-100/80 text-gray-600'

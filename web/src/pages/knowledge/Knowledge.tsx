@@ -188,7 +188,7 @@ export function Knowledge() {
                 <BookOpen className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-3xl font-manrope font-bold">{stats.document_count}</p>
+                <p className="text-2xl font-manrope font-semibold">{stats.document_count}</p>
                 <p className="text-sm text-white/70">{t('knowledge.totalDocuments')}</p>
               </div>
             </div>
@@ -199,7 +199,7 @@ export function Knowledge() {
                 <Database className="w-6 h-6 text-primary" />
               </div>
               <div>
-                <p className="text-3xl font-manrope font-bold text-on-surface">{stats.total_vectors}</p>
+                <p className="text-2xl font-manrope font-semibold text-on-surface">{stats.total_vectors}</p>
                 <p className="text-sm text-on-surface-muted">{t('knowledge.vectorEmbeddings')}</p>
               </div>
             </div>
@@ -210,7 +210,7 @@ export function Knowledge() {
                 <CheckCircle2 className="w-6 h-6 text-active" />
               </div>
               <div>
-                <p className="text-3xl font-manrope font-bold text-on-surface">
+                <p className="text-2xl font-manrope font-semibold text-on-surface">
                   {documents.filter(d => d.vector_status === 'synced').length}
                 </p>
                 <p className="text-sm text-on-surface-muted">{t('knowledge.indexed')}</p>
@@ -282,7 +282,7 @@ export function Knowledge() {
                   <div className="flex-1 min-w-0">
                     <h4 className="text-label-lg text-on-surface truncate">{doc.name}</h4>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-on-surface-muted uppercase">{doc.file_type}</span>
+                      <span className="text-xs text-on-surface-muted">{doc.file_type}</span>
                       <span className="text-xs text-on-surface-muted">
                         {formatDateOnly(doc.uploaded_at)}
                       </span>

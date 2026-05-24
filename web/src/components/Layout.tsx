@@ -142,7 +142,7 @@ export function Layout() {
               >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-error px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                  <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-error px-1.5 py-0.5 text-xs font-semibold leading-none text-white">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 ) : null}

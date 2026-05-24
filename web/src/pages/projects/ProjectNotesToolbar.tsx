@@ -53,7 +53,7 @@ export function ProjectNotesToolbar({
   return (
     <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4">
       <div className="min-w-0">
-        <p className="text-xs uppercase tracking-[0.18em] text-gray-400">
+        <p className="text-xs text-gray-400">
           {copy.currentDocument}
         </p>
         <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">

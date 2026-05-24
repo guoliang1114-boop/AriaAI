@@ -45,13 +45,13 @@ export function ServiceErrorState({
       <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
         <div className="grid w-full gap-8 lg:grid-cols-[1.12fr_0.88fr]">
           <section className="rounded-[32px] border border-white/80 bg-white/92 p-8 shadow-[0_24px_70px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
               serviceUnavailable ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
             }`}>
               {serviceUnavailable ? <ServerCrash className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
               {badge}
             </div>
-            <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">{title}</h1>
+            <h1 className="mt-6 text-2xl font-semibold text-slate-950">{title}</h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">{description}</p>
 
             {detail ? (
@@ -95,7 +95,7 @@ export function ServiceErrorState({
 
             {links.length ? (
               <div className="rounded-[32px] border border-white/80 bg-white/82 p-6 shadow-sm backdrop-blur">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">{linksTitle}</h3>
+                <h3 className="text-sm font-semibold text-slate-500">{linksTitle}</h3>
                 <div className="mt-4 grid gap-3">
                   {links.map((link) => (
                     <button

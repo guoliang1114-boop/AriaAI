@@ -534,16 +534,16 @@ export function ProjectMemorySettings() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">{job.project_name}</span>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                         {getJobTypeText(job.job_type, isZh)}
                       </span>
                       {job.language ? (
-                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
                           {job.language}
                         </span>
                       ) : null}
                       {job.status_source === 'project_status' ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                           {isZh ? '状态待校准' : 'Needs reconcile'}
                         </span>
                       ) : null}
@@ -627,7 +627,7 @@ export function ProjectMemorySettings() {
                 : 'border-gray-200 bg-white hover:bg-gray-50'
             }`}
           >
-            <div className="text-[11px] font-medium uppercase tracking-wider text-gray-500">{option.label}</div>
+            <div className="text-xs font-medium text-gray-500">{option.label}</div>
             <div className="mt-1 text-2xl font-bold text-gray-900">{option.count}</div>
           </button>
         ))}
@@ -666,7 +666,7 @@ export function ProjectMemorySettings() {
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                         status === 'ready'
                           ? 'bg-emerald-100 text-emerald-700'
                           : status === 'stale'
@@ -676,8 +676,8 @@ export function ProjectMemorySettings() {
                     >
                       {statusText}
                     </span>
-                    <span className="text-xs uppercase tracking-wider text-gray-400">{project.client}</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                    <span className="text-xs text-gray-400">{project.client}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                       <RebuildStatusIcon status={project.memory_rebuild_status} />
                       {getRebuildStatusText(project.memory_rebuild_status, isZh)}
                     </span>

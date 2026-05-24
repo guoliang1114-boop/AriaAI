@@ -111,7 +111,7 @@ export function ProjectNotesContentPanel({
               <Icon className={`h-6 w-6 ${className}`} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-[0.18em] text-gray-400">
+              <p className="text-xs text-gray-400">
                 {label}
               </p>
               <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">

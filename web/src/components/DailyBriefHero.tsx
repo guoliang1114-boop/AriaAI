@@ -218,7 +218,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
       <div>
         <div className="flex items-center gap-2 px-5 pb-2 pt-4">
           <span className={`h-2 w-2 rounded-full ${styles.dot}`} />
-          <span className={`text-xs font-bold tracking-wide ${styles.label}`}>{label}</span>
+          <span className={`text-xs font-bold ${styles.label}`}>{label}</span>
           <span className="text-xs font-medium text-slate-500">{items.length}</span>
         </div>
         <div>
@@ -238,7 +238,7 @@ export function DailyBriefHero({ brief, totalAvailable, isZh, loading, onRefresh
                   }`}
                 >
                   {item.pinLabel ? (
-                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary">
                       {item.pinLabel}
                     </span>
                   ) : null}

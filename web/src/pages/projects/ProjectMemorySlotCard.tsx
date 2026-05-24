@@ -65,7 +65,7 @@ export function ProjectMemorySlotCard({
 
       {slotDetail?.ai?.length ? (
         <div className="mt-4 rounded-lg bg-gray-50 p-3">
-          <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+          <div className="text-xs font-medium text-gray-500">
             {isZh ? "AI 建议" : "AI suggestions"}
           </div>
           <ul className="mt-2 space-y-2 text-sm text-gray-700">
@@ -80,7 +80,7 @@ export function ProjectMemorySlotCard({
       ) : null}
 
       <div className="mt-4">
-        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+        <div className="mb-2 text-xs font-medium text-gray-500">
           {isZh ? "固定内容（每行一条）" : "Pinned items (one per line)"}
         </div>
         <textarea

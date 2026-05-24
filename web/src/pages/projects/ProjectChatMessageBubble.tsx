@@ -148,14 +148,14 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
           }`}
         >
           {isUser ? (
-            <span className="text-[10px] font-semibold text-slate-500">{t("chat.you", "You")}</span>
+            <span className="text-xs font-semibold text-slate-500">{t("chat.you", "You")}</span>
           ) : (
             <Sparkles className="w-3.5 h-3.5 text-white" />
           )}
         </div>
 
         <div className={`flex-1 min-w-0 flex flex-col ${isUser ? "items-end" : "items-stretch"}`}>
-          <p className="mb-1.5 px-0.5 text-[11px] font-medium text-slate-400">
+          <p className="mb-1.5 px-0.5 text-xs font-medium text-slate-400">
             {isUser ? t("chat.you", "You") : "Aria"}
           </p>
 
@@ -202,7 +202,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
                     <Link
                       key={`${ref.type}-${ref.id}-${i}`}
                       to={buildReferenceHref(ref)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[11px] text-gray-500 border border-gray-200 hover:border-primary/30 hover:text-primary"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-xs text-gray-500 border border-gray-200 hover:border-primary/30 hover:text-primary"
                     >
                       {ref.type === "skill" && <Wrench className="w-3 h-3" />}
                       {ref.type === "doc" && <BookOpen className="w-3 h-3" />}
@@ -282,7 +282,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
           )}
 
           <div className={`mt-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 ${isUser ? "flex-row-reverse" : ""}`}>
-            <span className="px-0.5 text-[11px] text-slate-300">
+            <span className="px-0.5 text-xs text-slate-300">
               {formatTimeOnly(msg.created_at, { hour: "2-digit", minute: "2-digit" }, resolvedTimeZone)}
             </span>
             {!isUser && <MessageCopyButton text={msg.content} title={copy.copyContent} />}

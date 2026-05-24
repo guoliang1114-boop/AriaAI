@@ -88,7 +88,7 @@ export function ProjectChatHeader({
             <div className="flex min-w-0 items-center gap-2">
               <h3 className="truncate text-[15px] font-semibold leading-5 text-gray-900">{title}</h3>
               <span
-                className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline-flex ${
+                className={`hidden shrink-0 rounded-full px-2 py-0.5 text-xs font-medium sm:inline-flex ${
                   !hasMemory
                     ? "bg-gray-100 text-gray-500"
                     : memoryStale
@@ -100,7 +100,7 @@ export function ProjectChatHeader({
                 {memoryLabel}
               </span>
               {hasMemory && memoryUpdatedAt ? (
-                <span className="hidden shrink-0 text-[11px] text-gray-400 lg:inline">
+                <span className="hidden shrink-0 text-xs text-gray-400 lg:inline">
                   {formatProjectMemoryUpdatedAtCompact(memoryUpdatedAt, isZh)}
                 </span>
               ) : null}

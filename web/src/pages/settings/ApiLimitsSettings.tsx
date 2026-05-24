@@ -372,7 +372,7 @@ export function ApiLimitsSettings() {
                         <span className="text-xs text-on-surface-muted">{formatDate(failure.failed_at, isZh)}</span>
                       </div>
                       <div className="mt-3 text-base font-semibold text-on-surface">{getFailureName(failure)}</div>
-                      <div className="mt-1 text-xs uppercase tracking-wide text-on-surface-muted">{failure.stage}</div>
+                      <div className="mt-1 text-xs text-on-surface-muted">{failure.stage}</div>
                       <p className="mt-2 line-clamp-2 text-sm leading-6 text-on-surface-muted">{failure.message}</p>
                     </div>
                     <div className="shrink-0 rounded-xl bg-surface-container-low px-3 py-2 text-xs text-on-surface-muted">

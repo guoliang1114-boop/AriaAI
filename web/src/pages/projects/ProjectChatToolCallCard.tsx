@@ -121,7 +121,7 @@ export function ProjectChatToolCallCard({
                 <span className="mx-1 text-gray-300">·</span>
                 {toolDisplayName(stepTitle, isZh)}
               </p>
-              <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600">
+              <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-600">
                 <StatusIcon status={call.status} />
                 {statusLabel(call.status, isZh, true)}
               </span>
@@ -129,7 +129,7 @@ export function ProjectChatToolCallCard({
                 <button
                   type="button"
                   onClick={toggleExpanded}
-                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500 transition hover:border-gray-300 hover:text-gray-800"
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-500 transition hover:border-gray-300 hover:text-gray-800"
                 >
                   <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                   {expanded ? (isZh ? "收起日志" : "Hide logs") : (isZh ? "展开日志" : "Show logs")}
@@ -144,7 +144,7 @@ export function ProjectChatToolCallCard({
                 {call.details?.length ? (
                   <div className="space-y-1 border-t border-gray-100 pt-1.5">
                     {call.details.map((detail, index) => (
-                      <p key={`${call.step_index}-${index}`} className="text-[11px] leading-relaxed text-gray-500">
+                      <p key={`${call.step_index}-${index}`} className="text-xs leading-relaxed text-gray-500">
                         {detail}
                       </p>
                     ))}
@@ -190,7 +190,7 @@ export function ProjectChatToolCallCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-gray-900">{toolDisplayName(call.tool_name, isZh)}</p>
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium">
               <StatusIcon status={call.status} />
                 {statusLabel(call.status, isZh)}
             </span>
@@ -201,7 +201,7 @@ export function ProjectChatToolCallCard({
           {call.details?.length ? (
             <div className="mt-2 space-y-1 border-t border-white/70 pt-1.5">
               {call.details.map((detail, index) => (
-                <p key={`${call.tool_name}-${index}`} className="text-[11px] leading-relaxed text-gray-500">
+                <p key={`${call.tool_name}-${index}`} className="text-xs leading-relaxed text-gray-500">
                   {detail}
                 </p>
               ))}

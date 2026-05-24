@@ -1143,7 +1143,7 @@ function LineCapabilityFramework({
               <Compass className="h-3.5 w-3.5" />
               {config.eyebrow}
             </div>
-            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">
+            <h2 className="mt-4 text-2xl font-semibold text-slate-950 md:text-2xl">
               {config.title}
             </h2>
             <p className="mt-1 text-sm font-medium text-blue-700">{config.subtitle}</p>
@@ -1250,7 +1250,7 @@ export function Skills() {
                 <LayoutGrid className="h-4 w-4" />
                 {isZh ? "技能中心" : "Skill Center"}
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]">
+              <h1 className="text-2xl font-semibold text-slate-950 md:text-[2rem]">
                 {isZh ? "全域能力，专业纵深" : "Full-spectrum capability, professional depth"}
               </h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -1553,7 +1553,7 @@ export function SkillDetailPage() {
                 {skill.estimated_time || t("skills.timeFallback")}
               </span>
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{skill.name}</h1>
+            <h1 className="text-2xl font-semibold text-slate-950">{skill.name}</h1>
             <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">{skill.description}</p>
 
             <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -1585,7 +1585,7 @@ export function SkillDetailPage() {
                 <div className="mt-4 space-y-2">
                   {inputHints.map((item, index) => (
                     <div key={item} className="flex gap-3 rounded-xl bg-slate-50 p-3">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600">{index + 1}</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">{index + 1}</span>
                       <p className="text-sm leading-6 text-slate-600">{item}</p>
                     </div>
                   ))}
@@ -1617,7 +1617,7 @@ export function SkillDetailPage() {
                 <div className="mt-4 space-y-3">
                   {usageSteps.map((step, index) => (
                     <div key={step} className="flex gap-3">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">{index + 1}</span>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">{index + 1}</span>
                       <p className="text-sm leading-5 text-slate-600">{step}</p>
                     </div>
                   ))}
@@ -2054,7 +2054,7 @@ function ServiceLineCard({
               <Icon className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <div className="text-xs font-semibold text-slate-400">
                 {String(index + 1).padStart(2, "0")} Portfolio
               </div>
               <h3 className="mt-1 text-lg font-semibold text-slate-950">{line.title}</h3>
@@ -2078,7 +2078,7 @@ function ServiceLineCard({
                 <BookOpen className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 <span className="truncate font-medium">{skill.name}</span>
                 {skill.estimated_time && (
-                  <span className="ml-auto shrink-0 text-[11px] text-slate-400">{skill.estimated_time}</span>
+                  <span className="ml-auto shrink-0 text-xs text-slate-400">{skill.estimated_time}</span>
                 )}
               </div>
             ))}

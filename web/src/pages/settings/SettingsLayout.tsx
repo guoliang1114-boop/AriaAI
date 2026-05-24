@@ -58,7 +58,7 @@ export function SettingsLayout() {
         <div className="w-full px-4 py-4 sm:px-6 lg:px-8">
           <div className="mb-4 flex flex-col gap-2 border-b border-outline/60 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight text-on-surface">{t('settings.title')}</h1>
+              <h1 className="text-xl font-semibold text-on-surface">{t('settings.title')}</h1>
               <p className="mt-0.5 hidden max-w-3xl truncate text-sm text-on-surface-muted lg:block">{t('settings.description')}</p>
             </div>
             <div className="flex items-center gap-2">

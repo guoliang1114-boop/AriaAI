@@ -21,7 +21,7 @@ export const ProjectChatPlanCard = memo<ProjectChatPlanCardProps>(
           <ListChecks className="w-3.5 h-3.5 text-white" />
         </div>
         <div className="flex-1 min-w-0 flex flex-col items-stretch">
-          <p className="text-[11px] font-medium text-gray-400 mb-1.5 px-0.5">
+          <p className="text-xs font-medium text-gray-400 mb-1.5 px-0.5">
             {isZh ? "执行计划" : "Execution Plan"}
           </p>
 

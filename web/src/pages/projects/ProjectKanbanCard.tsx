@@ -68,7 +68,7 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
 
       <div className="pl-3">
         <div className="mb-2 min-w-0">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          <div className="mb-1 text-xs font-semibold text-gray-400">
             {project.client}
           </div>
           <h4 className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
@@ -86,7 +86,7 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
 
         <div className="flex items-center justify-between border-t border-gray-50 pt-3">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${stage.bgColor} ${stage.color}`}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${stage.bgColor} ${stage.color}`}
           >
             <stage.icon className="h-3 w-3" />
             {isZh ? stage.labelZh : stage.label}

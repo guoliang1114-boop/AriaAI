@@ -169,7 +169,7 @@ export function ProjectChatMentionPicker({
             <div className="min-w-0">
               <p className="truncate font-medium">{entry.item.name}</p>
               {entry.item.role ? (
-                <p className="text-[11px] text-gray-400">{entry.item.role}</p>
+                <p className="text-xs text-gray-400">{entry.item.role}</p>
               ) : null}
             </div>
           </button>

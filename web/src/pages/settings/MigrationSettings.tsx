@@ -41,7 +41,7 @@ function StatCard({
 
   return (
     <div className={`rounded-2xl border p-4 ${toneClass}`}>
-      <div className="text-xs font-medium uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-xs font-medium opacity-70">{label}</div>
       <div className="mt-2 break-all text-xl font-semibold">{value || '-'}</div>
     </div>
   )

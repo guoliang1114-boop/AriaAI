@@ -157,14 +157,14 @@ function StakeholderManagementCard({
 
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "关联客户" : "Linked Client"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "关联客户" : "Linked Client"}</div>
           <div className="mt-2 text-xl font-semibold text-gray-900">{client?.name || (isZh ? "未关联" : "Not linked")}</div>
           <div className="mt-2 text-sm text-gray-600">
             {client?.contact || client?.industry || (isZh ? "建议先在项目设置中关联客户" : "Link a client in project settings first")}
           </div>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "客户关键联系人" : "Client key contacts"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "客户关键联系人" : "Client key contacts"}</div>
           <div className="mt-2 text-2xl font-semibold text-gray-900">{clientContacts.length}</div>
           <p className="mt-2 text-sm text-gray-600">
             {clientContacts.length
@@ -177,7 +177,7 @@ function StakeholderManagementCard({
           </p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white/80 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "分析结论" : "Analysis"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "分析结论" : "Analysis"}</div>
           <p className="mt-2 text-sm text-gray-700">
             {hasStakeholderCoverage
               ? isZh
@@ -195,7 +195,7 @@ function StakeholderManagementCard({
       </div>
 
       <div className="mt-4 rounded-xl border border-gray-100 bg-white/70 p-4">
-        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "固定沟通提醒" : "Pinned communication reminders"}</div>
+        <div className="text-xs font-medium text-gray-500">{isZh ? "固定沟通提醒" : "Pinned communication reminders"}</div>
         {pinnedNotes.length ? (
           <ul className="mt-2 grid gap-2 text-sm text-gray-700 md:grid-cols-2">
             {pinnedNotes.slice(0, 4).map((item, index) => (
@@ -214,7 +214,7 @@ function StakeholderManagementCard({
 
       {aiNotes.length ? (
         <div className="mt-4 rounded-xl border border-gray-100 bg-white/70 p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{isZh ? "AI 干系人观察" : "AI stakeholder observations"}</div>
+          <div className="text-xs font-medium text-gray-500">{isZh ? "AI 干系人观察" : "AI stakeholder observations"}</div>
           <ul className="mt-2 grid gap-2 text-sm text-gray-700 md:grid-cols-2">
             {aiNotes.slice(0, 4).map((item, index) => (
               <li key={`${item}-${index}`} className="flex items-start gap-2">
@@ -600,7 +600,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:col-span-2 xl:grid-cols-4">
           <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "当前阶段" : "Current Stage"}
             </div>
             <div className="mt-2 text-lg font-semibold text-gray-900">
@@ -608,7 +608,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             </div>
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "当前目标" : "Current Objective"}
             </div>
             <div className="mt-2 text-sm leading-relaxed text-gray-900">
@@ -616,13 +616,13 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
             </div>
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "记忆更新时间" : "Memory Updated"}
             </div>
             <div className="mt-2 text-sm font-medium text-gray-900">{memoryUpdatedText}</div>
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "来源覆盖" : "Source Coverage"}
             </div>
             <div className="mt-2 text-sm text-gray-900">
@@ -718,19 +718,19 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "异步状态" : "Async Status"}
             </div>
             <div className="mt-1 font-semibold text-gray-900">{rebuildStatusText}</div>
           </div>
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "最近触发" : "Last Trigger"}
             </div>
             <div className="mt-1 font-semibold text-gray-900">{lastTrigger}</div>
           </div>
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            <div className="text-xs font-medium text-gray-500">
               {isZh ? "最近失败" : "Last Failed"}
             </div>
             <div className="mt-1 font-semibold text-gray-900">
@@ -835,7 +835,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               {snapshotDiff.fields.length ? (
                 snapshotDiff.fields.slice(0, 8).map((field) => (
                   <div key={field.field} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{field.label}</div>
+                    <div className="text-xs font-semibold text-gray-500">{field.label}</div>
                     {field.kind === "list" ? (
                       <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
                         <div className="rounded-md bg-emerald-50 p-2 text-emerald-800">
@@ -911,7 +911,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         <DetailCard icon={Brain} title={isZh ? "项目概况" : "Project Brief"}>
           <div className="space-y-3">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="text-xs font-medium text-gray-500">
                 {isZh ? "核心摘要" : "Core Summary"}
               </div>
               <div className="mt-2 text-sm leading-relaxed text-gray-700">
@@ -919,7 +919,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               </div>
             </div>
             <div>
-              <div className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="text-xs font-medium text-gray-500">
                 {isZh ? "当前目标" : "Current Objective"}
               </div>
               <div className="mt-2 text-sm leading-relaxed text-gray-700">
@@ -932,7 +932,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         <DetailCard icon={Clock3} title={isZh ? "近期进展与下一步" : "Recent Progress & Next Steps"}>
           <div className="space-y-5">
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "近期进展" : "Recent Progress"}
               </div>
               <SectionList
@@ -941,7 +941,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               />
             </div>
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "下一步动作" : "Next Actions"}
               </div>
               <SectionList
@@ -955,7 +955,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         <DetailCard icon={ShieldAlert} title={isZh ? "风险与待确认问题" : "Risks & Open Questions"}>
           <div className="space-y-5">
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "关键风险" : "Key Risks"}
               </div>
               <SectionList
@@ -964,7 +964,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               />
             </div>
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "待确认问题" : "Open Questions"}
               </div>
               <SectionList
@@ -978,7 +978,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
         <DetailCard icon={FileText} title={isZh ? "重要文档与财务状态" : "Documents & Financial Status"}>
           <div className="space-y-5">
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "重要文档" : "Important Documents"}
               </div>
               {memory?.important_documents?.length ? (
@@ -997,7 +997,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               )}
             </div>
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">
+              <div className="mb-2 text-xs font-medium text-gray-500">
                 {isZh ? "财务状态" : "Financial Status"}
               </div>
               <div className="rounded-lg bg-gray-50 p-3 text-sm leading-relaxed text-gray-700">

@@ -47,10 +47,10 @@ export function Forbidden() {
       <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
         <div className="grid w-full gap-10 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[28px] border border-outline/20 bg-surface-container-lowest/90 p-8 shadow-[0_20px_60px_rgba(0,63,177,0.08)] backdrop-blur">
-            <div className="inline-flex items-center gap-2 rounded-full bg-tertiary-container/60 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-tertiary">
+            <div className="inline-flex items-center gap-2 rounded-full bg-tertiary-container/60 px-3 py-1 text-xs font-semibold text-tertiary">
               403
             </div>
-            <h1 className="mt-6 font-manrope text-4xl font-bold tracking-tight text-on-surface">
+            <h1 className="mt-6 font-manrope text-2xl font-semibold text-on-surface">
               {copy.title}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-on-surface-muted">{copy.description}</p>
@@ -86,7 +86,7 @@ export function Forbidden() {
             </div>
 
             <div className="rounded-[28px] border border-outline/20 bg-surface-container-low p-6 shadow-sm">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-on-surface-muted">
+              <h3 className="text-sm font-semibold text-on-surface-muted">
                 {copy.quickLinks}
               </h3>
               <div className="mt-4 grid gap-3">

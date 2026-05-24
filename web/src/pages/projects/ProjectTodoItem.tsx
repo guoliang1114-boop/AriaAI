@@ -141,7 +141,7 @@ export function ProjectTodoItem({
               )}
               {todo.assigned_user && (
                 <div className="flex items-center gap-1.5">
-                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-100 text-[10px] text-gray-500">
+                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-500">
                     {todo.assigned_user.display_name.charAt(0)}
                   </div>
                   <span>{todo.assigned_user.display_name}</span>

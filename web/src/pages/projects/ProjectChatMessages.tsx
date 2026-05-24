@@ -41,7 +41,7 @@ const ChatStreamingMessage = memo<{
         <Sparkles className="w-3.5 h-3.5 text-white" />
       </div>
       <div className="flex-1 min-w-0 flex flex-col items-stretch">
-        <p className="mb-1.5 px-0.5 text-[11px] font-medium text-slate-400">Aria</p>
+        <p className="mb-1.5 px-0.5 text-xs font-medium text-slate-400">Aria</p>
         <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
           <div className="md-root project-chat-answer w-full">
             {content ? renderedContent : null}
@@ -89,7 +89,7 @@ const ChatStreamingMessage = memo<{
                     <Link
                       to={buildReferenceHref(ref)}
                       key={`${ref.type}-${ref.id}-${index}`}
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500 hover:border-primary/30 hover:text-primary"
+                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-500 hover:border-primary/30 hover:text-primary"
                     >
                       {ref.type === "skill" && <Wrench className="h-3 w-3" />}
                       {ref.type === "doc" && <BookOpen className="h-3 w-3" />}
