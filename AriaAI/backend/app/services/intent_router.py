@@ -395,6 +395,9 @@ async def classify_chat_intent_async(
         proposed_mode = rule.chat_mode
         proposed_route = None
         final_tool_access = rule.tool_access_policy
+    if proposed_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY} and final_policy == ActionPolicy.READ_ONLY_TOOL:
+        final_policy = ActionPolicy.DIRECT_ANSWER
+        final_tool_access = ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     if rule.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE and (
         proposed_mode != rule.chat_mode or final_policy != rule.action_policy
     ):

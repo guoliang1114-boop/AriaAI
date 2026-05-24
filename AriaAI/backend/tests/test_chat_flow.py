@@ -3603,6 +3603,102 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.prepare_metrics["skill_decision"], "forced_by_user")
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
+    def test_prepare_chat_runtime_auto_selects_high_confidence_project_skill(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            project = session.get(Project, 1)
+            if project is None:
+                project = Project(id=1, name="Project", client="Client")
+                session.add(project)
+                session.commit()
+            skill = Skill(
+                name="会议纪要提取",
+                category="顾问基础能力",
+                description="从会议材料中提取纪要、决策、行动项和风险。",
+                system_prompt="meeting skill system",
+            )
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            skill_id = skill.id
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="帮我把今天客户会议整理成会议纪要和行动项",
+                    ),
+                )
+
+        self.assertEqual(runtime.skill_name, "会议纪要提取")
+        self.assertIn("auto_skill_match:会议纪要提取", runtime.prepare_metrics["skill_decision"])
+        self.assertIn("## Intent Frame", runtime.system)
+        self.assertEqual(runtime.prepare_metrics["intent_frame"]["effective_skill_name"], "会议纪要提取")
+        self.assertEqual(
+            runtime.prepare_metrics["intent_frame"]["response_contract"],
+            "follow_the_selected_skill_workflow_and_answer_with_the_requested_deliverable",
+        )
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
+
+    def test_prepare_chat_runtime_does_not_auto_select_skill_for_how_to_question(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            project = session.get(Project, 1)
+            if project is None:
+                project = Project(id=1, name="Project", client="Client")
+                session.add(project)
+                session.commit()
+            session.add(
+                Skill(
+                    name="顾问式PPT生成",
+                    category="顾问基础能力",
+                    description="基础顾问式 PPT 生成 Skill。",
+                    system_prompt="ppt skill system",
+                )
+            )
+            session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="为什么这个项目需要做 PPT？",
+                    ),
+                )
+
+        self.assertFalse(runtime.skill_name)
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "auto_skill_skipped_question")
+        self.assertEqual(runtime.prepare_metrics["intent_frame"]["effective_skill_name"], "")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
+
     def test_prepare_chat_runtime_keeps_portfolio_query_on_selected_model(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:

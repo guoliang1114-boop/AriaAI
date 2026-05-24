@@ -255,7 +255,7 @@ See `DEPLOY.md` and `deploy/AUTO_DEPLOY.md` for more detail. Deployment scripts,
 
 ## 11. Known Issues (as of 2026-04-12)
 
-Priority order from `docs/02-技术债与行动清单.md`:
+Historical priority order:
 
 1. **Mojibake in UI strings** — affects `Chat.tsx`, `AISettings.tsx`, `enums.ts`, `db.py`, `context_builder.py`
 2. **API default targets localhost** — not suitable for shared/production deploy
@@ -318,10 +318,12 @@ docs: update architecture diagram for RAG changes
 | Question | Read |
 |---|---|
 | Full system architecture | `docs/00-项目总览.md` §3 |
-| Product vision & roadmap | `docs/03-产品战略方向.md` |
-| How to build a Skill | `docs/01a-Skill开发指南.md` |
-| Known issues & tech debt | `docs/02-技术债与行动清单.md` |
+| Product vision & roadmap | `docs/01-产品战略方向.md` |
+| Skill system | `docs/02-Skill体系.md` |
+| How to build a Skill | `docs/03-Skill标准化规范.md` |
 | RAG upgrade plan | `docs/04-RAG演进方案.md` |
+| Chat system design | `docs/05-对话系统设计与规范.md` |
+| HITAS tool approval | `docs/06-Human-in-the-Loop Tool Approval 设计.md` |
 | Backend entry point | `AriaAI/backend/main.py` |
 | All config values | `AriaAI/backend/app/config.py` |
 | All data models | `AriaAI/backend/app/models/db.py` |

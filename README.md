@@ -64,13 +64,17 @@ python scripts/migration_governance.py check
 ## 推荐先读
 
 1. [项目总览](docs/00-项目总览.md) — 定位、架构、能力、记忆系统
-2. [Skill 体系](docs/01-Skill体系.md) — Skill 设计与开发规范
-3. [产品战略方向](docs/03-产品战略方向.md) — 护城河、北极星场景
-4. [对话系统设计与规范](docs/10-对话系统设计与规范.md) — 对话系统架构与设计
+2. [产品战略方向](docs/01-产品战略方向.md) — 护城河、北极星场景
+3. [Skill 体系](docs/02-Skill体系.md) — Skill 运行链路与当前能力
+4. [Skill 标准化规范](docs/03-Skill标准化规范.md) — Skill 新增与维护流程
+5. [RAG 演进方案](docs/04-RAG演进方案.md) — RAG 现状、风险与路线
+6. [对话系统设计与规范](docs/05-对话系统设计与规范.md) — 对话系统架构与设计
+7. [HITAS 设计](docs/06-Human-in-the-Loop%20Tool%20Approval%20设计.md) — 高风险工具审批
+8. [向 Codex 学习的产品建议](docs/07-向Codex学习的产品建议.md) — 产品机制借鉴
 
 ## 当前注意事项
 
 - 每次部署前优先跑 `migration_governance.py report/check`，再执行 `ensure/upgrade`。
 - 线上当前使用 PostgreSQL 数据库。
 - `Memory Operations` 是后续排查记忆任务、预算、失败和重试的首选入口。
-- 旧文档中仍有少量历史编码污染，已开始以 vNext 基线文档逐步替换。
+- `docs/` 文档已重新编号为 00-07，后续新增文档请保持连续编号。

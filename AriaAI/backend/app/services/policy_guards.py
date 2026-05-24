@@ -363,6 +363,8 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
     if explicit_write:
         return ActionPolicy.WRITE_ARTIFACT, "explicit_write", 0.9
     if project_id and _has_any(text, PROJECT_ANALYSIS_TERMS) and not _is_explicit_file_read_request(text):
+        if "结构化记忆" not in text:
+            return ActionPolicy.READ_ONLY_TOOL, "project_analysis_read_exploration", 0.82
         return ActionPolicy.DIRECT_ANSWER, "project_analysis", 0.82
     if project_id and _has_any(text, CONCISE_SUMMARY_TERMS):
         return ActionPolicy.DIRECT_ANSWER, "concise_project_summary", 0.88
@@ -398,6 +400,10 @@ def detect_tool_access_policy(
     if force_skill:
         return ToolAccessPolicy.READ_ON_DEMAND
     if project_id:
+        if _has_any(text, CONCISE_SUMMARY_TERMS) or "结构化记忆" in text:
+            return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+        if _has_any(text, PROJECT_ANALYSIS_TERMS):
+            return ToolAccessPolicy.READ_ON_DEMAND
         return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
     return ToolAccessPolicy.NONE
 
@@ -421,7 +427,7 @@ def classify_chat_mode_and_policy(
         return IntentDecision(ChatMode.SKILL_EXECUTION, policy, max(confidence, 0.9), f"skill:{reason}", tool_access_policy=tool_access)
     if project_id:
         if is_client_project_portfolio_query(routing_content):
-            return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, policy, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=tool_access)
+            return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.DIRECT_ANSWER, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         if is_workspace_project_inventory_query(routing_content):
             return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason, tool_access_policy=tool_access)

@@ -219,8 +219,8 @@ def test_llm_router_rejects_artifact_upgrade_without_contract():
     )
     decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
     assert decision.chat_mode != ChatMode.TASK_ORCHESTRATION
-    assert decision.action_policy == ActionPolicy.DIRECT_ANSWER
-    assert decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.tool_access_policy == ToolAccessPolicy.READ_ON_DEMAND
     assert decision.task_route is None
 
 

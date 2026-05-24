@@ -415,18 +415,18 @@ class ProjectMarkdownWriteIntentTests(unittest.TestCase):
 
 
 class ChatModeActionPolicyTests(unittest.TestCase):
-    def test_project_risk_question_uses_injected_context_without_tools(self):
+    def test_project_risk_question_allows_read_only_exploration(self):
         decision = classify_chat_mode_and_policy("识别项目风险并给出缓解动作", project_id=26)
         self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
-        self.assertEqual(decision.action_policy, ActionPolicy.DIRECT_ANSWER)
-        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+        self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.READ_ON_DEMAND)
         self.assertEqual(
-            filter_tools_for_access(
+            [tool["name"] for tool in filter_tools_for_access(
                 [{"name": "read_project_markdown_document"}],
                 decision.action_policy,
                 decision.tool_access_policy,
-            ),
-            [],
+            ) or []],
+            ["read_project_markdown_document"],
         )
 
     def test_direct_project_question_cannot_write_markdown(self):
