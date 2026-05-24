@@ -174,6 +174,24 @@ MODIFY_TERMS = (
     "fix",
 )
 
+PROJECT_SPACE_ORGANIZATION_TERMS = (
+    "归类",
+    "分类",
+    "分门别类",
+    "整理空间",
+    "整理项目空间",
+    "整理项目空间文件",
+    "组织项目空间",
+    "归档",
+    "放到文件夹",
+    "移动到文件夹",
+    "挪到文件夹",
+    "organize files",
+    "classify files",
+    "sort files",
+    "move files",
+)
+
 OFFICE_ARTIFACT_TERMS = (
     "ppt",
     "pptx",
@@ -344,6 +362,8 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
         return ActionPolicy.DIRECT_ANSWER, "empty", 0.99
     if _is_destructive_request(text):
         return ActionPolicy.DESTRUCTIVE_ACTION, "destructive_terms", 0.98
+    if project_id and _has_any(text, PROJECT_SPACE_ORGANIZATION_TERMS) and _has_any(text, ("空间", "项目空间", "文件", "文档", "资料", "file", "document")):
+        return ActionPolicy.MODIFY_EXISTING_FILE, "project_space_organization", 0.94
     if is_question_like(routing_content):
         return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "question", 0.86
     explicit_modify = _has_any(text, MODIFY_TERMS) and (
@@ -511,6 +531,9 @@ def filter_tools_for_policy(tools: list[dict] | None, action_policy: ActionPolic
     for tool in tools:
         name = str(tool.get("name") or "")
         if not name:
+            continue
+        if name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and POLICY_RANK[current] >= POLICY_RANK[ActionPolicy.MODIFY_EXISTING_FILE]:
+            filtered.append(tool)
             continue
         allowed, _, _ = policy_allows_tool(current, name, {})
         if allowed:

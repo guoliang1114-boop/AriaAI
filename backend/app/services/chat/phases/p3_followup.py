@@ -27,7 +27,7 @@ from app.services.chat_artifacts import (
 )
 from app.services.chat.state import ChatSessionState
 from app.services.chat.pending_actions import tool_confirmation_token
-from app.services.chat.phases.p2_tools import _build_pending_action_payload
+from app.services.chat.phases.p2_tools import _blocked_tool_output, _build_pending_action_payload
 from app.services.chat.sse import sse_event, iter_with_heartbeat
 from app.services.chat.truncation import strip_truncation_marker
 from app.services.chat.tool_repair import extract_tool_use_json_blocks
@@ -75,6 +75,31 @@ def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
         details = [f"待删除文件 ID：{', '.join(str(item) for item in ids)}"] if ids else []
         if tool_input.get("reason"):
             details.append(f"删除原因：{tool_input['reason']}")
+        return details
+    if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME:
+        action = str(tool_input.get("action") or "").lower()
+        details: list[str] = []
+        if action == "move_file":
+            file_label = tool_input.get("file_id") or tool_input.get("file_name")
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if file_label:
+                details.append(f"待移动文件：{file_label}")
+            if folder_label:
+                details.append(f"目标文件夹：{folder_label}")
+        elif action == "rename":
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"待重命名文件夹：{folder_label}")
+            if tool_input.get("new_name"):
+                details.append(f"新名称：{tool_input['new_name']}")
+        elif action == "create":
+            folder_label = tool_input.get("new_name") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"新建文件夹：{folder_label}")
+        elif action == "delete":
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"待删除文件夹：{folder_label}")
         return details
     return []
 
@@ -229,6 +254,40 @@ async def run_p3_followup(
                         required_policy=required.value,
                         current_policy=str(getattr(runtime.action_policy, "value", runtime.action_policy)),
                     )
+                    blocked_output = _blocked_tool_output(
+                        block_reason=reason,
+                        required_policy=required,
+                        current_policy=runtime.action_policy,
+                    )
+                    state.tool_result_blocks.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": str(block.get("id") or f"p3-blocked-{len(state.tool_result_blocks) + 1}"),
+                            "content": json.dumps(blocked_output, ensure_ascii=False),
+                        }
+                    )
+                    state.tool_call_events.append(
+                        {
+                            "tool_name": str(block.get("name") or ""),
+                            "status": "blocked",
+                            "message": "后续工具调用已被本轮 ActionPolicy 阻止。",
+                            "summary": reason,
+                            "required_policy": required.value,
+                        }
+                    )
+                    yield sse_event(
+                        {
+                            "type": "tool_result",
+                            "result": {
+                                "type": "tool_result",
+                                "tool_name": str(block.get("name") or ""),
+                                "status": "blocked",
+                                "success": False,
+                                "error": blocked_output["error"],
+                                "output": blocked_output,
+                            },
+                        }
+                    )
                     continue
                 state.record_tool_use_via_text("p3", block, status="planned")
                 logger.info(f"[P3] tool_use detected in follow-up: {block.get('name')}, id={block.get('id')}")
@@ -347,12 +406,11 @@ async def run_p3_followup(
                     runtime.action_policy,
                     block_reason,
                 )
-                skipped_output = {
-                    "skipped": True,
-                    "reason": block_reason,
-                    "required_policy": required_policy.value,
-                    "current_policy": str(getattr(runtime.action_policy, "value", runtime.action_policy)),
-                }
+                skipped_output = _blocked_tool_output(
+                    block_reason=block_reason,
+                    required_policy=required_policy,
+                    current_policy=runtime.action_policy,
+                )
                 p3_tool_result_blocks.append(
                     {
                         "type": "tool_result",
@@ -383,8 +441,9 @@ async def run_p3_followup(
                         "result": {
                             "type": "tool_result",
                             "tool_name": tool_name,
-                            "status": "skipped",
-                            "success": True,
+                            "status": "blocked",
+                            "success": False,
+                            "error": skipped_output["error"],
                             "output": skipped_output,
                         },
                     }
@@ -396,11 +455,16 @@ async def run_p3_followup(
                 confirmation_token = tool_confirmation_token(tool_name, tool_input)
                 confirmation_details = _tool_confirmation_details(tool_name, tool_input)
                 confirmation_output = {
+                    "ok": False,
+                    "success": False,
                     "skipped": True,
                     "requires_confirmation": True,
+                    "not_executed": True,
+                    "status": "confirmation_required",
                     "confirmation_token": confirmation_token,
                     "reason": "需要用户确认后才能执行修改或危险操作。",
                     "current_policy": _action_policy_value(runtime.action_policy),
+                    "assistant_instruction": "Do not claim the operation is complete. Tell the user it is waiting for confirmation.",
                 }
                 p3_tool_result_blocks.append(
                     {

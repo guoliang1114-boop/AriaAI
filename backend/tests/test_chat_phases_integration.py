@@ -310,6 +310,39 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
         self.assertEqual(len(state.pending_tool_actions), 1)
 
+    async def test_p3_blocked_folder_move_reports_not_executed(self):
+        """Blocked follow-up folder moves must not look successful to the model."""
+        state = ChatSessionState()
+        state.text_buffer = "先看一下项目空间。"
+        state.tool_use_blocks = [{"name": MANAGE_PROJECT_FOLDERS_TOOL_NAME, "input": {"action": "list"}, "id": "t1"}]
+        state.tool_result_blocks = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "read_only_tool"
+        self.req.action_confirmations = []
+        self.runtime.llm.stream_response = _make_stream([
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "name": MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+                    "id": "p3-move-file",
+                    "input": {"action": "move_file", "file_id": 131, "folder_id": 5},
+                },
+                ensure_ascii=False,
+            )
+        ])
+
+        with patch("app.services.chat.phases.p3_followup.registry.execute", new=AsyncMock()) as mock_exec:
+            async for _ in run_p3_followup(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_not_awaited()
+        self.assertEqual(state.tool_call_events[-1]["status"], "blocked")
+        blocked_payload = json.loads(state.tool_result_blocks[-1]["content"])
+        self.assertFalse(blocked_payload["success"])
+        self.assertTrue(blocked_payload["not_executed"])
+        self.assertEqual(blocked_payload["status"], "blocked")
+
     # ------------------------------------------------------------------
     # P4 — Persistence
     # ------------------------------------------------------------------
@@ -728,6 +761,60 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         mock_exec.assert_awaited_once()
         self.assertEqual(mock_exec.await_args.args[1]["project_id"], 27)
+
+    async def test_p2_blocked_folder_move_reports_not_executed(self):
+        """A read-only turn cannot move files, and the tool result must be a failure."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+                "id": "tool-move-file",
+                "input": {"action": "move_file", "file_id": 131, "folder_id": 5},
+            }
+        ]
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "read_only_tool"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock()) as mock_exec:
+            events = []
+            async for event in run_p2_tools(self.runtime, self.req, state):
+                events.append(event)
+
+        mock_exec.assert_not_awaited()
+        self.assertEqual(state.tool_call_events[-1]["status"], "blocked")
+        blocked_payload = json.loads(state.tool_result_blocks[-1]["content"])
+        self.assertFalse(blocked_payload["success"])
+        self.assertTrue(blocked_payload["not_executed"])
+        self.assertEqual(blocked_payload["status"], "blocked")
+        self.assertIn('"success": false', "".join(events))
+
+    async def test_p2_requires_confirmation_for_project_file_move_tool(self):
+        """Project-space file moves pause with concrete confirmation details."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+                "id": "tool-move-file",
+                "input": {"action": "move_file", "file_id": 131, "folder_name": "项目交付文档"},
+            }
+        ]
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "modify_existing_file"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock()) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_not_awaited()
+        self.assertTrue(state.confirmation_requested)
+        self.assertEqual(state.tool_call_events[-1]["status"], "confirmation_required")
+        self.assertIn("待移动文件：131", state.tool_call_events[-1]["details"])
+        self.assertIn("目标文件夹：项目交付文档", state.tool_call_events[-1]["details"])
+        self.assertEqual(state.pending_tool_actions[-1]["action_type"], "move_project_file")
 
     async def test_p2_does_not_require_confirmation_for_read_tool_in_modify_turn(self):
         """A modify-capable turn may still use read-only tools without confirmation."""

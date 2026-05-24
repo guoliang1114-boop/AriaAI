@@ -64,6 +64,27 @@ def _action_policy_value(value) -> str:
     return str(getattr(value, "value", value) or "")
 
 
+def _blocked_tool_output(
+    *,
+    block_reason: str,
+    required_policy: ActionPolicy,
+    current_policy,
+) -> dict:
+    current_policy_value = _action_policy_value(current_policy)
+    return {
+        "ok": False,
+        "success": False,
+        "skipped": True,
+        "status": "blocked",
+        "not_executed": True,
+        "error": f"工具调用未执行：{block_reason}",
+        "reason": block_reason,
+        "required_policy": required_policy.value,
+        "current_policy": current_policy_value,
+        "assistant_instruction": "Do not claim the operation is complete. Tell the user it was not executed and needs the proper action policy or confirmation.",
+    }
+
+
 def _tool_requires_confirmation(
     required_policy: ActionPolicy,
     tool_name: str,
@@ -96,6 +117,16 @@ def _build_pending_action_payload(tool_name: str, tool_input: dict, details: lis
             "action_type": "delete_folder",
             "title": "确认删除文件夹",
             "description": "即将删除项目空间中的文件夹。此操作不可撤销。",
+            "details": details,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "confirmation_token": token,
+        }
+    if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME and action == "move_file":
+        return {
+            "action_type": "move_project_file",
+            "title": "确认移动项目文件",
+            "description": "即将把项目空间中的文件移动到指定文件夹。",
             "details": details,
             "tool_name": tool_name,
             "tool_input": tool_input,
@@ -140,6 +171,31 @@ def _tool_confirmation_details(tool_name: str, tool_input: dict) -> list[str]:
         details = [f"待删除文件 ID：{', '.join(str(item) for item in ids)}"] if ids else []
         if tool_input.get("reason"):
             details.append(f"删除原因：{tool_input['reason']}")
+        return details
+    if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME:
+        action = str(tool_input.get("action") or "").lower()
+        details: list[str] = []
+        if action == "move_file":
+            file_label = tool_input.get("file_id") or tool_input.get("file_name")
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if file_label:
+                details.append(f"待移动文件：{file_label}")
+            if folder_label:
+                details.append(f"目标文件夹：{folder_label}")
+        elif action == "rename":
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"待重命名文件夹：{folder_label}")
+            if tool_input.get("new_name"):
+                details.append(f"新名称：{tool_input['new_name']}")
+        elif action == "create":
+            folder_label = tool_input.get("new_name") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"新建文件夹：{folder_label}")
+        elif action == "delete":
+            folder_label = tool_input.get("folder_id") or tool_input.get("folder_name")
+            if folder_label:
+                details.append(f"待删除文件夹：{folder_label}")
         return details
     return []
 
@@ -272,17 +328,17 @@ async def run_p2_tools(
                 runtime.action_policy,
                 block_reason,
             )
-            skipped_output = {
-                "skipped": True,
-                "reason": block_reason,
-                "required_policy": required_policy.value,
-                "current_policy": str(getattr(runtime.action_policy, "value", runtime.action_policy)),
-            }
+            skipped_output = _blocked_tool_output(
+                block_reason=block_reason,
+                required_policy=required_policy,
+                current_policy=runtime.action_policy,
+            )
             skip_result = {
                 "type": "tool_result",
                 "tool_name": tool_name,
-                "status": "skipped",
-                "success": True,
+                "status": "blocked",
+                "success": False,
+                "error": skipped_output["error"],
                 "output": skipped_output,
             }
             state.tool_call_events.append(
@@ -316,11 +372,16 @@ async def run_p2_tools(
             confirmation_token = tool_confirmation_token(tool_name, tool_input)
             confirmation_details = _tool_confirmation_details(tool_name, tool_input)
             confirmation_output = {
+                "ok": False,
+                "success": False,
                 "skipped": True,
                 "requires_confirmation": True,
+                "not_executed": True,
+                "status": "confirmation_required",
                 "confirmation_token": confirmation_token,
                 "reason": "需要用户确认后才能执行修改或危险操作。",
                 "current_policy": _action_policy_value(runtime.action_policy),
+                "assistant_instruction": "Do not claim the operation is complete. Tell the user it is waiting for confirmation.",
             }
             # ── HITAS: Build server-side pending action payload for P4 persistence ──
             hitas_action = _build_pending_action_payload(tool_name, tool_input, confirmation_details, confirmation_token)

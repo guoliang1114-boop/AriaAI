@@ -481,6 +481,19 @@ class ChatModeActionPolicyTests(unittest.TestCase):
             ["read_project_markdown_document"],
         )
 
+    def test_project_space_organization_requires_modify_policy(self):
+        decision = classify_chat_mode_and_policy("请对项目空间里面的文件进行归类整理。", project_id=27)
+        self.assertEqual(decision.chat_mode, ChatMode.PROJECT_DEEP_DIVE)
+        self.assertEqual(decision.action_policy, ActionPolicy.MODIFY_EXISTING_FILE)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.WRITE_ALLOWED)
+        allowed, _, required = policy_allows_tool(
+            decision.action_policy,
+            "manage_project_folders",
+            {"action": "move_file", "file_id": 131, "folder_id": 5},
+        )
+        self.assertTrue(allowed)
+        self.assertEqual(required, ActionPolicy.MODIFY_EXISTING_FILE)
+
     def test_chat_trace_payload_records_router_and_tool_decisions(self):
         runtime = ChatRuntime(
             conv_id=12,

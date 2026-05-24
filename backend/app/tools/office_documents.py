@@ -98,6 +98,7 @@ def _list_files(session: Session, project_id: int, file_types: list[str] | None)
                 "id": item.id,
                 "name": item.name,
                 "file_type": item.file_type,
+                "folder_id": item.folder_id,
                 "folder": folder_names.get(item.folder_id, "") if item.folder_id else "",
                 "summary": item.summary or "",
                 "origin": item.origin,

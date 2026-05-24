@@ -98,6 +98,19 @@ cases:
         input:
           action: delete
 
+  - id: project_space_organization_requires_modify_policy
+    content: "请对项目空间里面的文件进行归类整理。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    allow_tools:
+      - name: manage_project_folders
+        input:
+          action: move_file
+          file_id: 131
+          folder_id: 5
+
   - id: explicit_skill_execution
     content: "用这个 Skill 帮我生成客户会议准备材料，并保存到项目空间。"
     project_id: 27

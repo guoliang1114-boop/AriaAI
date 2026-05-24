@@ -16,19 +16,6 @@ from sqlmodel import Session, select
 from app.models.db import Skill
 from app.routers.chat_schemas import SendMessageRequest
 
-_SELECTED_SKILL_WORKFLOW_TERMS = (
-    "生成", "制作", "创建", "输出", "整理", "撰写", "起草", "准备", "设计",
-    "分析", "诊断", "评估", "拆解", "提炼", "总结", "复盘", "规划",
-    "generate", "create", "draft", "prepare", "analyze", "assess", "summarize",
-)
-
-_SELECTED_SKILL_DELIVERABLE_TERMS = (
-    "报告", "方案", "建议书", "提案", "ppt", "pptx", "deck", "文档", "材料",
-    "纪要", "行动项", "路线图", "roadmap", "计划", "清单", "表格", "excel",
-    "brief", "简报", "会议准备", "会前", "客户会议",
-)
-
-
 @dataclass(frozen=True)
 class SkillActivationDecision:
     """Structured decision for applying a selected or inferred Skill."""
@@ -66,18 +53,6 @@ def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: b
             True,
             "explicit_skill_invocation",
             0.96,
-            candidate_skill_id=skill_id,
-            candidate_skill_name=skill_name,
-        )
-
-    workflow_request = any(token in text for token in _SELECTED_SKILL_WORKFLOW_TERMS)
-    deliverable_request = any(token in text for token in _SELECTED_SKILL_DELIVERABLE_TERMS)
-    question_only = text.endswith(("?", "？")) and not deliverable_request
-    if workflow_request and deliverable_request and not question_only:
-        return SkillActivationDecision(
-            True,
-            "selected_skill_workflow_request",
-            0.88,
             candidate_skill_id=skill_id,
             candidate_skill_name=skill_name,
         )
