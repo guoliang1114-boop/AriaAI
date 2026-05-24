@@ -129,17 +129,14 @@ jobs:
 
             # Reload backend after code and schema changes.
             mkdir -p /www/wwwroot/AriaAI/logs
-            if pm2 describe ariaai-backend >/dev/null 2>&1; then
-              pm2 reload ariaai-backend --update-env
-            else
-              pm2 start ecosystem.config.js --update-env
-            fi
+            pm2 delete ariaai-backend >/dev/null 2>&1 || true
+            pm2 start ecosystem.config.js --update-env
             pm2 save
 
             # Verify the backend is actually serving before publishing success.
             sleep 3
-            if ! curl -fsS --max-time 10 http://127.0.0.1:8000/api/health >/dev/null; then
-              echo "Backend health check failed after PM2 reload." >&2
+            if ! curl -fsS --max-time 10 http://127.0.0.1:8000/health >/dev/null; then
+              echo "Backend health check failed after PM2 restart." >&2
               pm2 status || true
               pm2 describe ariaai-backend || true
               echo "---- backend error log ----" >&2

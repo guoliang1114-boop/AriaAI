@@ -161,15 +161,11 @@ migrate_database() {
 restart_services() {
     log_info "重启服务..."
     
-    # 重启 PM2
-    if pm2 list | grep -q "$PM2_APP_NAME"; then
-        log_info "重启 PM2 服务: $PM2_APP_NAME"
-        pm2 reload $PM2_APP_NAME --update-env
-    else
-        log_info "启动 PM2 服务: $PM2_APP_NAME"
-        cd $BACKEND_DIR
-        pm2 start ecosystem.config.js
-    fi
+    # 重启 PM2。目录结构调整后旧进程可能保留旧 script/cwd，直接重建更可靠。
+    log_info "重建 PM2 服务: $PM2_APP_NAME"
+    cd $BACKEND_DIR
+    pm2 delete $PM2_APP_NAME >/dev/null 2>&1 || true
+    pm2 start ecosystem.config.js --update-env
     
     # 保存 PM2 配置
     pm2 save
