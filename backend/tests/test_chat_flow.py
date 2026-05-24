@@ -3531,7 +3531,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.selected_model, chat_streaming_module.STANDALONE_FAST_PATH_MODEL)
         self.assertEqual(runtime.max_tokens, chat_streaming_module.STANDALONE_FAST_PATH_MAX_TOKENS)
 
-    def test_prepare_chat_runtime_does_not_auto_apply_selected_skill_from_keywords(self):
+    def test_prepare_chat_runtime_applies_selected_skill_for_workflow_request(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
             skill = Skill(name="Strategy Skill", category="deep_task", system_prompt="skill system")
@@ -3563,9 +3563,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     ),
                 )
 
-        self.assertFalse(runtime.skill_name)
-        self.assertEqual(runtime.prepare_metrics["skill_decision"], "selected_skill_not_armed")
-        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
+        self.assertEqual(runtime.skill_name, "Strategy Skill")
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "selected_skill_workflow_request")
+        self.assertEqual(runtime.prepare_metrics["intent_frame"]["effective_skill_name"], "Strategy Skill")
+        self.assertIn("## Consulting Turn Frame", runtime.system)
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
     def test_prepare_chat_runtime_applies_forced_skill_contract(self):
         conv_id = self._create_conversation()
@@ -3647,12 +3649,51 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.skill_name, "会议纪要提取")
         self.assertIn("auto_skill_match:会议纪要提取", runtime.prepare_metrics["skill_decision"])
         self.assertIn("## Intent Frame", runtime.system)
+        self.assertIn("## Consulting Turn Frame", runtime.system)
+        self.assertEqual(runtime.prepare_metrics["consulting_frame"]["job_type"], "meeting_intelligence")
         self.assertEqual(runtime.prepare_metrics["intent_frame"]["effective_skill_name"], "会议纪要提取")
         self.assertEqual(
             runtime.prepare_metrics["intent_frame"]["response_contract"],
             "follow_the_selected_skill_workflow_and_answer_with_the_requested_deliverable",
         )
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
+
+    def test_prepare_chat_runtime_adds_pre_meeting_consulting_frame(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            project = session.get(Project, 1)
+            if project is None:
+                project = Project(id=1, name="Project", client="Client")
+                session.add(project)
+                session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="我 30 秒后要见客户，帮我准备会前开场、避雷点和推进建议。",
+                    ),
+                )
+
+        self.assertEqual(runtime.prepare_metrics["consulting_frame"]["job_type"], "pre_meeting_brief")
+        self.assertEqual(runtime.prepare_metrics["consulting_frame"]["client_moment"], "before_client_meeting")
+        self.assertIn("opening_line", runtime.system)
+        self.assertIn("context_exploration_contract", runtime.system)
+        self.assertEqual(mocked_context.call_args.kwargs["project_id"], 1)
 
     def test_prepare_chat_runtime_does_not_auto_select_skill_for_how_to_question(self):
         conv_id = self._create_conversation()

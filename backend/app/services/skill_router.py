@@ -16,6 +16,18 @@ from sqlmodel import Session, select
 from app.models.db import Skill
 from app.routers.chat_schemas import SendMessageRequest
 
+_SELECTED_SKILL_WORKFLOW_TERMS = (
+    "生成", "制作", "创建", "输出", "整理", "撰写", "起草", "准备", "设计",
+    "分析", "诊断", "评估", "拆解", "提炼", "总结", "复盘", "规划",
+    "generate", "create", "draft", "prepare", "analyze", "assess", "summarize",
+)
+
+_SELECTED_SKILL_DELIVERABLE_TERMS = (
+    "报告", "方案", "建议书", "提案", "ppt", "pptx", "deck", "文档", "材料",
+    "纪要", "行动项", "路线图", "roadmap", "计划", "清单", "表格", "excel",
+    "brief", "简报", "会议准备", "会前", "客户会议",
+)
+
 
 @dataclass(frozen=True)
 class SkillActivationDecision:
@@ -58,6 +70,18 @@ def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: b
             candidate_skill_name=skill_name,
         )
 
+    workflow_request = any(token in text for token in _SELECTED_SKILL_WORKFLOW_TERMS)
+    deliverable_request = any(token in text for token in _SELECTED_SKILL_DELIVERABLE_TERMS)
+    question_only = text.endswith(("?", "？")) and not deliverable_request
+    if workflow_request and deliverable_request and not question_only:
+        return SkillActivationDecision(
+            True,
+            "selected_skill_workflow_request",
+            0.88,
+            candidate_skill_id=skill_id,
+            candidate_skill_name=skill_name,
+        )
+
     return SkillActivationDecision(
         False,
         "selected_skill_not_armed",
@@ -77,16 +101,22 @@ def _tokenize_skill_text(value: str) -> set[str]:
 
 
 _SKILL_ALIAS_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("会议纪要", "meeting"), ("会议纪要", "会议记录", "纪要", "meeting notes", "minutes")),
+    (("会议纪要", "meeting"), ("会议纪要", "会议记录", "纪要", "meeting notes", "minutes", "客户会议", "会后行动项")),
+    (("meeting-intelligence", "meeting intelligence"), ("会议纪要", "会议记录", "转写", "行动项", "决策", "meeting notes", "minutes")),
     (("目标定义", "goal"), ("目标定义", "目标拆解", "okr", "smart", "目标设定")),
     (("pdf",), ("pdf", "合并pdf", "拆分pdf", "提取页面", "水印")),
-    (("office", "文档编辑"), ("office", "word", "excel", "ppt", "pptx", "docx", "xlsx", "编辑文档")),
-    (("顾问式ppt", "presentation"), ("ppt", "pptx", "演示文稿", "幻灯片", "deck")),
-    (("咨询提案", "proposal"), ("提案", "建议书", "proposal", "sow", "商业案例")),
+    (("office", "文档编辑"), ("office", "word", "excel", "ppt", "pptx", "docx", "xlsx", "编辑文档", "修改ppt", "更新word")),
+    (("顾问式ppt", "presentation"), ("ppt", "pptx", "演示文稿", "幻灯片", "deck", "汇报材料", "路演", "客户介绍")),
+    (("presentation-builder", "presentation builder"), ("ppt", "pptx", "deck", "演示文稿", "汇报材料", "项目汇报", "客户简报")),
+    (("咨询提案", "proposal"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价方案", "客户方案")),
+    (("consulting-proposal-advisor", "proposal advisor"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价", "客户方案")),
     (("数字化战略", "digital"), ("数字化战略", "数字化转型", "转型战略", "digital strategy")),
+    (("digital-strategy", "digital strategy"), ("数字化战略", "数字化转型", "转型路线图", "数字化蓝图", "top-level design")),
+    (("ai-strategy", "ai strategy"), ("ai战略", "ai 战略", "人工智能战略", "ai roadmap", "ai转型")),
     (("根因", "root"), ("根因", "根因分析", "root cause")),
     (("复盘", "retro"), ("复盘", "经验教训", "lessons learned")),
     (("访谈", "interview"), ("访谈", "访谈提纲", "访谈问题", "interview guide")),
+    (("会前", "brief", "meeting"), ("会前", "见客户", "客户会议准备", "客户简报", "pre-meeting", "meeting prep")),
 )
 
 

@@ -28,6 +28,7 @@ from app.services.provider_selector import (
 from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
+from app.services.consulting_intelligence import ConsultingTurnFrame, build_consulting_turn_frame
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access
 from app.services.skill_router import SkillActivationDecision, auto_select_skill, decide_skill_activation
@@ -221,11 +222,24 @@ def _response_contract_for_intent(intent_decision: IntentDecision, skill_decisio
     return "answer_directly_from_available_context_without_unnecessary_tool_calls"
 
 
+def _exploration_contract_for_intent(intent_decision: IntentDecision) -> str:
+    if intent_decision.tool_access_policy == ToolAccessPolicy.EXPLICIT_FILE_READ:
+        return "list_or_read_the_named_project_files_before_answering"
+    if intent_decision.tool_access_policy == ToolAccessPolicy.READ_ON_DEMAND:
+        return "first_use_injected_context_then_read_project_files_only_when_the_answer_depends_on_missing_document_details"
+    if intent_decision.tool_access_policy == ToolAccessPolicy.INJECTED_CONTEXT_ONLY:
+        return "use_injected_project_memory_as_source_of_truth_do_not_call_tools"
+    if intent_decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED:
+        return "use_write_tools_only_within_the_confirmed_scope_and_summarize_the_created_or_changed_artifact"
+    return "no_tools_available_answer_from_conversation_only"
+
+
 def _build_intent_frame(
     intent_decision: IntentDecision,
     skill_decision: SkillActivationDecision,
     effective_skill: Skill | None,
     context_mode: str,
+    consulting_frame: ConsultingTurnFrame,
 ) -> dict[str, str | float | int]:
     return {
         "chat_mode": intent_decision.chat_mode.value,
@@ -240,15 +254,26 @@ def _build_intent_frame(
         "effective_skill_id": int(effective_skill.id or 0) if effective_skill else 0,
         "effective_skill_name": effective_skill.name if effective_skill else "",
         "response_contract": _response_contract_for_intent(intent_decision, skill_decision),
+        "context_exploration_contract": _exploration_contract_for_intent(intent_decision),
+        "consulting_job_type": consulting_frame.job_type,
+        "client_moment": consulting_frame.client_moment,
+        "consulting_frame_confidence": round(consulting_frame.confidence, 3),
+        "consulting_frame_reason": consulting_frame.reason,
     }
 
 
-def _append_intent_frame(system: str, intent_frame: dict[str, str | float | int]) -> str:
+def _append_intent_frame(
+    system: str,
+    intent_frame: dict[str, str | float | int],
+    consulting_frame: ConsultingTurnFrame,
+) -> str:
     lines = ["", "", "## Intent Frame"]
     for key, value in intent_frame.items():
         if value in ("", 0):
             continue
         lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Consulting Turn Frame"])
+    lines.extend(consulting_frame.to_prompt_lines())
     return f"{system.rstrip()}{chr(10).join(lines)}"
 
 
@@ -405,9 +430,23 @@ def prepare_chat_runtime(
         chat_ctx.project_context,
         chat_mode=intent_decision.chat_mode,
     )
-    intent_frame = _build_intent_frame(intent_decision, skill_decision, effective_skill, context_mode)
-    system = _append_intent_frame(system, intent_frame)
+    consulting_frame = build_consulting_turn_frame(
+        req.content,
+        project_id=req.project_id,
+        skill_name=effective_skill.name if effective_skill else "",
+    )
+    intent_frame = _build_intent_frame(intent_decision, skill_decision, effective_skill, context_mode, consulting_frame)
+    system = _append_intent_frame(system, intent_frame, consulting_frame)
     prepare_metrics["intent_frame"] = intent_frame
+    prepare_metrics["consulting_frame"] = {
+        "job_type": consulting_frame.job_type,
+        "client_moment": consulting_frame.client_moment,
+        "memory_focus": list(consulting_frame.memory_focus),
+        "response_shape": list(consulting_frame.response_shape),
+        "agent_protocol": list(consulting_frame.agent_protocol),
+        "confidence": round(consulting_frame.confidence, 3),
+        "reason": consulting_frame.reason,
+    }
     prepare_metrics["model_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["selected_model"] = selected_model
     prepare_metrics["runtime_model"] = runtime_model
