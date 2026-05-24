@@ -51,10 +51,10 @@ bash deploy/deploy.sh --migrate
 
 ```bash
 cd backend
-python scripts/migration_governance.py report
-python scripts/migration_governance.py ensure
-python scripts/migration_governance.py upgrade
-python scripts/migration_governance.py check
+.venv/bin/python3 scripts/migration_governance.py report
+.venv/bin/python3 scripts/migration_governance.py ensure
+.venv/bin/python3 scripts/migration_governance.py upgrade
+.venv/bin/python3 scripts/migration_governance.py check
 ```
 
 动作含义：
@@ -68,7 +68,7 @@ python scripts/migration_governance.py check
 
 ```bash
 cd backend
-python scripts/migration_governance.py json
+.venv/bin/python3 scripts/migration_governance.py json
 ```
 
 也可以访问公开健康检查：

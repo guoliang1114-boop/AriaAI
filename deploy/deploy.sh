@@ -96,17 +96,26 @@ deploy_backend() {
         log_warn "虚拟环境不存在，正在创建..."
         python3 -m venv .venv
     fi
+    PYTHON=".venv/bin/python3"
+    if [ ! -x "$PYTHON" ]; then
+        PYTHON=".venv/bin/python"
+    fi
+    if [ ! -x "$PYTHON" ]; then
+        echo "No Python interpreter found in backend virtual environment." >&2
+        exit 127
+    fi
+    [ -x ".venv/bin/python" ] || ln -s "$(basename "$PYTHON")" .venv/bin/python
     
     # 激活虚拟环境
     source .venv/bin/activate
     
     # 升级 pip
-    pip install --upgrade pip
+    "$PYTHON" -m pip install --upgrade pip
     
     # 安装/更新依赖
     if [ -f "requirements.txt" ]; then
         log_info "安装依赖..."
-        pip install -r requirements.txt
+        "$PYTHON" -m pip install -r requirements.txt
     fi
     
     # 检查 .env 文件
@@ -128,16 +137,20 @@ migrate_database() {
         log_info "执行数据库迁移治理..."
         cd $BACKEND_DIR
         source .venv/bin/activate
+        PYTHON=".venv/bin/python3"
+        if [ ! -x "$PYTHON" ]; then
+            PYTHON=".venv/bin/python"
+        fi
 
         if [ -f "scripts/migration_governance.py" ]; then
-            python scripts/migration_governance.py report
-            python scripts/migration_governance.py ensure
-            python scripts/migration_governance.py upgrade
-            python scripts/migration_governance.py check
+            "$PYTHON" scripts/migration_governance.py report
+            "$PYTHON" scripts/migration_governance.py ensure
+            "$PYTHON" scripts/migration_governance.py upgrade
+            "$PYTHON" scripts/migration_governance.py check
         elif [ -f "scripts/ensure_db.py" ]; then
             log_warn "migration_governance.py 不存在，回退到 ensure_db.py + alembic upgrade head"
-            python scripts/ensure_db.py
-            alembic upgrade head
+            "$PYTHON" scripts/ensure_db.py
+            "$PYTHON" -m alembic upgrade head
         else
             log_warn "迁移脚本不存在，跳过"
         fi
