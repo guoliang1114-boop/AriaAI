@@ -43,8 +43,11 @@
   --color-completed: #6b7280;
   
   /* === Typography === */
-  --font-manrope: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-inter: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-display: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-manrope: var(--font-display);
+  --font-inter: var(--font-sans);
   
   /* === Spacing Tokens === */
   --spacing-0-5: 0.125rem;  /* 2px */
@@ -76,101 +79,146 @@ html, body, #root {
   height: 100%;
 }
 
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #191c1e;
   background-color: #f7f9fb;
+  font-optical-sizing: auto;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "tnum" 0;
+  letter-spacing: 0;
+}
+
+::selection {
+  background: rgba(0, 63, 177, 0.14);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+}
+
+strong,
+b {
+  font-weight: 650;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
 }
 
 /* === Typography Classes === */
 .font-manrope {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
 }
 
 .font-inter {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Display & Headlines */
 .text-display-lg {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 3.5rem;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  font-weight: 680;
+  line-height: 1.08;
+  letter-spacing: 0;
 }
 
 .text-headline-lg {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  font-weight: 660;
+  line-height: 1.18;
+  letter-spacing: 0;
 }
 
 .text-headline-md {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 1.75rem;
-  font-weight: 700;
+  font-weight: 660;
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .text-headline-sm {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
   font-size: 1.5rem;
-  font-weight: 600;
+  font-weight: 640;
   line-height: 1.3;
 }
 
 /* Body Text */
 .text-body-lg {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .text-body-md {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.875rem;
   font-weight: 400;
-  line-height: 1.5;
+  line-height: 1.58;
 }
 
 .text-body-sm {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.8125rem;
   font-weight: 400;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 /* Labels */
 .text-label-lg {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.4;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .text-label-md {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.4;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .text-label-sm {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
   font-weight: 600;
   line-height: 1.3;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -180,7 +228,7 @@ body {
   color: white;
   border-radius: 0.75rem;
   padding: 0.75rem 1.5rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-weight: 500;
   font-size: 0.875rem;
   transition: all 0.2s ease;
@@ -198,7 +246,7 @@ body {
   color: #003fb1;
   border-radius: 0.75rem;
   padding: 0.75rem 1.5rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-weight: 500;
   font-size: 0.875rem;
   transition: all 0.2s ease;
@@ -236,7 +284,7 @@ body {
   border-radius: 0.75rem;
   padding: 0.875rem 1rem;
   border: none;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.875rem;
   transition: all 0.2s ease;
   outline: none;
@@ -415,11 +463,12 @@ body {
 
 /* Headings */
 .md-root .md-heading {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 640;
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   color: var(--color-on-surface);
+  letter-spacing: 0;
 }
 
 .md-root .md-h1 {
@@ -660,9 +709,11 @@ body {
 
 .project-chat-answer {
   max-width: 48rem;
+  font-family: var(--font-sans);
   font-size: 0.9375rem;
   line-height: 1.76;
   color: #1f2937;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "tnum" 0;
 }
 
 .project-chat-answer .md-paragraph {
@@ -670,10 +721,12 @@ body {
 }
 
 .project-chat-answer .md-heading {
+  font-family: var(--font-display);
   color: #0f172a;
   font-weight: 650;
   margin-top: 1.7rem;
   margin-bottom: 0.7rem;
+  letter-spacing: 0;
 }
 
 .project-chat-answer > .md-heading:first-child,
@@ -722,6 +775,7 @@ body {
 }
 
 .project-chat-answer .inline-code {
+  font-family: var(--font-mono);
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   border-radius: 0.35rem;
@@ -749,6 +803,7 @@ body {
 }
 
 .project-chat-answer pre {
+  font-family: var(--font-mono);
   background: #f8fafc !important;
   color: #0f172a;
 }
@@ -810,6 +865,7 @@ body {
 
 /* Compact document preview used inside the project chat right rail. */
 .project-chat-preview-md {
+  font-family: var(--font-sans);
   font-size: 0.8125rem;
   line-height: 1.58;
   color: #1f2937;
@@ -818,9 +874,10 @@ body {
 .project-chat-preview-md .md-heading {
   margin-top: 1rem;
   margin-bottom: 0.45rem;
-  font-family: inherit;
+  font-family: var(--font-display);
   font-weight: 650;
   color: #111827;
+  letter-spacing: 0;
 }
 
 .project-chat-preview-md .md-h1 {
@@ -920,7 +977,7 @@ body {
   color: white;
   border-radius: 0.75rem;
   padding: 0.75rem 1.5rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-weight: 500;
   font-size: 0.875rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1042,7 +1099,7 @@ body {
   border: 1px solid rgba(195, 197, 215, 0.3);
   border-radius: 0.75rem;
   padding: 0.875rem 1rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.875rem;
   transition: all 0.2s ease;
   outline: none;
@@ -1141,11 +1198,12 @@ body {
 }
 
 .ai-summary .md-heading {
-  font-family: inherit;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 640;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
   color: #111827;
+  letter-spacing: 0;
 }
 
 .ai-summary .md-h1 {
