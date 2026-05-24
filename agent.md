@@ -249,24 +249,11 @@ curl -fsS https://aria.d2cgo.co/
 curl -fsS https://aria.d2cgo.co/api/health
 ```
 
-See `DEPLOY.md` and `deploy/AUTO_DEPLOY.md` for more detail. Deployment scripts, nginx config, SSL setup, and backup are all in `deploy/`.
+See `DEPLOY.md` for the canonical deployment protocol. Deployment scripts, nginx config, SSL setup, and backup are all in `deploy/`.
 
 ---
 
-## 11. Known Issues (as of 2026-04-12)
-
-Historical priority order:
-
-1. **Mojibake in UI strings** — affects `Chat.tsx`, `AISettings.tsx`, `enums.ts`, `db.py`, `context_builder.py`
-2. **API default targets localhost** — not suitable for shared/production deploy
-3. **Enum misalignment** — `enums.ts` not fully in sync with backend values
-4. **RAG is baseline only** — embeddings stored as JSON, no vector index, no rerank
-5. **`chat.py` is too large** — provider selection, SSE, message persistence all co-located
-6. **CORS default is permissive** — fine for dev, not for prod
-
----
-
-## 12. Agent Collaboration Protocol
+## 11. Agent Collaboration Protocol
 
 When multiple LLM agents work on this codebase simultaneously, follow these rules:
 
@@ -313,7 +300,7 @@ docs: update architecture diagram for RAG changes
 
 ---
 
-## 13. Where to Find More Context
+## 12. Where to Find More Context
 
 | Question | Read |
 |---|---|

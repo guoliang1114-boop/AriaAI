@@ -6,7 +6,6 @@
 
 | 文件 | 说明 |
 |------|------|
-| `AUTO_DEPLOY.md` | 完整的自动部署配置指南 |
 | `deploy.sh` | 服务器端部署脚本 |
 | `setup-server.sh` | 新服务器初始化脚本 |
 | `.env.example` | 环境变量配置模板 |
@@ -17,7 +16,7 @@
 
 ## 快速导航
 
-- 🚀 **自动部署**: 查看 [AUTO_DEPLOY.md](./AUTO_DEPLOY.md)
+- 🚀 **自动部署**: 查看根目录 [DEPLOY.md](../DEPLOY.md)
 - 🖥️ **手动部署**: 使用 [deploy.sh](./deploy.sh) 脚本
 - ⚙️ **新服务器**: 运行 [setup-server.sh](./setup-server.sh)
 
