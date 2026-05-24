@@ -136,6 +136,19 @@ jobs:
             fi
             pm2 save
 
+            # Verify the backend is actually serving before publishing success.
+            sleep 3
+            if ! curl -fsS --max-time 10 http://127.0.0.1:8000/api/health >/dev/null; then
+              echo "Backend health check failed after PM2 reload." >&2
+              pm2 status || true
+              pm2 describe ariaai-backend || true
+              echo "---- backend error log ----" >&2
+              tail -n 160 /www/wwwroot/AriaAI/logs/backend-error.log || true
+              echo "---- backend out log ----" >&2
+              tail -n 120 /www/wwwroot/AriaAI/logs/backend-out.log || true
+              exit 1
+            fi
+
             # Replace frontend build artifacts served by Nginx.
             rm -rf /www/wwwroot/aria.d2cgo.co/*
             cp -r /www/wwwroot/AriaAI/web/dist/* /www/wwwroot/aria.d2cgo.co/
