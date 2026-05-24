@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Clock3, Loader2, PanelRightOpen, TriangleAlert, Wrench } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  Loader2,
+  PanelRightOpen,
+  TriangleAlert,
+  Wrench,
+} from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
 interface ProjectChatToolCallCardProps {
@@ -38,7 +46,8 @@ const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
   skipped: "bg-slate-400 text-white",
 };
 
-const WORKFLOW_DETAIL_PREFERENCE_KEY = "aria.projectChat.workflowStepDetailsExpanded";
+const WORKFLOW_DETAIL_PREFERENCE_KEY =
+  "aria.projectChat.workflowStepDetailsExpanded";
 
 function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
   if (status === "pending") {
@@ -53,23 +62,46 @@ function StatusIcon({ status }: { status: ToolCallEvent["status"] }) {
   return <TriangleAlert className="h-3.5 w-3.5" />;
 }
 
-function statusLabel(status: ToolCallEvent["status"], isZh: boolean, isWorkflowStep = false) {
+function statusLabel(
+  status: ToolCallEvent["status"],
+  isZh: boolean,
+  isWorkflowStep = false,
+) {
   if (status === "pending") return isZh ? "等待中" : "Pending";
-  if (status === "running") return isZh ? (isWorkflowStep ? "进行中" : "执行中") : isWorkflowStep ? "In progress" : "Running";
+  if (status === "running")
+    return isZh
+      ? isWorkflowStep
+        ? "进行中"
+        : "执行中"
+      : isWorkflowStep
+        ? "In progress"
+        : "Running";
   if (status === "completed") return isZh ? "已完成" : "Done";
   if (status === "blocked") return isZh ? "已拦截" : "Blocked";
   if (status === "confirmation_required") return isZh ? "待确认" : "Confirm";
   if (status === "skipped") return isZh ? "已跳过" : "Skipped";
-  return isZh ? (isWorkflowStep ? "需处理" : "失败") : isWorkflowStep ? "Needs attention" : "Failed";
+  return isZh
+    ? isWorkflowStep
+      ? "需处理"
+      : "失败"
+    : isWorkflowStep
+      ? "Needs attention"
+      : "Failed";
 }
 
 function toolDisplayName(toolName: string, isZh: boolean) {
-  if (toolName === "manage_project_files") return isZh ? "管理项目文件" : "Manage project files";
-  if (toolName === "manage_project_folders") return isZh ? "管理项目文件夹" : "Manage project folders";
-  if (toolName === "write_project_office_document") return isZh ? "生成项目文档" : "Create project document";
-  if (toolName === "update_project_markdown_document") return isZh ? "更新项目文档" : "Update project document";
-  if (toolName === "read_project_file") return isZh ? "读取项目文件" : "Read project file";
-  if (toolName === "read_project_markdown_document") return isZh ? "读取项目文档" : "Read project document";
+  if (toolName === "manage_project_files")
+    return isZh ? "管理项目文件" : "Manage project files";
+  if (toolName === "manage_project_folders")
+    return isZh ? "管理项目文件夹" : "Manage project folders";
+  if (toolName === "write_project_office_document")
+    return isZh ? "生成项目文档" : "Create project document";
+  if (toolName === "update_project_markdown_document")
+    return isZh ? "更新项目文档" : "Update project document";
+  if (toolName === "read_project_file")
+    return isZh ? "读取项目文件" : "Read project file";
+  if (toolName === "read_project_markdown_document")
+    return isZh ? "读取项目文档" : "Read project document";
   return toolName;
 }
 
@@ -79,9 +111,16 @@ export function ProjectChatToolCallCard({
   onOpenTasks,
 }: ProjectChatToolCallCardProps) {
   const isWorkflowStep = Boolean(call.step_index);
-  const hasDetails = Boolean(call.message || call.summary || call.error || call.details?.length);
+  const hasDetails = Boolean(
+    call.message || call.summary || call.error || call.details?.length,
+  );
   const [expanded, setExpanded] = useState(() => {
-    if (typeof window === "undefined") return call.status === "running" || call.status === "error" || call.status === "confirmation_required";
+    if (typeof window === "undefined")
+      return (
+        call.status === "running" ||
+        call.status === "error" ||
+        call.status === "confirmation_required"
+      );
     const saved = window.localStorage.getItem(WORKFLOW_DETAIL_PREFERENCE_KEY);
     if (call.status === "confirmation_required") return true;
     if (saved === "expanded") return true;
@@ -90,34 +129,44 @@ export function ProjectChatToolCallCard({
   });
 
   useEffect(() => {
-    if (call.status === "error" || call.status === "confirmation_required") setExpanded(true);
+    if (call.status === "error" || call.status === "confirmation_required")
+      setExpanded(true);
   }, [call.status]);
 
   const toggleExpanded = () => {
     setExpanded((current) => {
       const next = !current;
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(WORKFLOW_DETAIL_PREFERENCE_KEY, next ? "expanded" : "collapsed");
+        window.localStorage.setItem(
+          WORKFLOW_DETAIL_PREFERENCE_KEY,
+          next ? "expanded" : "collapsed",
+        );
       }
       return next;
     });
   };
 
   if (isWorkflowStep) {
-    const stepTitle = call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
-    const canOpenRecoverableTask = call.status === "error" && call.has_recoverable_task && onOpenTasks;
+    const stepTitle =
+      call.step_title || call.tool_name.replace(/^步骤\s+\d+\/\d+：/, "");
+    const canOpenRecoverableTask =
+      call.status === "error" && call.has_recoverable_task && onOpenTasks;
     return (
-      <div className={`rounded-2xl border px-4 py-3.5 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}>
-        <div className="flex items-start gap-3">
+      <div
+        className={`rounded-xl border px-3 py-3 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}
+      >
+        <div className="flex items-start gap-2.5">
           <div
-            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-semibold tabular-nums shadow-sm ${WORKFLOW_BADGE_STYLES[call.status]}`}
+            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tabular-nums shadow-sm ${WORKFLOW_BADGE_STYLES[call.status]}`}
           >
             {call.step_index}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-gray-950">
-                {isZh ? `步骤 ${call.step_index}/${call.step_total || 4}` : `Step ${call.step_index}/${call.step_total || 4}`}
+              <p className="text-[13px] font-semibold leading-5 text-gray-950">
+                {isZh
+                  ? `步骤 ${call.step_index}/${call.step_total || 4}`
+                  : `Step ${call.step_index}/${call.step_total || 4}`}
                 <span className="mx-1 text-gray-300">·</span>
                 {toolDisplayName(stepTitle, isZh)}
               </p>
@@ -131,27 +180,50 @@ export function ProjectChatToolCallCard({
                   onClick={toggleExpanded}
                   className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-500 transition hover:border-gray-300 hover:text-gray-800"
                 >
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
-                  {expanded ? (isZh ? "收起日志" : "Hide logs") : (isZh ? "展开日志" : "Show logs")}
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+                  />
+                  {expanded
+                    ? isZh
+                      ? "收起日志"
+                      : "Hide logs"
+                    : isZh
+                      ? "展开日志"
+                      : "Show logs"}
                 </button>
               ) : null}
             </div>
             {hasDetails && expanded ? (
-              <div className="mt-2 space-y-1.5 rounded-xl border border-white/70 bg-white/75 px-3 py-2">
-                {call.message ? <p className="text-xs leading-relaxed text-gray-600">{call.message}</p> : null}
-                {call.summary ? <p className="text-xs leading-relaxed text-gray-500">{call.summary}</p> : null}
-                {call.error ? <p className="text-xs leading-relaxed text-rose-600">{call.error}</p> : null}
+              <div className="mt-2 space-y-1.5 rounded-lg border border-white/70 bg-white/75 px-2.5 py-2">
+                {call.message ? (
+                  <p className="text-xs leading-relaxed text-gray-600">
+                    {call.message}
+                  </p>
+                ) : null}
+                {call.summary ? (
+                  <p className="text-xs leading-relaxed text-gray-500">
+                    {call.summary}
+                  </p>
+                ) : null}
+                {call.error ? (
+                  <p className="text-xs leading-relaxed text-rose-600">
+                    {call.error}
+                  </p>
+                ) : null}
                 {call.details?.length ? (
                   <div className="space-y-1 border-t border-gray-100 pt-1.5">
                     {call.details.map((detail, index) => (
-                      <p key={`${call.step_index}-${index}`} className="text-xs leading-relaxed text-gray-500">
+                      <p
+                        key={`${call.step_index}-${index}`}
+                        className="text-xs leading-relaxed text-gray-500"
+                      >
                         {detail}
                       </p>
                     ))}
                   </div>
                 ) : null}
                 {call.status === "error" ? (
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/80 px-3 py-2">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50/80 px-2.5 py-2">
                     <p className="text-xs leading-relaxed text-rose-700">
                       {canOpenRecoverableTask
                         ? isZh
@@ -182,26 +254,43 @@ export function ProjectChatToolCallCard({
   }
 
   return (
-    <div className={`rounded-xl border px-3.5 py-3 ${STATUS_STYLES[call.status]}`}>
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-white/80">
-          <Wrench className="h-4 w-4" />
+    <div
+      className={`rounded-lg border px-3 py-2.5 ${STATUS_STYLES[call.status]}`}
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-white/80">
+          <Wrench className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-gray-900">{toolDisplayName(call.tool_name, isZh)}</p>
+            <p className="text-[13px] font-semibold leading-5 text-gray-900">
+              {toolDisplayName(call.tool_name, isZh)}
+            </p>
             <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium">
               <StatusIcon status={call.status} />
-                {statusLabel(call.status, isZh)}
+              {statusLabel(call.status, isZh)}
             </span>
           </div>
-          {call.message ? <p className="mt-1 text-xs text-gray-600">{call.message}</p> : null}
-          {call.summary ? <p className="mt-1 text-xs text-gray-600">{call.summary}</p> : null}
-          {call.error ? <p className="mt-1 text-xs text-rose-600">{call.error}</p> : null}
+          {call.message ? (
+            <p className="mt-0.5 text-xs leading-5 text-gray-600">
+              {call.message}
+            </p>
+          ) : null}
+          {call.summary ? (
+            <p className="mt-0.5 text-xs leading-5 text-gray-600">
+              {call.summary}
+            </p>
+          ) : null}
+          {call.error ? (
+            <p className="mt-1 text-xs text-rose-600">{call.error}</p>
+          ) : null}
           {call.details?.length ? (
-            <div className="mt-2 space-y-1 border-t border-white/70 pt-1.5">
+            <div className="mt-1.5 space-y-1 border-t border-white/70 pt-1.5">
               {call.details.map((detail, index) => (
-                <p key={`${call.tool_name}-${index}`} className="text-xs leading-relaxed text-gray-500">
+                <p
+                  key={`${call.tool_name}-${index}`}
+                  className="text-xs leading-relaxed text-gray-500"
+                >
                   {detail}
                 </p>
               ))}

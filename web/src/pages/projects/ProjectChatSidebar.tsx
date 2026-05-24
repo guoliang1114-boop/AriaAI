@@ -70,7 +70,9 @@ function groupConversations(conversations: Conversation[], timeZone?: string) {
 
   return [
     ...(today.length ? [{ label: "今天", items: today }] : []),
-    ...(yesterdayItems.length ? [{ label: "昨天", items: yesterdayItems }] : []),
+    ...(yesterdayItems.length
+      ? [{ label: "昨天", items: yesterdayItems }]
+      : []),
     ...(thisWeek.length ? [{ label: "本周", items: thisWeek }] : []),
     ...(older.length ? [{ label: "更早", items: older }] : []),
   ];
@@ -152,7 +154,9 @@ export function ProjectChatSidebar({
       map.set(folder.id, []);
     }
     map.set("uncategorized", []);
-    for (const file of [...files].sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const file of [...files].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
       const key = file.folder_id ?? "uncategorized";
       const bucket = map.get(key) || [];
       bucket.push(file);
@@ -232,7 +236,7 @@ export function ProjectChatSidebar({
 
   return (
     <div
-      className={`${isOpen ? (isFullscreen ? "w-72" : "w-56") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
+      className={`${isOpen ? (isFullscreen ? "w-72" : "w-56") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col text-[12.5px] transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
       {onUploadFiles ? (
         <input
@@ -242,7 +246,10 @@ export function ProjectChatSidebar({
           className="hidden"
           onChange={(event) => {
             if (event.currentTarget.files?.length) {
-              onUploadFiles(event.currentTarget.files, uploadTargetFolderIdRef.current);
+              onUploadFiles(
+                event.currentTarget.files,
+                uploadTargetFolderIdRef.current,
+              );
             }
             event.currentTarget.value = "";
           }}
@@ -259,7 +266,10 @@ export function ProjectChatSidebar({
             {copy.newChatButton}
           </button>
           {onUploadFiles ? (
-            <div ref={uploadDropdownRef} className="relative flex min-w-0 flex-1">
+            <div
+              ref={uploadDropdownRef}
+              className="relative flex min-w-0 flex-1"
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -287,12 +297,15 @@ export function ProjectChatSidebar({
                       {isZh ? "选择上传目录" : "Select upload folder"}
                     </p>
                     <p className="text-xs leading-4 text-slate-500">
-                      {isZh ? "文件会保存到所选项目空间目录" : "Files will be saved to the selected space folder"}
+                      {isZh
+                        ? "文件会保存到所选项目空间目录"
+                        : "Files will be saved to the selected space folder"}
                     </p>
                   </div>
                   <div className="max-h-72 overflow-y-auto py-1">
                     {folderList.map((folder) => {
-                      const fileCount = groupedFiles.get(folder.id)?.length ?? 0;
+                      const fileCount =
+                        groupedFiles.get(folder.id)?.length ?? 0;
                       return (
                         <button
                           key={folder.id}
@@ -311,7 +324,9 @@ export function ProjectChatSidebar({
                               {folder.name}
                             </span>
                             <span className="mt-0.5 block text-xs leading-4 text-slate-500">
-                              {isZh ? `${fileCount} 个文件` : `${fileCount} files`}
+                              {isZh
+                                ? `${fileCount} 个文件`
+                                : `${fileCount} files`}
                             </span>
                           </span>
                         </button>
@@ -334,11 +349,17 @@ export function ProjectChatSidebar({
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
               title={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
-              aria-label={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
+              aria-label={
+                isFullscreen ? copy.exitFullscreen : copy.enterFullscreen
+              }
             >
-              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+              {isFullscreen ? (
+                <Shrink className="h-4 w-4" />
+              ) : (
+                <Expand className="h-4 w-4" />
+              )}
             </button>
           ) : null}
         </div>
@@ -383,7 +404,7 @@ export function ProjectChatSidebar({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={isZh ? "搜索对话" : "Search conversations"}
-                  className="w-full rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-8 pr-7 text-[13px] leading-5 text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-primary/30"
+                  className="w-full rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-8 pr-7 text-[12.5px] leading-5 text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-primary/30"
                 />
                 {search && (
                   <button
@@ -403,7 +424,7 @@ export function ProjectChatSidebar({
                   {[...Array(4)].map((_, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl animate-pulse"
+                      className="flex items-center gap-2 px-2.5 py-2 rounded-lg animate-pulse"
                     >
                       <div className="w-1.5 h-1.5 rounded-full bg-gray-100 flex-shrink-0" />
                       <div className="flex-1 space-y-1.5">
@@ -419,17 +440,17 @@ export function ProjectChatSidebar({
               ) : activeConvId === null && !search ? (
                 <div className="pt-1">
                   {/* New chat placeholder */}
-                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-primary/8 mb-0.5">
+                  <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-primary/8 mb-0.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="truncate text-[13px] font-medium leading-5 text-primary">
+                      <p className="truncate text-[12.5px] font-medium leading-5 text-primary">
                         {copy.defaultNewChatTitle}
                       </p>
                     </div>
                   </div>
                   {conversationGroups.map((group) => (
                     <div key={group.label}>
-                      <p className="px-3 pt-3 pb-1 text-xs font-semibold text-gray-500">
+                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-gray-500">
                         {group.label}
                       </p>
                       {group.items.map((conversation) => (
@@ -437,15 +458,18 @@ export function ProjectChatSidebar({
                           key={conversation.id}
                           to={getConversationHref?.(conversation.id) || "#"}
                           onClick={() => onSelectConversation(conversation.id)}
-                          className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-colors hover:bg-gray-50 cursor-pointer"
+                          className="group flex items-center gap-2 px-2.5 py-2 rounded-lg mb-0.5 transition-colors hover:bg-gray-50 cursor-pointer"
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="truncate text-[13px] leading-5 text-gray-700">
+                            <p className="truncate text-[12.5px] leading-5 text-gray-700">
                               {conversation.title || copy.defaultNewChatTitle}
                             </p>
-                            <p className="mt-0.5 text-xs text-gray-500">
-                              {formatTime(conversation.updated_at, resolvedTimeZone)}
+                            <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
+                              {formatTime(
+                                conversation.updated_at,
+                                resolvedTimeZone,
+                              )}
                             </p>
                           </div>
                         </Link>
@@ -460,10 +484,10 @@ export function ProjectChatSidebar({
               ) : (
                 <div className="pt-1">
                   {activeConvId === null && !search && (
-                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-primary/8 mb-0.5">
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-primary/8 mb-0.5">
                       <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-[13px] font-medium leading-5 text-primary">
+                        <p className="truncate text-[12.5px] font-medium leading-5 text-primary">
                           {copy.defaultNewChatTitle}
                         </p>
                       </div>
@@ -471,12 +495,12 @@ export function ProjectChatSidebar({
                   )}
                   {conversationGroups.map((group) => (
                     <div key={group.label}>
-                      <p className="px-3 pt-3 pb-1 text-xs font-semibold text-gray-500">
+                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-gray-500">
                         {group.label}
                       </p>
                       {group.items.map((conversation) => {
                         const isEditing = editingConvId === conversation.id;
-                        const rowClassName = `group flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
+                        const rowClassName = `group flex items-center gap-2 px-2.5 py-2 rounded-lg mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
                           activeConvId === conversation.id
                             ? "bg-primary/8"
                             : "hover:bg-gray-50"
@@ -500,7 +524,10 @@ export function ProjectChatSidebar({
                                   }
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter")
-                                      onRenameSubmit(conversation.id, editTitle);
+                                      onRenameSubmit(
+                                        conversation.id,
+                                        editTitle,
+                                      );
                                     else if (event.key === "Escape")
                                       onCancelRename();
                                   }}
@@ -508,22 +535,26 @@ export function ProjectChatSidebar({
                                     onRenameSubmit(conversation.id, editTitle)
                                   }
                                   onClick={(e) => e.stopPropagation()}
-                                  className="w-full rounded border border-gray-200 px-2 py-1 text-[13px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                  className="w-full rounded border border-gray-200 px-2 py-1 text-[12.5px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/20"
                                   autoFocus
                                 />
                               ) : (
                                 <p
-                                  className={`truncate text-[13px] leading-5 transition-colors ${
+                                  className={`truncate text-[12.5px] leading-5 transition-colors ${
                                     activeConvId === conversation.id
                                       ? "text-primary font-medium"
                                       : "text-gray-700"
                                   }`}
                                 >
-                                  {conversation.title || copy.defaultNewChatTitle}
+                                  {conversation.title ||
+                                    copy.defaultNewChatTitle}
                                 </p>
                               )}
-                              <p className="mt-0.5 text-xs text-gray-500">
-                                {formatTime(conversation.updated_at, resolvedTimeZone)}
+                              <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
+                                {formatTime(
+                                  conversation.updated_at,
+                                  resolvedTimeZone,
+                                )}
                               </p>
                             </div>
                             {!isEditing && (
@@ -534,7 +565,7 @@ export function ProjectChatSidebar({
                                     event.stopPropagation();
                                     onBeginRename(conversation);
                                   }}
-                                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
+                                  className="p-1 rounded-md hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
                                 >
                                   <Edit3 className="w-3 h-3" />
                                 </button>
@@ -542,7 +573,7 @@ export function ProjectChatSidebar({
                                   onClick={(event) =>
                                     handleDelete(event, conversation)
                                   }
-                                  className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
+                                  className="p-1 rounded-md hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
@@ -554,7 +585,9 @@ export function ProjectChatSidebar({
                         return isEditing ? (
                           <div
                             key={conversation.id}
-                            onClick={() => onSelectConversation(conversation.id)}
+                            onClick={() =>
+                              onSelectConversation(conversation.id)
+                            }
                             className={rowClassName}
                           >
                             {rowContent}
@@ -563,7 +596,9 @@ export function ProjectChatSidebar({
                           <Link
                             key={conversation.id}
                             to={getConversationHref?.(conversation.id) || "#"}
-                            onClick={() => onSelectConversation(conversation.id)}
+                            onClick={() =>
+                              onSelectConversation(conversation.id)
+                            }
                             className={rowClassName}
                           >
                             {rowContent}
@@ -579,9 +614,7 @@ export function ProjectChatSidebar({
         ) : (
           /* Project Space */
           <div className="h-full overflow-y-auto px-3 py-3">
-            <div
-              className="mb-2.5 flex w-full items-center justify-between rounded-lg px-1 text-left text-[12px] font-semibold leading-4 text-gray-500"
-            >
+            <div className="mb-2.5 flex w-full items-center justify-between rounded-lg px-1 text-left text-[12px] font-semibold leading-4 text-gray-500">
               <span>{isZh ? "项目空间" : "Project Space"}</span>
               <div className="flex items-center gap-1">
                 <span className="text-xs font-medium text-gray-400">
@@ -599,7 +632,7 @@ export function ProjectChatSidebar({
                     <button
                       type="button"
                       onClick={() => toggleFolder(folder.id)}
-                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[13px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
+                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
                     >
                       {isFolderOpen ? (
                         <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
@@ -617,7 +650,7 @@ export function ProjectChatSidebar({
                             key={file.id}
                             title={file.name}
                             onClick={() => onSelectFile?.(file)}
-                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-5 transition-colors ${
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 transition-colors ${
                               selectedFileId === file.id
                                 ? "bg-primary/10 font-medium text-primary"
                                 : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
@@ -643,7 +676,7 @@ export function ProjectChatSidebar({
                   <button
                     type="button"
                     onClick={() => toggleFolder("uncategorized")}
-                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[13px] font-medium leading-5 text-gray-500 hover:bg-gray-50"
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-gray-500 hover:bg-gray-50"
                   >
                     {openFolders.uncategorized ? (
                       <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
@@ -664,7 +697,7 @@ export function ProjectChatSidebar({
                           key={file.id}
                           title={file.name}
                           onClick={() => onSelectFile?.(file)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-5 transition-colors ${
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 transition-colors ${
                             selectedFileId === file.id
                               ? "bg-primary/10 font-medium text-primary"
                               : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"

@@ -21,18 +21,35 @@ export function ProjectDetailHeader({
   const isZh = i18n.language.startsWith("zh");
   const rawStatus = String(project.status || "").trim();
   const stage = resolveProjectStage(rawStatus);
-  const statusLabel = rawStatus ? (isZh ? stage.labelZh : stage.label) : (isZh ? "未知状态" : "Unknown");
+  const statusLabel = rawStatus
+    ? isZh
+      ? stage.labelZh
+      : stage.label
+    : isZh
+      ? "未知状态"
+      : "Unknown";
   const statusClassName = `${stage.bgColor} ${stage.color} ${stage.borderColor}`;
   const visibleTabs = PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav);
-  const renderTabLabel = (tabId: (typeof visibleTabs)[number]["id"], labelKey: string) =>
+  const renderTabLabel = (
+    tabId: (typeof visibleTabs)[number]["id"],
+    labelKey: string,
+  ) =>
     tabId === "memory"
-      ? isZh ? "项目记忆" : "Memory"
+      ? isZh
+        ? "项目记忆"
+        : "Memory"
       : tabId === "stakeholders"
-        ? isZh ? "干系人" : "Stakeholders"
+        ? isZh
+          ? "干系人"
+          : "Stakeholders"
         : tabId === "briefing"
-          ? isZh ? "会前简报" : "Briefing"
+          ? isZh
+            ? "会前简报"
+            : "Briefing"
           : tabId === "milestones"
-            ? isZh ? "任务" : "Tasks"
+            ? isZh
+              ? "任务"
+              : "Tasks"
             : t(labelKey);
 
   const handleMeetingPrep = () => {
@@ -108,7 +125,7 @@ export function ProjectDetailHeader({
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
       <div className="mx-auto max-w-full px-4 sm:px-6">
-        <div className="flex flex-col gap-3 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <button
               onClick={onBack}
@@ -123,11 +140,13 @@ export function ProjectDetailHeader({
                 {project.client ? (
                   <>
                     <span>/</span>
-                    <span className="max-w-[220px] truncate">{project.client}</span>
+                    <span className="max-w-[220px] truncate">
+                      {project.client}
+                    </span>
                   </>
                 ) : null}
               </div>
-              <h1 className="truncate font-manrope text-lg font-semibold leading-7 text-slate-950 sm:text-xl">
+              <h1 className="truncate font-manrope text-base font-semibold leading-6 text-slate-950 sm:text-lg">
                 {project.name}
               </h1>
             </div>
@@ -165,7 +184,7 @@ export function ProjectDetailHeader({
               to={tab.getPath(projectId)}
               end={tab.path === ""}
               className={({ isActive }) =>
-                `flex flex-shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-medium leading-5 transition-colors sm:px-3.5 ${
+                `flex flex-shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2.5 text-[12.5px] font-medium leading-5 transition-colors sm:px-3 ${
                   isActive
                     ? "border-primary text-primary"
                     : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"

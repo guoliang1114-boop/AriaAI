@@ -1,5 +1,19 @@
-import { BookOpen, ChevronDown, ClipboardList, Clock3, Info, Wrench } from "lucide-react";
-import { forwardRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  BookOpen,
+  ChevronDown,
+  ClipboardList,
+  Clock3,
+  Info,
+  Wrench,
+} from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ChatModel,
@@ -14,13 +28,20 @@ import type {
   TaskRun,
   ToolCallEvent,
 } from "../../types/api";
-import { ProjectChatActionPreviewPanel, type ProjectChatPendingAction } from "./ProjectChatActionPreviewPanel";
+import {
+  ProjectChatActionPreviewPanel,
+  type ProjectChatPendingAction,
+} from "./ProjectChatActionPreviewPanel";
 import { ProjectChatHeader } from "./ProjectChatHeader";
 import { ProjectChatInput } from "./ProjectChatInput";
 import { ProjectChatMessages } from "./ProjectChatMessages";
 import { ProjectTaskRunsDrawer } from "./ProjectTaskRunsDrawer";
 import { getProjectChatCopy, type ProjectQuickPrompt } from "./projectChatCopy";
-import { findPendingAction, groupPendingToolActions, pendingActionBadge } from "./projectChatPendingActions";
+import {
+  findPendingAction,
+  groupPendingToolActions,
+  pendingActionBadge,
+} from "./projectChatPendingActions";
 
 type HitasActionTarget = { actionId: number; batchId?: string };
 
@@ -50,7 +71,9 @@ interface ProjectChatMainPanelProps {
   onDownloadArtifact: (artifact: GeneratedArtifact) => void;
   onOpenArtifact?: (artifact: GeneratedArtifact) => void;
   onConfirmToolAction?: (content: string, confirmationToken: string) => void;
-  onConfirmHitasAction?: (target: HitasActionTarget) => Promise<{ status: string } | undefined>;
+  onConfirmHitasAction?: (
+    target: HitasActionTarget,
+  ) => Promise<{ status: string } | undefined>;
   onRejectHitasAction?: (target: HitasActionTarget) => Promise<void>;
   pendingToolActions?: PendingToolAction[];
   serverPendingAction?: ProjectChatPendingAction | null;
@@ -152,7 +175,9 @@ export function ProjectChatMainPanel({
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
-  const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
   const selectedSkillData = useMemo(
     () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
     [selectedSkillId, skills],
@@ -160,8 +185,12 @@ export function ProjectChatMainPanel({
   const [showSkillDropdown, setShowSkillDropdown] = useState(false);
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
-  const [dismissedActionToken, setDismissedActionToken] = useState<string | null>(null);
-  const [confirmingHitasActionKeys, setConfirmingHitasActionKeys] = useState<Set<string>>(() => new Set());
+  const [dismissedActionToken, setDismissedActionToken] = useState<
+    string | null
+  >(null);
+  const [confirmingHitasActionKeys, setConfirmingHitasActionKeys] = useState<
+    Set<string>
+  >(() => new Set());
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const localPendingAction = useMemo(
     () => findPendingAction({ messages, streamingToolCalls }),
@@ -169,7 +198,8 @@ export function ProjectChatMainPanel({
   );
   const pendingAction = localPendingAction || serverPendingAction || null;
   const visiblePendingAction =
-    pendingAction?.call.confirmation_token && pendingAction.call.confirmation_token !== dismissedActionToken
+    pendingAction?.call.confirmation_token &&
+    pendingAction.call.confirmation_token !== dismissedActionToken
       ? pendingAction
       : null;
   const activePendingToolActions = pendingToolActions ?? [];
@@ -180,7 +210,10 @@ export function ProjectChatMainPanel({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (skillDropdownRef.current && !skillDropdownRef.current.contains(event.target as Node)) {
+      if (
+        skillDropdownRef.current &&
+        !skillDropdownRef.current.contains(event.target as Node)
+      ) {
         setShowSkillDropdown(false);
       }
     };
@@ -221,7 +254,7 @@ export function ProjectChatMainPanel({
                 <button
                   type="button"
                   onClick={() => onSaveMessage(latestAssistantMessage.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 transition-colors hover:bg-emerald-100"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
                 >
                   <BookOpen className="h-4 w-4" />
                   <span>{copy.saveSkillResult}</span>
@@ -230,7 +263,7 @@ export function ProjectChatMainPanel({
               <button
                 type="button"
                 onClick={onOpenConversationSaveModal}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm text-blue-700 transition-colors hover:bg-blue-100"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700 transition-colors hover:bg-blue-100"
               >
                 <BookOpen className="h-4 w-4" />
                 <span>{copy.saveSkillConversation}</span>
@@ -242,7 +275,7 @@ export function ProjectChatMainPanel({
           <button
             type="button"
             onClick={() => setIsTaskDrawerOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
           >
             <ClipboardList className="h-4 w-4" />
             <span>{isZh ? "任务" : "Tasks"}</span>
@@ -253,7 +286,7 @@ export function ProjectChatMainPanel({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="project-chat-scroll relative min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-6"
+        className="project-chat-scroll relative min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5"
       >
         <ProjectChatMessages
           messages={messages}
@@ -283,7 +316,6 @@ export function ProjectChatMainPanel({
           onExecutePlan={onExecutePlan}
           onCancelPlan={onCancelPlan}
         />
-
       </div>
 
       <ProjectChatInput
@@ -318,7 +350,12 @@ export function ProjectChatMainPanel({
                   </DropdownItem>
                   <div className="border-b border-gray-100 px-3 py-2">
                     <div className="flex flex-wrap gap-1">
-                      {["all", ...Array.from(new Set(skills.map((skill) => skill.category)))].map((category) => (
+                      {[
+                        "all",
+                        ...Array.from(
+                          new Set(skills.map((skill) => skill.category)),
+                        ),
+                      ].map((category) => (
                         <button
                           key={category}
                           type="button"
@@ -355,7 +392,8 @@ export function ProjectChatMainPanel({
         selectedSkillPanel={
           <>
             {/* HITAS: Server-side persisted pending actions. Keep it as a real modal so reload/new windows cannot hide approval behind the chat input. */}
-            {activePendingToolActionBatches.length > 0 && onConfirmHitasAction ? (
+            {activePendingToolActionBatches.length > 0 &&
+            onConfirmHitasAction ? (
               <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/25 px-4 py-5 backdrop-blur-[2px] sm:items-center">
                 <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-2xl">
                   <div className="flex items-start justify-between gap-4 border-b border-amber-100 bg-amber-50 px-5 py-4">
@@ -365,10 +403,14 @@ export function ProjectChatMainPanel({
                       </div>
                       <div className="min-w-0">
                         <h4 className="text-base font-semibold text-slate-950">
-                          {isZh ? "Action Preview：等待确认" : "Action Preview: approval required"}
+                          {isZh
+                            ? "Action Preview：等待确认"
+                            : "Action Preview: approval required"}
                         </h4>
                         <p className="mt-1 text-sm text-slate-600">
-                          {isZh ? "这些操作会直接修改项目空间，确认后将按已保存的工具参数确定性执行。" : "These actions will modify the project workspace and run deterministically with the saved tool input."}
+                          {isZh
+                            ? "这些操作会直接修改项目空间，确认后将按已保存的工具参数确定性执行。"
+                            : "These actions will modify the project workspace and run deterministically with the saved tool input."}
                         </p>
                       </div>
                     </div>
@@ -380,43 +422,82 @@ export function ProjectChatMainPanel({
                     <div className="space-y-3">
                       {activePendingToolActionBatches.map((batch) => {
                         const primaryAction = batch.actions[0];
-                        const isConfirmingBatch = confirmingHitasActionKeys.has(batch.key);
+                        const isConfirmingBatch = confirmingHitasActionKeys.has(
+                          batch.key,
+                        );
                         return (
-                        <div key={batch.key} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-semibold text-slate-950">{batch.title}</div>
-                              <div className="mt-1 text-sm text-slate-600">{batch.description}</div>
+                          <div
+                            key={batch.key}
+                            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-semibold text-slate-950">
+                                  {batch.title}
+                                </div>
+                                <div className="mt-1 text-sm text-slate-600">
+                                  {batch.description}
+                                </div>
+                              </div>
+                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+                                {pendingActionBadge(primaryAction, isZh)}
+                              </span>
                             </div>
-                            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-                              {pendingActionBadge(primaryAction, isZh)}
-                            </span>
-                          </div>
-                          {batch.details.length > 0 ? (
-                            <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
-                              {batch.details.map((detail, index) => (
-                                <li key={index} className="py-0.5">
-                                  • {detail}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          {batch.actions.length > 1 ? (
-                            <div className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                              {isZh
-                                ? "确认会执行同一批次里的全部动作，不会每完成一个动作再弹一次确认。"
-                                : "Approval applies to every action in this batch, so the flow will not ask again after each step."}
-                            </div>
-                          ) : null}
-                          <div className="mt-4 flex justify-end gap-2">
-                            {onRejectHitasAction ? (
+                            {batch.details.length > 0 ? (
+                              <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
+                                {batch.details.map((detail, index) => (
+                                  <li key={index} className="py-0.5">
+                                    • {detail}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {batch.actions.length > 1 ? (
+                              <div className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                {isZh
+                                  ? "确认会执行同一批次里的全部动作，不会每完成一个动作再弹一次确认。"
+                                  : "Approval applies to every action in this batch, so the flow will not ask again after each step."}
+                              </div>
+                            ) : null}
+                            <div className="mt-4 flex justify-end gap-2">
+                              {onRejectHitasAction ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (isConfirmingBatch) return;
+                                    setConfirmingHitasActionKeys((current) =>
+                                      new Set(current).add(batch.key),
+                                    );
+                                    try {
+                                      await onRejectHitasAction({
+                                        actionId: batch.primaryActionId,
+                                        batchId: batch.batchId,
+                                      });
+                                    } finally {
+                                      setConfirmingHitasActionKeys(
+                                        (current) => {
+                                          const next = new Set(current);
+                                          next.delete(batch.key);
+                                          return next;
+                                        },
+                                      );
+                                    }
+                                  }}
+                                  disabled={isConfirmingBatch}
+                                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isZh ? "取消" : "Cancel"}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={async () => {
                                   if (isConfirmingBatch) return;
-                                  setConfirmingHitasActionKeys((current) => new Set(current).add(batch.key));
+                                  setConfirmingHitasActionKeys((current) =>
+                                    new Set(current).add(batch.key),
+                                  );
                                   try {
-                                    await onRejectHitasAction({
+                                    await onConfirmHitasAction({
                                       actionId: batch.primaryActionId,
                                       batchId: batch.batchId,
                                     });
@@ -429,38 +510,18 @@ export function ProjectChatMainPanel({
                                   }
                                 }}
                                 disabled={isConfirmingBatch}
-                                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {isZh ? "取消" : "Cancel"}
+                                {isConfirmingBatch
+                                  ? isZh
+                                    ? "执行中..."
+                                    : "Running..."
+                                  : isZh
+                                    ? "确认并执行"
+                                    : "Confirm and run"}
                               </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (isConfirmingBatch) return;
-                                setConfirmingHitasActionKeys((current) => new Set(current).add(batch.key));
-                                try {
-                                  await onConfirmHitasAction({
-                                    actionId: batch.primaryActionId,
-                                    batchId: batch.batchId,
-                                  });
-                                } finally {
-                                  setConfirmingHitasActionKeys((current) => {
-                                    const next = new Set(current);
-                                    next.delete(batch.key);
-                                    return next;
-                                  });
-                                }
-                              }}
-                              disabled={isConfirmingBatch}
-                              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isConfirmingBatch
-                                ? isZh ? "执行中..." : "Running..."
-                                : isZh ? "确认并执行" : "Confirm and run"}
-                            </button>
+                            </div>
                           </div>
-                        </div>
                         );
                       })}
                     </div>
@@ -469,12 +530,18 @@ export function ProjectChatMainPanel({
               </div>
             ) : null}
             {/* Legacy token-based confirmation flow (fallback) */}
-            {visiblePendingAction && onConfirmToolAction && activePendingToolActionBatches.length === 0 ? (
+            {visiblePendingAction &&
+            onConfirmToolAction &&
+            activePendingToolActionBatches.length === 0 ? (
               <ProjectChatActionPreviewPanel
                 action={visiblePendingAction}
                 isConfirming={isLoading}
                 isZh={isZh}
-                onCancel={() => setDismissedActionToken(visiblePendingAction.call.confirmation_token || null)}
+                onCancel={() =>
+                  setDismissedActionToken(
+                    visiblePendingAction.call.confirmation_token || null,
+                  )
+                }
                 onConfirm={(content, confirmationToken) => {
                   onConfirmToolAction(content, confirmationToken);
                 }}
@@ -543,9 +610,12 @@ function ProjectSkillReferencePanel({
           <Info className="h-4 w-4 text-emerald-700" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-700">{skill.name}</p>
+          <p className="truncate text-[13px] font-medium leading-5 text-gray-700">
+            {skill.name}
+          </p>
           <p className="truncate text-xs text-gray-500">
-            {skill.category} · {isZh ? "将随消息一起携带" : "attached to the next message"}
+            {skill.category} ·{" "}
+            {isZh ? "将随消息一起携带" : "attached to the next message"}
           </p>
         </div>
         <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-1 text-xs text-emerald-700">
@@ -560,7 +630,9 @@ function ProjectSkillReferencePanel({
       </div>
       <div className="space-y-2 px-3 py-3">
         {skill.description ? (
-          <p className="text-sm leading-6 text-gray-600">{skill.description}</p>
+          <p className="text-[13px] leading-5 text-gray-600">
+            {skill.description}
+          </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
           <button
@@ -584,7 +656,9 @@ function ProjectSkillReferencePanel({
                   : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white"
               }`}
             >
-              {isZh ? `使用客户记忆：${projectClientName}` : `Use client memory: ${projectClientName}`}
+              {isZh
+                ? `使用客户记忆：${projectClientName}`
+                : `Use client memory: ${projectClientName}`}
             </button>
           ) : null}
         </div>
@@ -624,13 +698,17 @@ function renderSkillOptions({
 
     return Object.entries(grouped).map(([category, categorySkills]) => (
       <div key={category}>
-        <div className="bg-gray-50 px-4 py-1.5 text-xs font-medium text-gray-400">{category}</div>
+        <div className="bg-gray-50 px-4 py-1.5 text-xs font-medium text-gray-400">
+          {category}
+        </div>
         {categorySkills.map((skill) => (
           <DropdownItem key={skill.id} onClick={() => onSelect(skill.id)}>
             <div className="flex flex-col">
               <span>{skill.name}</span>
               {skill.estimated_time ? (
-                <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+                <span className="text-xs text-gray-400">
+                  {skill.estimated_time}
+                </span>
               ) : null}
             </div>
           </DropdownItem>
@@ -646,46 +724,66 @@ function renderSkillOptions({
         <div className="flex flex-col">
           <span>{skill.name}</span>
           {skill.estimated_time ? (
-            <span className="text-xs text-gray-400">{skill.estimated_time}</span>
+            <span className="text-xs text-gray-400">
+              {skill.estimated_time}
+            </span>
           ) : null}
         </div>
       </DropdownItem>
     ));
 }
 
-const ContextPill = forwardRef<HTMLDivElement, {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-  secondary?: boolean;
-  open: boolean;
-  onToggle: () => void;
-  children?: React.ReactNode;
-}>(({ icon, label, active, secondary, open: _open, onToggle, children }, ref) => (
-  <div className="relative" ref={ref}>
-    <button
-      type="button"
-      onClick={onToggle}
-      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors ${
-        active
-          ? secondary
-            ? "bg-gray-100/80 text-gray-600"
-            : "bg-primary/8 text-primary"
-          : "text-gray-400 hover:bg-gray-100/70 hover:text-gray-600"
-      }`}
-    >
-      {icon}
-      {label}
-      <ChevronDown className={`h-3 w-3 transition-transform ${_open ? "rotate-180" : ""}`} />
-    </button>
-    {children}
-  </div>
-));
+const ContextPill = forwardRef<
+  HTMLDivElement,
+  {
+    icon: React.ReactNode;
+    label: string;
+    active?: boolean;
+    secondary?: boolean;
+    open: boolean;
+    onToggle: () => void;
+    children?: React.ReactNode;
+  }
+>(
+  (
+    { icon, label, active, secondary, open: _open, onToggle, children },
+    ref,
+  ) => (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors ${
+          active
+            ? secondary
+              ? "bg-gray-100/80 text-gray-600"
+              : "bg-primary/8 text-primary"
+            : "text-gray-400 hover:bg-gray-100/70 hover:text-gray-600"
+        }`}
+      >
+        {icon}
+        {label}
+        <ChevronDown
+          className={`h-3 w-3 transition-transform ${_open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {children}
+    </div>
+  ),
+);
 ContextPill.displayName = "ContextPill";
 
-function DropdownMenu({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+function DropdownMenu({
+  children,
+  wide,
+}: {
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
   return (
-    <div className={`absolute bottom-full left-0 z-50 mb-2 rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg ${wide ? "w-80" : "w-60"}`}>
+    <div
+      className={`absolute bottom-full left-0 z-50 mb-2 rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg ${wide ? "w-80" : "w-60"}`}
+    >
       {children}
     </div>
   );
@@ -704,7 +802,7 @@ function DropdownItem({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-50 ${
+      className={`w-full px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-gray-50 ${
         muted ? "text-gray-400" : "text-gray-700"
       }`}
     >

@@ -22,7 +22,12 @@ type ProjectChatHeaderProps = {
   skillControl?: React.ReactNode;
   skillSaveControl?: React.ReactNode;
   taskControl?: React.ReactNode;
-  models?: Array<{ id: string; name: string; provider: string; available: boolean }>;
+  models?: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    available: boolean;
+  }>;
   selectedModel?: string;
   onModelChange?: (modelId: string) => void;
   onRebuildMemory: () => void;
@@ -54,24 +59,25 @@ export function ProjectChatHeader({
   const isZh = i18n.language.startsWith("zh");
   const copy = getProjectChatCopy(isZh);
 
-  const memoryLabel = isLoadingMemoryStatus || isRebuildingMemory
-    ? isZh
-      ? "记忆同步中"
-      : "Memory syncing"
-    : !hasMemory
+  const memoryLabel =
+    isLoadingMemoryStatus || isRebuildingMemory
       ? isZh
-        ? "暂无记忆"
-        : "No memory"
-      : memoryStale
+        ? "记忆同步中"
+        : "Memory syncing"
+      : !hasMemory
         ? isZh
-          ? "记忆待刷新"
-          : "Memory stale"
-        : isZh
-          ? "记忆已同步"
-          : "Memory ready";
+          ? "暂无记忆"
+          : "No memory"
+        : memoryStale
+          ? isZh
+            ? "记忆待刷新"
+            : "Memory stale"
+          : isZh
+            ? "记忆已同步"
+            : "Memory ready";
 
   return (
-    <div className="border-b border-slate-100 bg-white px-4 py-2.5">
+    <div className="border-b border-slate-100 bg-white px-4 py-2">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <button
@@ -86,7 +92,9 @@ export function ProjectChatHeader({
           </button>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h3 className="truncate text-[13.5px] font-semibold leading-5 text-gray-900">{title}</h3>
+              <h3 className="truncate text-[13px] font-semibold leading-5 text-gray-900">
+                {title}
+              </h3>
               <span
                 className={`hidden shrink-0 rounded-full px-2 py-0.5 text-xs font-medium sm:inline-flex ${
                   !hasMemory
@@ -106,12 +114,16 @@ export function ProjectChatHeader({
               ) : null}
             </div>
             {!isFullscreen ? (
-              <p className="mt-0.5 hidden truncate text-xs text-gray-500 2xl:block">{subtitle}</p>
+              <p className="mt-0.5 hidden truncate text-xs text-gray-500 2xl:block">
+                {subtitle}
+              </p>
             ) : null}
           </div>
         </div>
 
-        <div className={`flex items-center gap-2 ${isFullscreen ? "shrink-0 flex-nowrap" : "shrink-0"}`}>
+        <div
+          className={`flex items-center gap-2 ${isFullscreen ? "shrink-0 flex-nowrap" : "shrink-0"}`}
+        >
           {!isFullscreen ? (
             <div className="hidden items-center gap-2 lg:flex">
               {skillControl}
@@ -119,27 +131,38 @@ export function ProjectChatHeader({
               {taskControl}
               {models && models.length > 0 && onModelChange ? (
                 <>
-                  <span className="text-xs text-gray-400">{isZh ? "模型" : "Model"}</span>
+                  <span className="text-xs text-gray-400">
+                    {isZh ? "模型" : "Model"}
+                  </span>
                   <select
                     value={selectedModel || ""}
                     onChange={(event) => onModelChange(event.target.value)}
-                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     {models.map((m) => (
                       <option key={m.id} value={m.id} disabled={!m.available}>
-                        {m.name} {!m.available ? (isZh ? "(未配置)" : "(unavailable)") : ""}
+                        {m.name}{" "}
+                        {!m.available
+                          ? isZh
+                            ? "(未配置)"
+                            : "(unavailable)"
+                          : ""}
                       </option>
                     ))}
                   </select>
                 </>
               ) : null}
-              <span className="text-xs text-gray-400">{copy.knowledgeScope}</span>
+              <span className="text-xs text-gray-400">
+                {copy.knowledgeScope}
+              </span>
               <select
                 value={knowledgeScope}
                 onChange={(event) =>
-                  onKnowledgeScopeChange(event.target.value as "project" | "client" | "global")
+                  onKnowledgeScopeChange(
+                    event.target.value as "project" | "client" | "global",
+                  )
                 }
-                className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="project">{copy.currentProject}</option>
                 <option value="client">{copy.currentClient}</option>
@@ -148,7 +171,9 @@ export function ProjectChatHeader({
             </div>
           ) : null}
 
-          <div className={`${isFullscreen ? "" : "ml-auto xl:ml-0"} flex items-center gap-2`}>
+          <div
+            className={`${isFullscreen ? "" : "ml-auto xl:ml-0"} flex items-center gap-2`}
+          >
             {!isFullscreen ? skillSaveControl : null}
             <div className={isFullscreen ? "" : "lg:hidden"}>{taskControl}</div>
           </div>

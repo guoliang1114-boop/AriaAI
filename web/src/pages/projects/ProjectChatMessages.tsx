@@ -1,10 +1,23 @@
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { BookOpen, FileText, Loader2, Play, Sparkles, Wrench } from "lucide-react";
+import {
+  BookOpen,
+  FileText,
+  Loader2,
+  Play,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
-import type { ChatPlanResponse, GeneratedArtifact, Message, Reference, ToolCallEvent } from "../../types/api";
+import type {
+  ChatPlanResponse,
+  GeneratedArtifact,
+  Message,
+  Reference,
+  ToolCallEvent,
+} from "../../types/api";
 import type { ProjectQuickPrompt } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatEmptyState } from "./ProjectChatEmptyState";
@@ -27,85 +40,110 @@ const ChatStreamingMessage = memo<{
   references: Reference[];
   status: string;
   toolCalls: ToolCallEvent[];
-}>(({ artifacts, content, isTruncated, isZh, onContinue, onDownloadArtifact, onOpenArtifact, onOpenTasks, projectId, references, status, toolCalls }) => {
-  const renderedContent = useMemo(() => <MarkdownRenderer content={content} />, [content]);
+}>(
+  ({
+    artifacts,
+    content,
+    isTruncated,
+    isZh,
+    onContinue,
+    onDownloadArtifact,
+    onOpenArtifact,
+    onOpenTasks,
+    projectId,
+    references,
+    status,
+    toolCalls,
+  }) => {
+    const renderedContent = useMemo(
+      () => <MarkdownRenderer content={content} />,
+      [content],
+    );
 
-  const buildReferenceHref = (reference: Reference) => {
-    if (reference.type === "milestone") return `/projects/${projectId}/milestones`;
-    return `/projects/${projectId}/space`;
-  };
+    const buildReferenceHref = (reference: Reference) => {
+      if (reference.type === "milestone")
+        return `/projects/${projectId}/milestones`;
+      return `/projects/${projectId}/space`;
+    };
 
-  return (
-    <div className="project-chat-message mx-auto flex max-w-4xl items-start gap-3.5">
-      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
-        <Sparkles className="w-3.5 h-3.5 text-white" />
-      </div>
-      <div className="flex-1 min-w-0 flex flex-col items-stretch">
-        <p className="mb-1.5 px-0.5 text-xs font-medium text-slate-400">Aria</p>
-        <div className="w-full max-w-none text-[15px] leading-[1.8] text-gray-700">
-          <div className="md-root project-chat-answer w-full">
-            {content ? renderedContent : null}
-            {status ? (
-              <div className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm`}>
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span>{status}</span>
-              </div>
-            ) : null}
-            <span className="project-chat-stream-caret ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-900" />
-            {isTruncated && onContinue && (
-              <div className="mt-3">
-                <button
-                  onClick={onContinue}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/10"
+    return (
+      <div className="project-chat-message mx-auto flex max-w-4xl items-start gap-3">
+        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
+          <Sparkles className="w-3.5 h-3.5 text-white" />
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col items-stretch">
+          <p className="mb-1 px-0.5 text-xs font-medium text-slate-400">Aria</p>
+          <div className="w-full max-w-none text-[14px] leading-6 text-gray-700">
+            <div className="md-root project-chat-answer w-full">
+              {content ? renderedContent : null}
+              {status ? (
+                <div
+                  className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-500 shadow-sm`}
                 >
-                  <Play className="h-3.5 w-3.5" />
-                  {isZh ? "继续生成" : "Continue generating"}
-                </button>
-              </div>
-            )}
-          </div>
-          {(toolCalls.length > 0 || artifacts.length > 0 || references.length > 0) && (
-            <div className="mt-3 w-full max-w-3xl space-y-2">
-              {toolCalls.map((call, index) => (
-                <ProjectChatToolCallCard
-                  key={`${call.tool_name}-${call.status}-${index}`}
-                  call={call}
-                  isZh={isZh}
-                  onOpenTasks={onOpenTasks}
-                />
-              ))}
-              {artifacts.map((artifact) => (
-                <ProjectChatArtifactCard
-                  key={`${artifact.path || artifact.id || artifact.name}-${artifact.name}`}
-                  artifact={artifact}
-                  isZh={isZh}
-                  onDownload={onDownloadArtifact}
-                  onOpen={onOpenArtifact}
-                />
-              ))}
-              {references.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {references.map((ref, index) => (
-                    <Link
-                      to={buildReferenceHref(ref)}
-                      key={`${ref.type}-${ref.id}-${index}`}
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-500 hover:border-primary/30 hover:text-primary"
-                    >
-                      {ref.type === "skill" && <Wrench className="h-3 w-3" />}
-                      {ref.type === "doc" && <BookOpen className="h-3 w-3" />}
-                      {ref.type === "file" && <FileText className="h-3 w-3" />}
-                      {ref.title}
-                    </Link>
-                  ))}
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span>{status}</span>
+                </div>
+              ) : null}
+              <span className="project-chat-stream-caret ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-900" />
+              {isTruncated && onContinue && (
+                <div className="mt-3">
+                  <button
+                    onClick={onContinue}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    {isZh ? "继续生成" : "Continue generating"}
+                  </button>
                 </div>
               )}
             </div>
-          )}
+            {(toolCalls.length > 0 ||
+              artifacts.length > 0 ||
+              references.length > 0) && (
+              <div className="mt-2.5 w-full max-w-3xl space-y-1.5">
+                {toolCalls.map((call, index) => (
+                  <ProjectChatToolCallCard
+                    key={`${call.tool_name}-${call.status}-${index}`}
+                    call={call}
+                    isZh={isZh}
+                    onOpenTasks={onOpenTasks}
+                  />
+                ))}
+                {artifacts.map((artifact) => (
+                  <ProjectChatArtifactCard
+                    key={`${artifact.path || artifact.id || artifact.name}-${artifact.name}`}
+                    artifact={artifact}
+                    isZh={isZh}
+                    onDownload={onDownloadArtifact}
+                    onOpen={onOpenArtifact}
+                  />
+                ))}
+                {references.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {references.map((ref, index) => (
+                      <Link
+                        to={buildReferenceHref(ref)}
+                        key={`${ref.type}-${ref.id}-${index}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-500 hover:border-primary/30 hover:text-primary"
+                      >
+                        {ref.type === "skill" && <Wrench className="h-3 w-3" />}
+                        {ref.type === "doc" && <BookOpen className="h-3 w-3" />}
+                        {ref.type === "file" && (
+                          <FileText className="h-3 w-3" />
+                        )}
+                        {ref.title}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 type ProjectChatMessagesProps = {
   messages: ChatMessage[];
@@ -188,86 +226,113 @@ export function ProjectChatMessages({
         </div>
       )}
 
-      {messages.length === 0 && !streamingContent && !streamingStatus && !isLoading && !isLoadingMessages && (
-        <div className="absolute inset-0 flex items-center justify-center px-4 py-10">
-          <div className="w-full max-w-4xl">
-            <ProjectChatEmptyState
-              choosePromptLabel={choosePromptLabel}
-              onQuickPrompt={onQuickPrompt}
-              quickPrompts={quickPrompts}
-              startConversationLabel={startConversationLabel}
-            />
+      {messages.length === 0 &&
+        !streamingContent &&
+        !streamingStatus &&
+        !isLoading &&
+        !isLoadingMessages && (
+          <div className="absolute inset-0 flex items-center justify-center px-4 py-10">
+            <div className="w-full max-w-4xl">
+              <ProjectChatEmptyState
+                choosePromptLabel={choosePromptLabel}
+                onQuickPrompt={onQuickPrompt}
+                quickPrompts={quickPrompts}
+                startConversationLabel={startConversationLabel}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!isLoadingMessages && (messages.length > 0 || streamingContent || streamingStatus || isLoading) && (
-        <>
-          {messages.map((msg) => {
-            return (
-              <ProjectChatMessageBubble
-                key={msg.id}
-                highlight={highlightedMessageId === msg.id}
-                msg={msg}
+      {!isLoadingMessages &&
+        (messages.length > 0 ||
+          streamingContent ||
+          streamingStatus ||
+          isLoading) && (
+          <>
+            {messages.map((msg) => {
+              return (
+                <ProjectChatMessageBubble
+                  key={msg.id}
+                  highlight={highlightedMessageId === msg.id}
+                  msg={msg}
+                  onDownloadArtifact={onDownloadArtifact}
+                  onOpenArtifact={onOpenArtifact}
+                  onOpenTasks={onOpenTasks}
+                  onApplyStakeholders={onApplyStakeholders}
+                  onContinue={
+                    msg.role === "assistant" && !isLoading
+                      ? onContinue
+                      : undefined
+                  }
+                  projectId={projectId}
+                  onSaveToNotes={
+                    msg.role === "assistant"
+                      ? () => onSaveMessage(msg.id)
+                      : undefined
+                  }
+                />
+              );
+            })}
+            {(streamingContent ||
+              streamingStatus ||
+              streamingToolCalls.length > 0 ||
+              streamingArtifacts.length > 0 ||
+              streamingReferences.length > 0) && (
+              <ChatStreamingMessage
+                artifacts={streamingArtifacts}
+                content={streamingContent}
+                isTruncated={!!isStreamingTruncated}
+                isZh={isZh}
+                onContinue={onContinue}
                 onDownloadArtifact={onDownloadArtifact}
                 onOpenArtifact={onOpenArtifact}
                 onOpenTasks={onOpenTasks}
-                onApplyStakeholders={onApplyStakeholders}
-                onContinue={msg.role === "assistant" && !isLoading ? onContinue : undefined}
                 projectId={projectId}
-                onSaveToNotes={msg.role === "assistant" ? () => onSaveMessage(msg.id) : undefined}
+                references={streamingReferences}
+                status={streamingStatus}
+                toolCalls={streamingToolCalls}
               />
-            );
-          })}
-          {(streamingContent || streamingStatus || streamingToolCalls.length > 0 || streamingArtifacts.length > 0 || streamingReferences.length > 0) && (
-            <ChatStreamingMessage
-              artifacts={streamingArtifacts}
-              content={streamingContent}
-              isTruncated={!!isStreamingTruncated}
-              isZh={isZh}
-              onContinue={onContinue}
-              onDownloadArtifact={onDownloadArtifact}
-              onOpenArtifact={onOpenArtifact}
-              onOpenTasks={onOpenTasks}
-              projectId={projectId}
-              references={streamingReferences}
-              status={streamingStatus}
-              toolCalls={streamingToolCalls}
-            />
-          )}
-          {planResult && onExecutePlan && onCancelPlan && (
-            <ProjectChatPlanCard
-              plan={planResult}
-              isGenerating={isGeneratingPlan}
-              onExecute={onExecutePlan}
-              onCancel={onCancelPlan}
-            />
-          )}
-          {isLoading && !streamingContent && !streamingStatus && streamingToolCalls.length === 0 && streamingArtifacts.length === 0 && streamingReferences.length === 0 && (
-            <div className="project-chat-message mx-auto flex max-w-4xl gap-3.5">
-              <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
-                <Sparkles className="h-3.5 w-3.5 text-white" />
-              </div>
-              <div className="space-y-2">
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span className="text-sm text-gray-500">{thinkingLabel}</span>
+            )}
+            {planResult && onExecutePlan && onCancelPlan && (
+              <ProjectChatPlanCard
+                plan={planResult}
+                isGenerating={isGeneratingPlan}
+                onExecute={onExecutePlan}
+                onCancel={onCancelPlan}
+              />
+            )}
+            {isLoading &&
+              !streamingContent &&
+              !streamingStatus &&
+              streamingToolCalls.length === 0 &&
+              streamingArtifacts.length === 0 &&
+              streamingReferences.length === 0 && (
+                <div className="project-chat-message mx-auto flex max-w-4xl gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
+                    <Sparkles className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span className="text-xs text-gray-500">
+                          {thinkingLabel}
+                        </span>
+                      </div>
+                    </div>
+                    {streamingToolCalls.map((call, index) => (
+                      <ProjectChatToolCallCard
+                        key={`${call.tool_name}-${call.status}-${index}`}
+                        call={call}
+                        isZh={isZh}
+                        onOpenTasks={onOpenTasks}
+                      />
+                    ))}
                   </div>
                 </div>
-                {streamingToolCalls.map((call, index) => (
-                  <ProjectChatToolCallCard
-                    key={`${call.tool_name}-${call.status}-${index}`}
-                    call={call}
-                    isZh={isZh}
-                    onOpenTasks={onOpenTasks}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+              )}
+          </>
+        )}
     </>
   );
 }
