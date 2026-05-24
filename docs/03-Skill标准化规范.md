@@ -19,7 +19,7 @@
 推荐每个复杂 Skill 都有一个文件包：
 
 ```text
-AriaAI/skills/{skill-slug}/
+skills/{skill-slug}/
 ├── SKILL.md
 ├── references/
 ├── assets/
@@ -96,7 +96,7 @@ max_tokens: 8192
 
 ### 5.1 增加常量
 
-文件：`AriaAI/backend/app/routers/skills.py`
+文件：`backend/app/routers/skills.py`
 
 ```python
 MEETING_INTELLIGENCE_SKILL_NAME = "会议纪要提取"
@@ -137,7 +137,7 @@ MEETING_INTELLIGENCE_TOOL_NAMES = [
 
 ### 5.3 注册或复用工具
 
-工具应通过 `app.tools.registry` 注册。新增工具应放在 `AriaAI/backend/app/tools/`。
+工具应通过 `app.tools.registry` 注册。新增工具应放在 `backend/app/tools/`。
 
 工具要求：
 
@@ -150,7 +150,7 @@ MEETING_INTELLIGENCE_TOOL_NAMES = [
 
 ### 5.4 确保工具被导入
 
-`AriaAI/backend/main.py` 通过 side-effect 导入工具模块。新增工具后必须确保它被启动入口导入，否则 registry 中不会有该工具。
+`backend/main.py` 通过 side-effect 导入工具模块。新增工具后必须确保它被启动入口导入，否则 registry 中不会有该工具。
 
 当前已导入：
 
@@ -168,7 +168,7 @@ from app.tools import pdf_tools
 当前前端主要从 `/skills` 获取 Skill 数据，页面位于：
 
 ```text
-aria-web/src/pages/skills/
+web/src/pages/skills/
 ```
 
 接入要求：

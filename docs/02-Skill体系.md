@@ -10,7 +10,7 @@ AriaAI 的 Skill 是可复用的咨询工作流，不是单纯的 prompt 模板�
 当前代码里同时存在两类资产：
 
 - 数据库 Skill：运行时主体，模型从 `Skill` 表读取 `system_prompt`、`user_template`、工具定义和 token 配置。
-- 文件型 Skill 包：位于 `AriaAI/skills/`，用于沉淀更完整的方法论、reference、模板、脚本和后续标准化资产。
+- 文件型 Skill 包：位于 `skills/`，用于沉淀更完整的方法论、reference、模板、脚本和后续标准化资产。
 
 Skill 的产品作用：
 
@@ -23,12 +23,12 @@ Skill 的产品作用：
 
 | 维度 | 当前状态 |
 |---|---|
-| Skill 数据模型 | `AriaAI/backend/app/models/db.py` 中的 `Skill` |
+| Skill 数据模型 | `backend/app/models/db.py` 中的 `Skill` |
 | CRUD 路由 | `GET/POST/PATCH/DELETE /skills` |
-| 内置种子 | `AriaAI/backend/app/routers/skills.py` |
-| 文件包目录 | `AriaAI/skills/` |
+| 内置种子 | `backend/app/routers/skills.py` |
+| 文件包目录 | `skills/` |
 | 工具来源 | `app.tools.registry` 注册的工具 |
-| 前端入口 | `aria-web/src/pages/skills/`，项目/客户空间可跳转启动 |
+| 前端入口 | `web/src/pages/skills/`，项目/客户空间可跳转启动 |
 | 对话执行 | `ChatMode.SKILL_EXECUTION` 与 `force_skill` |
 | 结果回流 | 项目 Chat 保存为项目文档/笔记，触发记忆 stale/刷新 |
 
@@ -36,7 +36,7 @@ Skill 的产品作用：
 
 ## 3. 数据模型
 
-模型位置：`AriaAI/backend/app/models/db.py`
+模型位置：`backend/app/models/db.py`
 
 | 字段 | 说明 |
 |---|---|
@@ -53,7 +53,7 @@ Skill 的产品作用：
 
 ## 4. 路由与缓存
 
-路由文件：`AriaAI/backend/app/routers/skills.py`
+路由文件：`backend/app/routers/skills.py`
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -100,7 +100,7 @@ P0-P4 phase 执行
 
 ## 6. 顾问能力目录
 
-代码位置：`AriaAI/backend/app/services/consulting_capabilities.py`
+代码位置：`backend/app/services/consulting_capabilities.py`
 
 顾问能力目录与 Skill 的关系：
 
@@ -163,7 +163,7 @@ P0-P4 phase 执行
 当前目录：
 
 ```text
-AriaAI/skills/
+skills/
 ├── ai-strategy-report/
 ├── consulting-proposal-advisor/
 ├── digital-strategy/

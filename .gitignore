@@ -52,12 +52,12 @@ backend/.Python
 .gstack/
 
 # Local development caches
-AriaAI/backend/.tmp/
-aria-web/.npm-cache/
+backend/.tmp/
+web/.npm-cache/
 
 # Backend data and uploads
-AriaAI/backend/data/
-AriaAI/backend/*.db
-AriaAI/backend/uploads/
-AriaAI/backend/artifacts/
-AriaAI/backend/generated/
+backend/data/
+backend/*.db
+backend/uploads/
+backend/artifacts/
+backend/generated/

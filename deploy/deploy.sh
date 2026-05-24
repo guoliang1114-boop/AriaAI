@@ -10,8 +10,9 @@ echo "========================================"
 
 # 配置
 PROJECT_DIR="/www/wwwroot/AriaAI"
-BACKEND_DIR="$PROJECT_DIR/AriaAI/backend"
-FRONTEND_DIR="$PROJECT_DIR/aria-web/dist"
+BACKEND_DIR="$PROJECT_DIR/backend"
+LEGACY_BACKEND_DIR="$PROJECT_DIR/AriaAI/backend"
+FRONTEND_DIR="$PROJECT_DIR/web/dist"
 NGINX_ROOT="/www/wwwroot/aria.d2cgo.co"
 PM2_APP_NAME="ariaai-backend"
 
@@ -39,6 +40,16 @@ if [ ! -d "$BACKEND_DIR" ]; then
     exit 1
 fi
 
+# 兼容旧目录结构：将运行时文件从 AriaAI/backend 迁移到 backend。
+if [ -d "$LEGACY_BACKEND_DIR" ]; then
+    [ -d "$BACKEND_DIR/.venv" ] || [ ! -d "$LEGACY_BACKEND_DIR/.venv" ] || mv "$LEGACY_BACKEND_DIR/.venv" "$BACKEND_DIR/.venv"
+    [ -f "$BACKEND_DIR/.env" ] || [ ! -f "$LEGACY_BACKEND_DIR/.env" ] || cp "$LEGACY_BACKEND_DIR/.env" "$BACKEND_DIR/.env"
+    if [ -d "$LEGACY_BACKEND_DIR/data" ]; then
+        mkdir -p "$BACKEND_DIR/data"
+        cp -a "$LEGACY_BACKEND_DIR/data/." "$BACKEND_DIR/data/"
+    fi
+fi
+
 # 1. 更新代码（如果是手动执行）
 if [ "$1" == "--git-pull" ]; then
     log_info "从 Git 拉取最新代码..."
@@ -52,7 +63,7 @@ deploy_frontend() {
     
     if [ ! -d "$FRONTEND_DIR" ]; then
         log_error "前端构建目录不存在: $FRONTEND_DIR"
-        log_info "请先在本地构建前端: cd aria-web && npm run build"
+        log_info "请先在本地构建前端: cd web && npm run build"
         exit 1
     fi
     

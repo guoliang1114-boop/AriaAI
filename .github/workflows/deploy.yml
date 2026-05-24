@@ -26,41 +26,41 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: aria-web/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: AriaAI/backend/requirements.txt
+          cache-dependency-path: backend/requirements.txt
 
       - name: Build Frontend
         run: |
-          cd aria-web
+          cd web
           npm ci
           npm run build
 
       - name: Frontend Tests
         run: |
-          cd aria-web
+          cd web
           npm run test:project-chat
 
       - name: Frontend Lint
         run: |
-          cd aria-web
+          cd web
           npm run lint -- --max-warnings=200 || true
 
       - name: Prepare Backend
         run: |
-          cd AriaAI/backend
+          cd backend
           python -m pip install --upgrade pip
           python -m pip install --retries 5 --timeout 60 -r requirements.txt || \
           python -m pip install --no-cache-dir --retries 5 --timeout 60 -r requirements.txt
 
       - name: Backend Smoke Check
         run: |
-          cd AriaAI/backend
+          cd backend
           python -m py_compile main.py
           python -m py_compile app/config.py
           python -m py_compile app/models/db.py
@@ -72,7 +72,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || '22' }}
-          source: "aria-web/dist/,AriaAI/backend/,AriaAI/skills/"
+          source: "web/dist/,backend/,skills/"
           target: "/www/wwwroot/AriaAI/"
           strip_components: 0
           overwrite: true
@@ -86,9 +86,26 @@ jobs:
           port: ${{ secrets.SERVER_PORT || '22' }}
           script: |
             set -e
-            cd /www/wwwroot/AriaAI/AriaAI/backend
+            PROJECT_DIR="/www/wwwroot/AriaAI"
+            BACKEND_DIR="$PROJECT_DIR/backend"
+            LEGACY_BACKEND_DIR="$PROJECT_DIR/AriaAI/backend"
+
+            # One-time compatibility move after repository directory normalization.
+            if [ -d "$LEGACY_BACKEND_DIR" ]; then
+              [ -d "$BACKEND_DIR/.venv" ] || [ ! -d "$LEGACY_BACKEND_DIR/.venv" ] || mv "$LEGACY_BACKEND_DIR/.venv" "$BACKEND_DIR/.venv"
+              [ -f "$BACKEND_DIR/.env" ] || [ ! -f "$LEGACY_BACKEND_DIR/.env" ] || cp "$LEGACY_BACKEND_DIR/.env" "$BACKEND_DIR/.env"
+              if [ -d "$LEGACY_BACKEND_DIR/data" ]; then
+                mkdir -p "$BACKEND_DIR/data"
+                cp -a "$LEGACY_BACKEND_DIR/data/." "$BACKEND_DIR/data/"
+              fi
+            fi
+
+            cd "$BACKEND_DIR"
 
             # Activate the backend virtual environment.
+            if [ ! -d ".venv" ]; then
+              python3 -m venv .venv
+            fi
             source .venv/bin/activate
 
             # Install backend dependencies in case requirements changed.
@@ -112,7 +129,7 @@ jobs:
 
             # Replace frontend build artifacts served by Nginx.
             rm -rf /www/wwwroot/aria.d2cgo.co/*
-            cp -r /www/wwwroot/AriaAI/aria-web/dist/* /www/wwwroot/aria.d2cgo.co/
+            cp -r /www/wwwroot/AriaAI/web/dist/* /www/wwwroot/aria.d2cgo.co/
 
             # Reload Nginx only after the config validates.
             nginx -t && nginx -s reload

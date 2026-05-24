@@ -106,7 +106,7 @@ pending → rejected
 
 ## 5. 数据模型
 
-模型位置：`AriaAI/backend/app/models/db.py`
+模型位置：`backend/app/models/db.py`
 
 ```python
 class PendingToolAction(SQLModel, table=True):
@@ -173,7 +173,7 @@ class PendingToolAction(SQLModel, table=True):
 部署要求：
 
 ```bash
-cd AriaAI/backend
+cd backend
 alembic upgrade head
 ```
 
@@ -357,9 +357,9 @@ GET /chat/actions/metrics
 
 核心文件：
 
-- `aria-web/src/pages/projects/ProjectChatMainPanel.tsx`
-- `aria-web/src/pages/projects/ProjectChatActionPreviewPanel.tsx`
-- `aria-web/src/pages/projects/projectChatPendingActions.ts`
+- `web/src/pages/projects/ProjectChatMainPanel.tsx`
+- `web/src/pages/projects/ProjectChatActionPreviewPanel.tsx`
+- `web/src/pages/projects/projectChatPendingActions.ts`
 
 前端要求：
 
@@ -410,7 +410,7 @@ GET /chat/actions/metrics
 常用检查：
 
 ```bash
-cd AriaAI/backend
+cd backend
 alembic current
 alembic upgrade head
 pytest tests/test_chat_pending_action.py tests/test_chat_actions.py

@@ -11,12 +11,13 @@
 AriaAI is an **AI-native workbench for consultants and professional service teams**.  
 It is NOT a generic chatbot. It organises work around **Projects, Clients, Knowledge, Skills, Templates, Scheduled Tasks, and Deliverables**.
 
-Three codebases live in this monorepo:
+Core code lives in these top-level directories:
 
 | Directory | Role |
 |---|---|
-| `aria-web/` | React + TypeScript web client |
-| `AriaAI/backend/` | Python FastAPI backend |
+| `web/` | React + TypeScript web client |
+| `backend/` | Python FastAPI backend |
+| `skills/` | File-based Skill assets and references |
 
 ---
 
@@ -28,27 +29,25 @@ AP/
 ├── README.md                   ← quick-start guide
 ├── docs/                       ← all project documentation
 │   ├── 00-项目总览.md           ← full system overview (start here for context)
-│   ├── 01-产品设计文档.md        ← product design & roadmap
-│   ├── 02-Skill开发指南.md      ← how to build Skills
-│   ├── 03-代码问题清单.md        ← known bugs & issues
-│   ├── 04-产品方向建议.md        ← product direction
-│   ├── 05-技术建议.md           ← technical recommendations
-│   ├── 06-当前架构图.md         ← architecture diagrams (Mermaid)
-│   └── 07-RAG演进方案.md        ← RAG evolution plan
-├── AriaAI/
-│   ├── backend/                ← Python backend
-│   │   ├── main.py             ← FastAPI entry point
-│   │   ├── app/
-│   │   │   ├── config.py       ← ALL configuration lives here
-│   │   │   ├── database.py     ← DB engine & migrations
-│   │   │   ├── models/db.py    ← ALL SQLModel data models
-│   │   │   ├── routers/        ← one file per domain
-│   │   │   ├── services/       ← business logic
-│   │   │   └── tools/          ← registered tool implementations
-│   │   ├── alembic/            ← DB migration scripts
-│   │   └── requirements.txt
-│   └── skills/                 ← example skill assets (not the main skill store)
-├── aria-web/
+│   ├── 01-产品战略方向.md        ← product strategy
+│   ├── 02-Skill体系.md          ← Skill system
+│   ├── 03-Skill标准化规范.md    ← how to build Skills
+│   ├── 04-RAG演进方案.md        ← RAG evolution plan
+│   ├── 05-对话系统设计与规范.md  ← chat system design
+│   └── 06-Human-in-the-Loop Tool Approval 设计.md
+├── backend/                    ← Python backend
+│   ├── main.py                 ← FastAPI entry point
+│   ├── app/
+│   │   ├── config.py           ← ALL configuration lives here
+│   │   ├── database.py         ← DB engine & migrations
+│   │   ├── models/db.py        ← ALL SQLModel data models
+│   │   ├── routers/            ← one file per domain
+│   │   ├── services/           ← business logic
+│   │   └── tools/              ← registered tool implementations
+│   ├── alembic/                ← DB migration scripts
+│   └── requirements.txt
+├── skills/                     ← file-based Skill assets and references
+├── web/
 │   ├── src/
 │   │   ├── config/api.ts       ← unified API base URL (single source of truth)
 │   │   ├── App.tsx             ← routes
@@ -58,8 +57,7 @@ AP/
 │   │   ├── types/              ← TypeScript types & enums
 │   │   └── i18n/               ← internationalisation strings
 │   └── vite.config.ts          ← Vite proxies /api → http://127.0.0.1:8000
-├── screenshots/
-└── stitch_ai_prd/              ← UI mockups (HTML + PNG)
+└── deploy/                     ← deployment scripts and nginx config
 ```
 
 ---
@@ -84,11 +82,11 @@ AP/
 
 Read in this order to understand the backend:
 
-1. `AriaAI/backend/main.py` — entry point, startup hooks, router registration
-2. `AriaAI/backend/app/config.py` — **all** configuration (env-driven)
-3. `AriaAI/backend/app/models/db.py` — **all** data models
-4. `AriaAI/backend/app/services/context_builder.py` — chat context assembly
-5. `AriaAI/backend/app/routers/chat.py` — SSE streaming, message persistence
+1. `backend/main.py` — entry point, startup hooks, router registration
+2. `backend/app/config.py` — **all** configuration (env-driven)
+3. `backend/app/models/db.py` — **all** data models
+4. `backend/app/services/context_builder.py` — chat context assembly
+5. `backend/app/routers/chat.py` — SSE streaming, message persistence
 
 ### Routers (one per domain)
 
@@ -121,7 +119,7 @@ Read in this order to understand the backend:
 
 ### Tools
 
-All registered tools live in `AriaAI/backend/app/tools/file_generators.py`:
+All registered tools live in `backend/app/tools/file_generators.py`:
 
 - `generate_ppt` / `generate_ppt_from_skill`
 - `generate_docx`
@@ -207,17 +205,13 @@ Tool schema follows Anthropic format. Use `POST /skills/tools/validate` to check
 
 ```bash
 # Backend
-cd AriaAI/backend
+cd backend
 ./start.sh            # starts uvicorn on :8000
 
 # Web
-cd aria-web
+cd web
 npm install
 npm run dev           # starts Vite on :5173, proxies /api to :8000
-
-# macOS
-cd AriaAI
-swift run
 ```
 
 ---
@@ -311,7 +305,7 @@ docs: update architecture diagram for RAG changes
 | RAG upgrade plan | `docs/04-RAG演进方案.md` |
 | Chat system design | `docs/05-对话系统设计与规范.md` |
 | HITAS tool approval | `docs/06-Human-in-the-Loop Tool Approval 设计.md` |
-| Backend entry point | `AriaAI/backend/main.py` |
-| All config values | `AriaAI/backend/app/config.py` |
-| All data models | `AriaAI/backend/app/models/db.py` |
-| Web API base config | `aria-web/src/config/api.ts` |
+| Backend entry point | `backend/main.py` |
+| All config values | `backend/app/config.py` |
+| All data models | `backend/app/models/db.py` |
+| Web API base config | `web/src/config/api.ts` |

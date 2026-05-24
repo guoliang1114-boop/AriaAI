@@ -50,7 +50,7 @@ bash deploy/deploy.sh --migrate
 自动部署和手动 `--migrate` 都会优先使用：
 
 ```bash
-cd AriaAI/backend
+cd backend
 python scripts/migration_governance.py report
 python scripts/migration_governance.py ensure
 python scripts/migration_governance.py upgrade
@@ -67,7 +67,7 @@ python scripts/migration_governance.py check
 如果发布失败，先查看：
 
 ```bash
-cd AriaAI/backend
+cd backend
 python scripts/migration_governance.py json
 ```
 
@@ -81,9 +81,10 @@ curl https://aria.d2cgo.co/api/health/db/migrations
 
 在 GitHub 仓库设置中添加以下 Secrets：
 
-- `SSH_HOST`: 服务器 IP 或域名
-- `SSH_USER`: SSH 用户名
-- `SSH_PASSWORD`: SSH 密码（或使用 `SSH_PRIVATE_KEY`）
+- `SERVER_HOST`: 服务器 IP 或域名
+- `SERVER_USER`: SSH 用户名
+- `SERVER_PASSWORD`: SSH 密码
+- `SERVER_PORT`: SSH 端口，未设置时默认 `22`
 
 ## 故障排查
 

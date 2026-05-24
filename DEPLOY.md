@@ -18,7 +18,7 @@
 1. GitHub Actions 检出代码
 2. Actions 本地构建前端
 3. Actions 准备后端依赖
-4. 通过 SCP 上传 `aria-web/dist` 和 `AriaAI/backend`
+4. 通过 SCP 上传 `web/dist` 和 `backend`
 5. 通过 SSH 在服务器执行部署脚本
 6. 服务器完成以下动作
    - 激活后端虚拟环境
@@ -76,7 +76,7 @@ on:
 
 1. 项目代码目录存在：`/www/wwwroot/AriaAI`
 2. 前端站点目录存在：`/www/wwwroot/aria.d2cgo.co`
-3. 后端虚拟环境已创建：`/www/wwwroot/AriaAI/AriaAI/backend/.venv`
+3. 后端虚拟环境已创建：`/www/wwwroot/AriaAI/backend/.venv`
 4. PM2 中已有 `ariaai-backend` 进程
 5. Nginx 已完成站点配置
 6. PostgreSQL 可用
@@ -167,7 +167,7 @@ git push origin main
 建议登录服务器检查：
 
 ```bash
-cd /www/wwwroot/AriaAI/AriaAI/backend
+cd /www/wwwroot/AriaAI/backend
 source .venv/bin/activate
 alembic current
 alembic upgrade head
@@ -209,14 +209,14 @@ alembic upgrade head
 最常见的补救动作：
 
 ```bash
-cd /www/wwwroot/AriaAI/AriaAI/backend
+cd /www/wwwroot/AriaAI/backend
 source .venv/bin/activate
 pip install -r requirements.txt
 python3 scripts/ensure_db.py
 alembic upgrade head
 pm2 reload ariaai-backend --update-env
 
-cd /www/wwwroot/AriaAI/aria-web
+cd /www/wwwroot/AriaAI/web
 cp -r dist/* /www/wwwroot/aria.d2cgo.co/
 nginx -t && nginx -s reload
 ```

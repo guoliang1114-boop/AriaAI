@@ -20,11 +20,11 @@ RAG 是 AriaAI 的基础上下文能力，用于把项目、客户或全局知�
 
 | 文件 | 说明 |
 |---|---|
-| `AriaAI/backend/app/routers/knowledge.py` | 文档上传、列表、删除、查询、统计 |
-| `AriaAI/backend/app/services/parser.py` | 文件文本解析 |
-| `AriaAI/backend/app/services/rag.py` | 切块、embedding、检索 |
-| `AriaAI/backend/app/models/db.py` | `KnowledgeDocument`、`DocumentChunk` |
-| `AriaAI/backend/app/services/context_builder/rag_context.py` | 对话上下文中的 RAG 注入 |
+| `backend/app/routers/knowledge.py` | 文档上传、列表、删除、查询、统计 |
+| `backend/app/services/parser.py` | 文件文本解析 |
+| `backend/app/services/rag.py` | 切块、embedding、检索 |
+| `backend/app/models/db.py` | `KnowledgeDocument`、`DocumentChunk` |
+| `backend/app/services/context_builder/rag_context.py` | 对话上下文中的 RAG 注入 |
 
 处理链路：
 

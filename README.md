@@ -4,8 +4,8 @@ AriaAI 是面向咨询、售前与交付团队的 AI 协作工作台。当前仓
 
 ## 技术栈
 
-- 前端：`aria-web`，React 19 + TypeScript + Vite
-- 后端：`AriaAI/backend`，FastAPI + SQLModel + Alembic
+- 前端：`web`，React 19 + TypeScript + Vite
+- 后端：`backend`，FastAPI + SQLModel + Alembic
 - 数据库：PostgreSQL
 - 调度：APScheduler
 - AI 能力：多模型配置、项目/客户上下文、RAG、工具调用、Skill 模板
@@ -15,14 +15,14 @@ AriaAI 是面向咨询、售前与交付团队的 AI 协作工作台。当前仓
 后端：
 
 ```bash
-cd AriaAI/backend
+cd backend
 ./start.sh
 ```
 
 前端：
 
 ```bash
-cd aria-web
+cd web
 npm install
 npm run dev
 ```
@@ -30,7 +30,7 @@ npm run dev
 生产构建校验：
 
 ```bash
-cd aria-web
+cd web
 npm run build
 ```
 
@@ -44,7 +44,7 @@ npm run build
 - `check`: 检查是否有待处理的迁移
 
 ```bash
-cd AriaAI/backend
+cd backend
 python scripts/migration_governance.py report
 python scripts/migration_governance.py ensure
 python scripts/migration_governance.py upgrade

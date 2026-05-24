@@ -112,7 +112,7 @@ green "后端配置完成"
 # ===========================================
 yellow "[4/6] 构建前端..."
 
-cd "$PROJECT_PATH/aria-web"
+cd "$PROJECT_PATH/web"
 
 # 安装依赖
 npm install -q
@@ -137,7 +137,7 @@ WEB_DIR="/www/wwwroot/$DOMAIN"
 mkdir -p "$WEB_DIR"
 
 # 复制前端构建文件
-cp -r "$PROJECT_PATH/aria-web/dist"/* "$WEB_DIR/"
+cp -r "$PROJECT_PATH/web/dist"/* "$WEB_DIR/"
 
 # 设置权限
 chown -R www:www "$WEB_DIR"
