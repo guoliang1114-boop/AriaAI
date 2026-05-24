@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useAppTimeZone } from './useAppTimeZone'
-import { APP_TIMEZONE_STORAGE_KEY, APP_TIMEZONE_EVENT, BROWSER_TIMEZONE_VALUE, DEFAULT_APP_TIMEZONE } from '../utils/timezone'
+import { APP_TIMEZONE_STORAGE_KEY, APP_TIMEZONE_EVENT, DEFAULT_APP_TIMEZONE } from '../utils/timezone'
 
 describe('useAppTimeZone', () => {
   beforeEach(() => {

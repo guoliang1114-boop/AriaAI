@@ -23,7 +23,6 @@ import {
   Search,
   Shield,
   ShieldCheck,
-  Sparkles,
   Target,
   TrendingUp,
   Users,
@@ -40,17 +39,6 @@ type SkillCategory = {
   id: string;
   label: string;
   count: number;
-};
-
-type ServiceLine = {
-  id: string;
-  title: string;
-  subtitle: string;
-  description: string;
-  categories: SkillCategory[];
-  count: number;
-  tone: string;
-  previewSkills: SkillSummary[];
 };
 
 const SKILLS_PAGE_SIZE = 12;
@@ -234,105 +222,6 @@ const getCategoryTone = (category: string) => {
   return "bg-slate-50 text-slate-700 border-slate-200";
 };
 
-const getCategoryGradient = (category: string) => {
-  const key = getCategoryKey(category);
-  if (key === "market") return "from-emerald-50 via-teal-50 to-sky-50";
-  if (key === "org") return "from-orange-50 via-amber-50 to-rose-50";
-  if (key === "digital") return "from-cyan-50 via-blue-50 to-indigo-50";
-  if (key.startsWith("consulting_")) return "from-violet-50 via-slate-50 to-sky-50";
-  if (key === "common") return "from-indigo-50 via-slate-50 to-emerald-50";
-  if (key === "strategy") return "from-blue-50 via-indigo-50 to-violet-50";
-  if (key === "finance") return "from-amber-50 via-orange-50 to-yellow-50";
-  if (key === "risk") return "from-rose-50 via-red-50 to-orange-50";
-  if (key === "audit") return "from-sky-50 via-blue-50 to-indigo-50";
-  if (key === "assurance") return "from-blue-50 via-indigo-50 to-violet-50";
-  if (key === "tax") return "from-emerald-50 via-teal-50 to-cyan-50";
-  return "from-slate-50 via-white to-slate-100";
-};
-
-const getCategoryDescription = (category: string, isZh: boolean) => {
-  const key = getCategoryKey(category);
-  const descriptions: Record<string, { zh: string; en: string }> = {
-    all: {
-      zh: "浏览全部能力，适合还不确定从哪个咨询场景开始。",
-      en: "Browse every capability when you are still choosing the right consulting angle.",
-    },
-    market: {
-      zh: "客户洞察、市场进入、GTM、画像与增长策略。",
-      en: "Customer insight, market entry, GTM, personas, and growth strategy.",
-    },
-    org: {
-      zh: "组织设计、人才机制、OKR、变革管理与协同效率。",
-      en: "Organization design, talent systems, OKRs, change, and collaboration.",
-    },
-    digital: {
-      zh: "数字化战略、AI 场景、架构、数据治理、流程与 ROI。",
-      en: "Digital strategy, AI use cases, architecture, data governance, process, and ROI.",
-    },
-    strategy: {
-      zh: "战略判断、增长机会、竞争分析与业务组合设计。",
-      en: "Strategic choices, growth opportunities, competition, and portfolio design.",
-    },
-    operations: {
-      zh: "运营诊断、根因分析、效率提升与流程优化。",
-      en: "Operational diagnosis, root causes, efficiency, and process improvement.",
-    },
-    finance: {
-      zh: "财务诊断、商业案例、投资测算与决策支持。",
-      en: "Financial diagnostics, business cases, investment modeling, and decisions.",
-    },
-    risk: {
-      zh: "风险识别、合规差距、控制机制与审查清单。",
-      en: "Risk discovery, compliance gaps, controls, and review checklists.",
-    },
-    common: {
-      zh: "通用任务、提案交付、项目复盘、深度分析和跨场景工作流。",
-      en: "General tasks, proposal delivery, retrospectives, deep analysis, and cross-scenario workflows.",
-    },
-    consulting_scoping: {
-      zh: "把客户问题讲清楚：问题定义、项目启动、范围界定和第一周行动计划。",
-      en: "Clarify the real client problem: scoping, kickoff, project brief, and week-one plan.",
-    },
-    consulting_delivery: {
-      zh: "把复杂材料变成可交付内容：执行摘要、客户报告、提案叙事和结构化输出。",
-      en: "Turn messy material into deliverables: executive summaries, client reports, proposals, and structured output.",
-    },
-    consulting_review: {
-      zh: "在交付前做合伙人式挑战：前提假设、逻辑完整性、数据一致性和质量把关。",
-      en: "Partner-style challenge before delivery: assumptions, logic, consistency, and quality control.",
-    },
-    consulting_learning: {
-      zh: "把项目经验沉淀成可复用资产：复盘、方法论提炼、模板和下次起点。",
-      en: "Convert project experience into reusable assets: retrospectives, methods, templates, and next-start points.",
-    },
-    manda: {
-      zh: "并购、交易、尽调和整合规划。",
-      en: "M&A, transactions, due diligence, and integration planning.",
-    },
-    data: {
-      zh: "数据分析、指标体系、看板设计和洞察交付。",
-      en: "Analytics, KPI systems, dashboard design, and insight delivery.",
-    },
-    other: {
-      zh: "其他可复用的专业能力。",
-      en: "Other reusable expert capabilities.",
-    },
-    audit: {
-      zh: "财务报表审计、IT审计、数据分析与审计程序执行。",
-      en: "Financial statement audits, IT audits, data analytics, and audit procedures.",
-    },
-    assurance: {
-      zh: "内部控制鉴证、会计报告鉴证、可持续发展鉴证与合规审查。",
-      en: "Internal control assurance, reporting assurance, sustainability assurance, and compliance reviews.",
-    },
-    tax: {
-      zh: "企业税、间接税、国际税、转让定价与税务合规优化。",
-      en: "Corporate tax, indirect tax, international tax, transfer pricing, and tax compliance optimization.",
-    },
-  };
-  return isZh ? descriptions[key]?.zh || descriptions.other.zh : descriptions[key]?.en || descriptions.other.en;
-};
-
 const getCategoryLabel = (category: string, isZh: boolean) => {
   const key = getCategoryKey(category);
   const labels: Record<string, { zh: string; en: string }> = {
@@ -357,95 +246,6 @@ const getCategoryLabel = (category: string, isZh: boolean) => {
     tax: { zh: "税务", en: "Tax" },
   };
   return isZh ? labels[key]?.zh || labels.other.zh : labels[key]?.en || labels.other.en;
-};
-
-const buildServiceLines = (categories: SkillCategory[], isZh: boolean, skills: SkillSummary[]): ServiceLine[] => {
-  const byId = new Map(categories.map((category) => [category.id, category]));
-  const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter(Boolean) as SkillCategory[];
-  const getPreviewSkills = (categoryIds: string[]) => {
-    return skills
-      .filter((skill) => categoryIds.includes(getSkillCategoryKey(skill)))
-      .slice(0, 3);
-  };
-  const makeLine = (
-    id: string,
-    title: string,
-    subtitle: string,
-    description: string,
-    categoryIds: string[],
-    tone: string,
-  ) => {
-    const lineCategories = pick(categoryIds);
-    return {
-      id,
-      title,
-      subtitle,
-      description,
-      categories: lineCategories,
-      count: lineCategories.reduce((sum, category) => sum + category.count, 0),
-      tone,
-      previewSkills: getPreviewSkills(categoryIds),
-    };
-  };
-
-  return [
-    makeLine(
-      "consulting-foundation",
-      isZh ? "顾问基础能力" : "Consulting Foundations",
-      isZh ? "从问题定义到交付复盘" : "From problem framing to delivery learning",
-      isZh ? "承接顾问日常最常用的基础工作流：启动、摘要、提案交付、质量审查和项目复盘。" : "Covers the everyday consulting workflows: scoping, synthesis, proposal delivery, quality review, and retrospectives.",
-      ["consulting_scoping", "consulting_delivery", "consulting_review", "consulting_learning", "common"],
-      "from-violet-50 via-slate-50 to-sky-50",
-    ),
-    makeLine(
-      "strategy-analytics",
-      isZh ? "战略、分析与交易" : "Strategy, Analytics & Transactions",
-      isZh ? "从增长判断到交易决策" : "From growth choices to transaction decisions",
-      isZh ? "覆盖战略增长、数据洞察、并购交易等高层决策型能力。" : "Covers executive decision capabilities across strategy, analytics, and transactions.",
-      ["strategy", "data", "manda"],
-      "from-blue-50 via-indigo-50 to-slate-50",
-    ),
-    makeLine(
-      "customer-marketing",
-      isZh ? "客户与市场" : "Customer & Marketing",
-      isZh ? "从客户洞察到增长体验" : "From customer insight to growth experience",
-      isZh ? "围绕客户、市场、增长、体验和商业化场景组织能力。" : "Organizes customer, market, growth, experience, and commercialization capabilities.",
-      ["market"],
-      "from-emerald-50 via-teal-50 to-sky-50",
-    ),
-    makeLine(
-      "human-capital",
-      isZh ? "组织与人才" : "Human Capital",
-      isZh ? "从组织机制到变革落地" : "From organization systems to change adoption",
-      isZh ? "面向组织设计、人才机制、协同效率和变革管理。" : "For organization design, talent systems, collaboration, and change management.",
-      ["org"],
-      "from-orange-50 via-amber-50 to-rose-50",
-    ),
-    makeLine(
-      "enterprise-technology",
-      isZh ? "企业技术与绩效" : "Enterprise Technology & Performance",
-      isZh ? "从数字化战略到绩效闭环" : "From digital strategy to performance impact",
-      isZh ? "连接数字化、技术架构、财务绩效、投资回报和企业能力建设。" : "Connects digital, technology architecture, finance performance, ROI, and enterprise capability building.",
-      ["digital", "finance"],
-      "from-cyan-50 via-blue-50 to-indigo-50",
-    ),
-    makeLine(
-      "core-operations",
-      isZh ? "核心业务运营" : "Core Business Operations",
-      isZh ? "从流程诊断到效能提升" : "From process diagnosis to performance improvement",
-      isZh ? "聚焦运营诊断、根因分析、流程优化和效率提升，不再混放通用顾问工作流。" : "Focuses on operational diagnosis, root causes, process optimization, and efficiency improvement without mixing general consulting workflows.",
-      ["operations"],
-      "from-teal-50 via-slate-50 to-emerald-50",
-    ),
-    makeLine(
-      "risk-advisory",
-      isZh ? "风险、监管与合规" : "Risk, Regulatory & Compliance",
-      isZh ? "从风险识别到控制机制" : "From risk discovery to control design",
-      isZh ? "覆盖风险识别、合规差距、控制机制和审查清单。" : "Covers risk discovery, compliance gaps, controls, and review checklists.",
-      ["risk"],
-      "from-rose-50 via-red-50 to-orange-50",
-    ),
-  ].filter((line) => line.categories.length > 0);
 };
 
 // ── 业务线映射（Practice Lines）─────────────────────────
@@ -1376,7 +1176,6 @@ export function SkillCategoryPage() {
               { label: isZh ? "技能" : "Skills", to: buildSkillsPath(launchSource.searchParams) },
               { label: pageLabel },
             ]}
-            isZh={isZh}
           />
 
           <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
@@ -1496,7 +1295,6 @@ export function SkillDetailPage() {
   const skillCategoryKey = skill ? getSkillCategoryKey(skill) : "other";
   const Icon = skill ? getCategoryIcon(skillCategoryKey) : Brain;
   const tone = skill ? getCategoryTone(skillCategoryKey) : "bg-slate-50 text-slate-700 border-slate-200";
-  const isQuick = extractMinutes(skill?.estimated_time) <= 10;
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
@@ -1538,7 +1336,6 @@ export function SkillDetailPage() {
                 { label: getCategoryLabel(skillCategoryKey, isZh), to: buildCategoryPath(skillCategoryKey, launchSource.searchParams) },
                 { label: skill.name },
               ]}
-              isZh={isZh}
             />
           </div>
 
@@ -1657,10 +1454,8 @@ function SkillsLoading({ title }: { title: string }) {
 
 function Breadcrumb({
   items,
-  isZh,
 }: {
   items: { label: string; to?: string }[];
-  isZh: boolean;
 }) {
   return (
     <nav className="flex items-center gap-1.5 text-sm text-slate-500">
@@ -1853,51 +1648,6 @@ function buildUsageSteps(skill: Skill | null, isZh: boolean) {
       ];
 }
 
-function SkillMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 p-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-950">{value}</div>
-    </div>
-  );
-}
-
-function DetailSection({
-  icon: Icon,
-  items,
-  title,
-  description,
-}: {
-  icon: typeof Brain;
-  items: string[];
-  title: string;
-  description?: string;
-}) {
-  return (
-    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="rounded-2xl bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
-          {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
-        </div>
-      </div>
-      <div className="mt-5 space-y-3">
-        {items.map((item, index) => (
-          <div key={item} className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
-              {index + 1}
-            </div>
-            <p className="text-sm leading-6 text-slate-600">{item}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function PromptPreview({
   isZh,
   systemPrompt,
@@ -2030,96 +1780,6 @@ function buildVisiblePages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((a, b) => a - b);
 }
 
-function ServiceLineCard({
-  index,
-  line,
-  onOpenCategory,
-  isZh,
-}: {
-  index: number;
-  line: ServiceLine;
-  onOpenCategory: (categoryId: string) => void;
-  isZh: boolean;
-}) {
-  const leadCategory = line.categories[0];
-  const Icon = leadCategory ? getCategoryIcon(leadCategory.id) : Brain;
-
-  return (
-    <div className={`group relative overflow-hidden rounded-[1.75rem] border border-slate-200 bg-gradient-to-br ${line.tone} p-5 transition hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(15,23,42,0.08)]`}>
-      <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/70 blur-2xl" />
-      <div className="relative">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/80 bg-white/75 text-slate-700 shadow-sm">
-              <Icon className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-slate-400">
-                {String(index + 1).padStart(2, "0")} Portfolio
-              </div>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">{line.title}</h3>
-            </div>
-          </div>
-          <div className="rounded-full border border-white/80 bg-white/75 px-3 py-1 text-xs font-semibold text-slate-600">
-            {line.count} Skills
-          </div>
-        </div>
-
-        <p className="mt-3 text-sm font-medium text-slate-700">{line.subtitle}</p>
-        <p className="mt-2 min-h-12 text-sm leading-6 text-slate-500">{line.description}</p>
-
-        {line.previewSkills.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {line.previewSkills.map((skill) => (
-              <div
-                key={skill.id}
-                className="flex items-center gap-2 rounded-xl border border-white/80 bg-white/70 px-3 py-2 text-xs text-slate-600"
-              >
-                <BookOpen className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <span className="truncate font-medium">{skill.name}</span>
-                {skill.estimated_time && (
-                  <span className="ml-auto shrink-0 text-xs text-slate-400">{skill.estimated_time}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            {line.categories.map((category) => {
-              const CategoryIcon = getCategoryIcon(category.id);
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() => onOpenCategory(category.id)}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-950"
-                >
-                  <CategoryIcon className="h-3.5 w-3.5" />
-                  {category.label}
-                  <span className="text-slate-400">{category.count}</span>
-                </button>
-              );
-            })}
-          </div>
-          {leadCategory && (
-            <button
-              type="button"
-              onClick={() => onOpenCategory(leadCategory.id)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white/80 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/80"
-            >
-              {isZh ? "查看全部" : "View all"}
-              <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
-            </button>
-          )}
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
 function SkillCard({
   skill,
   onUse,
@@ -2127,8 +1787,7 @@ function SkillCard({
   skill: SkillSummary;
   onUse: () => void;
 }) {
-  const { i18n, t } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
+  const { t } = useTranslation();
   const isQuick = extractMinutes(skill.estimated_time) <= 10;
 
   return (

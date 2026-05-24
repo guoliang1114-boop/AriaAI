@@ -47,7 +47,7 @@ export function ProjectDetailHeader({
   if (compact) {
     return (
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
-        <div className="flex h-14 min-w-0 items-center gap-3 px-4 sm:px-6">
+        <div className="flex h-[52px] min-w-0 items-center gap-3 px-4 sm:px-6">
           <button
             onClick={onBack}
             className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-primary/30 hover:text-primary"
@@ -61,7 +61,7 @@ export function ProjectDetailHeader({
               {project.client || t("nav.projects")}
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <div className="truncate text-sm font-semibold text-slate-950">
+              <div className="truncate text-[13px] font-semibold leading-5 text-slate-950">
                 {project.name}
               </div>
               <span
@@ -88,7 +88,7 @@ export function ProjectDetailHeader({
                 to={tab.getPath(projectId)}
                 end={tab.path === ""}
                 className={({ isActive }) =>
-                  `flex h-14 flex-shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors ${
+                  `flex h-[52px] flex-shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[13px] font-medium leading-5 transition-colors ${
                     isActive
                       ? "border-primary text-primary"
                       : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
@@ -108,7 +108,7 @@ export function ProjectDetailHeader({
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
       <div className="mx-auto max-w-full px-4 sm:px-6">
-        <div className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 py-3.5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <button
               onClick={onBack}
@@ -127,7 +127,7 @@ export function ProjectDetailHeader({
                   </>
                 ) : null}
               </div>
-              <h1 className="truncate font-manrope text-xl font-semibold text-slate-950 sm:text-2xl">
+              <h1 className="truncate font-manrope text-lg font-semibold leading-7 text-slate-950 sm:text-xl">
                 {project.name}
               </h1>
             </div>
@@ -165,7 +165,7 @@ export function ProjectDetailHeader({
               to={tab.getPath(projectId)}
               end={tab.path === ""}
               className={({ isActive }) =>
-                `flex flex-shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:px-4 ${
+                `flex flex-shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-medium leading-5 transition-colors sm:px-3.5 ${
                   isActive
                     ? "border-primary text-primary"
                     : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"

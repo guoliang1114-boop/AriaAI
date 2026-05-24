@@ -37,8 +37,9 @@ export function MessagesPage() {
       setLoading(true)
       setError('')
       const result = await api.get<SystemMessageListResponse>('/messages')
-      setMessages(result.items)
-      setUnreadCount(result.unread_count)
+      const items = Array.isArray(result?.items) ? result.items : []
+      setMessages(items)
+      setUnreadCount(Number.isFinite(result?.unread_count) ? result.unread_count : items.filter((message) => !message.is_read).length)
       window.dispatchEvent(new Event('messages:updated'))
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load messages')

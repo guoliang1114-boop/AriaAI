@@ -1,12 +1,21 @@
 const DEFAULT_MARKDOWN_LINK_ORIGIN = "http://localhost";
 
+function stripControlCharacters(value: string) {
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code > 31 && code !== 127;
+    })
+    .join("");
+}
+
 export function sanitizeMarkdownHref(
   href?: string | null,
   origin = DEFAULT_MARKDOWN_LINK_ORIGIN,
 ) {
   const trimmed = (href || "").trim();
   if (!trimmed) return null;
-  const normalized = trimmed.replace(/[\u0000-\u001F\u007F]/g, "");
+  const normalized = stripControlCharacters(trimmed);
   const lower = normalized.toLowerCase();
   if (normalized.startsWith("//")) return null;
   if (normalized.startsWith("/") || normalized.startsWith("#")) return normalized;

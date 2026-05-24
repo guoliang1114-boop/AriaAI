@@ -13,12 +13,13 @@ import {
 } from './routeLoaders'
 
 describe('routeLoaders', () => {
-  it('primaryRouteLoaders contains 9 primary routes', () => {
-    expect(Object.keys(primaryRouteLoaders)).toHaveLength(9)
+  it('primaryRouteLoaders contains 10 primary routes', () => {
+    expect(Object.keys(primaryRouteLoaders)).toHaveLength(10)
   })
 
   it('primaryRouteLoaders maps correct paths', () => {
     expect(primaryRouteLoaders).toHaveProperty('/')
+    expect(primaryRouteLoaders).toHaveProperty('/workspace')
     expect(primaryRouteLoaders).toHaveProperty('/chat')
     expect(primaryRouteLoaders).toHaveProperty('/skills')
     expect(primaryRouteLoaders).toHaveProperty('/projects')
@@ -29,13 +30,13 @@ describe('routeLoaders', () => {
     expect(primaryRouteLoaders).toHaveProperty('/settings')
   })
 
-  it('each loader returns a promise', () => {
-    Object.values(primaryRouteLoaders).forEach(loader => {
+  it('each loader returns a promise', async () => {
+    const results = Object.values(primaryRouteLoaders).map(loader => {
       const result = loader()
       expect(result).toBeInstanceOf(Promise)
-      // Clean up the promise to avoid unhandled rejections
-      result.catch(() => {})
+      return result
     })
+    await Promise.allSettled(results)
   })
 
   it('warmPrimaryRoutes returns a promise', () => {
@@ -46,14 +47,18 @@ describe('routeLoaders', () => {
     })
   })
 
-  it('individual loaders return promises', () => {
-    expect(loadWelcome()).toBeInstanceOf(Promise)
-    expect(loadChat()).toBeInstanceOf(Promise)
-    expect(loadSkills()).toBeInstanceOf(Promise)
-    expect(loadProjects()).toBeInstanceOf(Promise)
-    expect(loadProjectDetail()).toBeInstanceOf(Promise)
-    expect(loadClients()).toBeInstanceOf(Promise)
-    expect(loadContacts()).toBeInstanceOf(Promise)
-    expect(loadKnowledge()).toBeInstanceOf(Promise)
+  it('individual loaders return promises', async () => {
+    const results = [
+      loadWelcome(),
+      loadChat(),
+      loadSkills(),
+      loadProjects(),
+      loadProjectDetail(),
+      loadClients(),
+      loadContacts(),
+      loadKnowledge(),
+    ]
+    results.forEach((result) => expect(result).toBeInstanceOf(Promise))
+    await Promise.allSettled(results)
   })
 })

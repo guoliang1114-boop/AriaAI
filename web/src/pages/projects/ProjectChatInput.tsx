@@ -90,7 +90,7 @@ export function ProjectChatInput({
       <div className={`mx-auto ${isFullscreen ? "max-w-5xl" : "max-w-4xl"}`}>
         {contextControls}
         {selectedSkillPanel}
-        <div className="relative flex items-end gap-3 rounded-xl bg-white px-4 py-3 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] transition-all duration-200 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] focus-within:ring-primary/20">
+        <div className="relative flex items-end gap-2.5 rounded-xl bg-white px-3.5 py-2.5 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] transition-all duration-200 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] focus-within:ring-primary/20">
           {mentionQuery !== null && projectId ? (
             <ProjectChatMentionPicker
               projectId={projectId}
@@ -132,7 +132,7 @@ export function ProjectChatInput({
               onKeyUp={checkMention}
               placeholder={placeholder}
               disabled={isLoading}
-              className="min-h-[36px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[15px] leading-relaxed text-gray-700 placeholder:text-gray-300 outline-none disabled:opacity-50"
+              className="min-h-[34px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[13.5px] leading-6 text-gray-700 outline-none placeholder:text-gray-300 disabled:opacity-50"
               rows={1}
               style={{ height: "auto" }}
               onInput={(event) => {
@@ -146,7 +146,7 @@ export function ProjectChatInput({
             <button
               onClick={onTogglePlanMode}
               title={isPlanMode ? "Plan mode: ON" : "Plan mode: OFF"}
-              className={`mb-0.5 flex-shrink-0 rounded-xl p-2.5 transition-all ${
+              className={`mb-0.5 flex-shrink-0 rounded-lg p-2.5 transition-all ${
                 isPlanMode
                   ? "bg-indigo-100 text-indigo-600 shadow-sm shadow-indigo-500/20"
                   : "bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
@@ -159,7 +159,7 @@ export function ProjectChatInput({
             <button
               onClick={onToggleBackgroundMode}
               title={isBackgroundMode ? "Background mode: ON" : "Background mode: OFF"}
-              className={`mb-0.5 flex-shrink-0 rounded-xl p-2.5 transition-all ${
+              className={`mb-0.5 flex-shrink-0 rounded-lg p-2.5 transition-all ${
                 isBackgroundMode
                   ? "bg-amber-100 text-amber-600 shadow-sm shadow-amber-500/20"
                   : "bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
@@ -171,7 +171,7 @@ export function ProjectChatInput({
           {isLoading ? (
             <button
               onClick={onStop}
-              className="mb-0.5 flex-shrink-0 rounded-xl bg-red-500 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
+              className="mb-0.5 flex-shrink-0 rounded-lg bg-red-500 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
             >
               <Square className="h-4 w-4" />
             </button>
@@ -179,7 +179,7 @@ export function ProjectChatInput({
             <button
               onClick={onSend}
               disabled={!value.trim()}
-              className="mb-0.5 flex-shrink-0 rounded-xl bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
+              className="mb-0.5 flex-shrink-0 rounded-lg bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
             >
               <Send className="h-4 w-4" />
             </button>

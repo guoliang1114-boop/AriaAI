@@ -178,7 +178,7 @@ export function Welcome() {
         .finally(() => setSecondaryLoading(false))
 
       void api.get<{ items: SystemMessage[]; unread_count: number }>('/messages')
-        .then((systemMessages) => setMessages(systemMessages.items))
+        .then((systemMessages) => setMessages(Array.isArray(systemMessages?.items) ? systemMessages.items : []))
         .catch(() => {})
     } catch (err) {
       const apiError = err as AxiosError<ErrorResponsePayload>

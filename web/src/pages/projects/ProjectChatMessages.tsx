@@ -203,7 +203,7 @@ export function ProjectChatMessages({
 
       {!isLoadingMessages && (messages.length > 0 || streamingContent || streamingStatus || isLoading) && (
         <>
-          {messages.map((msg, index) => {
+          {messages.map((msg) => {
             return (
               <ProjectChatMessageBubble
                 key={msg.id}

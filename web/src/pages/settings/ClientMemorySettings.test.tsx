@@ -21,7 +21,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../contexts/ToastContext', () => ({
-  useToast: () => ({ showToast: vi.fn(), info: vi.fn() }),
+  useToast: () => ({ showToast: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn() }),
 }))
 
 describe('ClientMemorySettings', () => {

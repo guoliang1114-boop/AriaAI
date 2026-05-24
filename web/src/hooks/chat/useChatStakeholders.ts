@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { Message } from "../../types/api";
 export type { StakeholderCandidate } from "../../types/chat";

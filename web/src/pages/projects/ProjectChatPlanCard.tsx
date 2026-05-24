@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, ListChecks, Play, Wrench, X } from "lucide-react";
+import { CheckCircle2, ListChecks, Play, Wrench } from "lucide-react";
 import type { ChatPlanResponse } from "../../types/api";
 
 interface ProjectChatPlanCardProps {

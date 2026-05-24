@@ -86,7 +86,7 @@ export function ProjectChatHeader({
           </button>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h3 className="truncate text-[15px] font-semibold leading-5 text-gray-900">{title}</h3>
+              <h3 className="truncate text-[13.5px] font-semibold leading-5 text-gray-900">{title}</h3>
               <span
                 className={`hidden shrink-0 rounded-full px-2 py-0.5 text-xs font-medium sm:inline-flex ${
                   !hasMemory
@@ -123,7 +123,7 @@ export function ProjectChatHeader({
                   <select
                     value={selectedModel || ""}
                     onChange={(event) => onModelChange(event.target.value)}
-                    className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     {models.map((m) => (
                       <option key={m.id} value={m.id} disabled={!m.available}>
@@ -139,7 +139,7 @@ export function ProjectChatHeader({
                 onChange={(event) =>
                   onKnowledgeScopeChange(event.target.value as "project" | "client" | "global")
                 }
-                className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12.5px] leading-4 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="project">{copy.currentProject}</option>
                 <option value="client">{copy.currentClient}</option>
