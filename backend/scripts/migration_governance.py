@@ -70,7 +70,7 @@ def main() -> int:
 
     if args.action == "current":
         _print_governance("Before alembic current")
-        return _run(["alembic", "current"])
+        return _run([sys.executable, "-m", "alembic", "current"])
 
     if args.action == "check":
         _, get_database_migration_governance = _load_database_helpers()
@@ -94,7 +94,7 @@ def main() -> int:
 
     if args.action == "upgrade":
         _print_governance("Before alembic upgrade")
-        code = _run(["alembic", "upgrade", "head"])
+        code = _run([sys.executable, "-m", "alembic", "upgrade", "head"])
         _print_governance("After alembic upgrade")
         return code
 
