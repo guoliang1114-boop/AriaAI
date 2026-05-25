@@ -40,6 +40,9 @@ from app.services.chat.trace import build_chat_trace_payload
 from app.services.policy_guards import classify_chat_mode_and_policy, filter_tools_for_access, policy_allows_tool
 from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
 from app.services.chat.phases.p3_followup import _repair_project_markdown_tool_input as _repair_project_markdown_followup_tool_input
+from app.tools import registry
+from app.tools.office_documents import READ_PROJECT_FILE_TOOL_NAME
+from app.tools.project_markdown import READ_MARKDOWN_TOOL_NAME
 
 
 class DummyRequest:
@@ -372,6 +375,19 @@ class ToolStartProgressPayloadTests(unittest.TestCase):
 
 
 class ProjectMarkdownToolRepairTests(unittest.TestCase):
+    def test_read_project_tools_share_common_read_contract(self):
+        markdown_tool = registry.get(READ_MARKDOWN_TOOL_NAME)
+        generic_tool = registry.get(READ_PROJECT_FILE_TOOL_NAME)
+        self.assertIsNotNone(markdown_tool)
+        self.assertIsNotNone(generic_tool)
+
+        markdown_props = markdown_tool.input_schema["properties"]
+        generic_props = generic_tool.input_schema["properties"]
+        common_read_keys = {"action", "file_id", "file_name", "max_chars"}
+        self.assertTrue(common_read_keys.issubset(markdown_props))
+        self.assertTrue(common_read_keys.issubset(generic_props))
+        self.assertEqual(markdown_props["action"]["enum"], generic_props["action"]["enum"])
+
     def test_read_markdown_defaults_to_list_when_action_missing(self):
         repaired, changes = _repair_project_markdown_tool_input(
             "read_project_markdown_document",
@@ -408,6 +424,21 @@ class ProjectMarkdownToolRepairTests(unittest.TestCase):
             {"project_id": 26, "action": "read", "file_id": 9, "max_chars": 2000},
         )
         self.assertTrue(any("foo" in change for change in changes))
+
+    def test_markdown_tool_repair_contract_matches_registered_schema(self):
+        markdown_tool = registry.get(READ_MARKDOWN_TOOL_NAME)
+        schema_keys = set(markdown_tool.input_schema["properties"])
+        candidate_input = {
+            "project_id": 26,
+            "action": "read",
+            "file_id": 9,
+            "file_name": "risk.md",
+            "max_chars": 2000,
+            "unknown": "drop-me",
+        }
+        repaired, _ = _repair_project_markdown_tool_input(READ_MARKDOWN_TOOL_NAME, candidate_input)
+        self.assertEqual(set(repaired) - {"project_id"}, schema_keys)
+        self.assertNotIn("unknown", repaired)
 
     def test_write_markdown_defaults_to_create_when_mode_missing(self):
         repaired, changes = _repair_project_markdown_tool_input(
