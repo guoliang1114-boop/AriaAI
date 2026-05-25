@@ -131,10 +131,6 @@ export function ProjectChatTab({
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("aria-preferred-model") || "";
   });
-  const [isBackgroundMode, setIsBackgroundMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("aria-chat-background-mode") === "true";
-  });
   const [isPlanMode, setIsPlanMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("aria-chat-plan-mode") === "true";
@@ -214,7 +210,6 @@ export function ProjectChatTab({
     streamingTruncated,
     resetStreamingContent,
     sendMessage,
-    sendMessageAsync,
     stopGeneration,
   } = useProjectChatComposer({
     projectId: project.id,
@@ -694,12 +689,6 @@ export function ProjectChatTab({
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("aria-chat-background-mode", String(isBackgroundMode));
-    }
-  }, [isBackgroundMode]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
       window.localStorage.setItem("aria-chat-plan-mode", String(isPlanMode));
     }
   }, [isPlanMode]);
@@ -918,9 +907,7 @@ export function ProjectChatTab({
       }
       return true;
     }
-    const sent = isBackgroundMode
-      ? await sendMessageAsync(content, options)
-      : await sendMessage(content, options);
+    const sent = await sendMessage(content, options);
     if (sent && selectedSkillId && skillArmedRef.current) {
       setSelectedSkillId(null);
       skillArmedRef.current = false;
@@ -1086,8 +1073,6 @@ export function ProjectChatTab({
             models={chatModels}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
-            isBackgroundMode={isBackgroundMode}
-            onToggleBackgroundMode={() => setIsBackgroundMode((v) => !v)}
             isStreamingTruncated={streamingTruncated}
             onContinue={() => void sendMessage(isZh ? "继续" : "Continue")}
             planResult={planResult}

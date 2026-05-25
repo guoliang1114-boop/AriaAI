@@ -83,8 +83,6 @@ interface ProjectChatMainPanelProps {
   models?: ChatModel[];
   selectedModel?: string;
   onModelChange?: (modelId: string) => void;
-  isBackgroundMode?: boolean;
-  onToggleBackgroundMode?: () => void;
   projectId: number;
   projectClientName?: string;
   quickPrompts: ProjectQuickPrompt[];
@@ -149,8 +147,6 @@ export function ProjectChatMainPanel({
   models,
   selectedModel,
   onModelChange,
-  isBackgroundMode,
-  onToggleBackgroundMode,
   projectId,
   startConversationLabel,
   streamingArtifacts,
@@ -323,8 +319,6 @@ export function ProjectChatMainPanel({
         isLoading={isLoading}
         isFullscreen={isFullscreen}
         projectId={projectId}
-        isBackgroundMode={isBackgroundMode}
-        onToggleBackgroundMode={onToggleBackgroundMode}
         contextControls={
           <div className="mx-auto mb-2 flex max-w-4xl items-center gap-1.5">
             <ContextPill

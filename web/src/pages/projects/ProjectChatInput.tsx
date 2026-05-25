@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { CloudLightning, ListChecks, Send, Square } from "lucide-react";
+import { ListChecks, Send, Square } from "lucide-react";
 import { ProjectChatMentionPicker } from "./ProjectChatMentionPicker";
 import { getActiveMentionQuery, type MentionType } from "./projectChatMentions";
 
@@ -12,8 +12,6 @@ type ProjectChatInputProps = {
   selectedSkillPanel?: React.ReactNode;
   placeholder: string;
   onChange: (value: string) => void;
-  isBackgroundMode?: boolean;
-  onToggleBackgroundMode?: () => void;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
   onSend: () => void;
@@ -28,8 +26,6 @@ export function ProjectChatInput({
   contextControls,
   selectedSkillPanel,
   placeholder,
-  isBackgroundMode,
-  onToggleBackgroundMode,
   isPlanMode,
   onTogglePlanMode,
   onChange,
@@ -153,19 +149,6 @@ export function ProjectChatInput({
               }`}
             >
               <ListChecks className="h-4 w-4" />
-            </button>
-          ) : null}
-          {onToggleBackgroundMode ? (
-            <button
-              onClick={onToggleBackgroundMode}
-              title={isBackgroundMode ? "Background mode: ON" : "Background mode: OFF"}
-              className={`mb-0.5 flex-shrink-0 rounded-lg p-2.5 transition-all ${
-                isBackgroundMode
-                  ? "bg-amber-100 text-amber-600 shadow-sm shadow-amber-500/20"
-                  : "bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
-              }`}
-            >
-              <CloudLightning className="h-4 w-4" />
             </button>
           ) : null}
           {isLoading ? (

@@ -31,8 +31,10 @@ from app.services.chat.tool_repair import repair_project_office_tool_input
 from app.services.chat.tool_validation import validate_write_tool_result, validation_error_result
 from app.tools import registry
 from app.tools.office_documents import (
+    EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
     MANAGE_PROJECT_FILES_TOOL_NAME,
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+    READ_PROJECT_FILE_TOOL_NAME,
     WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
 )
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
@@ -41,6 +43,13 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_MARKDOWN_TOOLS = frozenset({PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME})
 _PROJECT_OFFICE_TOOLS = frozenset({WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME})
+_PROJECT_FILE_TOOLS = frozenset(
+    {
+        READ_PROJECT_FILE_TOOL_NAME,
+        WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+        EDIT_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
+    }
+)
 _PROJECT_SPACE_MANAGEMENT_TOOLS = frozenset({MANAGE_PROJECT_FILES_TOOL_NAME, MANAGE_PROJECT_FOLDERS_TOOL_NAME})
 _MAX_TOOL_ATTEMPTS = 2
 _CONFIRMATION_POLICIES = {ActionPolicy.MODIFY_EXISTING_FILE, ActionPolicy.DESTRUCTIVE_ACTION}
@@ -298,8 +307,9 @@ async def run_p2_tools(
                         message=f"第 3 步：已补齐 Markdown 工具参数（{'；'.join(repaired_changes)}）。",
                     )
                 )
-        if tool_name in _PROJECT_OFFICE_TOOLS and runtime.project_id is not None:
+        if tool_name in _PROJECT_FILE_TOOLS and runtime.project_id is not None:
             tool_input = {**tool_input, "project_id": runtime.project_id}
+        if tool_name in _PROJECT_OFFICE_TOOLS:
             tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)
             if repaired_changes:
                 state.record_trace_event(

@@ -25,6 +25,7 @@ from app.services.chat.phases.p0_durable_task import _task_confirmation_reason, 
 from app.tools.office_documents import (
     MANAGE_PROJECT_FILES_TOOL_NAME,
     MANAGE_PROJECT_FOLDERS_TOOL_NAME,
+    READ_PROJECT_FILE_TOOL_NAME,
     WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,
 )
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
@@ -344,6 +345,35 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(blocked_payload["success"])
         self.assertTrue(blocked_payload["not_executed"])
         self.assertEqual(blocked_payload["status"], "blocked")
+
+    async def test_p3_adds_project_id_to_project_file_read_tool(self):
+        """Follow-up project file reads should receive project_id before execution."""
+        state = ChatSessionState()
+        state.text_buffer = "先读取项目文件。"
+        state.tool_use_blocks = [{"name": READ_MARKDOWN_TOOL_NAME, "input": {"action": "list"}, "id": "t1"}]
+        state.tool_result_blocks = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "read_only_tool"
+        self.req.action_confirmations = []
+        self.runtime.llm.stream_response = _make_stream([
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "name": READ_PROJECT_FILE_TOOL_NAME,
+                    "id": "p3-read-file",
+                    "input": {"action": "list"},
+                },
+                ensure_ascii=False,
+            )
+        ])
+
+        with patch("app.services.chat.phases.p3_followup.registry.execute", new=AsyncMock(return_value={"status": "completed", "output": {"files": []}})) as mock_exec:
+            async for _ in run_p3_followup(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_awaited_once()
+        self.assertEqual(mock_exec.await_args.args[1]["project_id"], 27)
 
     # ------------------------------------------------------------------
     # P4 — Persistence
@@ -761,6 +791,28 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.req.action_confirmations = []
 
         with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(return_value={"status": "completed", "output": {"folders": []}})) as mock_exec:
+            async for _ in run_p2_tools(self.runtime, self.req, state):
+                pass
+
+        mock_exec.assert_awaited_once()
+        self.assertEqual(mock_exec.await_args.args[1]["project_id"], 27)
+
+    async def test_p2_adds_project_id_to_project_file_read_tool(self):
+        """Project file reads should receive project_id before execution."""
+        state = ChatSessionState()
+        state.tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "name": READ_PROJECT_FILE_TOOL_NAME,
+                "id": "tool-read-file",
+                "input": {"action": "list"},
+            }
+        ]
+        self.runtime.project_id = 27
+        self.runtime.action_policy = "read_only_tool"
+        self.req.action_confirmations = []
+
+        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(return_value={"status": "completed", "output": {"files": []}})) as mock_exec:
             async for _ in run_p2_tools(self.runtime, self.req, state):
                 pass
 
