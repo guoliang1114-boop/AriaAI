@@ -252,6 +252,43 @@ def test_llm_router_rejects_low_confidence_artifact_upgrade():
     assert decision.artifact_contract.delivery_required is False
 
 
+def test_llm_router_rejects_markdown_task_for_plain_outline_request():
+    async def fake_llm(*args, **kwargs):
+        return (
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.93,'
+            '"reason":"model treated outline as markdown artifact",'
+            '"artifact_contract":{"delivery_required":true,"output_kind":"md","title":"客户沟通提纲",'
+            '"allowed_tools":["update_project_markdown_document"]}}'
+        )
+
+    req = SendMessageRequest(content="我明天要和客户沟通，准备一份沟通提纲。", project_id=32)
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm, model="test"))
+    assert decision.chat_mode == ChatMode.PROJECT_DEEP_DIVE
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.tool_access_policy == ToolAccessPolicy.READ_ON_DEMAND
+    assert decision.task_route is None
+    assert decision.artifact_contract.delivery_required is False
+
+
+def test_llm_router_allows_markdown_task_when_user_explicitly_asks_to_save_file():
+    async def fake_llm(*args, **kwargs):
+        return (
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.93,'
+            '"reason":"user explicitly requested markdown file",'
+            '"artifact_contract":{"delivery_required":true,"output_kind":"md","title":"客户沟通提纲",'
+            '"allowed_tools":["update_project_markdown_document"]}}'
+        )
+
+    req = SendMessageRequest(content="请生成一份客户沟通提纲 Markdown，保存到项目空间。", project_id=32)
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm, model="test"))
+    assert decision.chat_mode == ChatMode.TASK_ORCHESTRATION
+    assert decision.action_policy == ActionPolicy.DURABLE_TASK
+    assert decision.tool_access_policy == ToolAccessPolicy.WRITE_ALLOWED
+    assert decision.task_route is not None
+    assert decision.artifact_contract.delivery_required is True
+    assert decision.artifact_contract.output_kind == "md"
+
+
 def test_unified_router_short_circuits_explicit_office_generation():
     called = False
 

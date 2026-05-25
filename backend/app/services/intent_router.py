@@ -25,6 +25,7 @@ from app.services.artifact_intent import (
     contract_from_artifact_intent,
     contract_from_llm_payload,
     detect_artifact_intent,
+    primary_user_request_text,
 )
 from app.services.chat.markdown_followup import is_save_previous_answer_as_markdown_request
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
@@ -40,6 +41,35 @@ LLM_ARTIFACT_UPGRADE_MIN_CONFIDENCE = 0.90
 _CHAT_MODE_VALUES = {mode.value: mode for mode in ChatMode}
 _ACTION_POLICY_VALUES = {policy.value: policy for policy in ActionPolicy}
 _SAFE_ARTIFACT_TOOLS = {WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME, PROJECT_MARKDOWN_TOOL_NAME}
+
+_EXPLICIT_MARKDOWN_DELIVERY_TERMS = (
+    "markdown",
+    ".md",
+    " md",
+    "md ",
+    "md文档",
+    "markdown文档",
+    "保存",
+    "保存到",
+    "保存为",
+    "存到",
+    "存为",
+    "写入",
+    "输出文件",
+    "导出",
+    "下载",
+    "项目空间",
+    "生成文件",
+    "生成文档",
+    "创建文档",
+    "形成文档",
+    "写成文档",
+    "整理成文档",
+    "file",
+    "document",
+    "save",
+    "export",
+)
 
 
 @dataclass(frozen=True)
@@ -303,6 +333,10 @@ def _can_llm_upgrade_to_artifact(contract: ArtifactContract, confidence: float, 
         return False
     if not set(contract.allowed_tools).issubset(_SAFE_ARTIFACT_TOOLS):
         return False
+    if contract.output_kind == "md":
+        text = primary_user_request_text(req.content).lower()
+        if not any(term in text for term in _EXPLICIT_MARKDOWN_DELIVERY_TERMS):
+            return False
     return True
 
 
