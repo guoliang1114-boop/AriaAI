@@ -28,6 +28,7 @@ from app.services.chat.sse import sse_event, await_with_heartbeat
 from app.services.chat.workflow import workflow_status, workflow_plan_events
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.tool_repair import repair_project_office_tool_input
+from app.services.chat.tool_validation import validate_write_tool_result, validation_error_result
 from app.tools import registry
 from app.tools.office_documents import (
     MANAGE_PROJECT_FILES_TOOL_NAME,
@@ -462,6 +463,9 @@ async def run_p2_tools(
             write_result = None
             try:
                 write_result = await registry.execute(tool_name, tool_input)
+                validation_ok, validation_error = validate_write_tool_result(tool_name, write_result, tool_input)
+                if not validation_ok:
+                    write_result = validation_error_result(tool_name, write_result, validation_error)
                 artifact = _extract_artifact(write_result)
                 if artifact:
                     state.artifacts.append(artifact)
@@ -563,6 +567,10 @@ async def run_p2_tools(
                         "status": "error",
                         "error": "Tool returned no result",
                     }
+                if tool_name in _PROJECT_OFFICE_TOOLS:
+                    validation_ok, validation_error = validate_write_tool_result(tool_name, result, tool_input)
+                    if not validation_ok:
+                        result = validation_error_result(tool_name, result, validation_error)
             except Exception as exc:
                 result = {"type": "tool_result", "tool_name": tool_name, "status": "error", "error": str(exc)}
             if not _result_failed(result) or attempt >= max_attempts:

@@ -33,6 +33,7 @@ from app.services.chat.truncation import strip_truncation_marker
 from app.services.chat.tool_repair import extract_tool_use_json_blocks
 from app.services.chat.workflow import workflow_status
 from app.services.chat.tool_repair import repair_project_office_tool_input
+from app.services.chat.tool_validation import validate_write_tool_result, validation_error_result
 from app.tools import registry
 from app.tools.office_documents import (
     MANAGE_PROJECT_FILES_TOOL_NAME,
@@ -538,6 +539,9 @@ async def run_p3_followup(
                 write_result = None
                 try:
                     write_result = await registry.execute(tool_name, tool_input)
+                    validation_ok, validation_error = validate_write_tool_result(tool_name, write_result, tool_input)
+                    if not validation_ok:
+                        write_result = validation_error_result(tool_name, write_result, validation_error)
                     artifact = _extract_artifact(write_result)
                     if artifact:
                         state.artifacts.append(artifact)
@@ -614,15 +618,21 @@ async def run_p3_followup(
             # Normal tool in re-follow-up
             try:
                 result = await registry.execute(tool_name, tool_input)
+                if tool_name in _PROJECT_OFFICE_TOOLS:
+                    validation_ok, validation_error = validate_write_tool_result(tool_name, result, tool_input)
+                    if not validation_ok:
+                        result = validation_error_result(tool_name, result, validation_error)
                 artifact = _extract_artifact(result)
                 if artifact:
                     state.artifacts.append(artifact)
+                status = "error" if result.get("status") == "error" or result.get("success") is False else "completed"
                 state.tool_call_events.append(
                     {
                         "tool_name": tool_name,
-                        "status": "completed",
-                        "message": f"工具 {tool_name} 执行完成。",
-                        "summary": f"工具 {tool_name} 执行完成",
+                        "status": status,
+                        "message": f"工具 {tool_name} {'执行失败' if status == 'error' else '执行完成'}。",
+                        "summary": _summarize_tool_result(result) or f"工具 {tool_name} 执行完成",
+                        **({"error": str(result.get("error"))} if result.get("error") else {}),
                     }
                 )
                 yield sse_event({"type": "tool_result", "result": result})

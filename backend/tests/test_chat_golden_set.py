@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from app.routers.chat_schemas import SendMessageRequest
+from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.intent_router import classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access, filter_tools_for_policy, policy_allows_tool
@@ -34,6 +35,16 @@ def test_router_golden_set_cases_are_stable():
         if case.get("expected_tool_access_policy"):
             assert decision.tool_access_policy.value == case["expected_tool_access_policy"], case["id"]
             assert decision.trace["final_tool_access_policy"] == case["expected_tool_access_policy"], case["id"]
+        if case.get("expected_contract_action"):
+            contract = build_chat_intent_contract(
+                decision,
+                req,
+                skill_applied=bool(case.get("skill_id") and case.get("force_skill")),
+            )
+            assert contract.action == case["expected_contract_action"], case["id"]
+            assert contract.write_allowed is bool(case.get("expected_write_allowed", False)), case["id"]
+            if "expected_delivery_required" in case:
+                assert contract.delivery_required is bool(case["expected_delivery_required"]), case["id"]
 
 
 def test_router_golden_set_tool_permissions_are_stable():

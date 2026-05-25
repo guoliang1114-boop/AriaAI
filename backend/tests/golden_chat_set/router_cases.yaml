@@ -5,6 +5,7 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - read_project_markdown_document
       - update_project_markdown_document
@@ -15,6 +16,7 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - read_project_markdown_document
       - update_project_markdown_document
@@ -25,6 +27,7 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: read_only_tool
     expected_tool_access_policy: read_on_demand
+    expected_contract_action: read_then_answer
     forbid_tools:
       - name: update_project_markdown_document
         input:
@@ -37,6 +40,7 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - read_project_markdown_document
       - update_project_markdown_document
@@ -47,6 +51,7 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - read_project_markdown_document
       - update_project_markdown_document
@@ -57,6 +62,9 @@ cases:
     expected_chat_mode: task_orchestration
     expected_action_policy: durable_task
     expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
     allow_tools:
       - update_project_markdown_document
 
@@ -66,6 +74,7 @@ cases:
     expected_chat_mode: standalone_qa
     expected_action_policy: direct_answer
     expected_tool_access_policy: none
+    expected_contract_action: answer_only
     forbid_tools:
       - update_project_markdown_document
 
@@ -75,6 +84,7 @@ cases:
     expected_chat_mode: workspace_inventory
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - update_project_markdown_document
 
@@ -84,6 +94,7 @@ cases:
     expected_chat_mode: cross_project_portfolio
     expected_action_policy: direct_answer
     expected_tool_access_policy: injected_context_only
+    expected_contract_action: answer_only
     forbid_tools:
       - update_project_markdown_document
 
@@ -93,6 +104,8 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: modify_existing_file
     expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
     allow_tools:
       - name: update_project_markdown_document
         input:
@@ -105,6 +118,8 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: destructive_action
     expected_tool_access_policy: write_allowed
+    expected_contract_action: destructive_action
+    expected_write_allowed: true
     allow_tools:
       - name: manage_project_folders
         input:
@@ -116,6 +131,8 @@ cases:
     expected_chat_mode: project_deep_dive
     expected_action_policy: modify_existing_file
     expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
     allow_tools:
       - name: manage_project_folders
         input:
@@ -131,6 +148,8 @@ cases:
     expected_chat_mode: skill_execution
     expected_action_policy: write_artifact
     expected_tool_access_policy: write_allowed
+    expected_contract_action: run_skill
+    expected_write_allowed: true
     allow_tools:
       - update_project_markdown_document
 
@@ -140,3 +159,136 @@ cases:
     expected_chat_mode: task_orchestration
     expected_action_policy: durable_task
     expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: save_previous_answer_markdown_followup
+    content: "要，保存成 Markdown"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: write_artifact
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: save_previous_answer
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: save_previous_risk_analysis_markdown_followup
+    content: "把刚才的风险分析保存为 md"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: write_artifact
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: save_previous_answer
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: explicit_file_read_request
+    content: "读取项目空间里的客户会议准备.md，并告诉我里面有哪些待办。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: read_only_tool
+    expected_tool_access_policy: explicit_file_read
+    expected_contract_action: read_then_answer
+    allow_tools:
+      - name: read_project_markdown_document
+        input:
+          action: read
+          file_name: "客户会议准备.md"
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: general_advice_no_file
+    content: "帮我分析一下明天客户访谈应该重点问什么。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: read_only_tool
+    expected_tool_access_policy: read_on_demand
+    expected_contract_action: read_then_answer
+    forbid_tools:
+      - update_project_markdown_document
+
+  - id: inline_markdown_generation_not_previous_save
+    content: "请根据以下内容生成 Markdown 报告：客户希望了解项目风险和下一步。"
+    project_id: 27
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: append_existing_markdown_requires_modify
+    content: "把这段会后行动清单追加到现有 Markdown 文档里。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: append
+          content: "- 会后行动"
+
+  - id: replace_existing_markdown_requires_modify
+    content: "用新版内容覆盖当前项目风险 Markdown 文档。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: update_project_markdown_document
+        input:
+          mode: replace
+          content: "# 新版风险"
+
+  - id: create_excel_artifact
+    content: "帮我生成一个 Excel 项目风险台账，保存到项目空间。"
+    project_id: 27
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: create_pdf_artifact
+    content: "请生成一份 PDF 风险简报，保存到项目空间。"
+    project_id: 27
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
+
+  - id: no_destructive_from_negative_question
+    content: "是不是不要删除这些项目文件？"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: read_only_tool
+    expected_tool_access_policy: injected_context_only
+    expected_contract_action: read_then_answer
+    forbid_tools:
+      - name: manage_project_files
+        input:
+          action: delete
+
+  - id: rename_project_folder_requires_modify
+    content: "把项目空间里的旧资料文件夹重命名为历史资料。"
+    project_id: 27
+    expected_chat_mode: project_deep_dive
+    expected_action_policy: modify_existing_file
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: modify_project_space
+    expected_write_allowed: true
+    allow_tools:
+      - name: manage_project_folders
+        input:
+          action: rename
+          folder_name: "旧资料"
+          new_name: "历史资料"

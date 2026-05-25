@@ -49,6 +49,28 @@ _PREVIOUS_REFERENCE_TERMS = (
     "风险分析",
 )
 _INLINE_CONTENT_MARKERS = ("以下内容", "如下", "内容是", "正文是", "```")
+_CREATE_ARTIFACT_TERMS = (
+    "生成",
+    "创建",
+    "制作",
+    "输出",
+    "导出",
+    "整理",
+    "形成",
+    "起草",
+    "撰写",
+    "编写",
+    "写一份",
+    "写一个",
+    "做一份",
+    "做一个",
+    "准备一份",
+    "create",
+    "generate",
+    "export",
+    "draft",
+    "write",
+)
 
 
 def _compact(text: str) -> str:
@@ -72,9 +94,13 @@ def is_save_previous_answer_as_markdown_request(content: str) -> bool:
     has_save_and_markdown = any(term in lowered for term in _SAVE_TERMS) and any(term in lowered for term in _MARKDOWN_TERMS)
     if not (has_markdown_save_phrase or has_save_and_markdown):
         return False
+    has_previous_reference = any(term in lowered for term in _PREVIOUS_REFERENCE_TERMS)
+    has_create_artifact = any(term in lowered for term in _CREATE_ARTIFACT_TERMS)
+    if has_create_artifact and not has_previous_reference:
+        return False
     if len(lowered) <= 80:
         return True
-    return any(term in lowered for term in _PREVIOUS_REFERENCE_TERMS)
+    return has_previous_reference
 
 
 def latest_assistant_message(session: Session, conversation_id: int) -> Message | None:

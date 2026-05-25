@@ -60,6 +60,15 @@ _CREATE_INTENT_TERMS = (
     "准备", "生成", "创建", "制作", "输出", "导出", "整理", "整理成", "形成", "写一份", "做一份",
     "proposal", "prepare", "create", "generate", "make", "export", "draft",
 )
+_READ_FILE_TERMS = ("读取", "查看", "打开", "引用", "基于文件", "基于文档", "read", "open", "inspect")
+_READ_TARGET_TERMS = (
+    "文件", "文档", "资料", "markdown", ".md", " md", "ppt", "pptx", "word", "docx",
+    "excel", "xlsx", "pdf", "项目空间", "file", "document", "attachment",
+)
+_FILE_LIST_TERMS = (
+    "文件列表", "有哪些文件", "有什么文件", "列出文件", "项目空间文件", "空间文件",
+    "markdown 文件", "markdown文档", "list files", "show files",
+)
 
 
 @dataclass(frozen=True)
@@ -207,6 +216,8 @@ def _rule_based_router_decision(content: str) -> RouterDecision:
     normalized = (routing_content or "").strip().lower()
     if not normalized:
         return RouterDecision("direct", confidence=0.99, reason="empty", output_kind="chat")
+    if _looks_like_file_read_answer_request(routing_content):
+        return RouterDecision("answer", confidence=0.93, reason="rule:file_read_answer", output_kind="chat")
     if _looks_like_direct_memory_summary(routing_content):
         return RouterDecision("direct", confidence=0.94, reason="rule:direct_memory_summary", output_kind="chat")
     if _looks_like_direct_project_memory_analysis(routing_content):
@@ -370,13 +381,26 @@ def _looks_like_direct_diagnostic(content: str) -> bool:
     return any(term in text for term in diagnostic_terms) and not any(term in text for term in explicit_deliverable_terms)
 
 
+def _looks_like_file_read_answer_request(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text:
+        return False
+    if any(term in text for term in _FILE_LIST_TERMS):
+        return True
+    if "file_id" in text or "文件 id" in text or "文件id" in text:
+        return True
+    if any(term in text for term in _READ_FILE_TERMS) and any(term in text for term in _READ_TARGET_TERMS):
+        return True
+    return False
+
+
 def _looks_like_existing_artifact_modify(content: str) -> bool:
     text = (content or "").strip().lower()
     if not text:
         return False
     modify_terms = (
         "修改", "更新", "替换", "追加", "重写", "修正", "矫正", "改一下", "调整", "覆盖",
-        "update", "modify", "replace", "append", "rewrite", "fix",
+        "重命名", "update", "modify", "replace", "append", "rewrite", "rename", "fix",
     )
     artifact_terms = (
         "文档", "文件", "markdown", " md", ".md", "报告", "材料", "清单", "交付物",

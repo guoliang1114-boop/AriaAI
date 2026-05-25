@@ -161,6 +161,7 @@ MODIFY_TERMS = (
     "替换",
     "追加",
     "重写",
+    "重命名",
     "修正",
     "矫正",
     "改一下",
@@ -171,6 +172,7 @@ MODIFY_TERMS = (
     "replace",
     "append",
     "rewrite",
+    "rename",
     "fix",
 )
 
@@ -366,6 +368,8 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
         return ActionPolicy.MODIFY_EXISTING_FILE, "project_space_organization", 0.94
     if is_question_like(routing_content):
         return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "question", 0.86
+    if project_id and _is_explicit_file_read_request(text):
+        return ActionPolicy.READ_ONLY_TOOL, "explicit_read", 0.9
     explicit_modify = _has_any(text, MODIFY_TERMS) and (
         _has_any(text, DOCUMENT_TERMS)
         or _has_any(text, OFFICE_ARTIFACT_TERMS)
@@ -388,8 +392,6 @@ def detect_action_policy(content: str, *, project_id: int | None = None, force_s
         return ActionPolicy.DIRECT_ANSWER, "project_analysis", 0.82
     if project_id and _has_any(text, CONCISE_SUMMARY_TERMS):
         return ActionPolicy.DIRECT_ANSWER, "concise_project_summary", 0.88
-    if project_id and _is_explicit_file_read_request(text):
-        return ActionPolicy.READ_ONLY_TOOL, "explicit_read", 0.84
     if force_skill:
         return ActionPolicy.READ_ONLY_TOOL, "forced_skill", 0.86
     return (ActionPolicy.READ_ONLY_TOOL if project_id else ActionPolicy.DIRECT_ANSWER), "default", 0.72

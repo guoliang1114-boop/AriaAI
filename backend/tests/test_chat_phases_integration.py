@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -621,16 +623,19 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         first_result = {"status": "error", "error": "temporary writer error"}
-        second_result = {
-            "status": "completed",
-            "success": True,
-            "output": {"file_name": "访谈问卷.xlsx", "file_type": "xlsx"},
-        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            saved_file = Path(tmpdir) / "访谈问卷.xlsx"
+            saved_file.write_bytes(b"fake xlsx bytes")
+            second_result = {
+                "status": "completed",
+                "success": True,
+                "output": {"file_name": "访谈问卷.xlsx", "file_type": "xlsx", "path": str(saved_file)},
+            }
 
-        with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(side_effect=[first_result, second_result])) as mock_exec:
-            events = []
-            async for event in run_p2_tools(self.runtime, self.req, state):
-                events.append(event)
+            with patch("app.services.chat.phases.p2_tools.registry.execute", new=AsyncMock(side_effect=[first_result, second_result])) as mock_exec:
+                events = []
+                async for event in run_p2_tools(self.runtime, self.req, state):
+                    events.append(event)
 
         self.assertEqual(mock_exec.await_count, 2)
         self.assertTrue(any(item["type"] == "tool_retry" for item in state.trace_events))
