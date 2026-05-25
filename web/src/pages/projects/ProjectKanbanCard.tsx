@@ -62,21 +62,21 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
       onClick={onClick}
       onMouseEnter={onPointerEnter}
       onPointerDown={onPointerDown}
-      className="group relative cursor-pointer overflow-hidden rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg"
+      className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-100 bg-white p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg"
     >
       <div className={`absolute bottom-0 left-0 top-0 w-1 ${stage.lightColor}`} />
 
-      <div className="pl-3">
-        <div className="mb-2 min-w-0">
-          <div className="mb-1 text-xs font-semibold text-gray-400">
+      <div className="pl-2.5">
+        <div className="mb-1.5 min-w-0">
+          <div className="mb-1 text-[11px] font-semibold leading-4 text-gray-400">
             {project.client}
           </div>
-          <h4 className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
+          <h4 className="line-clamp-2 text-[13px] font-semibold leading-5 text-gray-900">
             {project.name}
           </h4>
         </div>
 
-        <div className="mb-3 min-h-[20px] text-xs leading-relaxed text-gray-500">
+        <div className="mb-2.5 min-h-[18px] text-[11px] leading-4 text-gray-500">
           {summaryText ? (
             <p className="line-clamp-1">{summaryText}</p>
           ) : (
@@ -84,21 +84,21 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-50 pt-3">
+        <div className="flex items-center justify-between border-t border-gray-50 pt-2.5">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${stage.bgColor} ${stage.color}`}
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${stage.bgColor} ${stage.color}`}
           >
             <stage.icon className="h-3 w-3" />
             {isZh ? stage.labelZh : stage.label}
           </span>
 
           {project.contract_amount ? (
-            <span className="text-xs font-bold text-gray-800">
+            <span className="text-[11px] font-semibold text-gray-800">
               CNY {formatAmountInTenThousand(project.contract_amount)}
               {isZh ? "万" : "K"}
             </span>
           ) : (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
+            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-600">
               {isZh ? "待报价" : "Quote Pending"}
             </span>
           )}

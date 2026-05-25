@@ -23,25 +23,25 @@ export function ProjectKanbanStageColumn({
 
   return (
     <div className="flex flex-col h-full min-w-0 w-full">
-      <div className={`p-3 rounded-xl border ${stage.borderColor} ${stage.bgColor} mb-3`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-white/80 flex items-center justify-center shadow-sm">
-              <Icon className={`w-3.5 h-3.5 ${stage.color}`} />
+      <div className={`mb-2.5 rounded-lg border p-2.5 ${stage.borderColor} ${stage.bgColor}`}>
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-white/80 shadow-sm">
+              <Icon className={`h-3 w-3 ${stage.color}`} />
             </div>
-            <span className={`font-semibold text-sm ${stage.color}`}>
+            <span className={`text-xs font-semibold ${stage.color}`}>
               {isZh ? stage.labelZh : stage.label}
             </span>
           </div>
-          <span className="text-xs font-bold bg-white/80 px-2 py-0.5 rounded-full shadow-sm min-w-[24px] text-center">
+          <span className="min-w-[22px] rounded-full bg-white/80 px-1.5 py-0.5 text-center text-[11px] font-semibold shadow-sm">
             {projects.length}
           </span>
         </div>
 
         <div className="flex items-center justify-between">
-          <p className="text-xs text-gray-500 truncate">{stage.description}</p>
+          <p className="truncate text-[11px] text-gray-500">{stage.description}</p>
           {totalValue > 0 && (
-            <span className="text-xs font-medium text-gray-600">
+            <span className="text-[11px] font-medium text-gray-600">
               CNY {(totalValue / 10000).toFixed(0)}
               {isZh ? '万' : 'K'}
             </span>
@@ -49,7 +49,7 @@ export function ProjectKanbanStageColumn({
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 min-h-[100px]">
+      <div className="min-h-[100px] flex-1 space-y-2.5">
         {projects.map((project) => (
           <ProjectKanbanCard
             key={project.id}

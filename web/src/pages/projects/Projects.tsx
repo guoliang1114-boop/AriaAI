@@ -132,7 +132,7 @@ export function Projects() {
   return (
     <>
       <PageTitle title={t("projects.title")} />
-      <div className="min-h-full bg-gradient-to-b from-gray-50 to-white">
+      <div className="project-ui min-h-full bg-gradient-to-b from-gray-50 to-white">
         <ProjectsHeader
           clientOptions={clientOptions}
           isLoadingUsers={isLoadingUsers}
@@ -147,7 +147,7 @@ export function Projects() {
           users={users}
         />
 
-        <div className="mx-auto max-w-full px-6 py-8">
+        <div className="mx-auto max-w-full px-6 py-6">
           <ProjectsPhaseSection
             isExpanded={expandedPhase === "business"}
             onProjectClick={openProjectDetail}

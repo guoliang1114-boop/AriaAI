@@ -103,7 +103,7 @@ export function ProjectsPhaseSection({
   const totalValue = projects.reduce((sum, project) => sum + (project.contract_amount || 0), 0);
 
   return (
-    <div className="mb-8">
+    <div className="mb-6">
       <ProjectKanbanPhaseHeader
         isExpanded={isExpanded}
         isZh={isZh}
@@ -114,10 +114,10 @@ export function ProjectsPhaseSection({
       />
 
       {isExpanded && (
-        <div className="mt-6 animate-in slide-in-from-top-2 duration-300">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-            <div className="pb-4">
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-5">
+        <div className="mt-4 animate-in slide-in-from-top-2 duration-300">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="pb-3">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
                 {phaseStages.map((stage) => (
                   <div key={stage.id} className="min-w-0">
                     <ProjectKanbanStageColumn
