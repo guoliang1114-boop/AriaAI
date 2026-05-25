@@ -281,7 +281,7 @@ cases:
     project_id: 27
     expected_chat_mode: project_deep_dive
     expected_action_policy: read_only_tool
-    expected_tool_access_policy: injected_context_only
+    expected_tool_access_policy: read_on_demand
     expected_contract_action: read_then_answer
     forbid_tools:
       - name: manage_project_files

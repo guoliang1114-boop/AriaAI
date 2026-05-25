@@ -461,9 +461,7 @@ def detect_tool_access_policy(
     if project_id:
         if _has_any(text, CONCISE_SUMMARY_TERMS) or "结构化记忆" in text:
             return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
-        if _has_any(text, PROJECT_ANALYSIS_TERMS):
-            return ToolAccessPolicy.READ_ON_DEMAND
-        return ToolAccessPolicy.INJECTED_CONTEXT_ONLY
+        return ToolAccessPolicy.READ_ON_DEMAND
     return ToolAccessPolicy.NONE
 
 

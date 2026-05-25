@@ -467,7 +467,7 @@ class ChatModeActionPolicyTests(unittest.TestCase):
     def test_excel_how_to_question_stays_read_only(self):
         decision = classify_chat_mode_and_policy("如何写 Excel 公式？", project_id=26)
         self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
-        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+        self.assertEqual(decision.tool_access_policy, ToolAccessPolicy.READ_ON_DEMAND)
 
     def test_explicit_file_read_enables_read_tools(self):
         decision = classify_chat_mode_and_policy("请读取 risk.md 并总结一下", project_id=26)
