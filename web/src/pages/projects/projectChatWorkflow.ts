@@ -122,6 +122,142 @@ export function workflowStepsFromTask(task?: TaskRun): ToolCallEvent[] {
   return steps.map((step) => workflowStepFromTask(step, steps.length, task?.events || []));
 }
 
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  manage_project_files: "管理项目文件",
+  manage_project_folders: "管理项目文件夹",
+  read_project_file: "读取项目文件",
+  read_project_markdown_document: "读取项目文档",
+  update_project_markdown_document: "写入项目 Markdown 文档",
+  write_project_office_document: "生成项目文档",
+};
+
+const STATUS_PRIORITY: Record<ToolCallEvent["status"], number> = {
+  error: 6,
+  blocked: 5,
+  confirmation_required: 4,
+  running: 3,
+  pending: 2,
+  skipped: 1,
+  completed: 0,
+};
+
+function readableToolName(toolName: string) {
+  return TOOL_DISPLAY_NAMES[toolName] || toolName;
+}
+
+function isLowValueToolText(text: string, toolName: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (/^Executing\s+\w+/.test(trimmed)) return true;
+  if (trimmed === `工具 ${toolName} 执行完成。`) return true;
+  if (trimmed === `工具 ${toolName} 执行完成`) return true;
+  return false;
+}
+
+function dedupeStrings(items: string[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const value = item.trim();
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+function toolCallStatusLabel(status: ToolCallEvent["status"]) {
+  if (status === "completed") return "已完成";
+  if (status === "running") return "执行中";
+  if (status === "pending") return "等待中";
+  if (status === "blocked") return "已拦截";
+  if (status === "confirmation_required") return "待确认";
+  if (status === "skipped") return "已跳过";
+  return "失败";
+}
+
+function toolCallDetail(call: ToolCallEvent) {
+  const name = readableToolName(call.tool_name);
+  const messages = dedupeStrings([
+    call.summary || "",
+    call.message || "",
+    call.error || "",
+    ...(call.details || []),
+  ]).filter((item) => !isLowValueToolText(item, call.tool_name));
+  const suffix = messages.length ? `：${messages.join("；")}` : "。";
+  return `${name}：${toolCallStatusLabel(call.status)}${suffix}`;
+}
+
+function summarizeToolCalls(calls: ToolCallEvent[]) {
+  const byTool = new Map<string, ToolCallEvent>();
+  for (const call of calls) {
+    const current = byTool.get(call.tool_name);
+    if (!current || STATUS_PRIORITY[call.status] >= STATUS_PRIORITY[current.status]) {
+      byTool.set(call.tool_name, call);
+    }
+  }
+  return Array.from(byTool.values());
+}
+
+export function workflowStepsFromToolCalls(calls: ToolCallEvent[]): ToolCallEvent[] {
+  if (!calls.length || calls.some((call) => call.step_index !== undefined && call.step_index !== null)) {
+    return calls;
+  }
+
+  const summarizedCalls = summarizeToolCalls(calls);
+  const toolStatus = summarizedCalls.reduce<ToolCallEvent["status"]>(
+    (status, call) => (STATUS_PRIORITY[call.status] > STATUS_PRIORITY[status] ? call.status : status),
+    "completed",
+  );
+  const toolDetails = summarizedCalls.map(toolCallDetail).filter(Boolean);
+  const hasWriteTool = summarizedCalls.some((call) =>
+    ["manage_project_files", "manage_project_folders", "update_project_markdown_document", "write_project_office_document"].includes(
+      call.tool_name,
+    ),
+  );
+
+  return [
+    {
+      tool_name: "理解需求与上下文",
+      status: "completed",
+      message: "已读取当前问题、项目上下文和可用知识范围。",
+      step_index: 1,
+      step_total: 4,
+      step_title: "理解需求与上下文",
+    },
+    {
+      tool_name: "制定执行计划",
+      status: "completed",
+      message: hasWriteTool
+        ? "已判断本轮需要读取资料并执行项目空间写入或管理操作。"
+        : "已判断本轮需要读取项目资料后再生成回答。",
+      step_index: 2,
+      step_total: 4,
+      step_title: "制定执行计划",
+    },
+    {
+      tool_name: "执行 Skill / 工具",
+      status: toolStatus,
+      message:
+        toolStatus === "completed"
+          ? `已完成 ${summarizedCalls.length} 个工具步骤。`
+          : "工具执行过程中出现需要关注的状态。",
+      details: toolDetails,
+      error: summarizedCalls.find((call) => call.status === "error")?.error,
+      confirmation_token: summarizedCalls.find((call) => call.status === "confirmation_required")?.confirmation_token,
+      step_index: 3,
+      step_total: 4,
+      step_title: "执行 Skill / 工具",
+    },
+    {
+      tool_name: "整理结果与链接",
+      status: toolStatus === "running" || toolStatus === "pending" ? "running" : "completed",
+      message: "已保存本次回复，并整理可查看的结果。",
+      step_index: 4,
+      step_total: 4,
+      step_title: "整理结果与链接",
+    },
+  ];
+}
+
 export function artifactFromTaskRunArtifact(artifact: TaskRunArtifact): GeneratedArtifact | null {
   if (!artifact?.name || !artifact.file_type) return null;
   return {

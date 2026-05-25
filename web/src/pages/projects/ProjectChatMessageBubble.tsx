@@ -36,6 +36,7 @@ import {
   artifactFromTaskRunArtifact,
   mergeArtifacts,
   workflowStepsFromTask,
+  workflowStepsFromToolCalls,
 } from "./projectChatWorkflow";
 
 const MessageCopyButton = memo(
@@ -129,7 +130,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     const taskToolCalls = workflowStepsFromTask(metadata.task_run);
     const toolCalls: ToolCallEvent[] = taskToolCalls.length
       ? taskToolCalls
-      : metadata.tool_calls || [];
+      : workflowStepsFromToolCalls(metadata.tool_calls || []);
     const artifacts: GeneratedArtifact[] = mergeArtifacts(
       metadata.artifacts || [],
       (metadata.task_run?.artifacts || [])
