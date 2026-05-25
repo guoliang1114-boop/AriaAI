@@ -166,6 +166,8 @@ MODIFY_TERMS = (
     "矫正",
     "改一下",
     "调整",
+    "补充",
+    "补齐",
     "覆盖",
     "update",
     "modify",
@@ -174,6 +176,41 @@ MODIFY_TERMS = (
     "rewrite",
     "rename",
     "fix",
+)
+
+WORKSPACE_SCOPE_TERMS = (
+    "全局",
+    "全工作区",
+    "工作区",
+    "所有客户",
+    "全部客户",
+    "整个空间",
+    "workspace",
+    "global",
+    "all clients",
+)
+
+CLIENT_SCOPE_TERMS = (
+    "这个客户",
+    "该客户",
+    "当前客户",
+    "同一个客户",
+    "客户的",
+    "client",
+    "same client",
+    "current client",
+)
+
+CLIENT_NAME_MARKERS = (
+    "有限公司",
+    "股份",
+    "集团",
+    "公司",
+    "inc.",
+    " ltd",
+    " limited",
+    " group",
+    " corporation",
 )
 
 PROJECT_SPACE_ORGANIZATION_TERMS = (
@@ -448,15 +485,27 @@ def classify_chat_mode_and_policy(
     if force_skill or skill_id:
         return IntentDecision(ChatMode.SKILL_EXECUTION, policy, max(confidence, 0.9), f"skill:{reason}", tool_access_policy=tool_access)
     if project_id:
+        normalized_routing_content = _normalize(routing_content)
+        workspace_scoped = _has_any(normalized_routing_content, WORKSPACE_SCOPE_TERMS)
+        client_scoped = _has_any(normalized_routing_content, CLIENT_SCOPE_TERMS)
+        if workspace_scoped and not client_scoped and is_workspace_project_inventory_query(routing_content):
+            return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         if is_client_project_portfolio_query(routing_content):
             return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.DIRECT_ANSWER, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         if is_workspace_project_inventory_query(routing_content):
             return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason, tool_access_policy=tool_access)
-    if is_client_project_portfolio_query(routing_content):
+    normalized_routing_content = _normalize(routing_content)
+    client_scoped = _has_any(normalized_routing_content, CLIENT_SCOPE_TERMS) or _has_any(
+        normalized_routing_content,
+        CLIENT_NAME_MARKERS,
+    )
+    if client_scoped and is_client_project_portfolio_query(routing_content):
         return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.DIRECT_ANSWER, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
     if is_workspace_project_inventory_query(routing_content):
         return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
+    if is_client_project_portfolio_query(routing_content):
+        return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.DIRECT_ANSWER, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
     return IntentDecision(ChatMode.STANDALONE_QA, ActionPolicy.DIRECT_ANSWER, confidence, reason, tool_access_policy=ToolAccessPolicy.NONE)
 
 

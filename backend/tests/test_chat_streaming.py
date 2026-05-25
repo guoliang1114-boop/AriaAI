@@ -337,6 +337,7 @@ class ToolProgressPayloadTests(unittest.TestCase):
     def test_unknown_tool(self):
         result = _tool_progress_payload("custom_tool", {})
         self.assertIn("custom_tool", result["message"])
+        self.assertNotIn("Executing", result["message"])
 
 
 class ToolStartProgressPayloadTests(unittest.TestCase):
@@ -647,7 +648,7 @@ class SummarizeToolResultTests(unittest.TestCase):
         self.assertEqual(_summarize_tool_result({"error": "fail"}), "fail")
 
     def test_file_name(self):
-        self.assertEqual(_summarize_tool_result({"file_name": "x.docx"}), "Created x.docx")
+        self.assertEqual(_summarize_tool_result({"file_name": "x.docx"}), "已生成 x.docx")
 
     def test_message(self):
         self.assertEqual(_summarize_tool_result({"message": "done"}), "done")
@@ -656,7 +657,7 @@ class SummarizeToolResultTests(unittest.TestCase):
         self.assertEqual(_summarize_tool_result({"output": {"message": "Updated meeting.md"}}), "Updated meeting.md")
 
     def test_success_true(self):
-        self.assertEqual(_summarize_tool_result({"success": True}), "Completed successfully")
+        self.assertEqual(_summarize_tool_result({"success": True}), "已成功完成")
 
     def test_empty(self):
         self.assertEqual(_summarize_tool_result({}), "")

@@ -640,11 +640,11 @@ def test_execute_text_artifact_task_records_markdown_project_file(monkeypatch, t
             steps = session.exec(select(TaskStep).where(TaskStep.task_run_id == task.id).order_by(TaskStep.sort_order)).all()
             artifacts = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).all()
             project_files = session.exec(select(ProjectFile).where(ProjectFile.project_id == project.id)).all()
+            events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id).order_by(TaskEvent.created_at)).all()
 
         assert task.status == "completed"
         assert [step.key for step in steps] == ["collect_context", "plan_text_artifact", "draft_text_artifact", "summarize_result"]
         assert artifacts and artifacts[0].file_type == "md"
-        events = session.exec(select(TaskEvent).where(TaskEvent.task_run_id == task.id).order_by(TaskEvent.created_at)).all()
         assert artifacts[0].project_file_id
         assert artifacts[0].path
         assert project_files and project_files[0].file_type == "md"

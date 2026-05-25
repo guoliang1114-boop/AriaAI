@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 
 # UPLOADS_DIR imported below via projects_deps
 from app.routers.projects_deps import get_session
-from app.models.db import Conversation, Message, Project, ProjectFile
+from app.models.db import Conversation, Message, Project, ProjectFile, ProjectFileVersion
 from app.routers.projects_deps import (
     UPLOADS_DIR,
     _bust_project,
@@ -52,6 +52,11 @@ from app.services.project_files import (
     list_project_files,
     resolve_project_file_path,
     restore_project_file,
+)
+from app.services.project_file_versions import (
+    create_project_file_version_snapshot,
+    ensure_initial_project_file_version,
+    list_project_file_versions,
 )
 from app.services.project_folders import (
     create_project_folder,
@@ -170,6 +175,13 @@ def save_conversation_markdown(
         if not full_path.is_file():
             raise HTTPException(404, "File not found on disk")
 
+        existing_content = full_path.read_text(encoding="utf-8", errors="replace")
+        ensure_initial_project_file_version(
+            session,
+            project_file,
+            existing_content,
+            change_source="before_conversation_markdown_merge",
+        )
         project_file.size_bytes = write_project_markdown_file(
             project_file,
             build_markdown_export_header() + markdown_content,
@@ -179,6 +191,14 @@ def save_conversation_markdown(
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
+        merged_content = (UPLOADS_DIR / project_file.path).read_text(encoding="utf-8", errors="replace")
+        create_project_file_version_snapshot(
+            session,
+            project_file,
+            merged_content,
+            change_source="conversation_markdown_merge",
+        )
+        session.commit()
         _mark_project_memory_stale(session, project_id)
         _bust_project(project_id)
         return {
@@ -256,6 +276,13 @@ def save_message_to_document(
         if not full_path.exists():
             raise HTTPException(404, "File not found on disk")
 
+        existing_content = full_path.read_text(encoding="utf-8", errors="replace")
+        ensure_initial_project_file_version(
+            session,
+            project_file,
+            existing_content,
+            change_source="before_message_markdown_merge",
+        )
         project_file.size_bytes = write_project_markdown_file(
             project_file,
             content_block,
@@ -265,6 +292,14 @@ def save_message_to_document(
         session.add(project_file)
         session.commit()
         session.refresh(project_file)
+        merged_content = (UPLOADS_DIR / project_file.path).read_text(encoding="utf-8", errors="replace")
+        create_project_file_version_snapshot(
+            session,
+            project_file,
+            merged_content,
+            change_source="message_markdown_merge",
+        )
+        session.commit()
         _mark_project_memory_stale(session, project_id)
         _bust_project(project_id)
         return {
@@ -366,6 +401,50 @@ async def confirm_message_markdown_save(
     session.commit()
 
     return result
+
+
+@router.get("/{project_id}/files/{file_id}/versions")
+def list_file_versions(project_id: int, file_id: int, session: Session = Depends(get_session)):
+    project_file = get_project_document_file_or_404(session, project_id, file_id)
+    versions = list_project_file_versions(session, project_id=project_id, project_file_id=project_file.id)
+    return {
+        "file_id": project_file.id,
+        "name": project_file.name,
+        "versions": [
+            {
+                "id": version.id,
+                "version_number": version.version_number,
+                "name": version.name,
+                "file_type": version.file_type,
+                "size_bytes": version.size_bytes,
+                "content_hash": version.content_hash,
+                "change_source": version.change_source,
+                "message_id": version.message_id,
+                "created_at": version.created_at,
+            }
+            for version in versions
+        ],
+    }
+
+
+@router.post("/{project_id}/files/{file_id}/versions/{version_id}/restore")
+def restore_file_version(project_id: int, file_id: int, version_id: int, session: Session = Depends(get_session)):
+    project_file = get_project_document_file_or_404(session, project_id, file_id)
+    version = session.get(ProjectFileVersion, version_id)
+    if not version or version.project_id != project_id or version.project_file_id != file_id:
+        raise HTTPException(404, "Version not found")
+    result = update_project_document_record(
+        session,
+        project_id,
+        project_file.id,
+        uploads_dir=UPLOADS_DIR,
+        init_default_folders=init_default_project_folders,
+        content=version.content_snapshot,
+        name=version.name,
+    )
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
+    return {"ok": True, "restored_version_id": version_id, "file": result}
 
 
 @router.post("/{project_id}/files", status_code=201)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -9,12 +10,13 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import ChatTrace, Conversation, GeneratedFile, Message, TaskRun, ToolCall
+from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, Message, TaskRun, ToolCall
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
 _CONV_TTL = CONVERSATION_CACHE_TTL
 _RETENTION_DAYS = max(CHAT_RETENTION_DAYS, 1)
+logger = logging.getLogger(__name__)
 
 
 def list_conversations_cached(
@@ -291,6 +293,19 @@ def persist_assistant_message(
                 conv.title = user_content[:40] + ("…" if len(user_content) > 40 else "")
                 need_title = True
             new_session.add(conv)
+        try:
+            from app.services.conversation_state import upsert_conversation_state_from_metadata
+
+            upsert_conversation_state_from_metadata(
+                new_session,
+                conversation_id=conv_id,
+                user_content=user_content,
+                assistant_content=content,
+                metadata=metadata,
+                message_id=message_id,
+            )
+        except Exception:
+            logger.warning("Failed to update persistent conversation state for %s", conv_id, exc_info=True)
         new_session.commit()
     return need_title, message_id
 
@@ -306,6 +321,8 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
         session.delete(tool_call)
     for trace in session.exec(select(ChatTrace).where(ChatTrace.conversation_id == conv_id)).all():
         session.delete(trace)
+    for state in session.exec(select(ConversationState).where(ConversationState.conversation_id == conv_id)).all():
+        session.delete(state)
     for msg in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
         session.delete(msg)
     session.delete(conv)

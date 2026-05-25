@@ -62,40 +62,68 @@ def extract_tool_use_json_blocks(text: str) -> tuple[list[dict], str]:
     return blocks, "".join(cleaned_parts)
 
 
-def _infer_office_file_type(content: str, tool_input: dict) -> str:
-    """Resolve the desired office file type from explicit tool input only."""
+def _infer_office_file_type(content: str, tool_input: dict, *, infer_from_content: bool = False) -> str:
+    """Resolve the desired office file type from explicit input or request text."""
     explicit = str(tool_input.get("file_type") or "").strip().lower()
     if explicit:
         return explicit
+    text_parts = [
+        tool_input.get("title"),
+        tool_input.get("file_name"),
+        tool_input.get("name"),
+    ]
+    if infer_from_content:
+        text_parts.insert(0, content)
+    text = " ".join(
+        str(value or "")
+        for value in text_parts
+    ).lower()
+    if any(term in text for term in ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表")):
+        return "xlsx"
+    if any(term in text for term in ("ppt", "pptx", "powerpoint", "slides", "幻灯片", "演示文稿")):
+        return "pptx"
+    if "pdf" in text:
+        return "pdf"
+    if any(term in text for term in ("word", "docx", "doc", "document", "文档", "报告")):
+        return "docx"
     return "docx"
 
 
-def _default_xlsx_sheets_for_request(content: str) -> list[dict]:
+def _default_xlsx_sheets_for_request(content: str, *, title: str = "") -> list[dict]:
     """Return a neutral sheet skeleton without inferring domain-specific columns."""
-    return [{"name": "工作表", "headers": [], "data": []}]
+    sheet_name = str(title or "").strip() or "工作表"
+    for char in "[]:*?/\\":
+        sheet_name = sheet_name.replace(char, "_")
+    return [{"name": sheet_name[:31] or "工作表", "headers": [], "data": []}]
 
 
-def repair_project_office_tool_input(content: str, tool_input: dict) -> tuple[dict, list[str]]:
+def repair_project_office_tool_input(
+    content: str,
+    tool_input: dict,
+    *,
+    infer_file_type_from_content: bool = False,
+) -> tuple[dict, list[str]]:
     """Ensure office-document tool inputs have file_type, file_name, title, and sheets (if xlsx)."""
     repaired = dict(tool_input or {})
     changes: list[str] = []
-    file_type = _infer_office_file_type(content, repaired)
+    file_type = _infer_office_file_type(content, repaired, infer_from_content=infer_file_type_from_content)
     if not repaired.get("file_type"):
         repaired["file_type"] = file_type
         changes.append(f"补齐文件类型：{file_type.upper()}")
+    explicit_title = str(repaired.get("title") or "").strip()
     title = normalize_deliverable_title(
         content=content,
-        explicit_title=str(repaired.get("title") or ""),
+        explicit_title=explicit_title,
         file_type=file_type,
     )
-    if not str(repaired.get("title") or "").strip():
+    if not explicit_title:
         repaired["title"] = title
         changes.append("补齐标题")
     if not str(repaired.get("file_name") or "").strip():
         repaired["file_name"] = file_name_for_deliverable(title, file_type)
         changes.append(f"补齐文件名：{repaired['file_name']}")
     if file_type == "xlsx" and not repaired.get("sheets"):
-        repaired["sheets"] = _default_xlsx_sheets_for_request(content)
+        repaired["sheets"] = _default_xlsx_sheets_for_request(content, title=explicit_title)
         changes.append("生成默认 Excel 工作表结构")
     return repaired, changes
 

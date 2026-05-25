@@ -17,6 +17,7 @@ from app.services.chat_store import (
     get_or_create_conversation,
     persist_user_message,
 )
+from app.services.conversation_state import get_conversation_state_payload
 from app.services.context_builder import (
     build_chat_context,
 )
@@ -441,7 +442,8 @@ def prepare_chat_runtime(
     # 4. Message history, working memory, and follow-up policy upgrades
     step_started_at = time.perf_counter()
     history = get_recent_message_history(session, conv_id, limit=CHAT_HISTORY_WINDOW) if conv_id else []
-    working_memory = build_working_memory(history, req.content)
+    persisted_conversation_state = get_conversation_state_payload(session, conv_id) if conv_id else {}
+    working_memory = build_working_memory(history, req.content, persisted_state=persisted_conversation_state)
     intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     intent_decision = _upgrade_policy_for_artifact_continuation(intent_decision, req, working_memory)
     api_messages = [
@@ -455,6 +457,8 @@ def prepare_chat_runtime(
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["working_memory"] = working_memory.to_dict()
+    if persisted_conversation_state:
+        prepare_metrics["conversation_state_loaded"] = True
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
     prepare_metrics["tool_access_policy"] = intent_decision.tool_access_policy.value
     prepare_metrics["intent_reason"] = intent_decision.reason

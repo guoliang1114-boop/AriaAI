@@ -56,6 +56,7 @@ from app.routers import clients as clients_router_module
 from app.routers import memory_operations as memory_operations_router_module
 from app.routers import messages as messages_router_module
 from app.routers import projects as projects_router_module
+from app.routers import projects_briefing as projects_briefing_module
 from app.routers import projects_memory as projects_memory_module
 from app.routers import projects_deps as projects_deps_module
 from app.routers import projects_files as projects_files_module
@@ -81,7 +82,7 @@ def patch_project_llm(complete=None, stream=None):
     """Patch complete_with_selected_model and/or stream_with_selected_model across ALL project router modules."""
     with ExitStack() as stack:
         if complete is not None:
-            for mod in (projects_router_module, projects_memory_module, projects_deps_module):
+            for mod in (projects_router_module, projects_briefing_module, projects_memory_module, projects_deps_module):
                 stack.enter_context(patch.object(mod, "complete_with_selected_model", complete))
         if stream is not None:
             for mod in (projects_router_module, projects_memory_module, projects_deps_module):
@@ -178,16 +179,32 @@ class ChatRouterTestCase(unittest.TestCase):
         self.engine = create_test_engine()
         drop_all_tables(self.engine)
         SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            current_user = User(
+                email="chat-router@test.com",
+                password_hash="h",
+                display_name="Chat Router",
+                is_admin=True,
+            )
+            session.add(current_user)
+            session.commit()
+            session.refresh(current_user)
+            self.current_user_id = current_user.id
 
         def override_session():
             with Session(self.engine) as session:
                 yield session
+
+        def override_current_user():
+            with Session(self.engine) as session:
+                return session.get(User, self.current_user_id)
 
         app = FastAPI()
         app.include_router(auth_router_module.router)
         app.include_router(chat_router_module.router)
         app.dependency_overrides[auth_router_module.get_session] = override_session
         app.dependency_overrides[chat_router_module.get_session] = override_session
+        app.dependency_overrides[auth_router_module.get_current_user] = override_current_user
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -1193,7 +1210,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                     s.add(pf)
                     s.commit()
 
-        with patch("app.routers.projects.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
+        with patch("app.routers.projects_deps.summarize_uploaded_project_file", side_effect=fake_summarize), patch("app.database.engine", self.engine):
             asyncio.run(projects_router_module._auto_summarize_file(file_id, str(full_path), "md", pid, None))
 
         with Session(self.engine) as session:
@@ -4491,6 +4508,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=[{"name": "read_project_markdown_document"}, {"name": "write_project_office_document"}],
             max_tokens=1024,
             temperature=0.7,
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content=prompt, project_id=project_id)
 
@@ -4619,6 +4637,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             max_tokens=1024,
             temperature=0.7,
             skill_name="digital-strategy",
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="生成数字化战略 PPT", skill_id=24)
 
@@ -4665,6 +4684,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=[{"name": "generate_docx"}],
             max_tokens=1024,
             temperature=0.7,
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="make doc")
 
@@ -4723,6 +4743,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             max_tokens=1024,
             temperature=0.7,
             skill_name="digital-strategy",
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="make deck", skill_id=24)
 
@@ -4797,6 +4818,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             max_tokens=1024,
             temperature=0.7,
             skill_name="digital-strategy",
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="make deck", skill_id=24)
 
@@ -4843,6 +4865,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             max_tokens=1024,
             temperature=0.7,
             skill_name="digital-strategy",
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="生成数字化战略方案", skill_id=24)
 
@@ -4928,7 +4951,10 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertEqual(len(assistant_messages), 0)
 
     def test_stream_chat_events_detects_pseudo_tool_use_json_in_p3_follow_up(self):
-        """If Claude outputs tool_use JSON as plain text in P3 follow-up, we detect and execute it."""
+        """P3 pseudo write tools are detected, scrubbed, and routed to HITAS confirmation."""
+        with Session(self.engine) as session:
+            session.add(Project(id=1, name="Pseudo Tool Project", client="Client"))
+            session.commit()
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
             [
@@ -4951,6 +4977,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=[{"name": "read_project_markdown_document"}, {"name": "update_project_markdown_document"}],
             max_tokens=1024,
             temperature=0.7,
+            action_policy="modify_existing_file",
         )
         req = chat_router_module.SendMessageRequest(content="read and update the project document")
 
@@ -4965,20 +4992,23 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         joined = "".join(events)
-        self.assertIn("Done updating the file.", joined)
+        self.assertIn("confirmation_required", joined)
+        self.assertIn("需要用户确认后才能执行修改或危险操作", joined)
+        self.assertNotIn("Done updating the file.", joined)
         self.assertNotIn('"type":"tool_use"', joined)
-        self.assertEqual(llm.calls, 3)  # P1, P3, P3 re-follow-up
+        self.assertEqual(llm.calls, 2)  # P1, P3; modify action pauses for confirmation
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
             self.assertEqual(len(assistant_messages), 1)
-            self.assertIn("Done updating the file.", assistant_messages[0].content)
+            self.assertIn("等待确认", assistant_messages[0].content)
             metadata = json.loads(assistant_messages[0].metadata_json)
             tool_names = [tc["tool_name"] for tc in metadata["tool_calls"]]
             self.assertIn("read_project_markdown_document", tool_names)
             self.assertIn("update_project_markdown_document", tool_names)
+            self.assertEqual(metadata["tool_calls"][1]["status"], "confirmation_required")
             self.assertNotIn('"type":"tool_use"', assistant_messages[0].content)
 
     def test_stream_chat_events_suppresses_mixed_p1_tool_use_json(self):
@@ -5010,6 +5040,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=[{"name": "update_project_markdown_document"}],
             max_tokens=1024,
             temperature=0.7,
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="创建第一次沟通文档")
 
@@ -5114,6 +5145,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             tools=[{"name": "generate_docx"}],
             max_tokens=1024,
             temperature=0.7,
+            action_policy="write_artifact",
         )
         req = chat_router_module.SendMessageRequest(content="make doc")
 

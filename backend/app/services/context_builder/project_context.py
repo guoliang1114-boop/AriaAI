@@ -1,6 +1,7 @@
 """Project-level context builder including files, milestones, and financials."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -68,6 +69,11 @@ def extract_file_text(path: Path, file_type: str, max_chars: int = 4000) -> str:
     if text.startswith("[Could not extract text: ") and not text.endswith("]"):
         return f"{text}]"
     return text
+
+
+def _current_extract_file_text():
+    package = sys.modules.get("app.services.context_builder")
+    return getattr(package, "extract_file_text", extract_file_text) if package else extract_file_text
 
 
 def build_project_context(
@@ -212,7 +218,7 @@ def build_project_context(
                 full_path = _safe_project_file_path(UPLOADS_DIR, f.path)
                 text = ""
                 if full_path:
-                    text = extract_file_text(
+                    text = _current_extract_file_text()(
                         full_path,
                         f.file_type,
                         max_chars=min(MAX_SINGLE_FILE_CHARS, MAX_FILE_CONTENT_CHARS - total_chars)
@@ -278,7 +284,7 @@ def build_project_context(
             if pf and pf.project_id == project.id and pf.deleted_at is None:
                 full_path = _safe_project_file_path(UPLOADS_DIR, pf.path)
                 if full_path:
-                    text = extract_file_text(full_path, pf.file_type)
+                    text = _current_extract_file_text()(full_path, pf.file_type)
                     file_sections.append(f"### {pf.name}\n{text}")
         if file_sections:
             attachment_block = "\n\n---\n\n".join(file_sections)

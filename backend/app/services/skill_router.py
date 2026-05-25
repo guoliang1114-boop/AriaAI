@@ -66,8 +66,8 @@ def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: b
         "写一份", "写一个", "做一份", "做一个", "prepare", "create", "generate", "make", "draft", "write",
     )
     deliverable_terms = (
-        "报告", "方案", "材料", "文档", "ppt", "pptx", "deck", "战略", "提案", "建议书",
-        "清单", "路线图", "roadmap", "proposal", "report", "brief",
+        "ppt", "pptx", "deck", "战略", "提案", "建议书", "客户方案", "商业案例",
+        "路线图", "roadmap", "proposal", "brief", "digital strategy", "business case",
     )
     if not question_like and any(term in text for term in workflow_verbs) and any(term in text for term in deliverable_terms):
         return SkillActivationDecision(

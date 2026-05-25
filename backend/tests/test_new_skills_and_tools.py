@@ -18,6 +18,8 @@ from tests.test_database import create_test_engine, drop_all_tables
 
 class EditOfficeDocumentToolTestCase(unittest.TestCase):
     def setUp(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.uploads_dir = Path(self.temp_dir.name) / "uploads"
         self.generated_dir = self.uploads_dir / "generated"
@@ -27,6 +29,8 @@ class EditOfficeDocumentToolTestCase(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
+        self.loop.close()
+        asyncio.set_event_loop(None)
         self.engine.dispose()
         self.temp_dir.cleanup()
 
@@ -220,6 +224,8 @@ class EditOfficeDocumentToolTestCase(unittest.TestCase):
 
 class ManagePdfToolTestCase(unittest.TestCase):
     def setUp(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.uploads_dir = Path(self.temp_dir.name) / "uploads"
         self.generated_dir = self.uploads_dir / "generated"
@@ -229,6 +235,8 @@ class ManagePdfToolTestCase(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
 
     def tearDown(self):
+        self.loop.close()
+        asyncio.set_event_loop(None)
         self.engine.dispose()
         self.temp_dir.cleanup()
 

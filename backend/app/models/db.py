@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from sqlalchemy import Column, Text, UniqueConstraint
 from sqlmodel import SQLModel, Field, Relationship
 import json
 
@@ -194,6 +195,28 @@ class ProjectFile(SQLModel, table=True):
     folder: Optional[ProjectFolder] = Relationship(back_populates="files")
 
 
+class ProjectFileVersion(SQLModel, table=True):
+    """Version snapshot for project files, primarily Markdown documents."""
+
+    __table_args__ = (
+        UniqueConstraint("project_file_id", "version_number", name="uq_projectfileversion_file_version"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_file_id: int = Field(foreign_key="projectfile.id", index=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    version_number: int = Field(index=True)
+    name: str
+    file_type: str = ""
+    path: str = ""
+    size_bytes: int = 0
+    content_hash: str = Field(default="", index=True)
+    content_snapshot: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    change_source: str = ""
+    message_id: Optional[int] = Field(default=None, foreign_key="message.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now_naive, index=True)
+
+
 class ProjectPayment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
@@ -239,6 +262,29 @@ class Message(SQLModel, table=True):
     
     def set_metadata(self, value: dict):
         self.metadata_json = json.dumps(value, ensure_ascii=False)
+
+
+class ConversationState(SQLModel, table=True):
+    """Persistent working memory for multi-turn collaboration."""
+
+    __table_args__ = (
+        UniqueConstraint("conversation_id", name="uq_conversationstate_conversation_id"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    conversation_id: int = Field(foreign_key="conversation.id", index=True)
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    current_artifact_json: str = Field(default="{}", sa_column=Column(Text, nullable=False, default="{}"))
+    current_task_json: str = Field(default="{}", sa_column=Column(Text, nullable=False, default="{}"))
+    user_constraints_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    decisions_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    active_file_ids_json: str = Field(default="[]", sa_column=Column(Text, nullable=False, default="[]"))
+    last_intent_json: str = Field(default="{}", sa_column=Column(Text, nullable=False, default="{}"))
+    summary: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    last_user_request: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    last_assistant_summary: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive, index=True)
 
 
 class ChatTrace(SQLModel, table=True):

@@ -17,7 +17,7 @@ FORMAT_TERMS: dict[str, tuple[str, ...]] = {
     "pptx": ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍"),
     "xlsx": ("excel", "xlsx", "xls", "spreadsheet", "表格", "工作簿", "访谈表", "问卷excel", "台账"),
     "md": ("markdown", ".md", " md", "md ", "md文档", "markdown文档"),
-    "docx": ("word", "docx", "文档", "报告", "方案", "材料"),
+    "docx": ("word", "doc", "document", "docx", "文档", "报告", "方案", "材料"),
     "pdf": ("pdf",),
 }
 

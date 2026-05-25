@@ -61,6 +61,9 @@ class WorkingMemory:
     continuation_requested: bool = False
     last_user_request: str = ""
     last_assistant_summary: str = ""
+    summary: str = ""
+    user_constraints: list[str] | None = None
+    decisions: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,6 +73,9 @@ class WorkingMemory:
             "continuation_requested": self.continuation_requested,
             "last_user_request": self.last_user_request,
             "last_assistant_summary": self.last_assistant_summary,
+            "summary": self.summary,
+            "user_constraints": self.user_constraints or [],
+            "decisions": self.decisions or [],
         }
 
 
@@ -168,11 +174,19 @@ def is_artifact_continuation_request(content: str) -> bool:
     return any(term.lower().replace(" ", "") in text for term in CONTINUATION_TERMS)
 
 
-def build_working_memory(history: list[Message], current_content: str) -> WorkingMemory:
-    current_artifact: dict[str, Any] | None = None
-    current_task: dict[str, Any] | None = None
-    last_user_request = ""
-    last_assistant_summary = ""
+def build_working_memory(
+    history: list[Message],
+    current_content: str,
+    *,
+    persisted_state: dict[str, Any] | None = None,
+) -> WorkingMemory:
+    persisted_state = persisted_state if isinstance(persisted_state, dict) else {}
+    current_artifact: dict[str, Any] | None = persisted_state.get("current_artifact") or None
+    current_task: dict[str, Any] | None = persisted_state.get("current_task") or None
+    last_user_request = str(persisted_state.get("last_user_request") or "")
+    last_assistant_summary = str(persisted_state.get("last_assistant_summary") or "")
+    user_constraints = persisted_state.get("user_constraints") if isinstance(persisted_state.get("user_constraints"), list) else []
+    decisions = persisted_state.get("decisions") if isinstance(persisted_state.get("decisions"), list) else []
 
     for message in history:
         role = getattr(message, "role", "")
@@ -199,6 +213,9 @@ def build_working_memory(history: list[Message], current_content: str) -> Workin
         continuation_requested=is_artifact_continuation_request(current_content),
         last_user_request=last_user_request,
         last_assistant_summary=last_assistant_summary,
+        summary=str(persisted_state.get("summary") or ""),
+        user_constraints=[str(item) for item in user_constraints[:12] if str(item).strip()],
+        decisions=[item for item in decisions[:12] if isinstance(item, dict)],
     )
 
 
@@ -227,6 +244,19 @@ def format_working_memory_for_prompt(memory: WorkingMemory) -> str:
             "Current task: "
             f"id={task.get('id')}, type={task.get('task_type')}, status={task.get('status')}."
         )
+    if memory.summary:
+        parts.append(f"Persistent state summary: {memory.summary}.")
+    if memory.user_constraints:
+        parts.append("Active user constraints:")
+        parts.extend(f"- {item}" for item in memory.user_constraints[:6])
+    if memory.decisions:
+        parts.append("Recent completed decisions/actions:")
+        for decision in memory.decisions[:4]:
+            summary = decision.get("summary")
+            if isinstance(summary, list):
+                summary = "；".join(str(item) for item in summary[:4])
+            if summary:
+                parts.append(f"- {summary}")
     if memory.explicit_target_filename:
         parts.append(f"Explicit target filename in this turn: {memory.explicit_target_filename}.")
     if memory.continuation_requested:

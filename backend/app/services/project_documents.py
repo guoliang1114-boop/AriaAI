@@ -9,6 +9,10 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.db import Project, ProjectFile, ProjectFolder
+from app.services.project_file_versions import (
+    create_project_file_version_snapshot,
+    ensure_initial_project_file_version,
+)
 from app.services.time_utils import utc_now_naive
 
 _MARKDOWN_FILENAME_MAX_BYTES = 120
@@ -115,6 +119,13 @@ def create_markdown_project_file(
     session.add(project_file)
     session.commit()
     session.refresh(project_file)
+    create_project_file_version_snapshot(
+        session,
+        project_file,
+        content,
+        change_source=f"{origin}_create",
+    )
+    session.commit()
     return project_file
 
 
@@ -298,6 +309,13 @@ def update_project_document_record(
         raise HTTPException(404, "File not found on disk")
 
     if content is not None:
+        existing_content = read_project_document_content(project_file, uploads_dir=uploads_dir)
+        ensure_initial_project_file_version(
+            session,
+            project_file,
+            existing_content,
+            change_source="before_document_update",
+        )
         project_file.size_bytes = write_project_markdown_file(project_file, content, uploads_dir=uploads_dir)
 
     if name is not None:
@@ -318,6 +336,16 @@ def update_project_document_record(
     session.add(project_file)
     session.commit()
     session.refresh(project_file)
+    if content is not None or name is not None:
+        snapshot_content = read_project_document_content(project_file, uploads_dir=uploads_dir)
+        create_project_file_version_snapshot(
+            session,
+            project_file,
+            snapshot_content,
+            change_source="document_update",
+        )
+        session.commit()
+        session.refresh(project_file)
     return {
         "ok": True,
         "id": project_file.id,

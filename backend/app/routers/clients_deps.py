@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from datetime import timedelta
 from typing import Optional
 
@@ -47,6 +48,15 @@ _ALL_CLIENT_MEMORY_SUMMARY_TYPES = [
     *CORE_CLIENT_MEMORY_SUMMARY_TYPES,
     *EXTENDED_CLIENT_MEMORY_SUMMARY_TYPES,
 ]
+
+
+def _current_complete_with_selected_model():
+    clients_router = sys.modules.get("app.routers.clients")
+    return (
+        getattr(clients_router, "complete_with_selected_model", complete_with_selected_model)
+        if clients_router
+        else complete_with_selected_model
+    )
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -464,7 +474,7 @@ async def _rebuild_client_memory(
     trigger: str = "manual",
 ) -> dict:
     client, client_data, source_project_ids = build_client_memory_data(session, client_id)
-    raw_memory = await complete_with_selected_model(
+    raw_memory = await _current_complete_with_selected_model()(
         messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
         max_tokens=2200,
     )
@@ -539,7 +549,7 @@ async def _generate_client_memory_summary_cache(
         if cached:
             return cached.content
 
-    content = await complete_with_selected_model(
+    content = await _current_complete_with_selected_model()(
         messages=[
             {
                 "role": "user",

@@ -1,0 +1,28 @@
+cases:
+  - id: continue_current_markdown_artifact
+    kind: working_memory
+    history_metadata:
+      artifacts:
+        - project_file_id: 183
+          name: 项目背景.md
+          file_type: md
+    user_content: "内容不够深刻，继续加强"
+    expected_current_artifact: 项目背景.md
+    expected_continuation: true
+
+  - id: explicit_filename_wins_in_followup
+    kind: working_memory
+    history_metadata:
+      artifacts:
+        - project_file_id: 183
+          name: 风险分析.md
+          file_type: md
+    user_content: "最后写入 项目背景.md"
+    expected_filename: 项目背景.md
+    expected_continuation: true
+
+  - id: unverified_completion_must_be_blocked
+    kind: truth_gate
+    action_policy: modify_existing_file
+    assistant_text: "已完成归类，并已经移动文件。"
+    expected_text_contains: "没有完成这个操作"

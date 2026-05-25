@@ -36,6 +36,25 @@ _ROLE_ONLY_KEYWORDS = frozenset(
     }
 )
 _ENGLISH_LEADING_WORDS = frozenset({"with", "by", "to", "from", "for", "and", "or"})
+_ROLE_ONLY_NEGATIVE_SUFFIXES = ("意见", "建议", "反馈", "材料", "文档", "清单", "态度", "相关")
+_ROLE_ONLY_SIGNAL_TERMS = (
+    "关注",
+    "需要",
+    "要求",
+    "希望",
+    "担心",
+    "反对",
+    "支持",
+    "提醒",
+    "提出",
+    "在意",
+    "看重",
+    "推动",
+    "负责",
+    "审批",
+    "拍板",
+    "确认",
+)
 
 _ROLE_SUFFIX_PATTERN = re.compile(
     r"(?P<name>[\u4e00-\u9fa5]{1,4})(?P<role>" + "|".join(_ROLE_SUFFIXES) + r")"
@@ -88,6 +107,28 @@ def detect_stakeholders_from_text(text: str, *, limit: int = 8) -> list[dict[str
         if len(candidates) >= limit:
             return candidates
 
+    # ── Pass 1b: Role-only stakeholder mentions (e.g. 采购负责人) ───────
+    for role_name in sorted(_ROLE_ONLY_KEYWORDS, key=len, reverse=True):
+        if role_name not in compact:
+            continue
+        if not _role_only_context_is_specific(compact, role_name):
+            continue
+        key = f"{role_name}:{role_name}".lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "name": role_name,
+                "role": role_name,
+                "influence_type": _role_influence_type(role_name),
+                "relationship_status": "unknown",
+                "note": _excerpt(compact, limit=180),
+            }
+        )
+        if len(candidates) >= limit:
+            return candidates
+
     # ── Pass 2: English person + title (e.g. Alice Wang, CFO) ──────────
     for match in _ENGLISH_PERSON_WITH_TITLE_PATTERN.finditer(compact):
         name_parts = match.group("name").strip().split()
@@ -129,6 +170,40 @@ def _looks_like_chinese_person_name(raw_name: str, role: str) -> bool:
     if role == "负责人" and len(raw_name) < 2:
         return False
     return True
+
+
+def _role_only_context_is_specific(text: str, role_name: str) -> bool:
+    index = text.find(role_name)
+    if index < 0:
+        return False
+    after = text[index + len(role_name) : index + len(role_name) + 18]
+    if not after:
+        return False
+    after_without_space = after.lstrip(" ：:")
+    if after_without_space.startswith(("，", ",", "、", "和", "及", "与")):
+        return False
+    stripped_after = after_without_space
+    if not stripped_after:
+        return False
+    if stripped_after.startswith(_ROLE_ONLY_NEGATIVE_SUFFIXES):
+        return False
+    sentence_tail = re.split(r"[。；;！!？?]", stripped_after, maxsplit=1)[0]
+    list_head = re.split(r"[，,、]", sentence_tail, maxsplit=1)[0]
+    return any(term in list_head for term in _ROLE_ONLY_SIGNAL_TERMS)
+
+
+def _role_influence_type(role_name: str) -> str:
+    if "采购" in role_name:
+        return "procurement"
+    if "财务" in role_name or "CFO" in role_name.upper():
+        return "finance"
+    if "法务" in role_name:
+        return "legal"
+    if "技术" in role_name:
+        return "technical"
+    if "业务" in role_name:
+        return "business"
+    return ""
 
 
 def _excerpt(text: str, *, limit: int = 180) -> str:

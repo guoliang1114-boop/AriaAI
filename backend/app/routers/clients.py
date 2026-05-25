@@ -14,7 +14,9 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.db import ClientRecord, KnowledgeDocument, Project
+from app.services import scheduler as scheduler_service
 from app.services.cache import clients_cache
+from app.services.client_contexts import build_client_memory_summary_prompt
 from app.services.project_llm import complete_with_selected_model
 from app.routers.clients_deps import (
     _CLIENTS_KEY,

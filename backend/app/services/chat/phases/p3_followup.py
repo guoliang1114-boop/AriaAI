@@ -388,7 +388,11 @@ async def run_p3_followup(
             if tool_name in _PROJECT_FILE_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
             if tool_name in _PROJECT_OFFICE_TOOLS:
-                tool_input, repaired_changes = repair_project_office_tool_input(req.content, tool_input)
+                tool_input, repaired_changes = repair_project_office_tool_input(
+                    req.content,
+                    tool_input,
+                    infer_file_type_from_content=True,
+                )
                 if repaired_changes:
                     state.record_trace_event(
                         "tool_input_repaired",

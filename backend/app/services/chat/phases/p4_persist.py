@@ -180,6 +180,21 @@ def _is_substantive_markdown_body(content: str) -> bool:
     return not any(text.startswith(prefix) for prefix in non_content_prefixes)
 
 
+def _confirmation_notice(state: ChatSessionState) -> str:
+    pending = state.pending_tool_confirmations[0] if state.pending_tool_confirmations else {}
+    tool_name = str(pending.get("tool_name") or "")
+    summary = str(pending.get("summary") or "").strip()
+    if tool_name == "manage_project_files":
+        return "我已整理出一批需要确认的项目文件操作。请在弹出的 Action Preview 中确认后，我再执行。"
+    if tool_name == "update_project_markdown_document":
+        return "这个操作会修改项目 Markdown 文档，已暂停等待确认。请在弹出的 Action Preview 中确认后，我再执行写入。"
+    if tool_name == "manage_project_folders":
+        return "这个操作会调整项目空间结构，已暂停等待确认。请在弹出的 Action Preview 中确认后，我再执行。"
+    if summary:
+        return f"{summary} 请在弹出的 Action Preview 中确认后，我再执行。"
+    return "这个操作会修改项目内容，已暂停等待确认。请在弹出的 Action Preview 中确认后，我再执行。"
+
+
 def _maybe_create_markdown_from_response(
     *,
     runtime: ChatRuntime,
@@ -454,7 +469,7 @@ async def run_p4_persist(
 
     _ensure_project_cleanup_confirmation(runtime, req, bind, state)
     if state.confirmation_requested and state.pending_tool_confirmations:
-        confirmation_notice = "我已整理出一批可清理的项目空间文件。请在弹出的 Action Preview 中确认后，我再执行删除。"
+        confirmation_notice = _confirmation_notice(state)
         if confirmation_notice not in full_text:
             full_text = f"{full_text}\n\n{confirmation_notice}".strip()
             yield sse_event({"type": "text", "content": f"\n\n{confirmation_notice}"})

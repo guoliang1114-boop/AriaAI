@@ -26,6 +26,7 @@ from app.services.artifact_intent import (
     contract_from_llm_payload,
     detect_artifact_intent,
 )
+from app.services.chat.markdown_followup import is_save_previous_answer_as_markdown_request
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.policy_guards import POLICY_RANK, classify_chat_mode_and_policy
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
@@ -169,6 +170,35 @@ def _clamp_policy(rule_policy: ActionPolicy, proposed_policy: ActionPolicy) -> A
 
 
 def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = None) -> IntentDecision:
+    if req.project_id and is_save_previous_answer_as_markdown_request(req.content):
+        artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="md",
+            allowed_tools=(PROJECT_MARKDOWN_TOOL_NAME,),
+            confidence=0.93,
+            reason="save_previous_answer_markdown_followup",
+            source="deterministic_followup",
+        )
+        return IntentDecision(
+            chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+            action_policy=ActionPolicy.WRITE_ARTIFACT,
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+            task_route=None,
+            artifact_contract=artifact_contract,
+            confidence=0.93,
+            reason="save_previous_answer_markdown_followup",
+            method="deterministic_followup",
+            trace=_decision_trace(
+                method="deterministic_followup",
+                final_chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+                final_action_policy=ActionPolicy.WRITE_ARTIFACT,
+                final_tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+                artifact_contract=artifact_contract,
+                confidence=0.93,
+                reason="save_previous_answer_markdown_followup",
+            ),
+        )
+
     rule_route = None
     if req.force_skill or effective_skill_id:
         task_route = None

@@ -1,10 +1,22 @@
 """RAG context builder for knowledge documents."""
+import sys
 from typing import Optional
 
 from sqlmodel import Session, select
 
 from app.models.db import ClientRecord, KnowledgeDocument, Project
-from app.services.rag import retrieve_structured
+from app.services.rag import retrieve_structured as _retrieve_structured
+
+
+def retrieve_structured(*args, **kwargs):
+    """Compatibility wrapper kept patchable from app.services.context_builder."""
+
+    return _retrieve_structured(*args, **kwargs)
+
+
+def _current_retrieve_structured():
+    package = sys.modules.get("app.services.context_builder")
+    return getattr(package, "retrieve_structured", retrieve_structured) if package else retrieve_structured
 
 
 def build_rag_context(
@@ -53,7 +65,7 @@ def build_rag_context(
     if not should_retrieve:
         return {"text": "", "sources": []}
 
-    ctx = retrieve_structured(
+    ctx = _current_retrieve_structured()(
         query,
         session,
         rag_doc_ids,

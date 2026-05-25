@@ -48,6 +48,14 @@ class ChatExportTestCase(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[export_module.get_session] = override_session
+        app.dependency_overrides[export_module.get_current_user] = lambda: User(
+            id=self.user_id,
+            email="test@test.com",
+            password_hash="h",
+            display_name="Test",
+            is_admin=True,
+            is_active=True,
+        )
 
         @app.middleware("http")
         def inject_user(request, call_next):

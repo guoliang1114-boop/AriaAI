@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -63,6 +64,15 @@ from app.routers.clients_deps import (
 )
 
 router = APIRouter(tags=["clients"])
+
+
+def _current_complete_with_selected_model():
+    clients_router = sys.modules.get("app.routers.clients")
+    return (
+        getattr(clients_router, "complete_with_selected_model", complete_with_selected_model)
+        if clients_router
+        else complete_with_selected_model
+    )
 
 
 @router.get("/memory/jobs", response_model=ClientMemoryJobsResponse)
@@ -552,7 +562,7 @@ async def promote_project_memory_to_client(
         project_memory = {}
 
     current_memory = get_client_memory_payload(client)
-    raw_memory = await complete_with_selected_model(
+    raw_memory = await _current_complete_with_selected_model()(
         messages=[
             {
                 "role": "user",
@@ -602,7 +612,7 @@ async def summarize_client_memory(
     memory = get_client_memory_payload(client)
     if (client.client_memory_version or 0) == 0 or client.client_memory_stale:
         client, client_data, source_project_ids = build_client_memory_data(session, client_id)
-        raw_memory = await complete_with_selected_model(
+        raw_memory = await _current_complete_with_selected_model()(
             messages=[{"role": "user", "content": build_client_memory_prompt(client_data)}],
             max_tokens=2200,
         )
