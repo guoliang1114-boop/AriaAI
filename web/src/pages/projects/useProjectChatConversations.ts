@@ -40,6 +40,12 @@ export function useProjectChatConversations({
   const [conversationPendingDelete, setConversationPendingDelete] = useState<Conversation | null>(null);
   const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   const skipNextFetchRef = useRef(false);
+  const activeConvIdRef = useRef<number | null>(activeConvId);
+  const latestMessagesRequestRef = useRef(0);
+
+  useEffect(() => {
+    activeConvIdRef.current = activeConvId;
+  }, [activeConvId]);
 
   useEffect(() => {
     void fetchConversations();
@@ -90,6 +96,8 @@ export function useProjectChatConversations({
   };
 
   const fetchMessages = async (conversationId: number, options: RefreshOptions = {}) => {
+    const requestId = latestMessagesRequestRef.current + 1;
+    latestMessagesRequestRef.current = requestId;
     if (!options.silent) {
       setIsLoadingMessages(true);
     }
@@ -101,6 +109,12 @@ export function useProjectChatConversations({
         }),
         fetchPendingAction(conversationId),
       ]);
+      if (
+        requestId !== latestMessagesRequestRef.current
+        || (activeConvIdRef.current !== null && activeConvIdRef.current !== conversationId)
+      ) {
+        return;
+      }
       setMessages(data);
       setServerPendingAction(pendingAction);
       void fetchPendingToolActions(conversationId);

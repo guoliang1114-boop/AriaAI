@@ -168,6 +168,61 @@ describe("useProjectChatConversations", () => {
     expect(result.current.isLoadingMessages).toBe(false);
   });
 
+  it("does not let a slower previous message request overwrite the active conversation", async () => {
+    const convs = [
+      makeConversation({ id: 1 }),
+      makeConversation({ id: 2 }),
+    ];
+    const firstMsgs = [makeMessage({ id: 101, conversation_id: 1, content: "First" })];
+    const secondMsgs = [makeMessage({ id: 202, conversation_id: 2, content: "Second" })];
+    let resolveFirst: (value: Message[]) => void = () => {};
+    let resolveSecond: (value: Message[]) => void = () => {};
+
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes("/chat/conversations?")) return Promise.resolve(convs);
+      if (url.includes("/chat/conversations/1/messages")) {
+        return new Promise<Message[]>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      if (url.includes("/chat/conversations/2/messages")) {
+        return new Promise<Message[]>((resolve) => {
+          resolveSecond = resolve;
+        });
+      }
+      if (url.includes("/pending-action")) return Promise.resolve(null);
+      if (url.includes("/pending-actions")) return Promise.resolve({ items: [] });
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() =>
+      useProjectChatConversations(defaultProps),
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeConvId).toBe(1);
+    });
+
+    act(() => {
+      result.current.setActiveConvId(2);
+    });
+
+    await act(async () => {
+      resolveSecond(secondMsgs);
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual(secondMsgs);
+    });
+
+    await act(async () => {
+      resolveFirst(firstMsgs);
+    });
+
+    expect(result.current.activeConvId).toBe(2);
+    expect(result.current.messages).toEqual(secondMsgs);
+  });
+
   it("can refresh messages silently without showing the message loading skeleton", async () => {
     mockGet.mockResolvedValueOnce([]);
 

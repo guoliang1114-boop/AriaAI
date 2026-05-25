@@ -352,7 +352,11 @@ def build_working_memory(
         last_user_request=last_user_request,
         last_assistant_summary=last_assistant_summary,
         summary=str(persisted_state.get("summary") or ""),
-        user_constraints=[str(item) for item in user_constraints[:12] if item is not None and str(item).strip()],
+        user_constraints=[
+            str(item).strip()
+            for item in user_constraints[:12]
+            if item is not None and str(item).strip() and str(item).strip().lower() != "none"
+        ],
         decisions=[item for item in decisions[:12] if isinstance(item, dict)],
     )
 

@@ -136,7 +136,7 @@ def test_working_memory_filters_empty_and_none_constraints():
         [],
         "继续讨论预算",
         persisted_state={
-            "user_constraints": [None, "", "  ", "正式语气"],
+            "user_constraints": [None, "", "  ", "None", "正式语气"],
         },
     )
 

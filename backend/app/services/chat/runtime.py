@@ -350,8 +350,23 @@ def _format_tool_history_summary(metadata: dict) -> str:
     return "\n".join(lines)
 
 
+def _should_include_history_message(message: Message) -> bool:
+    if str(message.content or "").strip():
+        return True
+    metadata = _message_metadata(message)
+    tool_calls = metadata.get("tool_calls")
+    artifacts = metadata.get("artifacts")
+    return (isinstance(tool_calls, list) and bool(tool_calls)) or (isinstance(artifacts, list) and bool(artifacts))
+
+
 def _api_message_from_history(message: Message) -> dict[str, str]:
-    return {"role": message.role, "content": str(message.content or "").strip()}
+    content = str(message.content or "").strip()
+    if content:
+        return {"role": message.role, "content": content}
+    tool_summary = _format_tool_history_summary(_message_metadata(message))
+    if tool_summary:
+        return {"role": message.role, "content": f"[Prior structured tool execution]\n{tool_summary}"}
+    return {"role": message.role, "content": ""}
 
 
 def _format_recent_tool_history_context(history: list[Message]) -> str:
@@ -558,7 +573,7 @@ def prepare_chat_runtime(
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
         history_for_model = history_for_model[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
-    api_messages = [_api_message_from_history(msg) for msg in history_for_model if str(msg.content or "").strip()]
+    api_messages = [_api_message_from_history(msg) for msg in history_for_model if _should_include_history_message(msg)]
     tool_history_context = _format_recent_tool_history_context(history_for_model)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)

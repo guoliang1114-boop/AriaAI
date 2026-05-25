@@ -74,6 +74,9 @@ async def _handle_markdown_artifact_continuation(
     artifact = memory.get("current_artifact") if isinstance(memory, dict) else None
     if not req.project_id or not isinstance(artifact, dict):
         return
+    policy_value = str(getattr(runtime.action_policy, "value", runtime.action_policy) or "")
+    if policy_value == ActionPolicy.DESTRUCTIVE_ACTION.value:
+        return
     file_id = artifact.get("project_file_id") or artifact.get("file_id")
     file_name = str(artifact.get("name") or memory.get("explicit_target_filename") or "").strip()
     file_type = str(artifact.get("file_type") or "").lower()
@@ -199,9 +202,21 @@ def build_working_memory_placeholder(memory: dict):
         current_artifact=memory.get("current_artifact"),
         current_task=memory.get("current_task"),
         explicit_target_filename=str(memory.get("explicit_target_filename") or ""),
+        explicit_target_is_write=bool(memory.get("explicit_target_is_write")),
         continuation_requested=bool(memory.get("continuation_requested")),
         last_user_request=str(memory.get("last_user_request") or ""),
         last_assistant_summary=str(memory.get("last_assistant_summary") or ""),
+        summary=str(memory.get("summary") or ""),
+        user_constraints=[
+            str(item).strip()
+            for item in (memory.get("user_constraints") if isinstance(memory.get("user_constraints"), list) else [])[:12]
+            if item is not None and str(item).strip() and str(item).strip().lower() != "none"
+        ],
+        decisions=[
+            item
+            for item in (memory.get("decisions") if isinstance(memory.get("decisions"), list) else [])[:12]
+            if isinstance(item, dict)
+        ],
     )
 
 

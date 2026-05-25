@@ -453,8 +453,9 @@ async def classify_chat_intent_async(
         proposed_route = _task_route_for_contract(proposed_contract, req.content)
         if proposed_route is not None:
             proposed_mode = ChatMode.TASK_ORCHESTRATION
-            final_policy = ActionPolicy.DURABLE_TASK
-            final_tool_access = ToolAccessPolicy.WRITE_ALLOWED
+            final_policy = _clamp_policy(rule.action_policy, ActionPolicy.DURABLE_TASK)
+            if final_policy == ActionPolicy.DURABLE_TASK:
+                final_tool_access = ToolAccessPolicy.WRITE_ALLOWED
     if proposed_mode == ChatMode.TASK_ORCHESTRATION and final_policy != ActionPolicy.DURABLE_TASK:
         proposed_mode = rule.chat_mode
         proposed_route = None
