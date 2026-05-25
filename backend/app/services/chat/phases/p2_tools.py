@@ -229,6 +229,16 @@ def _repair_project_markdown_tool_input(tool_name: str, tool_input: dict) -> tup
     if tool_name == PROJECT_MARKDOWN_TOOL_NAME and not repaired.get("mode"):
         repaired["mode"] = "replace" if repaired.get("file_id") is not None else "create"
         changes.append(f"补齐 Markdown 写入模式：{repaired['mode']}")
+    allowed_keys = (
+        {"project_id", "action", "file_id", "file_name", "max_chars"}
+        if tool_name == READ_MARKDOWN_TOOL_NAME
+        else {"project_id", "mode", "file_id", "file_name", "content", "folder_id", "folder_name"}
+    )
+    dropped_keys = sorted(key for key in repaired if key not in allowed_keys)
+    for key in dropped_keys:
+        repaired.pop(key, None)
+    if dropped_keys:
+        changes.append(f"移除 Markdown 工具不支持的参数：{', '.join(dropped_keys)}")
     return repaired, changes
 
 

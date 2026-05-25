@@ -236,6 +236,44 @@ class ProjectMarkdownToolTestCase(unittest.TestCase):
         self.assertEqual(read["output"]["id"], file_id)
         self.assertIn("Content", read["output"]["content"])
 
+    def test_read_tool_accepts_max_chars_like_generic_file_reader(self):
+        project_id = self._create_project()
+
+        with patch.object(project_markdown_tool, "engine", self.engine), patch.object(
+            project_markdown_tool,
+            "UPLOADS_DIR",
+            self.uploads_dir,
+        ):
+            created = asyncio.run(
+                registry.execute(
+                    PROJECT_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "mode": "create",
+                        "file_name": "long-read.md",
+                        "content": "# Long Read\n\n" + ("客户沟通内容" * 500),
+                    },
+                )
+            )
+            file_id = created["output"]["id"]
+            read = asyncio.run(
+                registry.execute(
+                    READ_MARKDOWN_TOOL_NAME,
+                    {
+                        "project_id": project_id,
+                        "action": "read",
+                        "file_id": file_id,
+                        "max_chars": 1200,
+                    },
+                )
+            )
+
+        self.assertEqual(read["status"], "success")
+        self.assertEqual(read["output"]["id"], file_id)
+        self.assertEqual(read["output"]["max_chars"], 1200)
+        self.assertTrue(read["output"]["truncated"])
+        self.assertLessEqual(len(read["output"]["content"]), 1200)
+
 
 class SafeProjectFilePathTestCase(unittest.TestCase):
     def test_valid_path_resolves_correctly(self):

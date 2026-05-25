@@ -261,6 +261,10 @@ _READ_MAX_CHARS = 12000
                 "type": "string",
                 "description": "File name to read, e.g. project-summary.md. Used when file_id is unknown.",
             },
+            "max_chars": {
+                "type": "integer",
+                "description": "Maximum characters returned for read. Default 12000.",
+            },
         },
         "required": ["action"],
     },
@@ -271,6 +275,7 @@ async def read_project_markdown_document(
     action: Literal["list", "read"] | None = None,
     file_id: int | None = None,
     file_name: str | None = None,
+    max_chars: int = _READ_MAX_CHARS,
 ) -> dict:
     if not project_id:
         raise HTTPException(400, "Project id is required")
@@ -318,9 +323,10 @@ async def read_project_markdown_document(
             raise HTTPException(400, "Only markdown documents are supported")
 
         content = read_project_document_content(project_file, uploads_dir=UPLOADS_DIR)
-        truncated = len(content) > _READ_MAX_CHARS
+        read_max_chars = max(1000, min(max_chars or _READ_MAX_CHARS, 60000))
+        truncated = len(content) > read_max_chars
         if truncated:
-            content = content[:_READ_MAX_CHARS]
+            content = content[:read_max_chars]
 
         return {
             "ok": True,
@@ -328,5 +334,6 @@ async def read_project_markdown_document(
             "name": project_file.name,
             "size_bytes": project_file.size_bytes,
             "truncated": truncated,
+            "max_chars": read_max_chars,
             "content": content,
         }

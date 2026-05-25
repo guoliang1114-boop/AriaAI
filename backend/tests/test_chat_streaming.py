@@ -39,6 +39,7 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
 from app.services.policy_guards import classify_chat_mode_and_policy, filter_tools_for_access, policy_allows_tool
 from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
+from app.services.chat.phases.p3_followup import _repair_project_markdown_tool_input as _repair_project_markdown_followup_tool_input
 
 
 class DummyRequest:
@@ -385,6 +386,28 @@ class ProjectMarkdownToolRepairTests(unittest.TestCase):
             {"project_id": 26, "file_id": 9},
         )
         self.assertEqual(repaired["action"], "read")
+
+    def test_read_markdown_keeps_max_chars_and_drops_unknown_args(self):
+        repaired, changes = _repair_project_markdown_tool_input(
+            "read_project_markdown_document",
+            {"project_id": 26, "action": "read", "file_id": 9, "max_chars": 2000, "foo": "bar"},
+        )
+        self.assertEqual(
+            repaired,
+            {"project_id": 26, "action": "read", "file_id": 9, "max_chars": 2000},
+        )
+        self.assertTrue(any("foo" in change for change in changes))
+
+    def test_followup_read_markdown_keeps_max_chars_and_drops_unknown_args(self):
+        repaired, changes = _repair_project_markdown_followup_tool_input(
+            "read_project_markdown_document",
+            {"project_id": 26, "action": "read", "file_id": 9, "max_chars": 2000, "foo": "bar"},
+        )
+        self.assertEqual(
+            repaired,
+            {"project_id": 26, "action": "read", "file_id": 9, "max_chars": 2000},
+        )
+        self.assertTrue(any("foo" in change for change in changes))
 
     def test_write_markdown_defaults_to_create_when_mode_missing(self):
         repaired, changes = _repair_project_markdown_tool_input(
