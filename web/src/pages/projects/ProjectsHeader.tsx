@@ -61,7 +61,7 @@ function FilterDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
-        className="flex h-[42px] w-full items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-left text-sm text-gray-700 transition-all hover:bg-white focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-9 w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 text-left text-[13px] font-medium leading-none text-gray-700 transition-all hover:bg-white focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Icon className="h-4 w-4 shrink-0 text-gray-400" />
         <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
@@ -82,7 +82,7 @@ function FilterDropdown({
                   onChange(option.value);
                   setIsOpen(false);
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors ${
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors ${
                   isSelected ? "bg-primary/10 text-primary" : "text-gray-700 hover:bg-gray-50"
                 }`}
               >
@@ -141,7 +141,7 @@ export function ProjectsHeader({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
@@ -149,7 +149,7 @@ export function ProjectsHeader({
                 value={searchQuery}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder={isZh ? "\u641c\u7d22\u9879\u76ee..." : "Search projects..."}
-                className="w-56 rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm transition-all focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-9 w-56 rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 text-[13px] font-medium leading-none text-gray-700 transition-all placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
@@ -172,7 +172,7 @@ export function ProjectsHeader({
 
             <button
               onClick={onCreateProject}
-              className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-[13px] font-semibold leading-none text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20"
             >
               <Plus className="h-4 w-4" />
               {isZh ? "\u65b0\u5efa\u9879\u76ee" : "New Project"}

@@ -134,13 +134,13 @@ export function Layout() {
               </nav>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => navigate('/messages')}
-                className="relative flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-low hover:text-on-surface"
+                className="relative flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-low hover:text-on-surface"
                 title="Messages"
               >
-                <Bell className="h-4 w-4" />
+                <Bell className="h-[15px] w-[15px]" />
                 {unreadCount > 0 ? (
                   <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-error px-1.5 py-0.5 text-xs font-semibold leading-none text-white">
                     {unreadCount > 99 ? '99+' : unreadCount}
@@ -151,7 +151,7 @@ export function Layout() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-primary text-xs font-semibold text-white"
+                  className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-gradient-primary text-[12px] font-medium leading-none text-white"
                   title={user?.display_name || 'User'}
                 >
                   {initials}
