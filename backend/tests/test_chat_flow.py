@@ -3766,7 +3766,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.prepare_metrics["skill_decision"], "sticky_conversation_skill")
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
-    def test_prepare_chat_runtime_injects_structured_tool_history_summary(self):
+    def test_prepare_chat_runtime_injects_structured_tool_history_context(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
             session.add(
@@ -3816,9 +3816,11 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     ),
                 )
 
-        self.assertIn("[Structured execution metadata]", runtime.api_messages[0]["content"])
-        self.assertIn("update_project_markdown_document", runtime.api_messages[0]["content"])
-        self.assertIn("project_file_id=183", runtime.api_messages[0]["content"])
+        self.assertNotIn("[Structured execution metadata]", runtime.api_messages[0]["content"])
+        self.assertIn("Recent Tool Execution Context", runtime.system)
+        self.assertIn("update_project_markdown_document", runtime.system)
+        self.assertIn("project_file_id=183", runtime.system)
+        self.assertTrue(runtime.prepare_metrics["tool_history_context_injected"])
 
     def test_artifact_continuation_does_not_downgrade_destructive_policy(self):
         decision = IntentDecision(

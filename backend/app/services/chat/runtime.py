@@ -351,11 +351,28 @@ def _format_tool_history_summary(metadata: dict) -> str:
 
 
 def _api_message_from_history(message: Message) -> dict[str, str]:
-    content = str(message.content or "").strip()
-    tool_summary = _format_tool_history_summary(_message_metadata(message))
-    if tool_summary:
-        content = f"{content}\n\n[Structured execution metadata]\n{tool_summary}".strip()
-    return {"role": message.role, "content": content}
+    return {"role": message.role, "content": str(message.content or "").strip()}
+
+
+def _format_recent_tool_history_context(history: list[Message]) -> str:
+    sections: list[str] = []
+    for message in history:
+        if getattr(message, "role", "") != "assistant":
+            continue
+        tool_summary = _format_tool_history_summary(_message_metadata(message))
+        if not tool_summary:
+            continue
+        preview = str(getattr(message, "content", "") or "").strip().replace("\n", " ")[:120]
+        heading = f"Assistant turn: {preview}" if preview else "Assistant turn"
+        sections.append(f"{heading}\n{tool_summary}")
+    if not sections:
+        return ""
+    recent_sections = sections[-4:]
+    return (
+        "## Recent Tool Execution Context\n"
+        "Use this as structured state from prior turns. Do not quote it unless the user asks for execution details.\n\n"
+        + "\n\n".join(recent_sections)
+    )
 
 
 def _response_contract_for_intent(intent_decision: IntentDecision, skill_decision: SkillActivationDecision) -> str:
@@ -537,13 +554,16 @@ def prepare_chat_runtime(
     working_memory = build_working_memory(history, req.content, persisted_state=persisted_conversation_state)
     intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     intent_decision = _upgrade_policy_for_artifact_continuation(intent_decision, req, working_memory)
-    api_messages = [_api_message_from_history(msg) for msg in history if str(msg.content or "").strip()]
+    history_for_model = list(history)
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
-        api_messages = api_messages[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
+        history_for_model = history_for_model[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
+    api_messages = [_api_message_from_history(msg) for msg in history_for_model if str(msg.content or "").strip()]
+    tool_history_context = _format_recent_tool_history_context(history_for_model)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
     prepare_metrics["working_memory"] = working_memory.to_dict()
+    prepare_metrics["tool_history_context_injected"] = bool(tool_history_context)
     if persisted_conversation_state:
         prepare_metrics["conversation_state_loaded"] = True
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
@@ -613,6 +633,8 @@ def prepare_chat_runtime(
     working_memory_prompt = format_working_memory_for_prompt(working_memory)
     if working_memory_prompt:
         system = f"{system.rstrip()}\n\n{working_memory_prompt}\n"
+    if tool_history_context:
+        system = f"{system.rstrip()}\n\n{tool_history_context}\n"
     consulting_frame = build_consulting_turn_frame(
         req.content,
         project_id=req.project_id,
