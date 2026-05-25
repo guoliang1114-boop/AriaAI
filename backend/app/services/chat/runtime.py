@@ -39,6 +39,7 @@ from app.services.consulting_intelligence import ConsultingTurnFrame, build_cons
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access
 from app.services.skill_router import SkillActivationDecision, auto_select_skill, decide_skill_activation
+from app.services.task_orchestrator import RULE_FIRST_OVERRIDE_CONFIDENCE, rule_based_project_task_route
 from app.services.artifact_intent import ArtifactContract
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
@@ -262,8 +263,23 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None
     if skill is None:
-        auto_skill, auto_decision = auto_select_skill(session, req)
-        skill = auto_skill
+        task_route = rule_based_project_task_route(req.content) if req.project_id else None
+        office_output_kind = str(getattr(task_route, "output_kind", "") or "").lower() if task_route else ""
+        if (
+            task_route
+            and task_route.task_type
+            and task_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
+            and office_output_kind in {"pptx", "xlsx", "docx", "pdf"}
+        ):
+            auto_decision = SkillActivationDecision(
+                False,
+                f"auto_skill_skipped_task_route:{task_route.task_type}",
+                task_route.confidence,
+                source="task_router",
+            )
+        else:
+            auto_skill, auto_decision = auto_select_skill(session, req)
+            skill = auto_skill
     skill_decision = auto_decision or decide_skill_activation(req.content, skill, force_skill=req.force_skill)
     effective_skill_id = req.skill_id if skill and skill_decision.apply else None
     if effective_skill_id is None and skill and skill_decision.apply:

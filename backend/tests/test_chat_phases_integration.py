@@ -521,6 +521,39 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
             any(item.get("tool_name") == "execution_truth_gate" for item in persisted_metadata["tool_calls"])
         )
 
+    async def test_p4_truth_gate_blocks_read_only_artifact_delivery_claim(self):
+        """P4 must block read-only turns that claim a file was generated."""
+        state = ChatSessionState()
+        state.text_buffer = (
+            "我为你制作了一份可直接用于客户沟通的 PPT。\n\n"
+            "文件已保存到项目空间。\n\n"
+            "文件详情：客户沟通方案_v1.pptx\n下载链接：#"
+        )
+        state.tool_call_events = []
+        state.stage_timings = {}
+
+        self.req.project_id = 1
+        self.req.content = "给我一个客户沟通的初步方案 ppt版本"
+        self.req.action_confirmations = []
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.action_policy = "read_only_tool"
+        self.runtime.artifact_contract = None
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        self.assertIn("没有完成这个操作", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertTrue(
+            any(item.get("tool_name") == "execution_truth_gate" for item in persisted_metadata["tool_calls"])
+        )
+
     async def test_p4_markdown_contract_fallback_saves_generated_text(self):
         """P4 writes generated text when an explicit MD request skipped the write tool."""
         state = ChatSessionState()

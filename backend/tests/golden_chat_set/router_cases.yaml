@@ -163,6 +163,16 @@ cases:
     expected_write_allowed: true
     expected_delivery_required: true
 
+  - id: ppt_version_request_enters_task_orchestration
+    content: "给我一个客户沟通的初步方案 ppt版本"
+    project_id: 27
+    expected_chat_mode: task_orchestration
+    expected_action_policy: durable_task
+    expected_tool_access_policy: write_allowed
+    expected_contract_action: create_artifact
+    expected_write_allowed: true
+    expected_delivery_required: true
+
   - id: save_previous_answer_markdown_followup
     content: "要，保存成 Markdown"
     project_id: 27

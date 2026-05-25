@@ -58,6 +58,8 @@ _PDF_INTENT_TERMS = ("pdf",)
 _MARKDOWN_INTENT_TERMS = ("markdown", ".md", " md", "md ", "md文档", "markdown文档")
 _CREATE_INTENT_TERMS = (
     "准备", "生成", "创建", "制作", "输出", "导出", "整理", "整理成", "形成", "写一份", "做一份",
+    "给我一个", "给我一份", "给我份", "给一个", "给一份", "出一个", "出一份", "来一个", "来一份",
+    "弄一个", "弄一份", "做成", "转成",
     "proposal", "prepare", "create", "generate", "make", "export", "draft",
 )
 _READ_FILE_TERMS = ("读取", "查看", "打开", "引用", "基于文件", "基于文档", "read", "open", "inspect")

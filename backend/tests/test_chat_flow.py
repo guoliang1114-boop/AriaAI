@@ -3675,6 +3675,54 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
+    def test_prepare_chat_runtime_routes_explicit_ppt_before_auto_skill(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            project = session.get(Project, 1)
+            if project is None:
+                project = Project(id=1, name="Project", client="Client")
+                session.add(project)
+                session.commit()
+            session.add(
+                Skill(
+                    name="Office 文档编辑",
+                    category="顾问基础能力",
+                    description="编辑 Word、Excel、PPT、PPTX、DOCX、XLSX 文件。",
+                    system_prompt="office skill system",
+                )
+            )
+            session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="给我一个客户沟通的初步方案 ppt版本",
+                    ),
+                )
+
+        self.assertFalse(runtime.skill_name)
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "auto_skill_skipped_task_route:generate_client_ppt")
+        self.assertEqual(runtime.prepare_metrics["chat_mode"], "task_orchestration")
+        self.assertEqual(runtime.prepare_metrics["action_policy"], "durable_task")
+        self.assertEqual(runtime.prepare_metrics["tool_access_policy"], "write_allowed")
+        self.assertEqual(runtime.prepare_metrics["artifact_contract"]["output_kind"], "pptx")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
+
     def test_prepare_chat_runtime_adds_pre_meeting_consulting_frame(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
@@ -5049,7 +5097,15 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 "type": "tool_result",
                 "tool_name": name,
                 "status": "success",
-                "output": {"ok": True, "action": "created", "id": 123, "name": input_data.get("file_name")},
+                "output": {
+                    "ok": True,
+                    "action": "created",
+                    "id": 123,
+                    "project_file_id": 123,
+                    "name": input_data.get("file_name"),
+                    "file_type": "md",
+                    "path": "/tmp/first-meeting.md",
+                },
             }
 
         with patch("app.services.chat_streaming.registry.execute", new=AsyncMock(side_effect=mock_execute)):

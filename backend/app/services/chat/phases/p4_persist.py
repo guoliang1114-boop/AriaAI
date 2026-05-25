@@ -45,8 +45,32 @@ _MARKDOWN_FILENAME_PATTERN = re.compile(
 )
 _MARKDOWN_FILENAME_FALLBACK_PATTERN = re.compile(r"([^\s，。；;、]+?\.md)", re.IGNORECASE)
 _COMPLETION_CLAIM_RE = re.compile(
-    r"(已完成|已执行|已更新|已写入|已保存|已归类|已移动|已删除|完成归类|处理完成|操作已完成|"
-    r"已经[^。；;，,\n]{0,24}(?:完成|更新|写入|保存|移动|删除|归类))"
+    r"(已完成|已执行|已更新|已写入|已保存|已生成|已创建|已制作|已导出|已归类|已移动|已删除|"
+    r"完成归类|处理完成|操作已完成|生成完成|制作完成|导出完成|"
+    r"已经[^。；;，,\n]{0,24}(?:完成|更新|写入|保存|生成|创建|制作|导出|移动|删除|归类))"
+)
+_ARTIFACT_DELIVERY_CLAIM_RE = re.compile(
+    r"((?:ppt|pptx|powerpoint|deck|幻灯片|演示文稿|excel|xlsx|word|docx|pdf|markdown|md|文件|文档|材料)"
+    r"[^。；;\n]{0,48}(?:已生成|已保存|已创建|已制作|已导出|已经生成|已经保存|生成完成|制作完成|导出完成|"
+    r"保存到项目空间|可下载|下载链接|点击下载))|"
+    r"((?:已生成|已保存|已创建|已制作|已导出|保存到项目空间|下载链接|点击下载)"
+    r"[^。；;\n]{0,48}(?:ppt|pptx|powerpoint|deck|幻灯片|演示文稿|excel|xlsx|word|docx|pdf|markdown|md|文件|文档|项目空间))|"
+    r"(文件(?:已|已经)?(?:保存|生成|创建)[^。；;\n]{0,32}(?:项目空间|下载))",
+    re.IGNORECASE,
+)
+_OWN_ARTIFACT_DELIVERY_MARKERS = (
+    "我已",
+    "我已经",
+    "我为你",
+    "我帮你",
+    "已为你",
+    "文件已保存",
+    "文件已经保存",
+    "保存到项目空间",
+    "点击下载",
+    "下载链接",
+    "文件详情",
+    "文件名",
 )
 _MUTATING_ACTION_POLICIES = {
     ActionPolicy.WRITE_ARTIFACT.value,
@@ -138,13 +162,25 @@ def _has_successful_mutation(state: ChatSessionState) -> bool:
     return False
 
 
+def _has_own_artifact_delivery_claim(full_text: str) -> bool:
+    if not full_text or not _ARTIFACT_DELIVERY_CLAIM_RE.search(full_text):
+        return False
+    return any(marker in full_text for marker in _OWN_ARTIFACT_DELIVERY_MARKERS)
+
+
 def _requires_execution_truth_gate(runtime: ChatRuntime, state: ChatSessionState, full_text: str) -> bool:
-    if not full_text or not _COMPLETION_CLAIM_RE.search(full_text):
+    if not full_text:
+        return False
+    completion_claim = bool(_COMPLETION_CLAIM_RE.search(full_text))
+    artifact_delivery_claim = _has_own_artifact_delivery_claim(full_text)
+    if not completion_claim and not artifact_delivery_claim:
         return False
     if state.confirmation_requested or state.pending_tool_actions or state.pending_tool_confirmations:
         return False
     if _has_successful_mutation(state):
         return False
+    if artifact_delivery_claim:
+        return True
     policy = _policy_value(runtime)
     if policy in _MUTATING_ACTION_POLICIES:
         return True
