@@ -129,3 +129,15 @@ def test_working_memory_ignores_failed_delivery_as_current_artifact():
 
     assert memory.current_artifact is None
     assert should_continue_current_artifact(memory) is False
+
+
+def test_working_memory_filters_empty_and_none_constraints():
+    memory = build_working_memory(
+        [],
+        "继续讨论预算",
+        persisted_state={
+            "user_constraints": [None, "", "  ", "正式语气"],
+        },
+    )
+
+    assert memory.user_constraints == ["正式语气"]
