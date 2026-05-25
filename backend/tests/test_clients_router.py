@@ -1,5 +1,6 @@
 """Integration tests for clients router — CRUD endpoints with TestClient."""
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -100,6 +101,32 @@ class ClientsCrudTestCase(unittest.TestCase):
     def test_delete_nonexistent_client(self):
         resp = self.client.delete("/clients/99999")
         self.assertEqual(resp.status_code, 404)
+
+    def test_ai_suggest_uses_selected_model_adapter(self):
+        with patch.object(
+            clients_module,
+            "complete_with_selected_model",
+            new=AsyncMock(
+                return_value="""```json
+[
+  {
+    "name": "广州岭南商旅投资集团有限公司",
+    "industry": "文旅投资",
+    "contact": "",
+    "notes": "地方文旅投资平台，可关注项目储备、资产运营和数字化营销机会。"
+  }
+]
+```"""
+            ),
+        ) as mocked_complete:
+            resp = self.client.post("/clients/ai-suggest", json={"query": "广州岭南商旅投资集团有限公司"})
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body[0]["name"], "广州岭南商旅投资集团有限公司")
+        mocked_complete.assert_awaited_once()
+        self.assertIn("system", mocked_complete.await_args.kwargs)
+        self.assertEqual(mocked_complete.await_args.kwargs["max_tokens"], 800)
 
 
 class ClientsStakeholderTestCase(unittest.TestCase):

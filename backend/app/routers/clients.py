@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.db import ClientRecord, KnowledgeDocument, Project
 from app.services.cache import clients_cache
-from app.services.claude import complete
+from app.services.project_llm import complete_with_selected_model
 from app.routers.clients_deps import (
     _CLIENTS_KEY,
     _CLIENTS_TTL,
@@ -197,7 +197,7 @@ Return ONLY a valid JSON array with this exact schema:
 """
 
     try:
-        raw = await complete(
+        raw = await complete_with_selected_model(
             messages=[{"role": "user", "content": prompt}],
             system=system,
             max_tokens=800,

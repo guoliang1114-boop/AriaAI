@@ -24,12 +24,17 @@ def _cap_max_tokens_for_model(model: str, max_tokens: int) -> int:
     return min(max_tokens, 8192)
 
 
-async def complete_with_selected_model(messages: list[dict], *, max_tokens: int = 4000) -> str:
+async def complete_with_selected_model(messages: list[dict], *, max_tokens: int = 4000, system: str | None = None) -> str:
     with Session(engine) as session:
         model = get_selected_model(session)
         provider = resolve_provider_from_model(model)
     llm = _load_provider_module(provider)
-    return await llm.complete(messages, model=model, max_tokens=_cap_max_tokens_for_model(model, max_tokens))
+    return await llm.complete(
+        messages,
+        system=system,
+        model=model,
+        max_tokens=_cap_max_tokens_for_model(model, max_tokens),
+    )
 
 
 async def stream_with_selected_model(
