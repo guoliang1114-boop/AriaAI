@@ -492,6 +492,94 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         persisted_metadata = mock_persist.call_args.args[4]
         self.assertNotIn("delivery_failed", persisted_metadata)
 
+    async def test_p4_markdown_contract_fallback_saves_generated_text(self):
+        """P4 writes generated text when an explicit MD request skipped the write tool."""
+        state = ChatSessionState()
+        state.text_buffer = "# 项目背景\n\n" + "这是一段用于保存的项目背景分析。" * 8
+        state.stage_timings = {}
+
+        self.req.project_id = 1
+        self.req.content = "请深度分析背景，最后写入项目背景.md"
+        self.req.action_confirmations = []
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="md",
+            title="项目背景",
+            allowed_tools=("update_project_markdown_document",),
+            confidence=0.9,
+            reason="explicit_md_artifact",
+            source="policy_guard",
+        )
+
+        created = SimpleNamespace(
+            id=321,
+            name="项目背景.md",
+            file_type="md",
+            path="projects/1/mock_项目背景.md",
+            folder_id=7,
+            size_bytes=2048,
+        )
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts, \
+             patch("app.services.chat.phases.p4_persist.create_project_document_record") as mock_create, \
+             patch("app.services.chat.phases.p4_persist.mark_project_memory_stale"):
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+            mock_create.return_value = created
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.kwargs["name"], "项目背景.md")
+        self.assertEqual(state.pending_markdown_saves[0]["file_name"], "项目背景.md")
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertNotIn("delivery_failed", persisted_metadata)
+        self.assertEqual(persisted_metadata["pending_markdown_saves"][0]["file_id"], 321)
+
+    async def test_p4_markdown_contract_fails_when_model_skips_write_and_content(self):
+        """P4 must not mark explicit MD write turns as successful when no file exists."""
+        state = ChatSessionState()
+        state.tool_call_events = [
+            {
+                "tool_name": "read_project_file",
+                "status": "completed",
+                "message": "工具 read_project_file 执行完成。",
+            }
+        ]
+        state.stage_timings = {}
+
+        self.req.project_id = 1
+        self.req.content = "最后写入项目背景.md"
+        self.req.action_confirmations = []
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="md",
+            title="项目背景",
+            allowed_tools=("update_project_markdown_document",),
+            confidence=0.9,
+            reason="explicit_md_artifact",
+            source="policy_guard",
+        )
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts, \
+             patch("app.services.chat.phases.p4_persist.create_project_document_record") as mock_create:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        mock_create.assert_not_called()
+        self.assertIn("没有成功生成 MD 文件", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertTrue(persisted_metadata["delivery_failed"])
+
     # ------------------------------------------------------------------
     # P0 — Durable task early-return
     # ------------------------------------------------------------------

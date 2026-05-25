@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import Conversation, Message, Project, ProjectFile
+from app.services.artifact_intent import detect_artifact_intent
 from app.services.chat.markdown_followup import (
     is_save_previous_answer_as_markdown_request,
     save_previous_answer_as_markdown,
@@ -29,6 +30,15 @@ def test_does_not_treat_long_inline_generation_prompt_as_previous_answer_save():
     content = "请根据以下内容生成 Markdown 报告：\n\n# 新报告\n\n这里是正文内容，不要保存上一条。"
 
     assert not is_save_previous_answer_as_markdown_request(content)
+
+
+def test_detects_explicit_write_into_markdown_artifact():
+    intent = detect_artifact_intent(
+        "把以下背景可进行深度和辩证分析。最后写入项目背景.md"
+    )
+
+    assert intent.requested is True
+    assert intent.output_kind == "md"
 
 
 def test_save_previous_answer_as_markdown_uses_latest_assistant_content():

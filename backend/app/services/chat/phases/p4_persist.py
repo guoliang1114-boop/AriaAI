@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from datetime import timedelta
@@ -17,11 +18,15 @@ from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
 from app.routers.chat_schemas import SendMessageRequest
+from app.config import UPLOADS_DIR
 from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
 from app.models.db import PendingToolAction
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
+from app.services.project_contexts import mark_project_memory_stale
+from app.services.project_core import init_default_project_folders
+from app.services.project_documents import create_project_document_record
 from app.services.time_utils import utc_now_naive
 from app.services.chat_store import persist_assistant_message, persist_generated_artifacts
 from app.services.chat.state import ChatSessionState
@@ -32,6 +37,12 @@ from app.services.title_generator import schedule_title_generation
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 logger = logging.getLogger(__name__)
+
+_MARKDOWN_FILENAME_PATTERN = re.compile(
+    r"(?:写入|保存到|保存为|保存成|存到|存为|另存为|命名为|文件名[:：]?)\s*([^\s，。；;、]+?\.md)",
+    re.IGNORECASE,
+)
+_MARKDOWN_FILENAME_FALLBACK_PATTERN = re.compile(r"([^\s，。；;、]+?\.md)", re.IGNORECASE)
 
 
 def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
@@ -76,6 +87,74 @@ def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] |
     if not contract or not contract.delivery_required:
         return None
     return contract.to_dict()
+
+
+def _requested_markdown_filename(content: str) -> str:
+    for pattern in (_MARKDOWN_FILENAME_PATTERN, _MARKDOWN_FILENAME_FALLBACK_PATTERN):
+        matches = pattern.findall(content or "")
+        if matches:
+            filename = str(matches[-1]).strip(" \t\r\n'\"`，。；;、")
+            for prefix in ("写入", "保存到", "保存为", "保存成", "存到", "存为", "另存为", "命名为"):
+                if filename.startswith(prefix):
+                    filename = filename[len(prefix):].strip()
+            return filename or "项目文档.md"
+    return "项目文档.md"
+
+
+def _is_substantive_markdown_body(content: str) -> bool:
+    text = (content or "").strip()
+    if len(text) < 80:
+        return False
+    non_content_prefixes = (
+        "操作已完成。",
+        "抱歉，",
+        "这个操作会修改或删除项目内容",
+        "我已整理出一批可清理的项目空间文件",
+    )
+    return not any(text.startswith(prefix) for prefix in non_content_prefixes)
+
+
+def _maybe_create_markdown_from_response(
+    *,
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    bind,
+    state: ChatSessionState,
+    full_text: str,
+    artifact_contract: ArtifactContract | None,
+) -> dict[str, Any] | None:
+    """Fail-safe for explicit MD writes when the model produced text but skipped the write tool."""
+    if not req.project_id or not artifact_contract or artifact_contract.output_kind.lower() != "md":
+        return None
+    if state.pending_markdown_saves:
+        return None
+    if not _is_substantive_markdown_body(full_text):
+        return None
+
+    filename = _requested_markdown_filename(req.content)
+    with Session(bind) as session:
+        project_file = create_project_document_record(
+            session=session,
+            project_id=req.project_id,
+            name=filename,
+            content=full_text,
+            uploads_dir=UPLOADS_DIR,
+            init_default_folders=init_default_project_folders,
+            summary=f"Saved from project chat conversation {runtime.conv_id}",
+            auto_assign_folder=True,
+        )
+        mark_project_memory_stale(session, req.project_id, trigger="chat_markdown_fallback_save")
+        return {
+            "ok": True,
+            "action": "created",
+            "id": project_file.id,
+            "project_file_id": project_file.id,
+            "name": project_file.name,
+            "file_type": project_file.file_type,
+            "path": project_file.path,
+            "folder_id": project_file.folder_id,
+            "size_bytes": project_file.size_bytes,
+        }
 
 
 def _hash_tool_input(tool_input: dict) -> str:
@@ -247,6 +326,48 @@ async def run_p4_persist(
                 "建议稍后重试，或前往「设置」检查 API Key 配置。"
             )
             logger.warning("[P4] empty response detected, using fallback message")
+
+    fallback_markdown = _maybe_create_markdown_from_response(
+        runtime=runtime,
+        req=req,
+        bind=bind,
+        state=state,
+        full_text=full_text,
+        artifact_contract=artifact_contract,
+    )
+    if fallback_markdown:
+        state.pending_markdown_saves.append(
+            {
+                "project_id": req.project_id,
+                "file_id": fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
+                "file_name": fallback_markdown.get("name"),
+                "mode": "create",
+                "content": full_text,
+                "summary": "Saved from project chat response",
+                "folder_id": fallback_markdown.get("folder_id"),
+                "saved": True,
+                "saved_result": fallback_markdown,
+                "source": "p4_markdown_fallback",
+            }
+        )
+        state.tool_call_events.append(
+            {
+                "tool_name": "update_project_markdown_document",
+                "status": "completed",
+                "message": "已写入项目 Markdown 文件。",
+                "summary": f"Created {fallback_markdown.get('name')}",
+                "output": fallback_markdown,
+            }
+        )
+        state.record_trace_event(
+            "markdown_fallback_save",
+            file_name=fallback_markdown.get("name"),
+            project_file_id=fallback_markdown.get("project_file_id") or fallback_markdown.get("id"),
+        )
+        notice = f"已写入项目 Markdown 文件：{fallback_markdown.get('name')}"
+        if notice not in full_text:
+            full_text = f"{full_text}\n\n{notice}".strip()
+            yield sse_event({"type": "text", "content": f"\n\n{notice}"})
 
     delivery_failed = False
     if artifact_contract and not _delivery_satisfied(state, artifact_contract):
