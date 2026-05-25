@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from app.services.chat.working_memory import (
     build_working_memory,
     extract_explicit_markdown_filename,
+    is_artifact_continuation_request,
     should_continue_current_artifact,
 )
 
@@ -71,3 +72,28 @@ def test_working_memory_recovers_pending_markdown_save_as_current_artifact():
     assert memory.current_artifact["project_file_id"] == 201
     assert memory.current_artifact["name"] == "风险分析.md"
     assert should_continue_current_artifact(memory) is True
+
+
+def test_working_memory_negated_continuation_does_not_request_edit():
+    assert is_artifact_continuation_request("不要修改，先只看一下") is False
+    assert is_artifact_continuation_request("不用优化这份文件") is False
+    assert is_artifact_continuation_request("discontinue this work") is False
+
+
+def test_working_memory_reading_named_markdown_does_not_continue_artifact():
+    history = [
+        SimpleNamespace(
+            role="assistant",
+            content="已写入项目 Markdown 文件：项目背景.md",
+            metadata_json=json.dumps(
+                {"artifacts": [{"project_file_id": 183, "name": "项目背景.md", "file_type": "md"}]},
+                ensure_ascii=False,
+            ),
+        )
+    ]
+
+    memory = build_working_memory(history, "读取 项目背景.md 并分析重点")
+
+    assert memory.explicit_target_filename == "项目背景.md"
+    assert memory.explicit_target_is_write is False
+    assert should_continue_current_artifact(memory) is False

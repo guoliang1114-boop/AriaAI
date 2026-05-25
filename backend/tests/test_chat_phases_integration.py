@@ -456,6 +456,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         self.assertIn("没有成功生成 XLSX 文件", state.full_text)
+        self.assertIn("这里是一大段表格内容", state.full_text)
         persisted_metadata = mock_persist.call_args.args[4]
         self.assertTrue(persisted_metadata["delivery_failed"])
         self.assertEqual(persisted_metadata["artifact_contract"]["output_kind"], "xlsx")
@@ -516,6 +517,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
         self.assertIn("没有完成这个操作", state.full_text)
+        self.assertIn("已完成归类", state.full_text)
         persisted_metadata = mock_persist.call_args.args[4]
         self.assertTrue(
             any(item.get("tool_name") == "execution_truth_gate" for item in persisted_metadata["tool_calls"])
@@ -549,6 +551,7 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
         self.assertIn("没有完成这个操作", state.full_text)
+        self.assertIn("客户沟通的 PPT", state.full_text)
         persisted_metadata = mock_persist.call_args.args[4]
         self.assertTrue(
             any(item.get("tool_name") == "execution_truth_gate" for item in persisted_metadata["tool_calls"])

@@ -489,7 +489,8 @@ async def run_p4_persist(
     delivery_failed = False
     if artifact_contract and not _delivery_satisfied(state, artifact_contract):
         delivery_failed = True
-        full_text = _delivery_failure_message(artifact_contract)
+        failure_message = _delivery_failure_message(artifact_contract)
+        full_text = f"{full_text}\n\n{failure_message}".strip() if full_text else failure_message
         state.record_trace_event(
             "artifact_delivery_failed",
             output_kind=artifact_contract.output_kind,
@@ -501,7 +502,7 @@ async def run_p4_persist(
             artifact_contract.output_kind,
             artifact_contract.title,
         )
-        yield sse_event({"type": "text", "content": f"\n\n{full_text}"})
+        yield sse_event({"type": "text", "content": f"\n\n{failure_message}"})
 
     _ensure_project_cleanup_confirmation(runtime, req, bind, state)
     if state.confirmation_requested and state.pending_tool_confirmations:
@@ -531,7 +532,7 @@ async def run_p4_persist(
             action_policy=policy,
             original_text_preview=full_text[:240],
         )
-        full_text = truth_gate_message
+        full_text = f"{full_text}\n\n{truth_gate_message}".strip() if full_text else truth_gate_message
         yield sse_event({"type": "text", "content": f"\n\n{truth_gate_message}"})
 
     # ── HITAS: Persist pending tool actions to database ──
@@ -688,7 +689,8 @@ async def run_p4_persist(
     if req.project_id:
         metadata["project_id"] = req.project_id
     if runtime.skill_name:
-        metadata["skill_id"] = req.skill_id
+        prepare_metrics = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
+        metadata["skill_id"] = req.skill_id or prepare_metrics.get("effective_skill_id")
         metadata["skill_progress"] = _build_completed_skill_progress(state.tool_call_events, full_text)
     if state.p1_double_truncated or state.p3_double_truncated:
         metadata["truncated"] = True

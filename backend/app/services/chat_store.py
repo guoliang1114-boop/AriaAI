@@ -186,7 +186,7 @@ def persist_user_message(
         conversation_id=conv_id,
         role="user",
         content=content,
-        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else "{}",
+        metadata_json=json.dumps(metadata, ensure_ascii=False, default=str) if metadata else "{}",
     )
     session.add(user_msg)
     session.commit()
@@ -281,7 +281,7 @@ def persist_assistant_message(
             conversation_id=conv_id,
             role="assistant",
             content=content,
-            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else "{}",
+            metadata_json=json.dumps(metadata, ensure_ascii=False, default=str) if metadata else "{}",
         )
         new_session.add(asst_msg)
         new_session.flush()

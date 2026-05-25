@@ -1,6 +1,7 @@
 """Chat runtime preparation — builds the immutable ``ChatRuntime`` object used by all phases."""
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import replace
@@ -8,7 +9,7 @@ from dataclasses import replace
 from sqlmodel import Session
 
 from app.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
-from app.models.db import Skill
+from app.models.db import Conversation, Message, Skill
 from app.models.db import Setting as _Setting
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_store import (
@@ -160,6 +161,8 @@ def _upgrade_policy_for_artifact_continuation(
     req: SendMessageRequest,
     working_memory,
 ) -> IntentDecision:
+    if intent_decision.action_policy == ActionPolicy.DESTRUCTIVE_ACTION:
+        return intent_decision
     if not req.project_id or not should_continue_current_artifact(working_memory):
         return intent_decision
     artifact = working_memory.current_artifact or {}
@@ -262,6 +265,20 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
     skill = session.get(Skill, req.skill_id) if req.skill_id else None
     auto_skill: Skill | None = None
     auto_decision: SkillActivationDecision | None = None
+    if skill is None and req.conversation_id:
+        conv = session.get(Conversation, req.conversation_id)
+        if conv and conv.skill_id:
+            sticky_skill = session.get(Skill, conv.skill_id)
+            if sticky_skill:
+                skill = sticky_skill
+                auto_decision = SkillActivationDecision(
+                    True,
+                    "sticky_conversation_skill",
+                    0.88,
+                    source="conversation",
+                    candidate_skill_id=sticky_skill.id,
+                    candidate_skill_name=sticky_skill.name,
+                )
     if skill is None:
         task_route = rule_based_project_task_route(req.content) if req.project_id else None
         office_output_kind = str(getattr(task_route, "output_kind", "") or "").lower() if task_route else ""
@@ -286,6 +303,59 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
         effective_skill_id = skill.id
     effective_skill = skill if effective_skill_id else None
     return skill, skill_decision, effective_skill_id, effective_skill
+
+
+def _message_metadata(message: Message) -> dict:
+    try:
+        parsed = json.loads(message.metadata_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _format_tool_history_summary(metadata: dict) -> str:
+    lines: list[str] = []
+    tool_calls = metadata.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        lines.append("Tool history from this assistant turn:")
+        for item in tool_calls[:8]:
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("tool_name") or item.get("name") or "").strip()
+            status = str(item.get("status") or "").strip()
+            summary = str(item.get("summary") or item.get("message") or item.get("error") or "").strip()
+            output = item.get("output") if isinstance(item.get("output"), dict) else item.get("artifact")
+            artifact_bits: list[str] = []
+            if isinstance(output, dict):
+                for key in ("project_file_id", "id", "name", "file_name", "file_type", "path"):
+                    value = output.get(key)
+                    if value:
+                        artifact_bits.append(f"{key}={value}")
+            detail = "; ".join(part for part in (summary, ", ".join(artifact_bits)) if part)
+            lines.append(f"- {tool_name or 'tool'} status={status or '-'}{f': {detail}' if detail else ''}")
+    for key, label in (("artifacts", "Artifacts"), ("pending_markdown_saves", "Pending markdown saves")):
+        values = metadata.get(key)
+        if not isinstance(values, list) or not values:
+            continue
+        lines.append(f"{label}:")
+        for item in values[:6]:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("file_name") or "-"
+            file_id = item.get("project_file_id") or item.get("file_id") or item.get("id") or "-"
+            file_type = item.get("file_type") or "md"
+            lines.append(f"- name={name}, file_type={file_type}, project_file_id={file_id}")
+    if metadata.get("delivery_failed"):
+        lines.append("Delivery status: failed; do not treat this turn as a completed artifact.")
+    return "\n".join(lines)
+
+
+def _api_message_from_history(message: Message) -> dict[str, str]:
+    content = str(message.content or "").strip()
+    tool_summary = _format_tool_history_summary(_message_metadata(message))
+    if tool_summary:
+        content = f"{content}\n\n[Structured execution metadata]\n{tool_summary}".strip()
+    return {"role": message.role, "content": content}
 
 
 def _response_contract_for_intent(intent_decision: IntentDecision, skill_decision: SkillActivationDecision) -> str:
@@ -440,6 +510,11 @@ def prepare_chat_runtime(
         )
     else:
         conv = None
+    if conv is not None and effective_skill_id and not conv.skill_id:
+        conv.skill_id = effective_skill_id
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
     prepare_metrics["conversation_ready_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     conv_id = int(conv.id or 0) if conv is not None else 0
 
@@ -462,11 +537,7 @@ def prepare_chat_runtime(
     working_memory = build_working_memory(history, req.content, persisted_state=persisted_conversation_state)
     intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     intent_decision = _upgrade_policy_for_artifact_continuation(intent_decision, req, working_memory)
-    api_messages = [
-        {"role": msg.role, "content": msg.content}
-        for msg in history
-        if msg.content.strip()
-    ]
+    api_messages = [_api_message_from_history(msg) for msg in history if str(msg.content or "").strip()]
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
         api_messages = api_messages[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]

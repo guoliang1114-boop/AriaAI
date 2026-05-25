@@ -74,7 +74,9 @@ from app.services import provider_selector as provider_selector_module
 from app.services import project_notes as project_notes_module
 from app.services import rag as rag_module
 from app.services import scheduler as scheduler_module
-from app.services.chat.runtime import prepare_chat_runtime
+from app.services.chat.runtime import prepare_chat_runtime, _upgrade_policy_for_artifact_continuation
+from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
+from app.services.intent_router import IntentDecision
 from contextlib import ExitStack, contextmanager
 
 @contextmanager
@@ -3722,6 +3724,126 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertEqual(runtime.prepare_metrics["tool_access_policy"], "write_allowed")
         self.assertEqual(runtime.prepare_metrics["artifact_contract"]["output_kind"], "pptx")
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
+
+    def test_prepare_chat_runtime_reuses_conversation_skill(self):
+        with Session(self.engine) as session:
+            project = Project(id=1, name="Project", client="Client")
+            skill = Skill(name="会议纪要提取", category="顾问基础能力", system_prompt="meeting skill")
+            session.add(project)
+            session.add(skill)
+            session.commit()
+            session.refresh(skill)
+            conv = Conversation(project_id=1, skill_id=skill.id, title="Skill Chat")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+            skill_id = skill.id
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="继续按刚才的格式补充行动项",
+                    ),
+                )
+
+        self.assertEqual(runtime.skill_name, "会议纪要提取")
+        self.assertEqual(runtime.prepare_metrics["skill_decision"], "sticky_conversation_skill")
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
+
+    def test_prepare_chat_runtime_injects_structured_tool_history_summary(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            session.add(
+                Message(
+                    conversation_id=conv_id,
+                    role="assistant",
+                    content="已写入项目 Markdown 文件：项目背景.md",
+                    metadata_json=json.dumps(
+                        {
+                            "tool_calls": [
+                                {
+                                    "tool_name": "update_project_markdown_document",
+                                    "status": "completed",
+                                    "summary": "Created 项目背景.md",
+                                    "output": {
+                                        "project_file_id": 183,
+                                        "name": "项目背景.md",
+                                        "file_type": "md",
+                                    },
+                                }
+                            ]
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: "system"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        content="继续",
+                    ),
+                )
+
+        self.assertIn("[Structured execution metadata]", runtime.api_messages[0]["content"])
+        self.assertIn("update_project_markdown_document", runtime.api_messages[0]["content"])
+        self.assertIn("project_file_id=183", runtime.api_messages[0]["content"])
+
+    def test_artifact_continuation_does_not_downgrade_destructive_policy(self):
+        decision = IntentDecision(
+            chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+            action_policy=ActionPolicy.DESTRUCTIVE_ACTION,
+            task_route=None,
+            confidence=0.98,
+            reason="destructive_terms",
+            method="policy_guard",
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+        )
+        working_memory = SimpleNamespace(
+            current_artifact={"name": "项目背景.md", "file_type": "md", "project_file_id": 183},
+            explicit_target_filename="项目背景.md",
+            explicit_target_is_write=True,
+            continuation_requested=True,
+        )
+
+        upgraded = _upgrade_policy_for_artifact_continuation(
+            decision,
+            chat_router_module.SendMessageRequest(project_id=1, content="确认删除"),
+            working_memory,
+        )
+
+        self.assertEqual(upgraded.action_policy, ActionPolicy.DESTRUCTIVE_ACTION)
 
     def test_prepare_chat_runtime_adds_pre_meeting_consulting_frame(self):
         conv_id = self._create_conversation()

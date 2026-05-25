@@ -195,7 +195,7 @@ def test_project_memory_analysis_with_quoted_ai_advice_blocks_artifact_guess():
 def test_llm_router_can_controlled_upgrade_ambiguous_artifact_contract():
     async def fake_llm(*args, **kwargs):
         return (
-            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.86,'
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.91,'
             '"reason":"user wants a deliverable spreadsheet",'
             '"artifact_contract":{'
             '"delivery_required":true,'
@@ -233,6 +233,23 @@ def test_llm_router_rejects_artifact_upgrade_without_contract():
     assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
     assert decision.tool_access_policy == ToolAccessPolicy.READ_ON_DEMAND
     assert decision.task_route is None
+
+
+def test_llm_router_rejects_low_confidence_artifact_upgrade():
+    async def fake_llm(*args, **kwargs):
+        return (
+            '{"chat_mode":"task_orchestration","action_policy":"durable_task","confidence":0.86,'
+            '"reason":"low confidence artifact guess",'
+            '"artifact_contract":{"delivery_required":true,"output_kind":"md","title":"风险评估",'
+            '"allowed_tools":["update_project_markdown_document"]}}'
+        )
+
+    req = SendMessageRequest(content="评估项目风险并给我建议", project_id=26)
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
+    assert decision.chat_mode != ChatMode.TASK_ORCHESTRATION
+    assert decision.action_policy == ActionPolicy.READ_ONLY_TOOL
+    assert decision.task_route is None
+    assert decision.artifact_contract.delivery_required is False
 
 
 def test_unified_router_short_circuits_explicit_office_generation():

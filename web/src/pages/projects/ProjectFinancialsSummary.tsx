@@ -14,6 +14,13 @@ export function ProjectFinancialsSummary({
   isZh,
   onEditContractAmount,
 }: ProjectFinancialsSummaryProps) {
+  const formatSummaryAmount = (amount: number | undefined | null): string => {
+    if (isZh) {
+      return `¥${formatAmountInTenThousand(amount)}万`
+    }
+    return `¥${(amount ?? 0).toLocaleString()}`
+  }
+
   return (
     <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -31,7 +38,7 @@ export function ProjectFinancialsSummary({
           </div>
           <p className="text-xl font-bold text-gray-900">
             {financials.contract_amount
-              ? `¥${formatAmountInTenThousand(financials.contract_amount)}${isZh ? "万" : "K"}`
+              ? formatSummaryAmount(financials.contract_amount)
               : isZh
                 ? "未设置"
                 : "Not set"}
@@ -53,7 +60,7 @@ export function ProjectFinancialsSummary({
             {isZh ? "已收款" : "Received"}
           </span>
           <p className="text-xl font-bold text-emerald-600">
-            ¥{financials.total_received.toLocaleString()}
+            {formatSummaryAmount(financials.total_received)}
           </p>
         </div>
 
@@ -62,7 +69,7 @@ export function ProjectFinancialsSummary({
             {isZh ? "已开票" : "Invoiced"}
           </span>
           <p className="text-xl font-bold text-blue-600">
-            ¥{financials.total_invoiced.toLocaleString()}
+            {formatSummaryAmount(financials.total_invoiced)}
           </p>
         </div>
 
@@ -71,7 +78,7 @@ export function ProjectFinancialsSummary({
             {isZh ? "支出" : "Expenses"}
           </span>
           <p className="text-xl font-bold text-red-600">
-            ¥{financials.total_expense.toLocaleString()}
+            {formatSummaryAmount(financials.total_expense)}
           </p>
         </div>
       </div>
@@ -96,14 +103,13 @@ export function ProjectFinancialsSummary({
               financials.remaining >= 0 ? "text-emerald-900" : "text-red-900"
             }`}
           >
-            {financials.remaining >= 0 ? "+" : "-"}¥
-            {Math.abs(financials.remaining).toLocaleString()}
+            {financials.remaining >= 0 ? "+" : "-"}
+            {formatSummaryAmount(Math.abs(financials.remaining))}
           </p>
         </div>
         <div className="text-right text-sm text-gray-500">
           <p>
-            {isZh ? "未收款" : "Uncollected"}: ¥
-            {financials.uncollected.toLocaleString()}
+            {isZh ? "未收款" : "Uncollected"}: {formatSummaryAmount(financials.uncollected)}
           </p>
           {financials.contract_amount > 0 && (
             <p>

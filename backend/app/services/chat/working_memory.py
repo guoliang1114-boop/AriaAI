@@ -44,6 +44,62 @@ CONTINUATION_TERMS = (
     "revise",
     "update",
 )
+NEGATED_CONTINUATION_TERMS = (
+    "不要",
+    "不用",
+    "无需",
+    "不必",
+    "别",
+    "先不要",
+    "暂时不要",
+    "不需要",
+    "no",
+    "do not",
+    "don't",
+    "dont",
+    "not",
+)
+WRITE_TARGET_TERMS = (
+    "最后写入",
+    "写入",
+    "保存到",
+    "保存为",
+    "保存成",
+    "存到",
+    "存为",
+    "另存为",
+    "命名为",
+    "输出到",
+    "输出为",
+    "覆盖",
+    "替换",
+    "修改",
+    "更新",
+    "追加",
+    "补充到",
+    "写到",
+    "save",
+    "write",
+    "update",
+    "append",
+    "replace",
+    "overwrite",
+)
+READ_TARGET_TERMS = (
+    "读取",
+    "读一下",
+    "查看",
+    "打开",
+    "分析",
+    "浏览",
+    "看看",
+    "看一下",
+    "read",
+    "view",
+    "open",
+    "analyze",
+    "inspect",
+)
 
 _EXPLICIT_MARKDOWN_FILE_RE = re.compile(
     r"(?:最后写入|写入|保存到|保存为|保存成|存到|存为|另存为|命名为|输出到|输出为|文件名[:：]?)\s*"
@@ -58,6 +114,7 @@ class WorkingMemory:
     current_artifact: dict[str, Any] | None = None
     current_task: dict[str, Any] | None = None
     explicit_target_filename: str = ""
+    explicit_target_is_write: bool = False
     continuation_requested: bool = False
     last_user_request: str = ""
     last_assistant_summary: str = ""
@@ -70,6 +127,7 @@ class WorkingMemory:
             "current_artifact": self.current_artifact,
             "current_task": self.current_task,
             "explicit_target_filename": self.explicit_target_filename,
+            "explicit_target_is_write": self.explicit_target_is_write,
             "continuation_requested": self.continuation_requested,
             "last_user_request": self.last_user_request,
             "last_assistant_summary": self.last_assistant_summary,
@@ -96,7 +154,12 @@ def extract_explicit_markdown_filename(content: str) -> str:
     if not matches:
         return ""
     # Prefer the last mention: "最后写入 项目背景.md" should win over examples.
-    return ensure_markdown_filename(Path(matches[-1]).name)
+    filename = matches[-1].strip()
+    for prefix in (*READ_TARGET_TERMS, *WRITE_TARGET_TERMS):
+        if filename.lower().startswith(prefix.lower()):
+            filename = filename[len(prefix):].strip(" \t\r\n:：，,")
+            break
+    return ensure_markdown_filename(Path(filename).name)
 
 
 def artifact_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
@@ -168,10 +231,37 @@ def _task_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def is_artifact_continuation_request(content: str) -> bool:
-    text = re.sub(r"\s+", "", str(content or "").strip().lower())
+    raw_text = str(content or "").strip().lower()
+    text = re.sub(r"\s+", "", raw_text)
     if not text:
         return False
-    return any(term.lower().replace(" ", "") in text for term in CONTINUATION_TERMS)
+    for term in CONTINUATION_TERMS:
+        normalized_term = term.lower().replace(" ", "")
+        if not normalized_term or normalized_term not in text:
+            continue
+        term_index = text.find(normalized_term)
+        prefix = text[max(0, term_index - 8) : term_index]
+        if any(prefix.endswith(neg.lower().replace(" ", "")) for neg in NEGATED_CONTINUATION_TERMS):
+            continue
+        if normalized_term in {"continue", "improve", "enhance", "revise", "update"}:
+            if not re.search(rf"\b{re.escape(term.lower())}\b", raw_text):
+                continue
+        return True
+    return False
+
+
+def is_explicit_markdown_write_target(content: str) -> bool:
+    text = str(content or "").strip().lower()
+    compact = re.sub(r"\s+", "", text)
+    if not compact or not extract_explicit_markdown_filename(content):
+        return False
+    has_write = any(term.lower().replace(" ", "") in compact for term in WRITE_TARGET_TERMS)
+    if not has_write:
+        return False
+    has_read = any(term.lower().replace(" ", "") in compact for term in READ_TARGET_TERMS)
+    if has_read and not has_write:
+        return False
+    return True
 
 
 def build_working_memory(
@@ -206,10 +296,12 @@ def build_working_memory(
             current_task = task
 
     explicit_filename = extract_explicit_markdown_filename(current_content)
+    explicit_target_is_write = is_explicit_markdown_write_target(current_content)
     return WorkingMemory(
         current_artifact=current_artifact,
         current_task=current_task,
         explicit_target_filename=explicit_filename,
+        explicit_target_is_write=explicit_target_is_write,
         continuation_requested=is_artifact_continuation_request(current_content),
         last_user_request=last_user_request,
         last_assistant_summary=last_assistant_summary,
@@ -223,7 +315,7 @@ def should_continue_current_artifact(memory: WorkingMemory) -> bool:
     artifact = memory.current_artifact or {}
     if not artifact:
         return False
-    if memory.explicit_target_filename:
+    if memory.explicit_target_filename and memory.explicit_target_is_write:
         return True
     return memory.continuation_requested
 
