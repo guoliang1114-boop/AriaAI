@@ -35,7 +35,7 @@ from app.services.consulting_capabilities import (
 from app.services.artifact_intent import ArtifactContract, detect_artifact_intent, primary_user_request_text
 from app.services.deliverable_naming import file_name_for_deliverable, normalize_deliverable_title
 from app.services.project_core import init_default_project_folders
-from app.services.project_documents import create_project_document_record
+from app.services.project_documents import create_project_document_record, ensure_markdown_filename
 from app.services.time_utils import utc_now_naive
 from app.tools.office_documents import write_project_office_document
 
@@ -2584,6 +2584,83 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
             return "\n".join(f"- {item}" for item in values[:6]) if values else "暂无结构化风险，建议在会上主动确认客户关注和内部决策约束。"
         return f"围绕「{project.get('name') or '本项目'}」补充该部分内容。参考背景：{context_sentence()}"
 
+    def build_project_background_diagnostic() -> str:
+        project_label = project.get("name") or "本项目"
+        client_label = project.get("client") or "客户"
+        project_brief = str(memory.get("project_brief") or project.get("description") or "").strip()
+        objective = str(memory.get("current_objective") or "").strip()
+        risk_items = [str(item).strip() for item in (memory.get("key_risks") or []) if str(item).strip()]
+        open_items = [str(item).strip() for item in (memory.get("open_questions") or []) if str(item).strip()]
+        next_items = [str(item).strip() for item in (memory.get("next_actions") or []) if str(item).strip()]
+        user_context = normalized_goal[:1200]
+
+        lines = [
+            f"# {title}",
+            "",
+            "## 一、背景事实",
+            (
+                f"{client_label}当前围绕「{project_label}」的核心问题，不是简单判断“要不要开发”，"
+                "而是要先确认新业务机会、组织承接能力、品牌边界、投入产出和风险控制是否具备进入条件。"
+            ),
+            f"- 项目已知背景：{project_brief or '项目空间暂未形成完整背景，需要通过访谈和资料补充进一步确认。'}",
+            f"- 当前目标：{objective or '先把机会假设、风险约束和下一步验证路径整理清楚。'}",
+            f"- 用户本轮要求：{user_context}",
+            "",
+            "## 二、深层动因",
+            "- 客户并不只是需要一个开发排期，而是需要在业务进入前降低决策不确定性，避免把战略探索误判成确定性建设任务。",
+            "- 如果在客户需求、内部共识、商业假设和治理边界尚未明确时直接进入开发，后续很容易出现范围蔓延、反复返工和责任边界不清。",
+            "- 咨询公司的价值在于先把问题定义、证据体系、决策标准和阶段门搭起来，让客户知道每一步为什么做、做到什么程度可以继续。",
+            "",
+            "## 三、辩证判断",
+            "- 一方面，提前讨论系统或平台建设是有价值的，因为它能倒逼客户把流程、数据、角色和指标讲清楚。",
+            "- 另一方面，过早承诺开发会把商业问题技术化，容易让客户以为“系统上线”本身就是结果，而忽略新业务验证和组织协同。",
+            "- 因此更合理的判断是：先完成咨询诊断和机会验证，再把被验证过的流程、数据和角色沉淀为可开发的产品需求。",
+            "",
+            "## 四、为什么不宜立即执行开发",
+            "- 需求尚未闭环：如果关键场景、用户角色、审批流程和数据口径没有确认，开发只能依赖假设推进。",
+            "- 投入产出尚未量化：如果没有明确收益指标、试点范围和停止条件，客户很难判断预算是否值得投入。",
+            "- 组织协同尚未成形：新业务通常涉及战略、品牌、渠道、产品、合规和财务多方，任何一方约束缺失都会影响落地。",
+            "- 风险责任尚未界定：合规边界、品牌延展、供应链可行性、数据治理和项目决策权都需要先被明确。",
+            "",
+            "## 五、咨询公司介入价值",
+            "- 帮客户把“想做什么”转化成“为什么做、先验证什么、由谁决策、何时停止或进入下一阶段”。",
+            "- 通过访谈、资料清单、机会判断框架和阶段门机制，把隐性分歧提前暴露，降低后期开发返工风险。",
+            "- 输出可复用的业务蓝图、流程蓝图、数据口径、角色权限和需求优先级，为后续系统建设提供稳定输入。",
+            "",
+            "## 六、当前风险与待验证问题",
+        ]
+        if risk_items:
+            lines.extend(f"- 风险：{item}" for item in risk_items[:8])
+        else:
+            lines.extend(
+                [
+                    "- 风险：客户可能把探索性新业务直接推进为建设项目，导致商业假设未验证、技术投入提前发生。",
+                    "- 风险：不同干系人对目标、预算、收益和风险的理解不一致，后续容易在执行阶段集中爆发。",
+                ]
+            )
+        if open_items:
+            lines.extend(f"- 待确认：{item}" for item in open_items[:8])
+        else:
+            lines.extend(
+                [
+                    "- 待确认：客户真正希望解决的是增长、效率、客户经营、渠道协同，还是管理层可视化。",
+                    "- 待确认：第一阶段可接受的试点范围、预算上限、成功指标和停止条件是什么。",
+                ]
+            )
+        lines.extend(["", "## 七、建议的下一步"])
+        if next_items:
+            lines.extend(f"- [ ] {item}" for item in next_items[:8])
+        else:
+            lines.extend(
+                [
+                    "- [ ] 先做关键人访谈，覆盖战略、新业务、品牌、渠道、产品/合规和财务视角。",
+                    "- [ ] 整理业务进入假设、风险清单、资料缺口和阶段门判断标准。",
+                    "- [ ] 输出一版“咨询诊断优先，开发后置”的推进路线，明确何时进入原型或系统需求阶段。",
+                    "- [ ] 将验证后的流程、数据、角色和指标沉淀成后续系统建设的需求输入。",
+                ]
+            )
+        return "\n".join(lines).strip()
+
     project_name = str(project.get("name") or "").strip()
     normalized_goal = re.sub(r"\s+", " ", goal.strip())
     capability = match_consulting_capability(normalized_goal)
@@ -2617,6 +2694,8 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         title_core = "客户会议准备"
     elif "风险" in normalized_goal:
         title_core = "项目风险清单"
+    elif "背景" in normalized_goal:
+        title_core = "项目背景"
     elif "行动" in normalized_goal or "清单" in normalized_goal:
         title_core = "行动清单"
     else:
@@ -2633,6 +2712,8 @@ def _build_text_artifact(context: dict[str, Any], goal: str) -> dict[str, Any]:
         content = build_storyline_outline(max(requested_chapter_count, 10))
     elif capability:
         content = build_capability_sections(capability)
+    elif any(term in normalized_goal for term in ("背景", "辩证", "深度", "不希望立即执行开发", "咨询公司介入", "开发前", "为什么不")):
+        content = build_project_background_diagnostic()
     else:
         sections = [
             f"# {title}",
@@ -2724,10 +2805,13 @@ async def _execute_step(session: Session, task: TaskRun, step: TaskStep) -> dict
         text_plan = _previous_text_plan_output(session, task.id)
         if text_plan:
             result.setdefault("text_spec", {}).update({"plan": text_plan})
+        target_name = str(task_input.get("file_name") or task_input.get("title") or result.get("title") or "项目文本交付").strip()
+        if target_name.lower().endswith(".md"):
+            target_name = ensure_markdown_filename(target_name)
         project_file = create_project_document_record(
             session,
             task.project_id,
-            name=result.get("title") or "项目文本交付",
+            name=target_name,
             content=str(result.get("content") or ""),
             uploads_dir=UPLOADS_DIR,
             init_default_folders=init_default_project_folders,

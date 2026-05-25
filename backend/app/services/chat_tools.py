@@ -33,6 +33,7 @@ class ChatRuntime:
     intent_trace: dict | None = None
     intent_task_route: object | None = None
     artifact_contract: ArtifactContract | None = None
+    working_memory: dict | None = None
     intent_prepared_async: bool = False
 
     def __post_init__(self) -> None:

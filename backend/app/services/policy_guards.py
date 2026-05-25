@@ -453,6 +453,8 @@ def classify_chat_mode_and_policy(
         if is_workspace_project_inventory_query(routing_content):
             return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
         return IntentDecision(ChatMode.PROJECT_DEEP_DIVE, policy, confidence, reason, tool_access_policy=tool_access)
+    if is_client_project_portfolio_query(routing_content):
+        return IntentDecision(ChatMode.CROSS_PROJECT_PORTFOLIO, ActionPolicy.DIRECT_ANSWER, max(confidence, 0.78), "rule:client_portfolio", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
     if is_workspace_project_inventory_query(routing_content):
         return IntentDecision(ChatMode.WORKSPACE_INVENTORY, ActionPolicy.DIRECT_ANSWER, 0.78, "rule:workspace_inventory", "rule_fallback", tool_access_policy=ToolAccessPolicy.INJECTED_CONTEXT_ONLY)
     return IntentDecision(ChatMode.STANDALONE_QA, ActionPolicy.DIRECT_ANSWER, confidence, reason, tool_access_policy=ToolAccessPolicy.NONE)

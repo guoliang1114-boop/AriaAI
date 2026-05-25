@@ -57,6 +57,27 @@ def decide_skill_activation(content: str, skill: Skill | None, *, force_skill: b
             candidate_skill_name=skill_name,
         )
 
+    normalized_text = _normalize_for_skill_match(text)
+    question_like = normalized_text.endswith(("?", "？")) or normalized_text.startswith(
+        ("为什么", "如何", "怎么", "是否", "是不是", "能不能", "可不可以", "what", "why", "how")
+    )
+    workflow_verbs = (
+        "生成", "准备", "制作", "输出", "导出", "起草", "撰写", "编写", "整理", "形成", "创建",
+        "写一份", "写一个", "做一份", "做一个", "prepare", "create", "generate", "make", "draft", "write",
+    )
+    deliverable_terms = (
+        "报告", "方案", "材料", "文档", "ppt", "pptx", "deck", "战略", "提案", "建议书",
+        "清单", "路线图", "roadmap", "proposal", "report", "brief",
+    )
+    if not question_like and any(term in text for term in workflow_verbs) and any(term in text for term in deliverable_terms):
+        return SkillActivationDecision(
+            True,
+            "selected_skill_workflow_request",
+            0.9,
+            candidate_skill_id=skill_id,
+            candidate_skill_name=skill_name,
+        )
+
     return SkillActivationDecision(
         False,
         "selected_skill_not_armed",

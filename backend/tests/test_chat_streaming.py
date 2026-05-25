@@ -293,11 +293,11 @@ class ShouldApplySkillTests(unittest.TestCase):
         self.assertTrue(decision.apply)
         self.assertEqual(decision.reason, "forced_by_user")
 
-    def test_deliverable_words_do_not_auto_apply_selected_skill(self):
+    def test_selected_skill_runs_for_clear_deliverable_but_not_questions(self):
         from app.models.db import Skill
         skill = Skill(name="test")
-        self.assertFalse(_should_apply_skill("生成一份战略报告", skill))
-        self.assertFalse(_should_apply_skill("制作PPT", skill))
+        self.assertTrue(_should_apply_skill("生成一份战略报告", skill))
+        self.assertTrue(_should_apply_skill("制作PPT", skill))
         self.assertFalse(_should_apply_skill("为什么需要PPT", skill))
         self.assertFalse(_should_apply_skill("怎么生成报告", skill))
 

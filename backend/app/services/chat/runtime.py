@@ -29,10 +29,17 @@ from app.services.settings_helper import get_float_setting, get_int_setting
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.intent_contract import build_chat_intent_contract
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, MODE_CONFIG, ToolAccessPolicy
+from app.services.chat.working_memory import (
+    build_working_memory,
+    format_working_memory_for_prompt,
+    should_continue_current_artifact,
+)
 from app.services.consulting_intelligence import ConsultingTurnFrame, build_consulting_turn_frame
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access
 from app.services.skill_router import SkillActivationDecision, auto_select_skill, decide_skill_activation
+from app.services.artifact_intent import ArtifactContract
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -144,6 +151,61 @@ def _upgrade_policy_for_confirmed_followup(
             trace={**(intent_decision.trace or {}), "policy_upgrade": "confirmation_followup_after_deletion_plan"},
         )
     return intent_decision
+
+
+def _upgrade_policy_for_artifact_continuation(
+    intent_decision: IntentDecision,
+    req: SendMessageRequest,
+    working_memory,
+) -> IntentDecision:
+    if not req.project_id or not should_continue_current_artifact(working_memory):
+        return intent_decision
+    artifact = working_memory.current_artifact or {}
+    artifact_name = str(artifact.get("name") or working_memory.explicit_target_filename or "")
+    artifact_type = str(artifact.get("file_type") or "").lower()
+    is_markdown = artifact_type == "md" or artifact_name.lower().endswith(".md") or bool(working_memory.explicit_target_filename)
+    if not is_markdown:
+        return replace(
+            intent_decision,
+            action_policy=ActionPolicy.MODIFY_EXISTING_FILE,
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+            confidence=max(intent_decision.confidence, 0.88),
+            reason="working_memory_artifact_continuation",
+            method=f"{intent_decision.method}+working_memory",
+            trace={
+                **(intent_decision.trace or {}),
+                "policy_upgrade": "artifact_continuation",
+                "current_artifact": artifact,
+            },
+        )
+
+    title = (working_memory.explicit_target_filename or artifact_name or "项目文档.md").removesuffix(".md")
+    contract = ArtifactContract(
+        delivery_required=True,
+        output_kind="md",
+        title=title,
+        allowed_tools=(PROJECT_MARKDOWN_TOOL_NAME,),
+        confidence=0.92,
+        reason="working_memory_artifact_continuation",
+        source="working_memory",
+    )
+    return replace(
+        intent_decision,
+        chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+        action_policy=ActionPolicy.MODIFY_EXISTING_FILE,
+        tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+        task_route=None,
+        artifact_contract=contract,
+        confidence=max(intent_decision.confidence, 0.92),
+        reason="working_memory_artifact_continuation",
+        method=f"{intent_decision.method}+working_memory",
+        trace={
+            **(intent_decision.trace or {}),
+            "policy_upgrade": "artifact_continuation",
+            "current_artifact": artifact,
+            "artifact_contract": contract.to_dict(),
+        },
+    )
 
 
 def _resolve_runtime_model_and_tokens(
@@ -376,29 +438,12 @@ def prepare_chat_runtime(
         persist_user_message(session, conv_id, req.content, metadata)
     prepare_metrics["user_message_saved_ms"] = round((time.perf_counter() - step_started_at) * 1000)
 
-    # 4. Settings & context
-    max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
-    temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
-    context_mode = _context_mode_from_decision(intent_decision.chat_mode)
-
-    step_started_at = time.perf_counter()
-    chat_ctx = build_chat_context(
-        session=session,
-        skill_id=effective_skill_id,
-        project_id=req.project_id,
-        knowledge_scope=req.knowledge_scope,
-        rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
-        file_ids=req.file_ids if req.file_ids else None,
-        content=req.content,
-        default_max_tokens=max_tokens,
-        mention_context=req.mention_context.model_dump() if req.mention_context else None,
-        context_mode=context_mode,
-    )
-    prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
-
-    # 5. Message history and follow-up policy upgrades
+    # 4. Message history, working memory, and follow-up policy upgrades
     step_started_at = time.perf_counter()
     history = get_recent_message_history(session, conv_id, limit=CHAT_HISTORY_WINDOW) if conv_id else []
+    working_memory = build_working_memory(history, req.content)
+    intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
+    intent_decision = _upgrade_policy_for_artifact_continuation(intent_decision, req, working_memory)
     api_messages = [
         {"role": msg.role, "content": msg.content}
         for msg in history
@@ -407,21 +452,52 @@ def prepare_chat_runtime(
     if intent_decision.chat_mode in {ChatMode.CROSS_PROJECT_PORTFOLIO, ChatMode.WORKSPACE_INVENTORY}:
         window = MODE_CONFIG.get(intent_decision.chat_mode, MODE_CONFIG[ChatMode.PROJECT_DEEP_DIVE]).history_window
         api_messages = api_messages[-max(1, min(window, CHAT_HISTORY_WINDOW)) :]
-    intent_decision = _upgrade_policy_for_confirmed_followup(intent_decision, req, history)
     prepare_metrics["history_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
     prepare_metrics["history_message_count"] = len(api_messages)
+    prepare_metrics["working_memory"] = working_memory.to_dict()
     prepare_metrics["action_policy"] = intent_decision.action_policy.value
     prepare_metrics["tool_access_policy"] = intent_decision.tool_access_policy.value
     prepare_metrics["intent_reason"] = intent_decision.reason
     prepare_metrics["intent_method"] = intent_decision.method
     prepare_metrics["intent_trace"] = intent_decision.trace
-    prepare_metrics["context_mode"] = context_mode
+    if intent_decision.artifact_contract.delivery_required:
+        prepare_metrics["artifact_contract"] = intent_decision.artifact_contract.to_dict()
     intent_contract = build_chat_intent_contract(
         intent_decision,
         req,
         skill_applied=bool(effective_skill),
     )
     prepare_metrics["intent_contract"] = intent_contract.to_dict()
+
+    # 5. Settings & context
+    max_tokens = get_int_setting(session, "max_tokens", DEFAULT_MAX_TOKENS) or DEFAULT_MAX_TOKENS
+    temperature = get_float_setting(session, "temperature", DEFAULT_TEMPERATURE) or DEFAULT_TEMPERATURE
+    context_mode = _context_mode_from_decision(intent_decision.chat_mode)
+    context_file_ids = list(req.file_ids or [])
+    current_artifact = working_memory.current_artifact or {}
+    current_artifact_file_id = current_artifact.get("project_file_id")
+    if current_artifact_file_id and should_continue_current_artifact(working_memory):
+        try:
+            context_file_ids.append(int(current_artifact_file_id))
+        except (TypeError, ValueError):
+            pass
+        context_file_ids = list(dict.fromkeys(context_file_ids))
+
+    step_started_at = time.perf_counter()
+    chat_ctx = build_chat_context(
+        session=session,
+        skill_id=effective_skill_id,
+        project_id=req.project_id,
+        knowledge_scope=req.knowledge_scope,
+        rag_doc_ids=req.rag_doc_ids if req.rag_doc_ids else None,
+        file_ids=context_file_ids if context_file_ids else None,
+        content=req.content,
+        default_max_tokens=max_tokens,
+        mention_context=req.mention_context.model_dump() if req.mention_context else None,
+        context_mode=context_mode,
+    )
+    prepare_metrics["context_loaded_ms"] = round((time.perf_counter() - step_started_at) * 1000)
+    prepare_metrics["context_mode"] = context_mode
 
     # 6. Model & provider resolution
     step_started_at = time.perf_counter()
@@ -443,6 +519,9 @@ def prepare_chat_runtime(
         chat_ctx.project_context,
         chat_mode=intent_decision.chat_mode,
     )
+    working_memory_prompt = format_working_memory_for_prompt(working_memory)
+    if working_memory_prompt:
+        system = f"{system.rstrip()}\n\n{working_memory_prompt}\n"
     consulting_frame = build_consulting_turn_frame(
         req.content,
         project_id=req.project_id,
@@ -492,6 +571,7 @@ def prepare_chat_runtime(
         intent_trace=intent_decision.trace,
         intent_task_route=intent_decision.task_route,
         artifact_contract=intent_decision.artifact_contract,
+        working_memory=working_memory.to_dict(),
         intent_prepared_async=intent_prepared_async,
     )
 

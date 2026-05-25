@@ -492,6 +492,35 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         persisted_metadata = mock_persist.call_args.args[4]
         self.assertNotIn("delivery_failed", persisted_metadata)
 
+    async def test_p4_truth_gate_blocks_unverified_completion_claim(self):
+        """P4 must not persist a mutation completion claim without a real tool result."""
+        state = ChatSessionState()
+        state.text_buffer = "已完成归类，并已经移动文件。"
+        state.tool_call_events = []
+        state.stage_timings = {}
+
+        self.req.project_id = 1
+        self.req.content = "把空间里的文件归类"
+        self.req.action_confirmations = []
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = ""
+        self.runtime.action_policy = "modify_existing_file"
+        self.runtime.artifact_contract = None
+
+        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        self.assertIn("没有完成这个操作", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertTrue(
+            any(item.get("tool_name") == "execution_truth_gate" for item in persisted_metadata["tool_calls"])
+        )
+
     async def test_p4_markdown_contract_fallback_saves_generated_text(self):
         """P4 writes generated text when an explicit MD request skipped the write tool."""
         state = ChatSessionState()

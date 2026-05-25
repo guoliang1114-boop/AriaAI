@@ -706,6 +706,50 @@ def test_text_artifact_storyline_request_uses_storyline_structure():
     assert "关键风险" not in result["content"]
 
 
+def test_create_text_artifact_respects_explicit_markdown_filename_and_deep_background(monkeypatch, tmp_path):
+    engine = _setup_engine()
+    monkeypatch.setattr(task_orchestrator, "UPLOADS_DIR", tmp_path)
+    goal = (
+        "把以下背景整理成更深度、更辩证的项目背景，说明为什么不希望立即执行开发，"
+        "以及咨询公司介入能解决什么问题。最后写入项目背景.md"
+    )
+    try:
+        with Session(engine) as session:
+            project = Project(
+                name="东阿阿胶新业务进入机会和策略",
+                client="东阿阿胶股份有限公司",
+                description="客户正在探索功能性护肤品与医美抗衰方向，但内部对是否立即开发尚未形成共识。",
+                status="active",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            task = create_task_run(
+                session,
+                project_id=project.id,
+                task_type="create_text_artifact",
+                goal=goal,
+                input_data={"title": "项目背景", "file_name": "项目背景.md"},
+            )
+
+            asyncio.run(execute_task_run_in_session(session, task.id))
+            session.refresh(task)
+            project_file = session.exec(select(ProjectFile).where(ProjectFile.project_id == project.id)).first()
+            artifact = session.exec(select(TaskArtifact).where(TaskArtifact.task_run_id == task.id)).first()
+
+        assert task.status == "completed"
+        assert project_file is not None
+        assert project_file.name == "项目背景.md"
+        saved_content = (tmp_path / project_file.path).read_text(encoding="utf-8")
+        assert "为什么不宜立即执行开发" in saved_content
+        assert "咨询公司介入价值" in saved_content
+        assert artifact is not None
+        metadata = json.loads(artifact.metadata_json)
+        assert metadata["file_name"] == "项目背景.md"
+    finally:
+        engine.dispose()
+
+
 def test_text_artifact_storyline_respects_requested_chapter_count_and_hierarchy():
     context = {
         "project": {"name": "东阿阿胶新业务进入机会和策略", "client": "东阿阿胶股份有限公司"},

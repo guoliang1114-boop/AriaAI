@@ -78,6 +78,7 @@ QUESTION_PREFIXES = (
 class ArtifactIntent:
     requested: bool
     output_kind: str = ""
+    title: str = ""
     confidence: float = 0.0
     reason: str = ""
 
@@ -207,7 +208,7 @@ def contract_from_artifact_intent(intent: ArtifactIntent, *, title: str = "", so
     return ArtifactContract(
         delivery_required=True,
         output_kind=output_kind,
-        title=str(title or "").strip(),
+        title=str(title or intent.title or "").strip(),
         allowed_tools=allowed_tools_for_output_kind(output_kind),
         confidence=intent.confidence,
         reason=intent.reason,
@@ -272,4 +273,10 @@ def detect_artifact_intent(content: str) -> ArtifactIntent:
         return ArtifactIntent(False, reason="no_format")
     if not _has_any(text, CREATE_TERMS):
         return ArtifactIntent(False, output_kind=output_kind, reason="format_without_create")
-    return ArtifactIntent(True, output_kind=output_kind, confidence=0.9, reason=f"explicit_{output_kind}_artifact")
+    title = ""
+    if output_kind == "md":
+        from app.services.chat.working_memory import extract_explicit_markdown_filename
+
+        file_name = extract_explicit_markdown_filename(content)
+        title = file_name.removesuffix(".md") if file_name else ""
+    return ArtifactIntent(True, output_kind=output_kind, title=title, confidence=0.9, reason=f"explicit_{output_kind}_artifact")

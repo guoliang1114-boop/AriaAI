@@ -23,6 +23,7 @@ from app.services.artifact_intent import ArtifactContract
 from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
 from app.services.chat_artifacts import _build_artifact_notice
 from app.models.db import PendingToolAction
+from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
 from app.services.project_contexts import mark_project_memory_stale
 from app.services.project_core import init_default_project_folders
@@ -43,6 +44,28 @@ _MARKDOWN_FILENAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _MARKDOWN_FILENAME_FALLBACK_PATTERN = re.compile(r"([^\s，。；;、]+?\.md)", re.IGNORECASE)
+_COMPLETION_CLAIM_RE = re.compile(
+    r"(已完成|已执行|已更新|已写入|已保存|已归类|已移动|已删除|完成归类|处理完成|操作已完成|"
+    r"已经[^。；;，,\n]{0,24}(?:完成|更新|写入|保存|移动|删除|归类))"
+)
+_MUTATING_ACTION_POLICIES = {
+    ActionPolicy.WRITE_ARTIFACT.value,
+    ActionPolicy.MODIFY_EXISTING_FILE.value,
+    ActionPolicy.DURABLE_TASK.value,
+    ActionPolicy.DESTRUCTIVE_ACTION.value,
+}
+_MUTATING_TOOL_NAMES = {
+    "write_project_office_document",
+    "update_project_markdown_document",
+    "save_previous_answer_as_markdown",
+    "manage_project_files",
+    "manage_project_folders",
+    "generate_ppt",
+    "generate_ppt_from_skill",
+    "generate_docx",
+    "generate_xlsx",
+    "generate_pdf",
+}
 
 
 def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
@@ -87,6 +110,49 @@ def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] |
     if not contract or not contract.delivery_required:
         return None
     return contract.to_dict()
+
+
+def _policy_value(runtime: ChatRuntime) -> str:
+    return str(getattr(getattr(runtime, "action_policy", ""), "value", getattr(runtime, "action_policy", "")) or "")
+
+
+def _event_has_project_artifact(event: dict[str, Any]) -> bool:
+    for key in ("artifact", "output", "result"):
+        payload = event.get(key)
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("project_file_id") or payload.get("file_type") or payload.get("path"):
+            return True
+    return False
+
+
+def _has_successful_mutation(state: ChatSessionState) -> bool:
+    if state.artifacts or state.pending_markdown_saves:
+        return True
+    for event in state.tool_call_events:
+        if str(event.get("status") or "").lower() != "completed":
+            continue
+        tool_name = str(event.get("tool_name") or "")
+        if tool_name in _MUTATING_TOOL_NAMES or _event_has_project_artifact(event):
+            return True
+    return False
+
+
+def _requires_execution_truth_gate(runtime: ChatRuntime, state: ChatSessionState, full_text: str) -> bool:
+    if not full_text or not _COMPLETION_CLAIM_RE.search(full_text):
+        return False
+    if state.confirmation_requested or state.pending_tool_actions or state.pending_tool_confirmations:
+        return False
+    if _has_successful_mutation(state):
+        return False
+    policy = _policy_value(runtime)
+    if policy in _MUTATING_ACTION_POLICIES:
+        return True
+    contract = getattr(runtime, "artifact_contract", None)
+    if isinstance(contract, ArtifactContract) and contract.delivery_required:
+        return True
+    working_memory = getattr(runtime, "working_memory", None)
+    return isinstance(working_memory, dict) and bool(working_memory.get("continuation_requested") and working_memory.get("current_artifact"))
 
 
 def _requested_markdown_filename(content: str) -> str:
@@ -393,6 +459,30 @@ async def run_p4_persist(
             full_text = f"{full_text}\n\n{confirmation_notice}".strip()
             yield sse_event({"type": "text", "content": f"\n\n{confirmation_notice}"})
 
+    if _requires_execution_truth_gate(runtime, state, full_text):
+        policy = _policy_value(runtime)
+        truth_gate_message = (
+            "没有完成这个操作：本轮没有成功执行项目空间写入/更新工具，也没有生成可验证的文件记录，"
+            "所以我不会声称已完成。请重新指定目标文件或确认操作范围后，我再执行。"
+        )
+        state.tool_call_events.append(
+            {
+                "tool_name": "execution_truth_gate",
+                "status": "error",
+                "message": "拦截了没有工具结果支撑的完成表述。",
+                "summary": "No successful mutation result was present.",
+                "policy": policy,
+            }
+        )
+        state.record_trace_event(
+            "execution_truth_gate_blocked_completion_claim",
+            stage="p4",
+            action_policy=policy,
+            original_text_preview=full_text[:240],
+        )
+        full_text = truth_gate_message
+        yield sse_event({"type": "text", "content": f"\n\n{truth_gate_message}"})
+
     # ── HITAS: Persist pending tool actions to database ──
     pending_action_ids: list[int] = []
     pending_action_batch_ids: list[str] = []
@@ -536,6 +626,9 @@ async def run_p4_persist(
         metadata["artifacts"] = state.artifacts
     if state.pending_markdown_saves:
         metadata["pending_markdown_saves"] = state.pending_markdown_saves
+    working_memory = getattr(runtime, "working_memory", None)
+    if isinstance(working_memory, dict) and working_memory:
+        metadata["working_memory"] = working_memory
     contract_metadata = _contract_to_metadata(artifact_contract)
     if contract_metadata:
         metadata["artifact_contract"] = contract_metadata
