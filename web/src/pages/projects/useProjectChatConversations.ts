@@ -7,6 +7,7 @@ import { buildDefaultChatTitle } from "./projectChatCopy";
 
 type UseProjectChatConversationsParams = {
   autoSelectFirstConversation?: boolean;
+  initialConversationId?: number | null;
   projectId: number;
   isZh: boolean;
   onCreateConversationError: () => void;
@@ -20,6 +21,7 @@ type RefreshOptions = {
 
 export function useProjectChatConversations({
   autoSelectFirstConversation = true,
+  initialConversationId = null,
   projectId,
   isZh,
   onCreateConversationError,
@@ -27,7 +29,7 @@ export function useProjectChatConversations({
   onRenameConversationError,
 }: UseProjectChatConversationsParams) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<number | null>(null);
+  const [activeConvId, setActiveConvId] = useState<number | null>(() => initialConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [serverPendingAction, setServerPendingAction] = useState<ProjectChatPendingAction | null>(null);
   const [pendingToolActions, setPendingToolActions] = useState<PendingToolAction[]>([]);
@@ -42,6 +44,11 @@ export function useProjectChatConversations({
   useEffect(() => {
     void fetchConversations();
   }, [projectId]);
+
+  useEffect(() => {
+    if (!initialConversationId) return;
+    setActiveConvId((current) => (current === initialConversationId ? current : initialConversationId));
+  }, [initialConversationId, projectId]);
 
   useEffect(() => {
     if (activeConvId) {
@@ -70,8 +77,8 @@ export function useProjectChatConversations({
     try {
       const data = await api.get<Conversation[]>(`/chat/conversations?project_id=${projectId}`);
       setConversations(data);
-      if (autoSelectFirstConversation && data.length > 0 && !activeConvId) {
-        setActiveConvId(data[0].id);
+      if (autoSelectFirstConversation && data.length > 0) {
+        setActiveConvId((current) => current ?? data[0].id);
       }
     } catch (error) {
       console.error("Failed to fetch conversations:", error);

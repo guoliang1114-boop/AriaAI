@@ -153,6 +153,11 @@ export function ProjectChatTab({
   const briefingLaunch = searchParams.get("briefing");
   const sourceConversationParam = searchParams.get("conversation");
   const pathConversationParam = isCurrentProjectChatPath ? location.pathname.match(/\/chat\/(\d+)$/)?.[1] || "" : "";
+  const initialConversationId = (() => {
+    const rawConversationId = pathConversationParam || sourceConversationParam || "";
+    const parsedConversationId = Number(rawConversationId);
+    return Number.isFinite(parsedConversationId) && parsedConversationId > 0 ? parsedConversationId : null;
+  })();
   const sourceMessageParam = searchParams.get("message");
   const parsedSourceMessageId = sourceMessageParam ? Number(sourceMessageParam) : null;
   const highlightedMessageId = parsedSourceMessageId && Number.isFinite(parsedSourceMessageId) ? parsedSourceMessageId : null;
@@ -190,7 +195,8 @@ export function ProjectChatTab({
     openDeleteConversationDialog,
     closeDeleteConversationDialog,
   } = useProjectChatConversations({
-    autoSelectFirstConversation: Boolean(pathConversationParam || sourceConversationParam),
+    autoSelectFirstConversation: false,
+    initialConversationId,
     projectId: project.id,
     isZh,
     onCreateConversationError: () => toast.error(copy.createConversationFailed),

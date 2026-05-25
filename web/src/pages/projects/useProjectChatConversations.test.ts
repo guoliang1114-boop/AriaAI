@@ -113,6 +113,42 @@ describe("useProjectChatConversations", () => {
     expect(result.current.messages).toEqual([]);
   });
 
+  it("hydrates a deep-linked conversation immediately and fetches its messages", async () => {
+    const convs = [
+      makeConversation({ id: 10 }),
+      makeConversation({ id: 77 }),
+    ];
+    const msgs = [makeMessage({ id: 701, conversation_id: 77, content: "Persisted answer" })];
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes("/chat/conversations?")) return Promise.resolve(convs);
+      if (url.includes("/chat/conversations/77/messages")) return Promise.resolve(msgs);
+      if (url.includes("/pending-action")) return Promise.resolve(null);
+      if (url.includes("/pending-actions")) return Promise.resolve({ items: [] });
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() =>
+      useProjectChatConversations({
+        ...defaultProps,
+        autoSelectFirstConversation: false,
+        initialConversationId: 77,
+      }),
+    );
+
+    expect(result.current.activeConvId).toBe(77);
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual(msgs);
+    });
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/chat/conversations/77/messages",
+      expect.objectContaining({
+        params: expect.objectContaining({ limit: 120 }),
+      }),
+    );
+  });
+
   it("fetches messages when activeConvId changes", async () => {
     const conv = makeConversation({ id: 5 });
     const msgs = [makeMessage({ id: 1, conversation_id: 5 })];
