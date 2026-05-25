@@ -19,7 +19,6 @@ export function ProjectSpaceTab({
         projectName={projectDetail.project.name}
         files={projectDetail.files}
         folders={projectDetail.folders}
-        memoryVersion={projectDetail.project.memory_version ?? 0}
         onUpdate={onUpdate}
       />
     </div>

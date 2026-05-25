@@ -75,7 +75,6 @@ function buildPersistentPanelConfig({
           projectName={project.name}
           files={projectDetail.files}
           folders={projectDetail.folders}
-          memoryVersion={project.memory_version ?? 0}
           onUpdate={onRefresh}
         />
       ),
