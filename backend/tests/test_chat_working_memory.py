@@ -78,6 +78,10 @@ def test_working_memory_negated_continuation_does_not_request_edit():
     assert is_artifact_continuation_request("不要修改，先只看一下") is False
     assert is_artifact_continuation_request("不用优化这份文件") is False
     assert is_artifact_continuation_request("discontinue this work") is False
+    assert is_artifact_continuation_request("我们继续讨论预算") is False
+    assert is_artifact_continuation_request("继续讨论这个问题") is False
+    assert is_artifact_continuation_request("继续完善这个方案") is True
+    assert is_artifact_continuation_request("继续完善") is True
 
 
 def test_working_memory_reading_named_markdown_does_not_continue_artifact():
@@ -96,4 +100,32 @@ def test_working_memory_reading_named_markdown_does_not_continue_artifact():
 
     assert memory.explicit_target_filename == "项目背景.md"
     assert memory.explicit_target_is_write is False
+    assert should_continue_current_artifact(memory) is False
+
+
+def test_working_memory_ignores_failed_delivery_as_current_artifact():
+    history = [
+        SimpleNamespace(
+            role="assistant",
+            content="抱歉，没有成功生成文件。",
+            metadata_json=json.dumps(
+                {
+                    "delivery_failed": True,
+                    "artifacts": [{"project_file_id": 183, "name": "失败产物.md", "file_type": "md"}],
+                },
+                ensure_ascii=False,
+            ),
+        )
+    ]
+
+    memory = build_working_memory(
+        history,
+        "继续完善",
+        persisted_state={
+            "current_artifact": {"project_file_id": 180, "name": "旧文件.md", "file_type": "md"},
+            "last_intent": {"delivery_failed": True},
+        },
+    )
+
+    assert memory.current_artifact is None
     assert should_continue_current_artifact(memory) is False

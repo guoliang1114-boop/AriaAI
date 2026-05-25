@@ -44,6 +44,42 @@ CONTINUATION_TERMS = (
     "revise",
     "update",
 )
+WEAK_CONTINUATION_TERMS = ("继续", "continue")
+CONCRETE_ARTIFACT_REFERENCE_TERMS = (
+    "文件",
+    "文档",
+    "交付物",
+    "报告",
+    "方案",
+    "材料",
+    "正文",
+    "md",
+    "markdown",
+    "ppt",
+    "pptx",
+    "docx",
+    "excel",
+)
+DISCUSSION_CONTINUATION_TERMS = (
+    "讨论",
+    "聊",
+    "沟通",
+    "交流",
+    "分析",
+    "评估",
+    "盘点",
+    "看看",
+    "看一下",
+    "预算",
+    "风险",
+    "问题",
+    "话题",
+    "topic",
+    "discuss",
+    "talk",
+    "budget",
+)
+_WEAK_CONTINUATION_NORMALIZED = {term.lower().replace(" ", "") for term in WEAK_CONTINUATION_TERMS}
 NEGATED_CONTINUATION_TERMS = (
     "不要",
     "不用",
@@ -163,6 +199,8 @@ def extract_explicit_markdown_filename(content: str) -> str:
 
 
 def artifact_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    if metadata.get("delivery_failed"):
+        return None
     pending_saves = metadata.get("pending_markdown_saves")
     if isinstance(pending_saves, list):
         for item in reversed(pending_saves):
@@ -243,6 +281,11 @@ def is_artifact_continuation_request(content: str) -> bool:
         prefix = text[max(0, term_index - 8) : term_index]
         if any(prefix.endswith(neg.lower().replace(" ", "")) for neg in NEGATED_CONTINUATION_TERMS):
             continue
+        if normalized_term in _WEAK_CONTINUATION_NORMALIZED:
+            has_artifact_hint = any(hint.lower().replace(" ", "") in text for hint in CONCRETE_ARTIFACT_REFERENCE_TERMS)
+            has_discussion_hint = any(hint.lower().replace(" ", "") in text for hint in DISCUSSION_CONTINUATION_TERMS)
+            if has_discussion_hint and not has_artifact_hint:
+                continue
         if normalized_term in {"continue", "improve", "enhance", "revise", "update"}:
             if not re.search(rf"\b{re.escape(term.lower())}\b", raw_text):
                 continue
@@ -273,6 +316,9 @@ def build_working_memory(
     persisted_state = persisted_state if isinstance(persisted_state, dict) else {}
     current_artifact: dict[str, Any] | None = persisted_state.get("current_artifact") or None
     current_task: dict[str, Any] | None = persisted_state.get("current_task") or None
+    last_intent = persisted_state.get("last_intent") if isinstance(persisted_state.get("last_intent"), dict) else {}
+    if last_intent.get("delivery_failed"):
+        current_artifact = None
     last_user_request = str(persisted_state.get("last_user_request") or "")
     last_assistant_summary = str(persisted_state.get("last_assistant_summary") or "")
     user_constraints = persisted_state.get("user_constraints") if isinstance(persisted_state.get("user_constraints"), list) else []
