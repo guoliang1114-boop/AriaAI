@@ -1,5 +1,4 @@
 """AriaAI FastAPI backend — entry point."""
-import time
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -20,6 +19,7 @@ from app.routers.auth import seed_admin_user
 from app.services import scheduler
 from app.services.chat.action_reaper import reap_stale_executing_actions_with_engine
 from app.services.chat_store import purge_expired_conversations
+from app.services.token_cache import cache_token, get_cached_user_id, invalidate_token_cache
 
 # Import tools to register them
 from app.tools import file_generators  # noqa: F401
@@ -170,24 +170,7 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Auth token in-memory cache: token → (user_id, expiry_timestamp)
-_TOKEN_CACHE: dict[str, tuple[int, float]] = {}
 _TOKEN_CACHE_TTL = int(SETTINGS_CACHE_TTL)  # Use config value (default 300s / 5min)
-
-
-def _get_cached_user_id(token: str) -> Optional[int]:
-    entry = _TOKEN_CACHE.get(token)
-    if entry and time.time() < entry[1]:
-        return entry[0]
-    return None
-
-
-def _cache_token(token: str, user_id: int):
-    _TOKEN_CACHE[token] = (user_id, time.time() + _TOKEN_CACHE_TTL)
-
-
-def invalidate_token_cache(token: str):
-    _TOKEN_CACHE.pop(token, None)
 
 
 # Auth middleware — protects all routes except /health and /auth/*
@@ -206,7 +189,7 @@ async def auth_middleware(request: Request, call_next):
         user: Optional[User] = None
         if token:
             # Fast path: check in-memory cache first
-            cached_uid = _get_cached_user_id(token)
+            cached_uid = get_cached_user_id(token)
             if cached_uid is not None:
                 user = session.get(User, cached_uid)
                 if user and not user.is_active:
@@ -221,7 +204,7 @@ async def auth_middleware(request: Request, call_next):
                 if user_token:
                     user = session.get(User, user_token.user_id)
                     if user and user.is_active:
-                        _cache_token(token, user.id)
+                        cache_token(token, user.id, _TOKEN_CACHE_TTL)
                         from datetime import datetime
                         user_token.last_used_at = datetime.utcnow()
                         session.add(user_token)
@@ -235,7 +218,7 @@ async def auth_middleware(request: Request, call_next):
                         select(User).where(User.auth_token == token, User.is_active == True)
                     ).first()
                     if user:
-                        _cache_token(token, user.id)
+                        cache_token(token, user.id, _TOKEN_CACHE_TTL)
         
         if not user:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})

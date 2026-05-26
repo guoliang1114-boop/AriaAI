@@ -286,7 +286,7 @@ async def translate_document(
                 "source_language": source_language,
                 "target_language": target_language,
                 "local_file_path": str(out_path),
-                "download_url": f"/artifacts/download?path=translations/{out_name}",
+                "download_url": f"/artifacts/download-by-path?path=translations/{out_name}",
                 "elapsed_seconds": round(asyncio.get_event_loop().time() - start_time, 1),
             }
         except httpx.HTTPStatusError as exc:

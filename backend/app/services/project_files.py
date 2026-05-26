@@ -8,6 +8,7 @@ from fastapi import HTTPException, UploadFile
 from sqlmodel import Session, select
 
 from app.models.db import GeneratedFile, ProjectFile, TaskArtifact
+from app.services.upload_paths import resolve_upload_path
 from app.services.time_utils import utc_now_naive
 from app.services.project_todos import ensure_project_exists
 
@@ -75,17 +76,14 @@ def get_project_file_or_404(session: Session, project_id: int, file_id: int) -> 
 
 
 def resolve_project_file_path(project_file: ProjectFile, uploads_dir: Path) -> Path:
-    full_path = uploads_dir / project_file.path
-    if not full_path.is_file():
-        raise HTTPException(404, "File not found on disk")
-    return full_path
+    return resolve_upload_path(uploads_dir, project_file.path)
 
 
 def delete_project_file(session: Session, project_id: int, file_id: int, *, uploads_dir: Path) -> None:
     project_file = session.get(ProjectFile, file_id)
     if not project_file or project_file.project_id != project_id:
         raise HTTPException(404, "File not found")
-    full_path = uploads_dir / project_file.path
+    full_path = resolve_upload_path(uploads_dir, project_file.path, must_exist=False)
 
     derivative_files = session.exec(
         select(ProjectFile).where(ProjectFile.source_file_id == file_id)

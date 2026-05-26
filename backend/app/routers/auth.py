@@ -12,6 +12,7 @@ from app.config import LOGIN_RATE_LIMIT_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECOND
 from app.database import get_session, engine
 from app.models.db import User, UserToken
 from app.services.time_utils import utc_now_naive
+from app.services.token_cache import invalidate_token_cache
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
@@ -107,6 +108,7 @@ def _clear_failed_login_attempts(key: str) -> None:
 def _revoke_user_tokens(session: Session, user_id: int) -> None:
     tokens = session.exec(select(UserToken).where(UserToken.user_id == user_id)).all()
     for token in tokens:
+        invalidate_token_cache(token.token)
         session.delete(token)
 
 
@@ -239,14 +241,7 @@ def logout(
 ):
     # 删除当前设备的 token，不影响其他设备
     if x_auth_token:
-        # 清除 token 缓存（函数内导入避免循环依赖）
-        try:
-            import sys
-            main_module = sys.modules.get('__main__')
-            if main_module and hasattr(main_module, 'invalidate_token_cache'):
-                main_module.invalidate_token_cache(x_auth_token)
-        except Exception:
-            pass  # 缓存清除失败不影响登出
+        invalidate_token_cache(x_auth_token)
             
         user_token = session.exec(
             select(UserToken).where(UserToken.token == x_auth_token)
@@ -369,7 +364,10 @@ def update_user(
     if body.is_active is not None:
         user.is_active = body.is_active
         if not body.is_active:
+            if user.auth_token:
+                invalidate_token_cache(user.auth_token)
             user.auth_token = None  # force logout
+            _revoke_user_tokens(session, user.id)
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -398,6 +396,9 @@ def delete_user(
     ).all()
     if len(active_admins) == 1 and active_admins[0].id == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete the last active admin")
+    if user.auth_token:
+        invalidate_token_cache(user.auth_token)
+    _revoke_user_tokens(session, user.id)
     session.delete(user)
     session.commit()
     return {"ok": True}
@@ -417,6 +418,8 @@ def admin_reset_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash(body.new_password)
+    if user.auth_token:
+        invalidate_token_cache(user.auth_token)
     user.auth_token = None  # force re-login
     _revoke_user_tokens(session, user.id)
     session.add(user)
@@ -435,6 +438,8 @@ def change_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     current_user.password_hash = _hash(body.new_password)
+    if current_user.auth_token:
+        invalidate_token_cache(current_user.auth_token)
     current_user.auth_token = None
     _revoke_user_tokens(session, current_user.id)
     session.add(current_user)

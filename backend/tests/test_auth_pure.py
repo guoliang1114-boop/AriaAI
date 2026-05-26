@@ -90,3 +90,24 @@ class PruneLoginAttemptsTestCase(unittest.TestCase):
         from app.routers.auth import _prune_login_attempts
         result = _prune_login_attempts(1000.0, [])
         self.assertEqual(result, [])
+
+
+class TokenCacheTestCase(unittest.TestCase):
+    def tearDown(self):
+        from app.services.token_cache import clear_token_cache
+        clear_token_cache()
+
+    def test_cache_roundtrip_and_invalidate(self):
+        from app.services.token_cache import cache_token, get_cached_user_id, invalidate_token_cache
+
+        cache_token("token-1", 42, 60)
+        self.assertEqual(get_cached_user_id("token-1"), 42)
+
+        invalidate_token_cache("token-1")
+        self.assertIsNone(get_cached_user_id("token-1"))
+
+    def test_cache_entry_expires(self):
+        from app.services.token_cache import cache_token, get_cached_user_id
+
+        cache_token("token-2", 43, -1)
+        self.assertIsNone(get_cached_user_id("token-2"))
