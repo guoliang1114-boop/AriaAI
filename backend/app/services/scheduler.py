@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import datetime, timedelta, timezone
 
 UTC = timezone.utc
@@ -21,6 +22,29 @@ _scheduler = BackgroundScheduler(
     timezone=UTC,
 )
 _job_metadata: dict[str, dict] = {}
+
+
+def _run_coroutine_sync(coro) -> None:
+    """Run a coroutine from sync scheduler/API code, even if a loop is active."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+        return
+
+    error: list[BaseException] = []
+
+    def _runner() -> None:
+        try:
+            asyncio.run(coro)
+        except BaseException as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+    if error:
+        raise error[0]
 
 
 def _as_utc_aware(value: datetime) -> datetime:
@@ -120,7 +144,7 @@ def add_or_replace_date_job(
     def _run_job():
         result = func(*args)
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
+            _run_coroutine_sync(result)
 
     _scheduler.add_job(
         _run_job,
@@ -148,7 +172,7 @@ def add_or_replace_interval_job(
     def _run_job():
         result = func(*args)
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
+            _run_coroutine_sync(result)
 
     _scheduler.add_job(
         _run_job,
@@ -162,13 +186,11 @@ def add_or_replace_interval_job(
 
 
 def trigger_now(task) -> None:
-    import asyncio
     from app.services.task_runner import run_task
-    asyncio.run(run_task(task.id))
+    _run_coroutine_sync(run_task(task.id))
 
 
 def _add_job(task) -> None:
-    import asyncio
     from app.services.task_runner import run_task
 
     job_id = f"task_{task.id}"
@@ -190,6 +212,6 @@ def _add_job(task) -> None:
 
     # Wrap async function for scheduler
     def _run_async_task(task_id: int):
-        asyncio.run(run_task(task_id))
+        _run_coroutine_sync(run_task(task_id))
 
     _scheduler.add_job(_run_async_task, trigger=trigger, args=[task.id], id=job_id, replace_existing=True)

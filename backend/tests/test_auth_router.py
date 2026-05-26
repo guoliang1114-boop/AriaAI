@@ -3,9 +3,9 @@ import unittest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.db import User
+from app.models.db import User, UserToken
 from app.routers.auth import router, _hash, require_admin, get_current_user
 from app.database import get_session
 from tests.test_database import create_test_engine, drop_all_tables
@@ -129,6 +129,7 @@ class AuthUsersCrudTestCase(unittest.TestCase):
             session.refresh(user)
             self.admin = admin
             self.user = user
+            self.user_id = user.id
 
     def tearDown(self):
         SQLModel.metadata.drop_all(self.engine)
@@ -233,10 +234,19 @@ class AuthUsersCrudTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_admin_reset_password(self):
+        with Session(self.engine) as session:
+            session.add(UserToken(user_id=self.user_id, token="old-token"))
+            session.commit()
+
         app = _make_app(self.engine, admin_user=self.admin)
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.post(f"/auth/users/{self.user.id}/reset-password", json={"new_password": "newpass123"})
+        resp = client.post(f"/auth/users/{self.user_id}/reset-password", json={"new_password": "newpass123"})
         self.assertEqual(resp.status_code, 200)
+        with Session(self.engine) as session:
+            token = session.exec(select(UserToken).where(UserToken.user_id == self.user_id)).first()
+            user = session.get(User, self.user_id)
+            self.assertIsNone(token)
+            self.assertIsNone(user.auth_token)
 
     def test_admin_reset_password_nonexistent(self):
         app = _make_app(self.engine, admin_user=self.admin)
@@ -262,12 +272,17 @@ class AuthChangePasswordTestCase(unittest.TestCase):
             session.commit()
             session.refresh(user)
             self.user = user
+            self.user_id = user.id
 
     def tearDown(self):
         SQLModel.metadata.drop_all(self.engine)
         self.engine.dispose()
 
     def test_change_password_success(self):
+        with Session(self.engine) as session:
+            session.add(UserToken(user_id=self.user_id, token="old-token"))
+            session.commit()
+
         app = _make_app(self.engine, current_user=self.user)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.post("/auth/change-password", json={
@@ -275,6 +290,11 @@ class AuthChangePasswordTestCase(unittest.TestCase):
             "new_password": "newpass123",
         })
         self.assertEqual(resp.status_code, 200)
+        with Session(self.engine) as session:
+            token = session.exec(select(UserToken).where(UserToken.user_id == self.user_id)).first()
+            user = session.get(User, self.user_id)
+            self.assertIsNone(token)
+            self.assertIsNone(user.auth_token)
 
     def test_change_password_wrong_current(self):
         app = _make_app(self.engine, current_user=self.user)

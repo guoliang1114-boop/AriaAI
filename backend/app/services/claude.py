@@ -6,12 +6,14 @@ from __future__ import annotations
 import os
 import json
 import logging
+from threading import RLock
 from collections.abc import AsyncIterator
 
 import httpx
 import anthropic
 from app.core.security import get_api_key
 from app.config import DEFAULT_MODELS, DEFAULT_MAX_TOKENS
+from app.services.cache import TTLCache
 
 DEFAULT_MODEL = DEFAULT_MODELS["claude"]
 from app.database import engine
@@ -24,6 +26,8 @@ _OFFICIAL_BASE_URL = "https://api.anthropic.com"
 
 # Persistent HTTP client — reuses TCP connections across LLM calls
 _http_client: httpx.AsyncClient | None = None
+_sdk_clients: dict[tuple[str, str], anthropic.AsyncAnthropic] = {}
+_sdk_client_lock = RLock()
 
 
 def _get_http_client() -> httpx.AsyncClient:
@@ -37,21 +41,20 @@ SETTING_API_BASE_URL = "api_base_url"
 SETTING_HTTP_MODE = "claude_http_mode"  # 'auto', 'sdk', 'http'
 
 
-_settings_cache: dict[str, tuple[str, float]] = {}
 _SETTINGS_TTL = 60  # 1 minute
+_settings_cache = TTLCache()
 
 
 def _get_setting(key: str, default: str = "") -> str:
     """Get a setting value from database, cached for 1 minute."""
-    import time
     cached = _settings_cache.get(key)
-    if cached and time.time() < cached[1]:
-        return cached[0]
+    if cached is not None:
+        return cached
     try:
         with Session(engine) as session:
             setting = session.get(Setting, key)
             value = setting.value if setting and setting.value else default
-            _settings_cache[key] = (value, time.time() + _SETTINGS_TTL)
+            _settings_cache.set(key, value, _SETTINGS_TTL)
             return value
     except Exception as e:
         logger.warning(f"Failed to read setting {key}: {e}")
@@ -136,7 +139,7 @@ def _get_auth_headers(api_key: str | None = None) -> dict[str, str]:
 # =============================================================================
 
 def _async_client_sdk() -> anthropic.AsyncAnthropic:
-    """Create anthropic SDK client."""
+    """Create or reuse an Anthropic SDK client."""
     api_key = get_api_key()
     if not api_key:
         raise ValueError("No Claude API key configured. Visit Settings to add one.")
@@ -145,11 +148,20 @@ def _async_client_sdk() -> anthropic.AsyncAnthropic:
     logger.info(f"[Claude API] SDK mode - API Key: {masked_key}")
     
     custom_url = _get_custom_base_url()
-    if custom_url:
-        logger.info(f"[Claude API] SDK mode - Using base_url: {custom_url}")
-        return anthropic.AsyncAnthropic(api_key=api_key, base_url=custom_url)
-    logger.info(f"[Claude API] SDK mode - Using official URL: {_OFFICIAL_BASE_URL}")
-    return anthropic.AsyncAnthropic(api_key=api_key)
+    base_url = custom_url or _OFFICIAL_BASE_URL
+    cache_key = (api_key, base_url)
+    with _sdk_client_lock:
+        cached = _sdk_clients.get(cache_key)
+        if cached is not None:
+            return cached
+        if custom_url:
+            logger.info(f"[Claude API] SDK mode - Using base_url: {custom_url}")
+            client = anthropic.AsyncAnthropic(api_key=api_key, base_url=custom_url)
+        else:
+            logger.info(f"[Claude API] SDK mode - Using official URL: {_OFFICIAL_BASE_URL}")
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+        _sdk_clients[cache_key] = client
+        return client
 
 
 async def _stream_response_sdk(
@@ -343,6 +355,7 @@ async def _stream_response_http(
                         elif event.get("type") == "content_block_delta":
                             delta = event.get("delta", {})
                             if delta.get("type") == "text_delta":
+                                any_content_yielded = True
                                 yield delta.get("text", "")
                             elif delta.get("type") == "input_json_delta":
                                 if in_tool_use:
@@ -363,6 +376,7 @@ async def _stream_response_http(
                                     "name": tool_block_meta.get("name", ""),
                                     "input": parsed_input,
                                 })
+                                any_content_yielded = True
                                 yield complete_tool
                                 tool_block_meta = {}
                                 tool_input_parts = []

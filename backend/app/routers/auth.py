@@ -68,8 +68,19 @@ def _prune_login_attempts(now: float, attempts: list[float]) -> list[float]:
     return [attempt for attempt in attempts if attempt > cutoff]
 
 
+def _cleanup_login_attempt_keys(now: float) -> None:
+    stale_keys = [
+        key
+        for key, attempts in _LOGIN_ATTEMPTS.items()
+        if not _prune_login_attempts(now, attempts)
+    ]
+    for key in stale_keys:
+        _LOGIN_ATTEMPTS.pop(key, None)
+
+
 def _ensure_login_not_rate_limited(key: str) -> None:
     now = time.time()
+    _cleanup_login_attempt_keys(now)
     attempts = _prune_login_attempts(now, _LOGIN_ATTEMPTS.get(key, []))
     _LOGIN_ATTEMPTS[key] = attempts
     if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
@@ -83,6 +94,7 @@ def _ensure_login_not_rate_limited(key: str) -> None:
 
 def _record_failed_login_attempt(key: str) -> None:
     now = time.time()
+    _cleanup_login_attempt_keys(now)
     attempts = _prune_login_attempts(now, _LOGIN_ATTEMPTS.get(key, []))
     attempts.append(now)
     _LOGIN_ATTEMPTS[key] = attempts
@@ -90,6 +102,12 @@ def _record_failed_login_attempt(key: str) -> None:
 
 def _clear_failed_login_attempts(key: str) -> None:
     _LOGIN_ATTEMPTS.pop(key, None)
+
+
+def _revoke_user_tokens(session: Session, user_id: int) -> None:
+    tokens = session.exec(select(UserToken).where(UserToken.user_id == user_id)).all()
+    for token in tokens:
+        session.delete(token)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -400,6 +418,7 @@ def admin_reset_password(
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash(body.new_password)
     user.auth_token = None  # force re-login
+    _revoke_user_tokens(session, user.id)
     session.add(user)
     session.commit()
     return {"ok": True}
@@ -416,6 +435,8 @@ def change_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     current_user.password_hash = _hash(body.new_password)
+    current_user.auth_token = None
+    _revoke_user_tokens(session, current_user.id)
     session.add(current_user)
     session.commit()
     return {"ok": True}

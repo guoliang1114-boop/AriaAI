@@ -14,9 +14,11 @@ class GetCustomBaseUrlTests(unittest.TestCase):
 
     def setUp(self):
         claude_module._settings_cache.clear()
+        claude_module._sdk_clients.clear()
 
     def tearDown(self):
         claude_module._settings_cache.clear()
+        claude_module._sdk_clients.clear()
 
     @patch.object(claude_module, "_get_setting", return_value="")
     def test_returns_none_when_no_env_or_setting(self, _mock_setting):
@@ -124,6 +126,30 @@ class GetAuthHeadersTests(unittest.TestCase):
         result = claude_module._get_auth_headers(api_key="provided-key")
         self.assertEqual(result["x-api-key"], "provided-key")
         mock_get_api_key.assert_not_called()
+
+
+class SdkClientCacheTests(unittest.TestCase):
+    def setUp(self):
+        claude_module._sdk_clients.clear()
+        claude_module._settings_cache.clear()
+
+    def tearDown(self):
+        claude_module._sdk_clients.clear()
+        claude_module._settings_cache.clear()
+
+    @patch.object(claude_module, "_get_custom_base_url", return_value=None)
+    @patch.object(claude_module, "get_api_key", return_value="test-api-key")
+    @patch.object(claude_module.anthropic, "AsyncAnthropic")
+    def test_reuses_sdk_client_for_same_api_key_and_base_url(self, mock_client, _mock_key, _mock_url):
+        first = object()
+        mock_client.return_value = first
+
+        result1 = claude_module._async_client_sdk()
+        result2 = claude_module._async_client_sdk()
+
+        self.assertIs(result1, first)
+        self.assertIs(result2, first)
+        mock_client.assert_called_once_with(api_key="test-api-key")
 
 
 class BuildSystemPromptTests(unittest.TestCase):
