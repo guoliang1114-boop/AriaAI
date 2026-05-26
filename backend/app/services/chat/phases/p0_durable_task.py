@@ -20,7 +20,7 @@ from app.models.db import PendingToolAction, ProjectFile
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
 from app.services.chat.pending_actions import tool_confirmation_token
-from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
+from app.services.chat_tools import ChatRuntime
 from app.services.chat.working_memory import should_continue_current_artifact
 from app.services.chat_store import persist_assistant_message
 from app.services.project_documents import ensure_markdown_filename, read_project_document_content
@@ -678,5 +678,4 @@ async def run_p0_durable_task(
 
     except Exception as exc:
         logger.error(f"[durable_task_stream error] {exc}", exc_info=True)
-        yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
-        state.durable_task_completed = True  # prevent fallback to normal flow
+        raise

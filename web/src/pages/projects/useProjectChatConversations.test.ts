@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useProjectChatConversations } from "./useProjectChatConversations";
-import type { Conversation, Message } from "../../types/api";
+import type { Conversation, Message, PendingToolAction } from "../../types/api";
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
@@ -40,6 +40,23 @@ const makeMessage = (overrides: Partial<Message> = {}): Message => ({
   role: "user",
   content: "Hello",
   metadata_json: "{}",
+  created_at: "2025-01-01T00:00:00Z",
+  ...overrides,
+});
+
+const makePendingToolAction = (overrides: Partial<PendingToolAction> = {}): PendingToolAction => ({
+  id: 1,
+  trace_id: "trace-1",
+  conversation_id: 1,
+  project_id: 10,
+  tool_name: "update_project_markdown_document",
+  tool_input: {},
+  action_type: "modify_document",
+  risk_level: "high",
+  title: "Confirm",
+  description: "Confirm action",
+  details: [],
+  status: "pending",
   created_at: "2025-01-01T00:00:00Z",
   ...overrides,
 });
@@ -221,6 +238,49 @@ describe("useProjectChatConversations", () => {
 
     expect(result.current.activeConvId).toBe(2);
     expect(result.current.messages).toEqual(secondMsgs);
+  });
+
+  it("does not let stale pending tool actions overwrite the active conversation", async () => {
+    const convs = [
+      makeConversation({ id: 1 }),
+      makeConversation({ id: 2 }),
+    ];
+    let resolveFirstPendingActions: (value: { items: PendingToolAction[] }) => void = () => {};
+
+    mockGet.mockImplementation((url: string) => {
+      if (url.includes("/chat/conversations?")) return Promise.resolve(convs);
+      if (url.includes("/messages")) return Promise.resolve([]);
+      if (url.includes("/pending-action")) return Promise.resolve(null);
+      if (url.includes("/chat/conversations/1/pending-actions")) {
+        return new Promise((resolve) => {
+          resolveFirstPendingActions = resolve;
+        });
+      }
+      if (url.includes("/chat/conversations/2/pending-actions")) return Promise.resolve({ items: [] });
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() =>
+      useProjectChatConversations(defaultProps),
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeConvId).toBe(1);
+    });
+
+    act(() => {
+      result.current.setActiveConvId(2);
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeConvId).toBe(2);
+    });
+
+    await act(async () => {
+      resolveFirstPendingActions({ items: [makePendingToolAction({ conversation_id: 1 })] });
+    });
+
+    expect(result.current.pendingToolActions).toEqual([]);
   });
 
   it("can refresh messages silently without showing the message loading skeleton", async () => {

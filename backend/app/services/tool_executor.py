@@ -59,10 +59,12 @@ async def stream_with_tools(
     stream: AsyncIterator[str],
     tool_callback: callable | None = None,
 ) -> AsyncIterator[str]:
-    """Process stream and handle tool_use blocks.
-    
-    This generator yields text chunks normally, and when it detects
-    a tool_use block, it executes the tool and yields the result.
+    """Process a text stream and execute complete JSON tool_use objects.
+
+    This is a legacy compatibility helper. The main chat pipeline uses the
+    P1/P2 phase parser, but this function still needs to be safe if called by
+    older integrations. It therefore relies on ``JSONDecoder.raw_decode``
+    instead of substring matching or fixed buffer cutoffs.
     
     Args:
         stream: The original stream from Claude
@@ -72,47 +74,40 @@ async def stream_with_tools(
         Text chunks or tool result markers
     """
     buffer = ""
-    in_tool_use = False
-    current_tool_block = ""
+    decoder = json.JSONDecoder()
+    max_buffer_chars = 256_000
     
     async for chunk in stream:
-        # Simple approach: look for JSON tool_use blocks
         buffer += chunk
-        
-        # Check for complete tool_use block in buffer
-        if "type\": \"tool_use\"" in buffer or '"type": "tool_use"' in buffer:
-            # Try to extract complete tool_use
+
+        while buffer:
+            start_idx = buffer.find("{")
+            if start_idx == -1:
+                yield buffer
+                buffer = ""
+                break
+            if start_idx > 0:
+                yield buffer[:start_idx]
+                buffer = buffer[start_idx:]
+
             try:
-                # Find JSON object boundaries
-                start_idx = buffer.find('{')
-                end_idx = buffer.rfind('}')
-                
-                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                    json_str = buffer[start_idx:end_idx+1]
-                    data = json.loads(json_str)
-                    
-                    if data.get("type") == "tool_use":
-                        # Execute tool
-                        result = await handle_tool_use(data)
-                        
-                        # Notify callback if provided
-                        if tool_callback:
-                            await tool_callback(data, result)
-                        
-                        # Yield result marker (frontend can handle this)
-                        yield f"\n[TOOL_RESULT:{json.dumps(result, ensure_ascii=False)}]\n"
-                        
-                        # Clear buffer
-                        buffer = buffer[end_idx+1:]
-                        continue
+                data, end_idx = decoder.raw_decode(buffer)
             except json.JSONDecodeError:
-                # Incomplete JSON, continue buffering
-                pass
-        
-        # Yield normal text
-        if len(buffer) > 1000:  # Prevent infinite buffering
-            yield buffer
-            buffer = ""
+                if len(buffer) > max_buffer_chars:
+                    yield buffer[0]
+                    buffer = buffer[1:]
+                    continue
+                break
+
+            json_text = buffer[:end_idx]
+            buffer = buffer[end_idx:]
+            if isinstance(data, dict) and data.get("type") == "tool_use":
+                result = await handle_tool_use(data)
+                if tool_callback:
+                    await tool_callback(data, result)
+                yield f"\n[TOOL_RESULT:{json.dumps(result, ensure_ascii=False)}]\n"
+            else:
+                yield json_text
     
     # Yield remaining buffer
     if buffer:

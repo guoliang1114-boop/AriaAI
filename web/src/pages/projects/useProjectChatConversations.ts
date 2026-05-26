@@ -42,6 +42,7 @@ export function useProjectChatConversations({
   const skipNextFetchRef = useRef(false);
   const activeConvIdRef = useRef<number | null>(activeConvId);
   const latestMessagesRequestRef = useRef(0);
+  const latestPendingActionsRequestRef = useRef(0);
 
   useEffect(() => {
     activeConvIdRef.current = activeConvId;
@@ -68,6 +69,7 @@ export function useProjectChatConversations({
     } else {
       setMessages([]);
       setServerPendingAction(null);
+      setPendingToolActions([]);
     }
   }, [activeConvId]);
 
@@ -150,16 +152,30 @@ export function useProjectChatConversations({
 
   const refreshPendingAction = async (conversationId: number) => {
     const pendingAction = await fetchPendingAction(conversationId);
+    if (activeConvIdRef.current !== conversationId) {
+      return pendingAction;
+    }
     setServerPendingAction(pendingAction);
     return pendingAction;
   };
 
   const fetchPendingToolActions = async (conversationId: number) => {
+    const requestId = latestPendingActionsRequestRef.current + 1;
+    latestPendingActionsRequestRef.current = requestId;
     try {
       const data = await api.get<PendingActionsResponse>(`/chat/conversations/${conversationId}/pending-actions`);
+      if (
+        requestId !== latestPendingActionsRequestRef.current
+        || activeConvIdRef.current !== conversationId
+      ) {
+        return;
+      }
       setPendingToolActions(data.items || []);
     } catch (error) {
       console.error("Failed to fetch pending tool actions:", error);
+      if (requestId !== latestPendingActionsRequestRef.current || activeConvIdRef.current !== conversationId) {
+        return;
+      }
       setPendingToolActions([]);
     }
   };
@@ -253,6 +269,7 @@ export function useProjectChatConversations({
         setActiveConvId(null);
         setMessages([]);
         setServerPendingAction(null);
+        setPendingToolActions([]);
       }
       setConversationPendingDelete(null);
     } catch (error) {
@@ -290,6 +307,7 @@ export function useProjectChatConversations({
     setActiveConvId(null);
     setMessages([]);
     setServerPendingAction(null);
+    setPendingToolActions([]);
   };
 
   const openDeleteConversationDialog = (conversation: Conversation) => {

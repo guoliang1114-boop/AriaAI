@@ -5130,6 +5130,49 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             metadata = json.loads(assistant_messages[0].metadata_json)
             self.assertEqual(metadata["phase_error"]["phase"], "P1 planning")
 
+    def test_stream_chat_events_persists_p0_durable_task_errors(self):
+        conv_id = self._create_conversation()
+        runtime = ChatRuntime(
+            conv_id=conv_id,
+            selected_model="claude-sonnet-4-6",
+            llm=FakeStreamingLLM([["unused"]]),
+            system="system",
+            api_messages=[{"role": "user", "content": "生成一份项目任务"}],
+            rag_sources=[],
+            tools=None,
+            max_tokens=1024,
+            temperature=0.7,
+            project_id=1,
+        )
+        runtime.intent_task_route = SimpleNamespace(
+            task_type="generate_client_ppt",
+            output_kind="pptx",
+            title="项目任务",
+            reason="test",
+            confidence=0.95,
+            plan_steps=["step"],
+        )
+        runtime.intent_prepared_async = True
+        req = chat_router_module.SendMessageRequest(content="生成一份项目任务", project_id=1)
+
+        with patch("app.services.chat.phases.p0_durable_task.create_task_run", side_effect=RuntimeError("task db failed")):
+            events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
+
+        text_event = next(
+            json.loads(event.replace("data: ", "").strip())
+            for event in events
+            if json.loads(event.replace("data: ", "").strip()).get("type") == "text"
+        )
+        self.assertIn("P0 durable task", text_event["content"])
+        self.assertIn("task db failed", text_event["content"])
+
+        with Session(self.engine) as session:
+            assistant_message = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).one()
+            metadata = json.loads(assistant_message.metadata_json)
+            self.assertEqual(metadata["phase_error"]["phase"], "P0 durable task")
+
     def test_stream_chat_events_detects_pseudo_tool_use_json_in_p3_follow_up(self):
         """P3 pseudo write tools are detected, scrubbed, and routed to HITAS confirmation."""
         with Session(self.engine) as session:

@@ -51,6 +51,16 @@ def _safe_json(value) -> str:
     return json.dumps(value or {}, ensure_ascii=False, default=str)
 
 
+def _parse_sse_payload(event: str) -> dict:
+    line = next((item.strip() for item in str(event or "").splitlines() if item.strip().startswith("data: ")), "")
+    if not line:
+        return {}
+    try:
+        return json.loads(line.removeprefix("data: ").strip())
+    except json.JSONDecodeError:
+        return {}
+
+
 def _append_task_event(session: Session, task_id: int, event_type: str, message: str, payload: dict | None = None) -> None:
     session.add(
         TaskEvent(
@@ -131,10 +141,28 @@ async def _execute_chat_in_background(runtime, req: SendMessageRequest, bind, ta
     }
     _mark_background_chat_run(bind, task_run_id, "running", "后台对话任务开始执行")
     try:
+        phase_error: dict | None = None
         async for event in stream_chat_events(runtime, req, bind):
             # Events are consumed but not streamed to any client.
             # persist_assistant_message inside stream_chat_events saves the result.
-            pass
+            payload = _parse_sse_payload(event)
+            metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else payload
+            if isinstance(metadata, dict) and isinstance(metadata.get("phase_error"), dict):
+                phase_error = metadata["phase_error"]
+        if phase_error:
+            error_message = str(
+                phase_error.get("friendly_message")
+                or phase_error.get("message")
+                or "后台对话任务执行失败"
+            )
+            _background_chat_status[runtime.conv_id] = {
+                "status": "failed",
+                "task_run_id": str(task_run_id or ""),
+                "error": error_message,
+                "updated_at": _now_iso(),
+            }
+            _mark_background_chat_run(bind, task_run_id, "failed", "后台对话任务执行失败", error_message)
+            return
         _background_chat_status[runtime.conv_id] = {
             "status": "completed",
             "task_run_id": str(task_run_id or ""),

@@ -45,7 +45,7 @@ def reap_stale_executing_actions(
         }
         action.status = "failed"
         action.error_message = STALE_EXECUTING_MESSAGE
-        action.result_json = json.dumps(result, ensure_ascii=False)
+        action.result_json = json.dumps(result, ensure_ascii=False, default=str)
         session.add(
             Message(
                 conversation_id=action.conversation_id,
@@ -61,6 +61,7 @@ def reap_stale_executing_actions(
                         }
                     },
                     ensure_ascii=False,
+                    default=str,
                 ),
             )
         )

@@ -396,7 +396,7 @@ async def confirm_message_markdown_save(
     item["saved_result"] = result
     pending[data.pending_index] = item
     metadata["pending_markdown_saves"] = pending
-    message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    message.metadata_json = json.dumps(metadata, ensure_ascii=False, default=str)
     session.add(message)
     session.commit()
 

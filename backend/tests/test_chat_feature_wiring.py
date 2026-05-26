@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.routers.chat import router as chat_router
-from app.routers.chat_async import ChatTaskStatusResponse, _latest_background_chat_run, _mark_background_chat_run
+from app.routers.chat_async import (
+    ChatTaskStatusResponse,
+    _execute_chat_in_background,
+    _latest_background_chat_run,
+    _mark_background_chat_run,
+)
 from app.routers.chat_schemas import MentionContext, SendMessageRequest
 from app.models.db import Conversation, TaskRun
+from app.services.chat.sse import sse_event
 from sqlmodel import Session, SQLModel
 from tests.test_database import create_test_engine, drop_all_tables
 
@@ -105,6 +113,61 @@ class BackgroundChatTaskRunPersistenceTestCase(unittest.TestCase):
             self.assertEqual(latest.error_message, "boom")
             self.assertIsNotNone(latest.started_at)
             self.assertIsNotNone(latest.completed_at)
+
+
+class BackgroundChatExecutionTestCase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.engine = create_test_engine()
+        drop_all_tables(self.engine)
+        SQLModel.metadata.create_all(self.engine)
+
+    async def asyncTearDown(self):
+        SQLModel.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    async def test_background_chat_marks_phase_error_done_as_failed(self):
+        with Session(self.engine) as session:
+            conv = Conversation(title="Background chat")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            task = TaskRun(
+                project_id=None,
+                conversation_id=conv.id,
+                task_type="background_chat",
+                goal="生成材料",
+                status="pending",
+            )
+            session.add(task)
+            session.commit()
+            session.refresh(task)
+            conv_id = conv.id
+            task_id = task.id
+
+        runtime = SimpleNamespace(conv_id=conv_id)
+        req = SendMessageRequest(content="生成材料", conversation_id=conv_id)
+
+        async def fake_stream(*_args, **_kwargs):
+            yield sse_event({"type": "text", "content": "失败说明"})
+            yield sse_event(
+                {
+                    "type": "done",
+                    "metadata": {
+                        "phase_error": {
+                            "phase": "P0 durable task",
+                            "friendly_message": "任务失败",
+                        }
+                    },
+                }
+            )
+
+        with patch("app.routers.chat_async.stream_chat_events", fake_stream):
+            await _execute_chat_in_background(runtime, req, self.engine, task_id)
+
+        with Session(self.engine) as session:
+            task = session.get(TaskRun, task_id)
+            self.assertEqual(task.status, "failed")
+            self.assertEqual(task.error_message, "任务失败")
 
 
 if __name__ == "__main__":

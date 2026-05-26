@@ -59,7 +59,7 @@ def _sync_task_run_into_chat_message(session: Session, payload: dict) -> None:
         metadata["task_run"] = payload
         metadata["task_run_id"] = task_id
         metadata["task_type"] = payload.get("task_type")
-        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False, default=str)
         session.add(message)
     session.commit()
 

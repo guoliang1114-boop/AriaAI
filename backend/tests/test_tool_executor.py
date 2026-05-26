@@ -10,6 +10,7 @@ from app.services.tool_executor import (
     format_tools_for_claude,
     handle_tool_use,
     execute_tool_sequence,
+    stream_with_tools,
 )
 
 
@@ -166,3 +167,50 @@ class ExecuteToolSequenceTestCase(unittest.TestCase):
         content = [{"type": "text", "text": "no tools here"}]
         results = asyncio.run(execute_tool_sequence(content))
         self.assertEqual(results, [])
+
+
+class StreamWithToolsTestCase(unittest.TestCase):
+    def test_stream_with_tools_handles_split_json_and_spacing(self):
+        async def source():
+            yield "先读取 "
+            yield '{\n  "type"'
+            yield ': "tool_use", "id": "tool_1", "name": "search", "input": {"q": "abc"}}'
+            yield " 完成"
+
+        mock_result = {"type": "tool_result", "tool_name": "search", "status": "success", "output": {"items": []}}
+        callback = AsyncMock()
+        with patch("app.services.tool_executor.registry") as mock_registry:
+            mock_registry.execute = AsyncMock(return_value=mock_result)
+
+            async def collect():
+                return [chunk async for chunk in stream_with_tools(source(), callback)]
+
+            chunks = asyncio.run(collect())
+
+        joined = "".join(chunks)
+        self.assertIn("先读取 ", joined)
+        self.assertIn("[TOOL_RESULT:", joined)
+        self.assertIn(" 完成", joined)
+        mock_registry.execute.assert_awaited_once_with("search", {"q": "abc"})
+        callback.assert_awaited_once()
+
+    def test_stream_with_tools_does_not_cut_large_incomplete_json(self):
+        large_value = "x" * 1500
+
+        async def source():
+            yield '{"type":"tool_use","id":"tool_1","name":"search","input":{"q":"'
+            yield large_value
+            yield '"}}'
+
+        mock_result = {"type": "tool_result", "tool_name": "search", "status": "success", "output": {}}
+        with patch("app.services.tool_executor.registry") as mock_registry:
+            mock_registry.execute = AsyncMock(return_value=mock_result)
+
+            async def collect():
+                return [chunk async for chunk in stream_with_tools(source())]
+
+            chunks = asyncio.run(collect())
+
+        self.assertEqual(len(chunks), 1)
+        self.assertIn("[TOOL_RESULT:", chunks[0])
+        mock_registry.execute.assert_awaited_once_with("search", {"q": large_value})
