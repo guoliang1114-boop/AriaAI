@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { getApiBaseUrl } from "../../config/api";
 import type {
@@ -169,6 +169,23 @@ export function useProjectChatComposer({
   const resetStream = useChatStreamStore((state) => state.reset);
   const abortControllerRef = useRef<AbortController | null>(null);
   const abortControllerAsyncRef = useRef<AbortController | null>(null);
+  const activeConvIdRef = useRef<number | null>(activeConvId);
+  const streamRequestSeqRef = useRef(0);
+
+  useEffect(() => {
+    activeConvIdRef.current = activeConvId;
+  }, [activeConvId]);
+
+  const canUpdateConversation = useCallback((conversationId: number) => {
+    const current = activeConvIdRef.current;
+    return current === conversationId;
+  }, []);
+
+  const canUpdateVisibleStream = useCallback(
+    (requestId: number, conversationId: number) =>
+      requestId === streamRequestSeqRef.current && canUpdateConversation(conversationId),
+    [canUpdateConversation],
+  );
 
   const resetStreamingContent = useCallback(() => {
     resetStream();
@@ -181,6 +198,8 @@ export function useProjectChatComposer({
 
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
+      const requestId = streamRequestSeqRef.current + 1;
+      streamRequestSeqRef.current = requestId;
       resetStream();
       setStreamIsLoading(true);
       setStreamStatus("我已收到，会先确认需求和可用上下文；如果需要调用工具，我会把每一步进度显示在这里。");
@@ -191,6 +210,9 @@ export function useProjectChatComposer({
           resetStream();
           return false;
         }
+      }
+      if (activeConvIdRef.current === null) {
+        activeConvIdRef.current = conversationId;
       }
 
       const tempUserMsg: Message = {
@@ -288,8 +310,10 @@ export function useProjectChatComposer({
 
             if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
               fullContent += payload.content;
-              appendStreamText(payload.content);
-              setStreamStatus("");
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                appendStreamText(payload.content);
+                setStreamStatus("");
+              }
             } else if (payload.type === "status" && payload.message) {
               if (payload.step_index !== undefined && payload.step_index !== null) {
                 const stepCall: ToolCallEvent = {
@@ -303,16 +327,24 @@ export function useProjectChatComposer({
                   step_title: payload.step_title,
                 };
                 collectedToolCalls = upsertWorkflowStep(collectedToolCalls, stepCall);
-                setStreamToolCalls(collectedToolCalls);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamToolCalls(collectedToolCalls);
+                }
                 continue;
               }
-              setStreamStatus(payload.message);
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                setStreamStatus(payload.message);
+              }
               if (payload.stage === "saving" || payload.stage === "finalizing") {
-                setStreamToolCalls(collectedToolCalls.filter((call) => call.step_index || call.status !== "running"));
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamToolCalls(collectedToolCalls.filter((call) => call.step_index || call.status !== "running"));
+                }
               }
             } else if (payload.type === "references") {
               collectedReferences = payload.references || [];
-              setStreamReferences(collectedReferences);
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                setStreamReferences(collectedReferences);
+              }
             } else if (payload.type === "task_run" && payload.task) {
               const task = payload.task as TaskRun;
               latestTaskRun = task;
@@ -325,7 +357,9 @@ export function useProjectChatComposer({
                     upsertWorkflowStep(items, workflowStepFromTask(step, steps.length, taskEvents)),
                   collectedToolCalls,
                 );
-                setStreamToolCalls(collectedToolCalls);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamToolCalls(collectedToolCalls);
+                }
               }
               if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
                 collectedArtifacts = upsertArtifacts(
@@ -334,7 +368,9 @@ export function useProjectChatComposer({
                     .map((artifact: TaskRunArtifact) => artifactFromTaskRunArtifact(artifact))
                     .filter((artifact: GeneratedArtifact | null): artifact is GeneratedArtifact => Boolean(artifact)),
                 );
-                setStreamArtifacts(collectedArtifacts);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamArtifacts(collectedArtifacts);
+                }
               }
             } else if (payload.type === "tool_executing" && payload.tool_name) {
               const toolDetail = payload.message || `正在调用 ${payload.tool_name}`;
@@ -343,7 +379,9 @@ export function useProjectChatComposer({
               );
               if (hasActiveWorkflowStep) {
                 collectedToolCalls = attachToolDetailToActiveStep(collectedToolCalls, toolDetail);
-                setStreamToolCalls(collectedToolCalls);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamToolCalls(collectedToolCalls);
+                }
                 continue;
               }
               const runningCall: ToolCallEvent = {
@@ -355,9 +393,11 @@ export function useProjectChatComposer({
                 ...collectedToolCalls.filter((call) => call.tool_name !== payload.tool_name || call.status !== "running"),
                 runningCall,
               ];
-              setStreamToolCalls([
-                ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
-              ]);
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                setStreamToolCalls([
+                  ...collectedToolCalls.filter((call) => call.tool_name !== "Aria" || call.status !== "running"),
+                ]);
+              }
             } else if (payload.type === "tool_result" && payload.result) {
               const result = payload.result;
               const resultStatus: ToolCallEvent["status"] =
@@ -411,12 +451,16 @@ export function useProjectChatComposer({
                   completedCall,
                 ];
               }
-              setStreamToolCalls(collectedToolCalls);
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                setStreamToolCalls(collectedToolCalls);
+              }
 
               const artifact = artifactFromResult(result);
               if (artifact) {
                 collectedArtifacts = upsertArtifacts(collectedArtifacts, [artifact]);
-                setStreamArtifacts(collectedArtifacts);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamArtifacts(collectedArtifacts);
+                }
               }
             } else if (payload.type === "done") {
               if (typeof payload.assistant_message_id === "number") {
@@ -433,7 +477,9 @@ export function useProjectChatComposer({
               }
               if (Array.isArray(payload.artifacts) && payload.artifacts.length > 0) {
                 collectedArtifacts = upsertArtifacts(collectedArtifacts, payload.artifacts as GeneratedArtifact[]);
-                setStreamArtifacts(collectedArtifacts);
+                if (canUpdateVisibleStream(requestId, conversationId)) {
+                  setStreamArtifacts(collectedArtifacts);
+                }
               }
               if (Array.isArray(payload.pending_tool_confirmations)) {
                 collectedPendingToolConfirmations = payload.pending_tool_confirmations;
@@ -443,7 +489,9 @@ export function useProjectChatComposer({
               }
             } else if (payload.type === "truncated") {
               wasTruncated = true;
-              setStreamTruncated(true);
+              if (canUpdateVisibleStream(requestId, conversationId)) {
+                setStreamTruncated(true);
+              }
             } else if (payload.type === "error") {
               throw new Error(payload.message || payload.error || "Chat failed");
             }
@@ -454,7 +502,9 @@ export function useProjectChatComposer({
         const hasWorkflowSteps = collectedToolCalls.some((call) => call.step_index !== undefined && call.step_index !== null);
         if (hasWorkflowSteps) {
           collectedToolCalls = clearStandaloneRunningTools(collectedToolCalls);
-          setStreamToolCalls(collectedToolCalls);
+          if (canUpdateVisibleStream(requestId, conversationId)) {
+            setStreamToolCalls(collectedToolCalls);
+          }
         }
         const finalContent = fullContent.trim() || buildArtifactFallbackContent(collectedArtifacts);
         const isTruncated = wasTruncated;
@@ -486,14 +536,20 @@ export function useProjectChatComposer({
               truncated: true,
             });
           }
-          setMessages((prev) => upsertMessageById(prev, assistantMessage));
-          resetStream();
-          if (assistantMessageId) {
+          if (canUpdateVisibleStream(requestId, conversationId)) {
+            setMessages((prev) => upsertMessageById(prev, assistantMessage));
+            resetStream();
+          }
+          if (assistantMessageId && canUpdateConversation(conversationId)) {
             void fetchMessages(conversationId, { silent: true });
           }
         } else {
-          resetStream();
-          void fetchMessages(conversationId, { silent: true });
+          if (canUpdateVisibleStream(requestId, conversationId)) {
+            resetStream();
+          }
+          if (canUpdateConversation(conversationId)) {
+            void fetchMessages(conversationId, { silent: true });
+          }
         }
         void fetchConversations({ silent: true });
         return true;
@@ -504,7 +560,9 @@ export function useProjectChatComposer({
               ? { ...call, status: "error" as const, error: "Generation stopped" }
               : call,
           );
-          resetStream();
+          if (canUpdateVisibleStream(requestId, conversationId)) {
+            resetStream();
+          }
           if (fullContent.trim()) {
             const assistantMessage = buildAssistantMessage({
               artifacts: collectedArtifacts,
@@ -516,13 +574,17 @@ export function useProjectChatComposer({
               pendingToolConfirmations: collectedPendingToolConfirmations,
               resolvedActionConfirmations: collectedResolvedActionConfirmations,
             });
-            setMessages((prev) => [...prev, assistantMessage]);
+            if (canUpdateVisibleStream(requestId, conversationId)) {
+              setMessages((prev) => [...prev, assistantMessage]);
+            }
           }
           void fetchConversations();
           return false;
         }
         console.error("Failed to send message:", error);
-        resetStream();
+        if (canUpdateVisibleStream(requestId, conversationId)) {
+          resetStream();
+        }
         const failedToolCalls = collectedToolCalls.map((call) =>
           call.status === "running"
             ? { ...call, status: "error" as const, error: "连接中断，已保留当前收到的内容。" }
@@ -545,16 +607,22 @@ export function useProjectChatComposer({
             ...JSON.parse(assistantMessage.metadata_json || "{}"),
             stream_interrupted: true,
           });
-          setMessages((prev) => [...prev, assistantMessage]);
+          if (canUpdateVisibleStream(requestId, conversationId)) {
+            setMessages((prev) => [...prev, assistantMessage]);
+          }
           void fetchConversations();
         } else {
           onSendError();
-          await fetchMessages(conversationId, { silent: true });
+          if (canUpdateConversation(conversationId)) {
+            await fetchMessages(conversationId, { silent: true });
+          }
         }
         return false;
       } finally {
         abortControllerRef.current = null;
-        setStreamIsLoading(false);
+        if (canUpdateVisibleStream(requestId, conversationId)) {
+          setStreamIsLoading(false);
+        }
       }
     },
     [
@@ -567,6 +635,8 @@ export function useProjectChatComposer({
       onSendError,
       projectId,
       appendStreamText,
+      canUpdateConversation,
+      canUpdateVisibleStream,
       scrollToBottom,
       selectedSkillId,
       selectedModel,
@@ -594,6 +664,8 @@ export function useProjectChatComposer({
 
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
+      const requestId = streamRequestSeqRef.current + 1;
+      streamRequestSeqRef.current = requestId;
 
       resetStream();
       setStreamIsLoading(true);
@@ -605,6 +677,9 @@ export function useProjectChatComposer({
           resetStream();
           return false;
         }
+      }
+      if (activeConvIdRef.current === null) {
+        activeConvIdRef.current = conversationId;
       }
 
       const tempUserMsg: Message = {
@@ -681,7 +756,9 @@ export function useProjectChatComposer({
             },
           ],
         });
-        setMessages((prev) => [...prev, backgroundMessage]);
+        if (canUpdateVisibleStream(requestId, conversationId)) {
+          setMessages((prev) => [...prev, backgroundMessage]);
+        }
         void fetchConversations();
         return true;
       } catch (error) {
@@ -696,12 +773,15 @@ export function useProjectChatComposer({
         return false;
       } finally {
         abortControllerAsyncRef.current = null;
-        resetStream();
+        if (canUpdateVisibleStream(requestId, conversationId)) {
+          resetStream();
+        }
       }
     },
     [
       activeConvId,
       createConversation,
+      canUpdateVisibleStream,
       fetchConversations,
       forceSkill,
       knowledgeScope,
