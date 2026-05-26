@@ -21,13 +21,75 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
+from app.services.chat_store import persist_assistant_message
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_list(value: Any) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _persist_phase_error_events(
+    *,
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    bind,
+    state: ChatSessionState,
+    phase: str,
+    exc: Exception,
+) -> list[str]:
+    """Persist phase failures so refresh/deep-link does not erase the failed turn."""
+    friendly = _to_user_friendly_error(str(exc))
+    full_text = (
+        f"这个对话步骤在 {phase} 阶段遇到问题，本轮没有完成。\n\n"
+        f"错误信息：{friendly}\n\n"
+        "我已经保存这次失败状态，刷新或重新打开链接后仍可看到原因。"
+    )
+    metadata = {
+        "project_id": req.project_id,
+        "phase_error": {
+            "phase": phase,
+            "type": exc.__class__.__name__,
+            "message": str(exc)[:800],
+            "friendly_message": friendly,
+        },
+        "delivery_failed": True,
+        "stage_timings": dict(state.stage_timings or {}),
+        "tool_calls": _safe_list(getattr(state, "tool_call_events", None)),
+        "artifacts": _safe_list(getattr(state, "artifacts", None)),
+    }
+    if runtime.rag_sources:
+        metadata["references"] = runtime.rag_sources
+
+    try:
+        _, assistant_message_id = persist_assistant_message(
+            bind,
+            runtime.conv_id,
+            full_text,
+            req.content,
+            metadata,
+        )
+    except Exception as persist_exc:
+        logger.error("[chat phase error persist failed] %s", persist_exc, exc_info=True)
+        return [sse_event({"type": "error", "message": friendly})]
+
+    return [
+        sse_event({"type": "text", "content": full_text}),
+        sse_event(
+            {
+                "type": "done",
+                "metadata": metadata,
+                "assistant_message_id": assistant_message_id,
+            }
+        ),
+    ]
 
 
 def prepare_chat_runtime(*args, **kwargs):
@@ -100,7 +162,15 @@ async def stream_chat_events(
             yield event
     except Exception as exc:
         logger.error(f"[P0 durable_task error] {exc}", exc_info=True)
-        yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+        for event in _persist_phase_error_events(
+            runtime=runtime,
+            req=req,
+            bind=bind,
+            state=state,
+            phase="P0 durable task",
+            exc=exc,
+        ):
+            yield event
         return
 
     if state.durable_task_completed:
@@ -123,7 +193,15 @@ async def stream_chat_events(
             yield event
     except Exception as exc:
         logger.error(f"[P1 planning error] {exc}", exc_info=True)
-        yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+        for event in _persist_phase_error_events(
+            runtime=runtime,
+            req=req,
+            bind=bind,
+            state=state,
+            phase="P1 planning",
+            exc=exc,
+        ):
+            yield event
         return
 
     # ==================================================================
@@ -135,7 +213,15 @@ async def stream_chat_events(
                 yield event
         except Exception as exc:
             logger.error(f"[P2 tools error] {exc}", exc_info=True)
-            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+            for event in _persist_phase_error_events(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                phase="P2 tools",
+                exc=exc,
+            ):
+                yield event
             return
 
     if state.confirmation_requested:
@@ -145,7 +231,15 @@ async def stream_chat_events(
                 yield event
         except Exception as exc:
             logger.error(f"[P4 persist error] {exc}", exc_info=True)
-            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+            for event in _persist_phase_error_events(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                phase="P4 persist",
+                exc=exc,
+            ):
+                yield event
         return
 
     # ==================================================================
@@ -157,7 +251,15 @@ async def stream_chat_events(
                 yield event
         except Exception as exc:
             logger.error(f"[P3 follow-up error] {exc}", exc_info=True)
-            yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+            for event in _persist_phase_error_events(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                phase="P3 follow-up",
+                exc=exc,
+            ):
+                yield event
             return
 
     state.full_text = state.text_buffer.strip()
@@ -172,5 +274,13 @@ async def stream_chat_events(
             yield event
     except Exception as exc:
         logger.error(f"[P4 persist error] {exc}", exc_info=True)
-        yield sse_event({"type": "error", "message": _to_user_friendly_error(str(exc))})
+        for event in _persist_phase_error_events(
+            runtime=runtime,
+            req=req,
+            bind=bind,
+            state=state,
+            phase="P4 persist",
+            exc=exc,
+        ):
+            yield event
         return

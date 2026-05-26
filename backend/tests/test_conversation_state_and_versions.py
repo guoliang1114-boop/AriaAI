@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 from sqlmodel import Session, SQLModel, select
 
-from app.models.db import Conversation, ConversationState, Project, ProjectFileVersion
+from app.models.db import Conversation, ConversationState, Message, Project, ProjectFileVersion
 from app.services.chat_store import persist_assistant_message
 from app.services.conversation_state import get_conversation_state_payload
 from app.services.project_documents import create_project_document_record, update_project_document_record
@@ -54,6 +57,42 @@ def test_persist_assistant_message_updates_conversation_state():
         assert payload["active_file_ids"] == [18]
         assert payload["user_constraints"]
         assert payload["decisions"][0]["summary"] == ["Updated 项目背景.md"]
+    finally:
+        engine.dispose()
+
+
+def test_persist_assistant_message_records_state_update_failure():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            project = Project(name="Project", client="Client")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            conv = Conversation(project_id=project.id)
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+
+        with patch("app.services.conversation_state.upsert_conversation_state_from_metadata") as mocked_upsert:
+            mocked_upsert.side_effect = RuntimeError("state write failed")
+            persist_assistant_message(
+                engine,
+                conv_id,
+                "已生成项目风险提纲",
+                "帮我准备项目风险提纲",
+                {"project_id": 1},
+            )
+
+        with Session(engine) as session:
+            message = session.exec(
+                select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
+            ).one()
+            metadata = json.loads(message.metadata_json)
+
+        assert metadata["conversation_state_error"]["type"] == "RuntimeError"
+        assert "state write failed" in metadata["conversation_state_error"]["message"]
     finally:
         engine.dispose()
 

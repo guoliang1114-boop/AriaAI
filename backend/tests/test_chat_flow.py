@@ -5092,7 +5092,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             self.assertIn("金科服务_数字化战略_核心数据.json", saved_names)
             self.assertNotIn("金科服务_数字化战略_汇报材料.pptx", saved_names)
 
-    def test_stream_chat_events_surfaces_friendly_errors(self):
+    def test_stream_chat_events_persists_friendly_phase_errors(self):
         conv_id = self._create_conversation()
         runtime = ChatRuntime(
             conv_id=conv_id,
@@ -5108,19 +5108,27 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         req = chat_router_module.SendMessageRequest(content="hello")
 
         events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
-        error_event = next(
+        text_event = next(
             json.loads(event.replace("data: ", "").strip())
             for event in events
-            if json.loads(event.replace("data: ", "").strip()).get("type") == "error"
+            if json.loads(event.replace("data: ", "").strip()).get("type") == "text"
         )
-        self.assertEqual(error_event["type"], "error")
-        self.assertIn("AI 服务当前繁忙", error_event["message"])
+        self.assertEqual(text_event["type"], "text")
+        self.assertIn("AI 服务当前繁忙", text_event["content"])
+        self.assertTrue(
+            any(
+                json.loads(event.replace("data: ", "").strip()).get("type") == "done"
+                for event in events
+            )
+        )
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).all()
-            self.assertEqual(len(assistant_messages), 0)
+            self.assertEqual(len(assistant_messages), 1)
+            metadata = json.loads(assistant_messages[0].metadata_json)
+            self.assertEqual(metadata["phase_error"]["phase"], "P1 planning")
 
     def test_stream_chat_events_detects_pseudo_tool_use_json_in_p3_follow_up(self):
         """P3 pseudo write tools are detected, scrubbed, and routed to HITAS confirmation."""

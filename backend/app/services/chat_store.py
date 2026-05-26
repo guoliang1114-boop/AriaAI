@@ -282,12 +282,13 @@ def persist_assistant_message(
 ) -> tuple[bool, int | None]:
     need_title = False
     message_id: int | None = None
+    metadata_payload = dict(metadata or {})
     with Session(bind) as new_session:
         asst_msg = Message(
             conversation_id=conv_id,
             role="assistant",
             content=content,
-            metadata_json=json.dumps(metadata, ensure_ascii=False, default=str) if metadata else "{}",
+            metadata_json=json.dumps(metadata_payload, ensure_ascii=False, default=str) if metadata_payload else "{}",
         )
         new_session.add(asst_msg)
         new_session.flush()
@@ -307,11 +308,17 @@ def persist_assistant_message(
                 conversation_id=conv_id,
                 user_content=user_content,
                 assistant_content=content,
-                metadata=metadata,
+                metadata=metadata_payload,
                 message_id=message_id,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning("Failed to update persistent conversation state for %s", conv_id, exc_info=True)
+            metadata_payload["conversation_state_error"] = {
+                "type": exc.__class__.__name__,
+                "message": str(exc)[:500],
+            }
+            asst_msg.metadata_json = json.dumps(metadata_payload, ensure_ascii=False, default=str)
+            new_session.add(asst_msg)
         new_session.commit()
     conversations_cache.delete_prefix("list:")
     return need_title, message_id
