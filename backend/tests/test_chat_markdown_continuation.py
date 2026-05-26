@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, select
 
-from app.models.db import Conversation, Project, ProjectFile
+from app.models.db import Conversation, PendingToolAction, Project, ProjectFile
 from app.services.chat.phases import p0_durable_task
 from app.services.chat.phases.p0_durable_task import run_p0_durable_task
 from app.services.chat.state import ChatSessionState
@@ -17,7 +17,7 @@ async def _collect(async_iterable):
     return [item async for item in async_iterable]
 
 
-def test_p0_continuation_updates_current_markdown_artifact(monkeypatch, tmp_path):
+def test_p0_continuation_requires_confirmation_before_updating_markdown(monkeypatch, tmp_path):
     engine = create_test_engine()
     drop_all_tables(engine)
     SQLModel.metadata.create_all(engine)
@@ -53,6 +53,7 @@ def test_p0_continuation_updates_current_markdown_artifact(monkeypatch, tmp_path
             selected_model="test-model",
             max_tokens=2000,
             temperature=0.2,
+            action_policy="modify_existing_file",
             llm=SimpleNamespace(complete=fake_complete),
             working_memory={
                 "current_artifact": {
@@ -72,10 +73,18 @@ def test_p0_continuation_updates_current_markdown_artifact(monkeypatch, tmp_path
         with Session(engine) as session:
             refreshed = session.get(ProjectFile, project_file_id)
             saved_content = (tmp_path / refreshed.path).read_text(encoding="utf-8")
+            pending_action = session.exec(
+                select(PendingToolAction).where(PendingToolAction.conversation_id == conversation_id)
+            ).first()
 
         assert state.durable_task_completed is True
-        assert "已更新项目 Markdown 文件：项目背景.md" in state.full_text
-        assert "新版内容" in saved_content
-        assert any('"tool_name": "update_project_markdown_document"' in event for event in events)
+        assert "还没有写入文件" in state.full_text
+        assert "旧内容" in saved_content
+        assert "新版内容" not in saved_content
+        assert pending_action is not None
+        assert pending_action.status == "pending"
+        assert pending_action.tool_name == "update_project_markdown_document"
+        assert pending_action.message_id is not None
+        assert any('"status": "confirmation_required"' in event for event in events)
     finally:
         engine.dispose()

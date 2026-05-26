@@ -7,21 +7,24 @@ of the normal chat flow.
 from __future__ import annotations
 
 import logging
+import json
+import hashlib
 import time
 from collections.abc import AsyncIterator
+from datetime import timedelta
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import UPLOADS_DIR
-from app.models.db import ProjectFile
+from app.models.db import PendingToolAction, ProjectFile
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPolicy
+from app.services.chat.pending_actions import tool_confirmation_token
 from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat.working_memory import should_continue_current_artifact
 from app.services.chat_store import persist_assistant_message
-from app.services.project_contexts import mark_project_memory_stale
-from app.services.project_core import init_default_project_folders
-from app.services.project_documents import ensure_markdown_filename, read_project_document_content, update_project_document_record
+from app.services.project_documents import ensure_markdown_filename, read_project_document_content
+from app.services.time_utils import utc_now_naive
 from app.services.task_orchestrator import (
     create_task_run,
     pause_task_run_in_session,
@@ -36,6 +39,7 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event, task_stream_flush_pause
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status_from_task_event, task_payload_tool_calls
+from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,100 @@ def _clean_markdown_response(text: str) -> str:
         if value.endswith("```"):
             value = value[:-3].strip()
     return value
+
+
+def _p0_approval_batch_id(conversation_id: int, confirmation_token: str) -> str:
+    return f"hitas-{conversation_id}-{confirmation_token.split(':')[-1]}"
+
+
+def _hash_tool_input(tool_input: dict) -> str:
+    normalized = json.dumps(tool_input or {}, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _persist_markdown_continuation_action(
+    bind,
+    *,
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    project_file: ProjectFile,
+    revised_content: str,
+    details: list[str],
+) -> tuple[int | None, dict, dict]:
+    tool_input = {
+        "project_id": req.project_id,
+        "mode": "replace",
+        "file_id": project_file.id,
+        "file_name": project_file.name,
+        "content": revised_content,
+    }
+    confirmation_token = tool_confirmation_token(PROJECT_MARKDOWN_TOOL_NAME, tool_input)
+    pending_confirmation = {
+        "confirmation_token": confirmation_token,
+        "tool_name": PROJECT_MARKDOWN_TOOL_NAME,
+        "tool_input": tool_input,
+        "tool_use_id": f"markdown-continuation-{confirmation_token[-12:]}",
+        "details": details,
+        "summary": "需要确认后才会覆盖当前 Markdown 文件。",
+        "stage": "p0_markdown_continuation_preview",
+        "can_confirm": True,
+    }
+    action_payload = {
+        "action_type": "modify_document",
+        "title": "确认修改 Markdown 文档",
+        "description": "即将用 AI 生成的新版内容覆盖当前项目 Markdown 文件。",
+        "details": details,
+        "tool_name": PROJECT_MARKDOWN_TOOL_NAME,
+        "tool_input": tool_input,
+        "confirmation_token": confirmation_token,
+    }
+
+    with Session(bind) as session:
+        tool_input_json = json.dumps(tool_input, ensure_ascii=False, default=str)
+        existing = session.exec(
+            select(PendingToolAction)
+            .where(PendingToolAction.conversation_id == runtime.conv_id)
+            .where(PendingToolAction.tool_name == PROJECT_MARKDOWN_TOOL_NAME)
+            .where(PendingToolAction.tool_input_json == tool_input_json)
+            .where(PendingToolAction.status == "pending")
+            .order_by(PendingToolAction.created_at.desc(), PendingToolAction.id.desc())
+        ).first()
+        if existing:
+            return existing.id, pending_confirmation, action_payload
+
+        action = PendingToolAction(
+            trace_id=str(getattr(runtime, "trace_id", "") or f"conv-{runtime.conv_id}"),
+            conversation_id=runtime.conv_id,
+            project_id=req.project_id,
+            tool_name=PROJECT_MARKDOWN_TOOL_NAME,
+            tool_input_json=tool_input_json,
+            action_type="modify_document",
+            risk_level="high",
+            policy_at_creation=str(getattr(runtime.action_policy, "value", runtime.action_policy) or ""),
+            tool_input_hash=_hash_tool_input(tool_input),
+            approval_batch_id=_p0_approval_batch_id(runtime.conv_id, confirmation_token),
+            sequence_index=0,
+            title="确认修改 Markdown 文档",
+            description="即将用 AI 生成的新版内容覆盖当前项目 Markdown 文件。",
+            details_json=json.dumps(details, ensure_ascii=False, default=str),
+            status="pending",
+            expires_at=utc_now_naive() + timedelta(hours=24),
+        )
+        session.add(action)
+        session.commit()
+        session.refresh(action)
+        return action.id, pending_confirmation, action_payload
+
+
+def _attach_pending_action_message(bind, action_id: int | None, message_id: int | None) -> None:
+    if not action_id or not message_id:
+        return
+    with Session(bind) as session:
+        action = session.get(PendingToolAction, action_id)
+        if action and action.message_id is None:
+            action.message_id = message_id
+            session.add(action)
+            session.commit()
 
 
 async def _handle_markdown_artifact_continuation(
@@ -133,60 +231,74 @@ async def _handle_markdown_artifact_continuation(
             yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
             return
 
-        result = update_project_document_record(
-            session,
-            req.project_id,
-            project_file.id,
-            uploads_dir=UPLOADS_DIR,
-            init_default_folders=init_default_project_folders,
-            content=revised_content,
+        details = [
+            f"目标文件：{project_file.name}（ID {project_file.id}）",
+            "确认后将用 AI 生成的完整新版 Markdown 覆盖当前文件。",
+            f"新版内容长度：{len(revised_content)} 字符。",
+        ]
+        action_id, pending_confirmation, action_payload = _persist_markdown_continuation_action(
+            bind,
+            runtime=runtime,
+            req=req,
+            project_file=project_file,
+            revised_content=revised_content,
+            details=details,
         )
-        mark_project_memory_stale(session, req.project_id, trigger="chat_markdown_continuation_update")
         state.durable_task_completed = True
-        full_text = f"已更新项目 Markdown 文件：{result.get('name')}"
+        state.confirmation_requested = True
+        full_text = (
+            f"已生成 {project_file.name} 的新版 Markdown 修改预览，但还没有写入文件。\n\n"
+            "请在 Action Preview 中确认后，我再执行覆盖更新。"
+        )
+        tool_call_event = {
+            "tool_name": PROJECT_MARKDOWN_TOOL_NAME,
+            "status": "confirmation_required",
+            "message": "已生成 Markdown 续改预览，等待用户确认后再写入项目文件。",
+            "summary": "需要确认后才会覆盖当前 Markdown 文件。",
+            "confirmation_token": pending_confirmation["confirmation_token"],
+            "details": details,
+        }
+        state.pending_tool_confirmations = [pending_confirmation]
+        state.pending_tool_actions = [action_payload]
         metadata = {
             "project_id": req.project_id,
             "working_memory": {
                 **memory,
                 "current_artifact": {
-                    "project_file_id": result.get("project_file_id") or result.get("id"),
-                    "name": result.get("name"),
+                    "project_file_id": project_file.id,
+                    "name": project_file.name,
                     "file_type": "md",
-                    "path": result.get("path"),
-                    "folder_id": result.get("folder_id"),
-                    "source": "markdown_continuation_update",
+                    "path": project_file.path,
+                    "folder_id": project_file.folder_id,
+                    "source": "markdown_continuation_preview",
                 },
             },
-            "tool_calls": [
-                {
-                    "tool_name": "update_project_markdown_document",
-                    "status": "completed",
-                    "message": "已根据多轮上下文更新当前 Markdown 文件。",
-                    "summary": f"Updated {result.get('name')}",
-                }
-            ],
-            "artifacts": [
-                {
-                    "project_file_id": result.get("project_file_id") or result.get("id"),
-                    "id": result.get("id"),
-                    "name": result.get("name"),
-                    "file_type": "md",
-                    "path": result.get("path"),
-                    "description": revised_content[:1200],
-                }
-            ],
+            "tool_calls": [tool_call_event],
+            "pending_tool_confirmations": [pending_confirmation],
+            "pending_action_ids": [action_id] if action_id else [],
             "stage_timings": {
                 **state.stage_timings,
                 "total_stream_ms": round((time.perf_counter() - stream_started_at) * 1000),
             },
         }
         state.full_text = full_text
-        state.tool_call_events = metadata["tool_calls"]
-        state.artifacts = metadata["artifacts"]
+        state.tool_call_events = [tool_call_event]
         state.stage_timings.update(metadata["stage_timings"])
         yield sse_event({"type": "text", "content": full_text})
-        yield sse_event({"type": "tool_result", "result": {"status": "completed", "tool_name": "update_project_markdown_document", "output": result}})
+        yield sse_event(
+            {
+                "type": "tool_result",
+                "result": {
+                    "status": "confirmation_required",
+                    "tool_name": PROJECT_MARKDOWN_TOOL_NAME,
+                    "confirmation_token": pending_confirmation["confirmation_token"],
+                    "details": details,
+                    "summary": "Markdown 修改预览已冻结，等待确认后执行。",
+                },
+            }
+        )
         need_title, assistant_message_id = persist_assistant_message(bind, runtime.conv_id, full_text, req.content, metadata)
+        _attach_pending_action_message(bind, action_id, assistant_message_id)
         state.need_title = need_title
         try:
             persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)

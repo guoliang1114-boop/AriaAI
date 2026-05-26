@@ -182,6 +182,7 @@ def persist_user_message(
     content: str,
     metadata: Optional[dict] = None,
 ) -> Message:
+    now = utc_now_naive()
     user_msg = Message(
         conversation_id=conv_id,
         role="user",
@@ -189,7 +190,12 @@ def persist_user_message(
         metadata_json=json.dumps(metadata, ensure_ascii=False, default=str) if metadata else "{}",
     )
     session.add(user_msg)
+    conv = session.get(Conversation, conv_id)
+    if conv:
+        conv.updated_at = now
+        session.add(conv)
     session.commit()
+    conversations_cache.delete_prefix("list:")
     return user_msg
 
 
@@ -307,6 +313,7 @@ def persist_assistant_message(
         except Exception:
             logger.warning("Failed to update persistent conversation state for %s", conv_id, exc_info=True)
         new_session.commit()
+    conversations_cache.delete_prefix("list:")
     return need_title, message_id
 
 
