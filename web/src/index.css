@@ -116,12 +116,17 @@ body {
   background: rgba(0, 63, 177, 0.14);
 }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-  letter-spacing: 0;
+/* Element reset kept in @layer base so Tailwind utilities (e.g. text-[13px] on a
+   <button>) still win — an unlayered rule here would override all layered
+   utilities regardless of specificity (Tailwind v4 cascade layers). */
+@layer base {
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    letter-spacing: 0;
+  }
 }
 
 h1,
