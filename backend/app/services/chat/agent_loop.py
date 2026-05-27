@@ -328,8 +328,9 @@ async def run_agent_loop(
         reasoning = result.reasoning
         truncated = result.truncated
 
-        # ---------- truncation auto-continue (step 0 only, no tools emitted) ----------
-        if truncated and step_index == 0 and not tool_calls and text.strip():
+        # ---------- truncation auto-continue (any step that ended on a cut-off
+        # final answer, i.e. no tools emitted) ----------
+        if truncated and not tool_calls and text.strip():
             cont_messages = messages + [
                 {"role": "assistant", "content": text.strip()},
                 {"role": "user", "content": _CONTINUATION_PROMPT},
@@ -352,8 +353,9 @@ async def run_agent_loop(
                 truncated = True
             else:
                 truncated = False
-        elif truncated and step_index > 0:
-            # Truncated mid-loop with no clean continuation path — surface to UI.
+        elif truncated:
+            # Truncated while still planning tools — no clean continuation path,
+            # so surface it to the UI instead of auto-continuing.
             yield sse_event({"type": "truncated", "can_continue": True})
 
         step.model_text = text
