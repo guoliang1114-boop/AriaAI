@@ -73,6 +73,11 @@ describe('Layout', () => {
     await waitFor(() => {
       expect(screen.getByText('JD')).toBeInTheDocument()
     })
+    expect(screen.getByTestId('user-initials')).toHaveStyle({
+      fontSize: '8px',
+      lineHeight: '1',
+      transform: 'scale(0.82)',
+    })
   })
 
   it('uses cached user initials before /auth/me resolves', () => {
@@ -80,6 +85,10 @@ describe('Layout', () => {
     renderLayout()
 
     expect(screen.getByRole('button', { name: 'User menu' })).toHaveTextContent('GL')
+    expect(screen.getByTestId('user-initials')).toHaveStyle({
+      fontSize: '8px',
+      transform: 'scale(0.82)',
+    })
   })
 
   it('does not flash a placeholder letter while user data loads', () => {
