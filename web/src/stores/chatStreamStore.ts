@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { GeneratedArtifact, Reference, ToolCallEvent } from "../types/api";
+import type {
+  AgentStepView,
+  GeneratedArtifact,
+  Reference,
+  ToolCallEvent,
+} from "../types/api";
 
 interface ChatStreamState {
   isLoading: boolean;
@@ -9,6 +14,7 @@ interface ChatStreamState {
   streamingArtifacts: GeneratedArtifact[];
   streamingReferences: Reference[];
   streamingTruncated: boolean;
+  streamingSteps: AgentStepView[];
 
   setIsLoading: (value: boolean) => void;
   appendText: (text: string) => void;
@@ -19,6 +25,8 @@ interface ChatStreamState {
   addArtifact: (artifact: GeneratedArtifact) => void;
   setStreamingArtifacts: (artifacts: GeneratedArtifact[]) => void;
   setTruncated: (value: boolean) => void;
+  upsertStep: (step: AgentStepView) => void;
+  setStreamingSteps: (steps: AgentStepView[]) => void;
   reset: () => void;
 }
 
@@ -30,6 +38,7 @@ const initialState = {
   streamingArtifacts: [] as GeneratedArtifact[],
   streamingReferences: [] as Reference[],
   streamingTruncated: false,
+  streamingSteps: [] as AgentStepView[],
 };
 
 export const useChatStreamStore = create<ChatStreamState>((set) => ({
@@ -67,6 +76,19 @@ export const useChatStreamStore = create<ChatStreamState>((set) => ({
   setStreamingArtifacts: (artifacts) => set({ streamingArtifacts: artifacts }),
 
   setTruncated: (value) => set({ streamingTruncated: value }),
+
+  upsertStep: (step) =>
+    set((state) => {
+      const idx = state.streamingSteps.findIndex((s) => s.index === step.index);
+      if (idx >= 0) {
+        const next = [...state.streamingSteps];
+        next[idx] = { ...next[idx], ...step };
+        return { streamingSteps: next };
+      }
+      return { streamingSteps: [...state.streamingSteps, step] };
+    }),
+
+  setStreamingSteps: (steps) => set({ streamingSteps: steps }),
 
   reset: () => set(initialState),
 }));

@@ -86,6 +86,56 @@ describe("chatStreamStore", () => {
     expect(useChatStreamStore.getState().streamingTruncated).toBe(true);
   });
 
+  it("should upsert agent steps by index", () => {
+    useChatStreamStore.getState().upsertStep({
+      index: 0,
+      tool_names: ["read_project_markdown_document"],
+      duration_ms: 1200,
+      truncated: false,
+    });
+    expect(useChatStreamStore.getState().streamingSteps).toHaveLength(1);
+
+    useChatStreamStore.getState().upsertStep({
+      index: 0,
+      tool_names: ["read_project_markdown_document", "write_project_office_document"],
+      duration_ms: 2400,
+      truncated: false,
+    });
+    const steps = useChatStreamStore.getState().streamingSteps;
+    expect(steps).toHaveLength(1);
+    expect(steps[0].tool_names).toHaveLength(2);
+    expect(steps[0].duration_ms).toBe(2400);
+
+    useChatStreamStore.getState().upsertStep({
+      index: 1,
+      tool_names: ["summarize"],
+      duration_ms: 600,
+      truncated: false,
+    });
+    expect(useChatStreamStore.getState().streamingSteps).toHaveLength(2);
+  });
+
+  it("should set streaming steps", () => {
+    const steps = [
+      { index: 0, tool_names: ["a"], duration_ms: 100, truncated: false },
+      { index: 1, tool_names: ["b"], duration_ms: 200, truncated: true },
+    ];
+    useChatStreamStore.getState().setStreamingSteps(steps);
+    expect(useChatStreamStore.getState().streamingSteps).toHaveLength(2);
+    expect(useChatStreamStore.getState().streamingSteps[1].truncated).toBe(true);
+  });
+
+  it("should reset agent steps along with other state", () => {
+    useChatStreamStore.getState().upsertStep({
+      index: 0,
+      tool_names: ["t"],
+      duration_ms: 10,
+      truncated: false,
+    });
+    useChatStreamStore.getState().reset();
+    expect(useChatStreamStore.getState().streamingSteps).toEqual([]);
+  });
+
   it("should reset to initial state", () => {
     useChatStreamStore.getState().appendText("some content");
     useChatStreamStore.getState().upsertToolCall({
