@@ -217,24 +217,24 @@ export function Layout() {
                     <NavLink
                       to="/messages"
                       onClick={() => setShowUserMenu(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
                     >
-                      <Bell className="h-4 w-4" />
+                      <Bell className="h-4 w-4 flex-shrink-0" />
                       Messages
                     </NavLink>
                     <NavLink
                       to="/settings"
                       onClick={() => setShowUserMenu(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
                     >
-                      <Settings className="h-4 w-4" />
+                      <Settings className="h-4 w-4 flex-shrink-0" />
                       {t('settings.title')}
                     </NavLink>
                     <button
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
                     >
-                      <LogOut className="h-4 w-4" />
+                      <LogOut className="h-4 w-4 flex-shrink-0" />
                       {t('settings.signOut')}
                     </button>
                   </div>
