@@ -1,8 +1,21 @@
 import { useState, useEffect } from 'react'
-import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock, Clock3 } from 'lucide-react'
+import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock, Clock3, Type } from 'lucide-react'
 import { api } from '../../api/client'
 import type { User as UserType } from '../../types/api'
 import { BROWSER_TIMEZONE_VALUE, DEFAULT_APP_TIMEZONE, getBrowserTimeZone, setAppTimeZone } from '../../utils/timezone'
+import {
+  APP_FONT_SIZE_SETTING_KEY,
+  getStoredAppFontSize,
+  isAppFontSize,
+  setAppFontSize,
+  type AppFontSize,
+} from '../../utils/fontSize'
+
+const fontSizeOptions: { value: AppFontSize; label: string; previewClass: string }[] = [
+  { value: 'small', label: '小', previewClass: 'text-[13px]' },
+  { value: 'medium', label: '中', previewClass: 'text-[15px]' },
+  { value: 'large', label: '大', previewClass: 'text-[17px]' },
+]
 
 const timezoneOptions = [
   { value: 'Asia/Shanghai', label: '中国标准时间', hint: 'UTC+08:00' },
@@ -22,6 +35,9 @@ export function ProfileSettings() {
   const [selectedTimeZone, setSelectedTimeZone] = useState(DEFAULT_APP_TIMEZONE)
   const [savingTimeZone, setSavingTimeZone] = useState(false)
   const [timeZoneMsg, setTimeZoneMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [selectedFontSize, setSelectedFontSize] = useState<AppFontSize>(getStoredAppFontSize)
+  const [savingFontSize, setSavingFontSize] = useState(false)
+  const [fontSizeMsg, setFontSizeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Password dialog state
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -39,8 +55,35 @@ export function ProfileSettings() {
       setUser(u)
       setDisplayName(u.display_name)
       setSelectedTimeZone(settings.timezone || DEFAULT_APP_TIMEZONE)
+      const remoteFontSize = settings[APP_FONT_SIZE_SETTING_KEY]
+      if (isAppFontSize(remoteFontSize)) {
+        // Sync the server value down to this device (apply + persist locally).
+        setSelectedFontSize(remoteFontSize)
+        setAppFontSize(remoteFontSize)
+      }
     }).catch(() => {})
   }, [])
+
+  const handleSelectFontSize = (value: AppFontSize) => {
+    setSelectedFontSize(value)
+    setAppFontSize(value) // live preview + local persistence
+    setFontSizeMsg(null)
+  }
+
+  const handleSaveFontSize = async () => {
+    setSavingFontSize(true)
+    setFontSizeMsg(null)
+    try {
+      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value: selectedFontSize })
+      setAppFontSize(selectedFontSize)
+      setFontSizeMsg({ type: 'success', text: '字体大小已保存' })
+      setTimeout(() => setFontSizeMsg(null), 3000)
+    } catch (err: any) {
+      setFontSizeMsg({ type: 'error', text: err.response?.data?.detail || '保存字体大小失败' })
+    } finally {
+      setSavingFontSize(false)
+    }
+  }
 
   const handleSaveName = async () => {
     if (!user || !displayName.trim()) return
@@ -222,6 +265,54 @@ export function ProfileSettings() {
             <p className={`text-xs flex items-center gap-1 ${timeZoneMsg.type === 'success' ? 'text-active' : 'text-error'}`}>
               {timeZoneMsg.type === 'error' && <AlertCircle className="w-3 h-3" />}
               {timeZoneMsg.text}
+            </p>
+          )}
+        </div>
+
+        {/* Font size */}
+        <div className="space-y-2">
+          <label className="text-label-sm text-on-surface-muted flex items-center gap-1.5">
+            <Type className="w-3.5 h-3.5" />
+            字体大小
+          </label>
+          <div className="flex gap-3">
+            <div className="flex flex-1 gap-2 rounded-xl border border-outline/20 bg-surface-container-lowest p-1">
+              {fontSizeOptions.map((option) => {
+                const active = selectedFontSize === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleSelectFontSize(option.value)}
+                    aria-pressed={active}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition-all ${
+                      active
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-on-surface-variant hover:bg-surface-container-low'
+                    }`}
+                  >
+                    <span className={option.previewClass}>Aa</span>
+                    <span className="text-sm font-medium">{option.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <button
+              onClick={handleSaveFontSize}
+              disabled={savingFontSize}
+              className="btn-primary flex items-center gap-2 px-4 disabled:opacity-40"
+            >
+              {savingFontSize ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              保存
+            </button>
+          </div>
+          <p className="text-xs text-on-surface-muted">
+            调整后整个界面的文字会按比例缩放，点击即可即时预览，保存后在其他设备同步。默认为「中」。
+          </p>
+          {fontSizeMsg && (
+            <p className={`text-xs flex items-center gap-1 ${fontSizeMsg.type === 'success' ? 'text-active' : 'text-error'}`}>
+              {fontSizeMsg.type === 'error' && <AlertCircle className="w-3 h-3" />}
+              {fontSizeMsg.text}
             </p>
           )}
         </div>

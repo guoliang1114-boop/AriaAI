@@ -7,6 +7,9 @@ import { ToastProvider } from './contexts/ToastContext'
 import App from './App'
 import './index.css'
 import './i18n'
+import { bootstrapAppFontSize } from './utils/fontSize'
+
+bootstrapAppFontSize()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

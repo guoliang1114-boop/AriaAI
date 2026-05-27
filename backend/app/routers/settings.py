@@ -219,6 +219,7 @@ _SETTING_METADATA = {
     "theme": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
     "language": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
     "timezone": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
+    "font_size": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
 }
 
 
