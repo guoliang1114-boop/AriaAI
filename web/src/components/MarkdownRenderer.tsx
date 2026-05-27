@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
 import type { ComponentPropsWithoutRef, ReactNode } from 'react'
-import { sanitizeMarkdownHref, stripMarkdownToolUseJson, stripUnsafeMarkdownHtml } from './markdownSecurity'
+import { normalizeMarkdownTables, sanitizeMarkdownHref, stripMarkdownToolUseJson, stripUnsafeMarkdownHtml } from './markdownSecurity'
 
 interface MarkdownRendererProps {
   content: string
@@ -73,7 +73,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
-  const safeContent = stripUnsafeMarkdownHtml(stripMarkdownToolUseJson(content))
+  const safeContent = stripUnsafeMarkdownHtml(stripMarkdownToolUseJson(normalizeMarkdownTables(content)))
 
   return (
     <ReactMarkdown

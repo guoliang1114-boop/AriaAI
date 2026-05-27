@@ -39,6 +39,83 @@ export function stripUnsafeMarkdownHtml(content: string) {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
 }
 
+function countTableCells(row: string): number {
+  let s = row.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").length;
+}
+
+function isTableDelimiterRow(row: string): boolean {
+  let s = row.trim();
+  if (!s.includes("-") || !s.includes("|")) return false;
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").every((cell) => /^\s*:?-+:?\s*$/.test(cell));
+}
+
+function delimiterCellFor(cell: string | undefined): string {
+  const c = (cell || "").trim();
+  const left = c.startsWith(":");
+  const right = c.endsWith(":");
+  if (left && right) return ":---:";
+  if (right) return "---:";
+  if (left) return ":---";
+  return "---";
+}
+
+// GitHub-Flavored-Markdown only recognizes a table when the delimiter row has
+// exactly as many cells as the header row. LLMs sometimes emit a delimiter row
+// with an extra/missing column, which makes remark-gfm drop the whole table and
+// render it as literal text. Rebuild any mismatched delimiter row to the
+// header's column count (preserving per-column alignment) so the table renders.
+export function normalizeMarkdownTables(content: string): string {
+  if (!content.includes("|") || !content.includes("-")) return content;
+
+  const lines = content.split("\n");
+  let inFence = false;
+  let fenceMarker = "";
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+
+    const fenceMatch = /^(```|~~~)/.exec(trimmed);
+    if (fenceMatch) {
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = fenceMatch[1];
+      } else if (trimmed.startsWith(fenceMarker)) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      continue;
+    }
+    if (inFence || i === 0) continue;
+
+    if (!isTableDelimiterRow(lines[i])) continue;
+
+    const header = lines[i - 1];
+    if (!header || !header.includes("|") || isTableDelimiterRow(header)) continue;
+
+    const headerCols = countTableCells(header);
+    if (headerCols < 1 || headerCols === countTableCells(lines[i])) continue;
+
+    let body = lines[i].trim();
+    if (body.startsWith("|")) body = body.slice(1);
+    if (body.endsWith("|")) body = body.slice(0, -1);
+    const existing = body.split("|");
+    const indent = lines[i].slice(0, lines[i].length - lines[i].trimStart().length);
+
+    const cells: string[] = [];
+    for (let j = 0; j < headerCols; j += 1) {
+      cells.push(delimiterCellFor(existing[j]));
+    }
+    lines[i] = `${indent}| ${cells.join(" | ")} |`;
+  }
+
+  return lines.join("\n");
+}
+
 function findJsonObjectEnd(text: string, start: number) {
   let depth = 0;
   let inString = false;

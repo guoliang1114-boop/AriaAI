@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeMarkdownHref, stripUnsafeMarkdownHtml } from './markdownSecurity'
+import { normalizeMarkdownTables, sanitizeMarkdownHref, stripUnsafeMarkdownHtml } from './markdownSecurity'
 
 describe('sanitizeMarkdownHref', () => {
   it('returns null for empty or null href', () => {
@@ -64,5 +64,46 @@ describe('sanitizeMarkdownHref', () => {
 describe('stripUnsafeMarkdownHtml', () => {
   it('removes script and style blocks before markdown rendering', () => {
     expect(stripUnsafeMarkdownHtml('<script>alert(1)</script><style>body{}</style>safe')).toBe('safe')
+  })
+})
+
+describe('normalizeMarkdownTables', () => {
+  it('repairs a delimiter row that has more cells than the header', () => {
+    const input = [
+      '| 优先级 | 风险 | 紧迫度 | 可控度 | 若失控的影响 |',
+      '|:---:|---|---|:---:|:---:|---|',
+      '| P0 | a | b | c | d |',
+    ].join('\n')
+    const out = normalizeMarkdownTables(input)
+    const delimiter = out.split('\n')[1]
+    // header has 5 columns -> delimiter must end up with 5 cells
+    expect(delimiter).toBe('| :---: | --- | --- | :---: | :---: |')
+  })
+
+  it('repairs a delimiter row that has fewer cells than the header', () => {
+    const input = ['| a | b | c |', '| --- | --- |', '| 1 | 2 | 3 |'].join('\n')
+    const out = normalizeMarkdownTables(input)
+    expect(out.split('\n')[1]).toBe('| --- | --- | --- |')
+  })
+
+  it('preserves per-column alignment markers where present', () => {
+    const input = ['| a | b | c |', '|:--|--:|', '| 1 | 2 | 3 |'].join('\n')
+    const out = normalizeMarkdownTables(input)
+    expect(out.split('\n')[1]).toBe('| :--- | ---: | --- |')
+  })
+
+  it('leaves a well-formed table untouched', () => {
+    const input = ['| a | b |', '| --- | --- |', '| 1 | 2 |'].join('\n')
+    expect(normalizeMarkdownTables(input)).toBe(input)
+  })
+
+  it('does not touch delimiter-looking lines inside fenced code blocks', () => {
+    const input = ['```', '| a | b |', '|---|---|---|', '```'].join('\n')
+    expect(normalizeMarkdownTables(input)).toBe(input)
+  })
+
+  it('returns content unchanged when there are no tables', () => {
+    const input = '# Heading\n\nSome **bold** text and a - list item'
+    expect(normalizeMarkdownTables(input)).toBe(input)
   })
 })
