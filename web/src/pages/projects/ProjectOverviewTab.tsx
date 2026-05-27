@@ -104,12 +104,6 @@ export function ProjectOverviewTab({
           projectStatus={project.status}
         />
 
-        <ProjectSkillWorkflowsCard
-          isZh={isZh}
-          onStart={handleStartProjectSkill}
-          projectDetail={projectDetail}
-        />
-
         <ProjectOverviewSummaryCard
           generatingSummary={generatingSummary}
           isZh={isZh}
@@ -154,6 +148,14 @@ export function ProjectOverviewTab({
             isZh={isZh}
             memory={memory}
             onRebuild={() => void rebuildMemory()}
+          />
+        }
+        skillWorkflowsCard={
+          <ProjectSkillWorkflowsCard
+            isZh={isZh}
+            onStart={handleStartProjectSkill}
+            projectDetail={projectDetail}
+            variant="compact"
           />
         }
         onGoToDocuments={() => navigate(`/projects/${projectId}/space`)}

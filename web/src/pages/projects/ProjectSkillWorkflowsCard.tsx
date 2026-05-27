@@ -7,10 +7,12 @@ export function ProjectSkillWorkflowsCard({
   isZh,
   onStart,
   projectDetail,
+  variant = "default",
 }: {
   isZh: boolean;
   onStart: (intent: ProjectSkillIntent) => void;
   projectDetail: ProjectDetailType;
+  variant?: "default" | "compact";
 }) {
   const { project, files, todos } = projectDetail;
   const openTodos = todos.filter((todo) => !todo.is_done).length;
@@ -41,6 +43,55 @@ export function ProjectSkillWorkflowsCard({
       title: isZh ? "客户沟通策略" : "Client alignment",
     },
   ];
+
+  if (variant === "compact") {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-[13px] font-semibold leading-5 text-gray-900">
+            <Sparkles className="h-4 w-4 text-indigo-500" />
+            {isZh ? "项目 Skill 工作流" : "Project Skill workflows"}
+          </h3>
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+            <span>{files.length} {isZh ? "文档" : "docs"}</span>
+            <span className="text-slate-300">/</span>
+            <span>{openTodos} {isZh ? "待办" : "open"}</span>
+          </div>
+        </div>
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          {isZh
+            ? "带入当前项目上下文，快速启动常用 Skill。"
+            : "Launch common Skills with this project context."}
+        </p>
+        <div className="space-y-2">
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.intent}
+                type="button"
+                onClick={() => onStart(action.intent)}
+                className="group flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5 text-left transition hover:border-indigo-100 hover:bg-indigo-50"
+              >
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-semibold leading-5 text-slate-900">
+                    {action.title}
+                  </span>
+                  <span className="line-clamp-2 text-xs leading-5 text-slate-500">
+                    {action.description}
+                  </span>
+                </span>
+                <ArrowRight className="h-4 w-4 flex-shrink-0 text-slate-300 transition group-hover:text-indigo-600" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-indigo-100 bg-[radial-gradient(circle_at_top_right,#e0e7ff_0%,#f8fafc_45%,#ffffff_100%)] p-6 shadow-sm">
