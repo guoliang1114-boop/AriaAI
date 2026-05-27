@@ -127,7 +127,7 @@ export function Layout() {
   }
 
   const initials = getUserInitials(user)
-  const initialsScale = initials.length >= 2 ? 0.82 : 0.92
+  const initialsScale = initials.length > 2 ? 0.85 : 1
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -192,10 +192,10 @@ export function Layout() {
                 >
                   {initials ? (
                     <span
-                      className="block max-w-[18px] text-center font-semibold leading-none"
+                      className="block text-center font-semibold leading-none"
                       data-testid="user-initials"
                       style={{
-                        fontSize: '8px',
+                        fontSize: '11px',
                         lineHeight: 1,
                         transform: `scale(${initialsScale})`,
                         transformOrigin: 'center',

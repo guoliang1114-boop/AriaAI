@@ -74,9 +74,9 @@ describe('Layout', () => {
       expect(screen.getByText('JD')).toBeInTheDocument()
     })
     expect(screen.getByTestId('user-initials')).toHaveStyle({
-      fontSize: '8px',
+      fontSize: '11px',
       lineHeight: '1',
-      transform: 'scale(0.82)',
+      transform: 'scale(1)',
     })
   })
 
@@ -86,8 +86,8 @@ describe('Layout', () => {
 
     expect(screen.getByRole('button', { name: 'User menu' })).toHaveTextContent('GL')
     expect(screen.getByTestId('user-initials')).toHaveStyle({
-      fontSize: '8px',
-      transform: 'scale(0.82)',
+      fontSize: '11px',
+      transform: 'scale(1)',
     })
   })
 
