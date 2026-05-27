@@ -102,6 +102,11 @@ describe('normalizeMarkdownTables', () => {
     expect(normalizeMarkdownTables(input)).toBe(input)
   })
 
+  it('does not touch delimiter-looking lines in an indented code block', () => {
+    const input = ['    | a | b |', '    |---|---|---|'].join('\n')
+    expect(normalizeMarkdownTables(input)).toBe(input)
+  })
+
   it('returns content unchanged when there are no tables', () => {
     const input = '# Heading\n\nSome **bold** text and a - list item'
     expect(normalizeMarkdownTables(input)).toBe(input)

@@ -92,6 +92,10 @@ export function normalizeMarkdownTables(content: string): string {
     }
     if (inFence || i === 0) continue;
 
+    // A line indented 4+ spaces (or a tab) is an indented code block, not a
+    // table — never rewrite a delimiter-looking line inside one.
+    if (/^(?:\t| {4,})/.test(lines[i])) continue;
+
     if (!isTableDelimiterRow(lines[i])) continue;
 
     const header = lines[i - 1];
