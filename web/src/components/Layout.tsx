@@ -127,6 +127,7 @@ export function Layout() {
   }
 
   const initials = getUserInitials(user)
+  const initialsScale = initials.length >= 2 ? 0.82 : 0.92
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -185,11 +186,26 @@ export function Layout() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-primary text-[9px] font-semibold leading-none text-white"
+                  className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-gradient-primary text-white"
                   aria-label="User menu"
                   title={user?.display_name || 'User'}
                 >
-                  {initials || <UserRound className="h-3.5 w-3.5" aria-hidden="true" />}
+                  {initials ? (
+                    <span
+                      className="block max-w-[18px] text-center font-semibold leading-none"
+                      data-testid="user-initials"
+                      style={{
+                        fontSize: '8px',
+                        lineHeight: 1,
+                        transform: `scale(${initialsScale})`,
+                        transformOrigin: 'center',
+                      }}
+                    >
+                      {initials}
+                    </span>
+                  ) : (
+                    <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
                 </button>
 
                 {showUserMenu && (
