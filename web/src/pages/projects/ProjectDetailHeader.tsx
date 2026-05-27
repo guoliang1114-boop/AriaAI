@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { NavLink, useNavigate } from "react-router-dom";
-import { ArrowLeft, CalendarDays, Circle } from "lucide-react";
+import { NavLink } from "react-router-dom";
+import { ArrowLeft, Circle } from "lucide-react";
 import type { Project } from "../../types/api";
 import { resolveProjectStage } from "../../types/enums";
 import { PROJECT_DETAIL_TABS } from "./projectDetailTabs";
@@ -17,7 +17,6 @@ export function ProjectDetailHeader({
   compact?: boolean;
 }) {
   const { i18n, t } = useTranslation();
-  const navigate = useNavigate();
   const isZh = i18n.language.startsWith("zh");
   const rawStatus = String(project.status || "").trim();
   const stage = resolveProjectStage(rawStatus);
@@ -52,15 +51,6 @@ export function ProjectDetailHeader({
               : "Tasks"
             : t(labelKey);
 
-  const handleMeetingPrep = () => {
-    const prompt = isZh
-      ? `请帮我准备一次客户会议。项目：${project.name}${project.client ? `，客户：${project.client}` : ""}。请输出：1）开场话术；2）关键议题顺序；3）每个关键人应关注的表达方式；4）会后行动清单。`
-      : `Help me prepare for a client meeting. Project: ${project.name}${project.client ? `, Client: ${project.client}` : ""}. Output: 1) Opening talking points; 2) Key agenda order; 3) Communication tips per stakeholder; 4) Post-meeting action items.`;
-    sessionStorage.setItem("briefing_prompt", prompt);
-    sessionStorage.setItem("briefing_auto_send", "1");
-    navigate(`/projects/${projectId}/chat?briefing=1`);
-  };
-
   if (compact) {
     return (
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur">
@@ -87,14 +77,6 @@ export function ProjectDetailHeader({
                 <Circle className="h-1.5 w-1.5 fill-current" />
                 {statusLabel}
               </span>
-              <button
-                onClick={handleMeetingPrep}
-                className="hidden flex-shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:border-primary/30 hover:text-primary sm:inline-flex"
-                title={isZh ? "会前准备" : "Meeting Prep"}
-              >
-                <CalendarDays className="h-3.5 w-3.5" />
-                {isZh ? "会前准备" : "Meeting Prep"}
-              </button>
             </div>
           </div>
 
@@ -159,14 +141,6 @@ export function ProjectDetailHeader({
               <Circle className="h-2 w-2 fill-current" />
               {statusLabel}
             </span>
-            <button
-              onClick={handleMeetingPrep}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:border-primary/30 hover:text-primary"
-              title={isZh ? "会前准备" : "Meeting Prep"}
-            >
-              <CalendarDays className="h-3.5 w-3.5" />
-              {isZh ? "会前准备" : "Meeting Prep"}
-            </button>
             {project.memory_stale ? (
               <span className="inline-flex items-center rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
                 {isZh ? "记忆待更新" : "Memory stale"}
