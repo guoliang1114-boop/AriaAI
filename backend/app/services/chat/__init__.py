@@ -19,6 +19,7 @@ Public API (unchanged signatures for backward compatibility):
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -30,6 +31,18 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
 
 logger = logging.getLogger(__name__)
+
+
+_AGENT_LOOP_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _use_agent_loop() -> bool:
+    """Return True iff the chat orchestrator should drive the new agent loop.
+
+    Controlled by the ``CHAT_USE_AGENT_LOOP`` environment variable. Reads at
+    call time so deployments / tests can flip it without restarting workers.
+    """
+    return str(os.getenv("CHAT_USE_AGENT_LOOP", "")).strip().lower() in _AGENT_LOOP_TRUTHY
 
 
 def _safe_list(value: Any) -> list:
@@ -186,85 +199,110 @@ async def stream_chat_events(
         return
 
     # ==================================================================
-    # P1 — Planning / initial LLM stream
+    # Body — agent loop (new path) OR P1 → P2 → P3 (legacy path).
+    # Selected by the CHAT_USE_AGENT_LOOP environment variable so the new
+    # implementation can be activated in production with one flip.
     # ==================================================================
-    try:
-        async for event in run_p1_planning(runtime, req, state):
-            yield event
-    except Exception as exc:
-        logger.error(f"[P1 planning error] {exc}", exc_info=True)
-        for event in _persist_phase_error_events(
-            runtime=runtime,
-            req=req,
-            bind=bind,
-            state=state,
-            phase="P1 planning",
-            exc=exc,
-        ):
-            yield event
-        return
-
-    # ==================================================================
-    # P2 — Tool execution
-    # ==================================================================
-    if state.tool_use_blocks:
+    if _use_agent_loop():
         try:
-            async for event in run_p2_tools(runtime, req, state):
+            from app.services.chat.agent_loop import run_agent_loop
+
+            async for event in run_agent_loop(runtime, req, state):
                 yield event
         except Exception as exc:
-            logger.error(f"[P2 tools error] {exc}", exc_info=True)
+            logger.error(f"[agent_loop error] {exc}", exc_info=True)
             for event in _persist_phase_error_events(
                 runtime=runtime,
                 req=req,
                 bind=bind,
                 state=state,
-                phase="P2 tools",
+                phase="agent_loop",
+                exc=exc,
+            ):
+                yield event
+            return
+    else:
+        # ---- Legacy path: P1 planning ----
+        try:
+            async for event in run_p1_planning(runtime, req, state):
+                yield event
+        except Exception as exc:
+            logger.error(f"[P1 planning error] {exc}", exc_info=True)
+            for event in _persist_phase_error_events(
+                runtime=runtime,
+                req=req,
+                bind=bind,
+                state=state,
+                phase="P1 planning",
                 exc=exc,
             ):
                 yield event
             return
 
-    if state.confirmation_requested:
+        # ---- Legacy path: P2 tool execution ----
+        if state.tool_use_blocks:
+            try:
+                async for event in run_p2_tools(runtime, req, state):
+                    yield event
+            except Exception as exc:
+                logger.error(f"[P2 tools error] {exc}", exc_info=True)
+                for event in _persist_phase_error_events(
+                    runtime=runtime,
+                    req=req,
+                    bind=bind,
+                    state=state,
+                    phase="P2 tools",
+                    exc=exc,
+                ):
+                    yield event
+                return
+
+        if state.confirmation_requested:
+            state.full_text = state.text_buffer.strip()
+            try:
+                async for event in run_p4_persist(runtime, req, bind, state):
+                    yield event
+            except Exception as exc:
+                logger.error(f"[P4 persist error] {exc}", exc_info=True)
+                for event in _persist_phase_error_events(
+                    runtime=runtime,
+                    req=req,
+                    bind=bind,
+                    state=state,
+                    phase="P4 persist",
+                    exc=exc,
+                ):
+                    yield event
+            return
+
+        # ---- Legacy path: P3 follow-up ----
+        if state.tool_use_blocks and state.tool_result_blocks:
+            try:
+                async for event in run_p3_followup(runtime, req, state):
+                    yield event
+            except Exception as exc:
+                logger.error(f"[P3 follow-up error] {exc}", exc_info=True)
+                for event in _persist_phase_error_events(
+                    runtime=runtime,
+                    req=req,
+                    bind=bind,
+                    state=state,
+                    phase="P3 follow-up",
+                    exc=exc,
+                ):
+                    yield event
+                return
+
         state.full_text = state.text_buffer.strip()
-        try:
-            async for event in run_p4_persist(runtime, req, bind, state):
-                yield event
-        except Exception as exc:
-            logger.error(f"[P4 persist error] {exc}", exc_info=True)
-            for event in _persist_phase_error_events(
-                runtime=runtime,
-                req=req,
-                bind=bind,
-                state=state,
-                phase="P4 persist",
-                exc=exc,
-            ):
-                yield event
-        return
+        if state.follow_up_text.strip():
+            state.full_text = (state.full_text + "\n\n" + state.follow_up_text.strip()).strip()
 
-    # ==================================================================
-    # P3 — Follow-up / final reply
-    # =================================================================
-    if state.tool_use_blocks and state.tool_result_blocks:
-        try:
-            async for event in run_p3_followup(runtime, req, state):
-                yield event
-        except Exception as exc:
-            logger.error(f"[P3 follow-up error] {exc}", exc_info=True)
-            for event in _persist_phase_error_events(
-                runtime=runtime,
-                req=req,
-                bind=bind,
-                state=state,
-                phase="P3 follow-up",
-                exc=exc,
-            ):
-                yield event
-            return
-
-    state.full_text = state.text_buffer.strip()
-    if state.follow_up_text.strip():
-        state.full_text = (state.full_text + "\n\n" + state.follow_up_text.strip()).strip()
+    # ---- Both paths converge here ----
+    if _use_agent_loop() and state.confirmation_requested:
+        # Agent loop signaled HITAS pause — fall through to P4 persist so
+        # PendingToolAction rows land in the DB. The orchestrator's normal
+        # P4 call below already runs unconditionally on the agent path.
+        pass
 
     # ==================================================================
     # P4 — Persistence & finalization

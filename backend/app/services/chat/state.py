@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.services.chat.agent_step import AgentStep
+
 
 @dataclass
 class ChatSessionState:
@@ -67,6 +69,11 @@ class ChatSessionState:
     # Title generation
     # ------------------------------------------------------------------
     need_title: bool = False
+
+    # ------------------------------------------------------------------
+    # Agent loop (new path; populated only when CHAT_USE_AGENT_LOOP=1)
+    # ------------------------------------------------------------------
+    steps: list[AgentStep] = field(default_factory=list)
 
     def record_trace_event(self, event_type: str, **payload) -> None:
         """Record an internal decision for diagnostics without changing chat UI."""
