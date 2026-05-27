@@ -35,33 +35,20 @@ describe("workflowStepsFromToolCalls", () => {
 
     const steps = workflowStepsFromToolCalls(calls);
 
-    expect(steps).toHaveLength(4);
+    // One real step per distinct tool that actually ran — no canned template.
+    expect(steps).toHaveLength(3);
     expect(steps.map((step) => step.step_title)).toEqual([
-      "理解需求与上下文",
-      "制定执行计划",
-      "执行工具",
-      "整理结果与链接",
+      "读取项目文件",
+      "读取项目文档",
+      "写入项目 Markdown 文档",
     ]);
-    expect(steps[2].details).toContain("读取项目文件：已完成。");
-    expect(steps[2].details).toContain("读取项目文档：已完成。");
-    expect(steps[2].details).toContain(
-      "写入项目 Markdown 文档：已完成：Created 项目背景.md；已写入项目 Markdown 文件。",
-    );
+    expect(steps.map((step) => step.step_index)).toEqual([1, 2, 3]);
+    expect(steps.every((step) => step.step_total === 3)).toBe(true);
+    // Low-value boilerplate is filtered out of the per-tool message.
+    expect(steps[0].message).toBe("已完成");
+    expect(steps[2].message).toBe("Created 项目背景.md；已写入项目 Markdown 文件。");
     expect(JSON.stringify(steps)).not.toContain("Executing read_project_file");
-  });
-
-  it("keeps Skill wording only for actual skill tool calls", () => {
-    const calls: ToolCallEvent[] = [
-      {
-        tool_name: "generate_ppt_from_skill",
-        status: "completed",
-        message: "Skill 交付物已生成。",
-      },
-    ];
-
-    const steps = workflowStepsFromToolCalls(calls);
-
-    expect(steps[2].step_title).toBe("执行 Skill / 工具");
+    expect(JSON.stringify(steps)).not.toContain("理解需求与上下文");
   });
 
   it("preserves existing workflow steps without wrapping again", () => {
