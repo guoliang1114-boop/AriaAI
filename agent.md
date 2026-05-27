@@ -34,7 +34,10 @@ AP/
 │   ├── 03-Skill标准化规范.md    ← how to build Skills
 │   ├── 04-RAG演进方案.md        ← RAG evolution plan
 │   ├── 05-对话系统设计与规范.md  ← chat system design
-│   └── 06-Human-in-the-Loop Tool Approval 设计.md
+│   ├── 06-Human-in-the-Loop Tool Approval 设计.md
+│   ├── 07-AriaAI架构与对话逻辑图.md
+│   ├── 08-Skill体系评估与优化路线图.md
+│   └── 09-Skill编写规范.md
 ├── backend/                    ← Python backend
 │   ├── main.py                 ← FastAPI entry point
 │   ├── app/
@@ -301,10 +304,13 @@ docs: update architecture diagram for RAG changes
 | Full system architecture | `docs/00-项目总览.md` §3 |
 | Product vision & roadmap | `docs/01-产品战略方向.md` |
 | Skill system | `docs/02-Skill体系.md` |
-| How to build a Skill | `docs/03-Skill标准化规范.md` |
+| How to build a Skill | `docs/03-Skill标准化规范.md` + `docs/09-Skill编写规范.md` |
 | RAG upgrade plan | `docs/04-RAG演进方案.md` |
 | Chat system design | `docs/05-对话系统设计与规范.md` |
 | HITAS tool approval | `docs/06-Human-in-the-Loop Tool Approval 设计.md` |
+| Architecture diagrams | `docs/07-AriaAI架构与对话逻辑图.md` |
+| Skill quality & roadmap | `docs/08-Skill体系评估与优化路线图.md` |
+| Skill writing standard | `docs/09-Skill编写规范.md` |
 | Backend entry point | `backend/main.py` |
 | All config values | `backend/app/config.py` |
 | All data models | `backend/app/models/db.py` |

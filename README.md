@@ -70,10 +70,13 @@ python scripts/migration_governance.py check
 5. [RAG 演进方案](docs/04-RAG演进方案.md) — RAG 现状、风险与路线
 6. [对话系统设计与规范](docs/05-对话系统设计与规范.md) — 对话系统架构与设计
 7. [HITAS 设计](docs/06-Human-in-the-Loop%20Tool%20Approval%20设计.md) — 高风险工具审批
+8. [架构与对话逻辑图](docs/07-AriaAI架构与对话逻辑图.md) — 架构图、对话逻辑流程图
+9. [Skill 体系评估与优化路线图](docs/08-Skill体系评估与优化路线图.md) — Skill 质量评估与优化计划
+10. [Skill 编写规范 v1.0](docs/09-Skill编写规范.md) — Skill 编写标准与质量门禁
 
 ## 当前注意事项
 
 - 每次部署前优先跑 `migration_governance.py report/check`，再执行 `ensure/upgrade`。
 - 线上当前使用 PostgreSQL 数据库。
 - `Memory Operations` 是后续排查记忆任务、预算、失败和重试的首选入口。
-- `docs/` 文档已重新编号为 00-06，后续新增文档请保持连续编号。
+- `docs/` 文档已重新编号为 00-09，后续新增文档请保持连续编号。

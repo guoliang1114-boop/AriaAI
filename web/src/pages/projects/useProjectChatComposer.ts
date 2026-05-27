@@ -203,24 +203,14 @@ export function useProjectChatComposer({
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
       const requestId = streamRequestSeqRef.current + 1;
       streamRequestSeqRef.current = requestId;
+      const optimisticMessageId = Date.now();
       resetStream();
       setStreamIsLoading(true);
-      setStreamStatus("我已收到，会先确认需求和可用上下文；如果需要调用工具，我会把每一步进度显示在这里。");
-
-      if (!conversationId) {
-        conversationId = await createConversation(trimmed, skillId || null);
-        if (!conversationId) {
-          resetStream();
-          return false;
-        }
-      }
-      if (activeConvIdRef.current === null) {
-        activeConvIdRef.current = conversationId;
-      }
+      setStreamStatus("AI 正在读取项目上下文并准备回复...");
 
       const tempUserMsg: Message = {
-        id: Date.now(),
-        conversation_id: conversationId,
+        id: optimisticMessageId,
+        conversation_id: conversationId ?? -requestId,
         role: "user",
         content: trimmed,
         metadata_json: "{}",
@@ -228,7 +218,28 @@ export function useProjectChatComposer({
       };
       setMessages((prev) => [...prev, tempUserMsg]);
       isNearBottomRef.current = true;
+      scrollToBottom(true);
       setTimeout(() => scrollToBottom(true), 0);
+
+      if (!conversationId) {
+        conversationId = await createConversation(trimmed, skillId || null);
+        if (!conversationId) {
+          setMessages((prev) => prev.filter((message) => message.id !== optimisticMessageId));
+          resetStream();
+          return false;
+        }
+        const createdConversationId = conversationId;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === optimisticMessageId
+              ? { ...message, conversation_id: createdConversationId }
+              : message,
+          ),
+        );
+      }
+      if (activeConvIdRef.current === null) {
+        activeConvIdRef.current = conversationId;
+      }
 
       let fullContent = "";
       let collectedReferences: Reference[] = [];
