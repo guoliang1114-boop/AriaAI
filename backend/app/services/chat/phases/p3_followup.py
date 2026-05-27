@@ -357,6 +357,7 @@ async def run_p3_followup(
         yield sse_event(
             {"type": "status", "stage": "tools", "message": "检测到后续工具调用，正在执行..."}
         )
+        tool_step_title = "执行 Skill / 工具" if runtime.skill_name else "执行工具"
 
         for tool_data in p3_tool_use_blocks:
             tool_name = tool_data.get("name", "")
@@ -390,7 +391,7 @@ async def run_p3_followup(
                         workflow_status(
                             step_index=3,
                             step_total=4,
-                            title="执行 Skill / 工具",
+                            title=tool_step_title,
                             stage="tools",
                             message=f"第 3 步：已补齐后续 Markdown 工具参数（{'；'.join(repaired_changes)}）。",
                         )
@@ -414,7 +415,7 @@ async def run_p3_followup(
                         workflow_status(
                             step_index=3,
                             step_total=4,
-                            title="执行 Skill / 工具",
+                            title=tool_step_title,
                             stage="tools",
                             message=f"第 3 步：已补齐后续文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
@@ -533,7 +534,7 @@ async def run_p3_followup(
                     workflow_status(
                         step_index=3,
                         step_total=4,
-                        title="执行 Skill / 工具",
+                        title=tool_step_title,
                         stage="tools",
                         status="confirmation_required",
                         message="第 3 步：后续工具调用涉及修改或删除，等待确认后再执行。",

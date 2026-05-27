@@ -257,7 +257,7 @@ def workflow_plan_events(*, step_total: int = TOOL_WORKFLOW_STEP_TOTAL) -> list[
             title="判断执行方式",
             stage="planning",
             status="completed",
-            message="第 1 步：已判断这是需要调用 Skill / 工具的执行型任务。",
+            message="第 1 步：已判断这是需要读取上下文或调用工具的任务。",
         ),
         workflow_status(
             step_index=2,

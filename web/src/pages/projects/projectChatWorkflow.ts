@@ -197,6 +197,19 @@ function summarizeToolCalls(calls: ToolCallEvent[]) {
   return Array.from(byTool.values());
 }
 
+function isSkillToolCall(call: ToolCallEvent) {
+  const text = [
+    call.tool_name,
+    call.step_title || "",
+    call.message || "",
+    call.summary || "",
+    ...(call.details || []),
+  ]
+    .join("\n")
+    .toLowerCase();
+  return text.includes("skill") || call.tool_name === "generate_ppt_from_skill";
+}
+
 export function workflowStepsFromToolCalls(calls: ToolCallEvent[]): ToolCallEvent[] {
   if (!calls.length || calls.some((call) => call.step_index !== undefined && call.step_index !== null)) {
     return calls;
@@ -213,6 +226,7 @@ export function workflowStepsFromToolCalls(calls: ToolCallEvent[]): ToolCallEven
       call.tool_name,
     ),
   );
+  const toolStepTitle = summarizedCalls.some(isSkillToolCall) ? "执行 Skill / 工具" : "执行工具";
 
   return [
     {
@@ -234,7 +248,7 @@ export function workflowStepsFromToolCalls(calls: ToolCallEvent[]): ToolCallEven
       step_title: "制定执行计划",
     },
     {
-      tool_name: "执行 Skill / 工具",
+      tool_name: toolStepTitle,
       status: toolStatus,
       message:
         toolStatus === "completed"
@@ -245,7 +259,7 @@ export function workflowStepsFromToolCalls(calls: ToolCallEvent[]): ToolCallEven
       confirmation_token: summarizedCalls.find((call) => call.status === "confirmation_required")?.confirmation_token,
       step_index: 3,
       step_total: 4,
-      step_title: "执行 Skill / 工具",
+      step_title: toolStepTitle,
     },
     {
       tool_name: "整理结果与链接",
