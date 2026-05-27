@@ -377,7 +377,7 @@ async def run_p4_persist(
     full_text = state.text_buffer.strip()
     if state.follow_up_text.strip():
         full_text = (full_text + "\n\n" + state.follow_up_text.strip()).strip()
-    full_text = _strip_internal_tool_markers(full_text)
+    full_text = _strip_internal_tool_markers(full_text).strip()
 
     if not state.tool_use_blocks:
         yield sse_event({"type": "status", "stage": "finalizing", "message": "模型回复已整理完成。"})

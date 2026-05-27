@@ -171,6 +171,7 @@ export function useProjectChatComposer({
   const abortControllerAsyncRef = useRef<AbortController | null>(null);
   const activeConvIdRef = useRef<number | null>(activeConvId);
   const streamRequestSeqRef = useRef(0);
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     activeConvIdRef.current = activeConvId;
@@ -195,6 +196,8 @@ export function useProjectChatComposer({
     async (content: string, options: SendMessageOptions = {}) => {
       const trimmed = content.trim();
       if (!trimmed) return false;
+      if (sendInFlightRef.current) return false;
+      sendInFlightRef.current = true;
 
       let conversationId = activeConvId;
       const skillId = forceSkill ? selectedSkillId || undefined : undefined;
@@ -619,6 +622,7 @@ export function useProjectChatComposer({
         }
         return false;
       } finally {
+        sendInFlightRef.current = false;
         abortControllerRef.current = null;
         if (canUpdateVisibleStream(requestId, conversationId)) {
           setStreamIsLoading(false);

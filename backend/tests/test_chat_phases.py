@@ -10,6 +10,7 @@ import pytest
 
 from app.services.chat.state import ChatSessionState
 from app.services.chat.phases.p1_planning import run_p1_planning
+from app.services.chat.phases.p3_followup import run_p3_followup
 from app.services.chat_tools import ChatRuntime
 from app.services.chat.sse import sse_event, iter_with_heartbeat, await_with_heartbeat
 from app.services.chat.truncation import strip_truncation_marker, OUTPUT_TRUNCATED_MARKER
@@ -107,6 +108,35 @@ class P1PlanningTraceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(traces[0]["status"], "planned")
         self.assertEqual(traces[0]["tool_name"], "update_project_markdown_document")
         self.assertEqual(len(state.tool_use_blocks), 1)
+
+
+class P3FollowupFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_followup_after_tool_use_gets_visible_fallback(self):
+        runtime = ChatRuntime(
+            conv_id=1,
+            selected_model="m",
+            llm=FakeStreamingLlm([]),
+            system="system",
+            api_messages=[{"role": "user", "content": "给我一个提纲"}],
+            rag_sources=[],
+            tools=[{"name": "read_project_markdown_document"}],
+            max_tokens=1024,
+            temperature=0.0,
+            action_policy=ActionPolicy.READ_ONLY_TOOL,
+        )
+        state = ChatSessionState(
+            tool_use_blocks=[{"type": "tool_use", "id": "tool-1", "name": "read_project_markdown_document", "input": {}}],
+            tool_result_blocks=[{"type": "tool_result", "tool_use_id": "tool-1", "content": "{}"}],
+            p3_tool_use_blocks=[{"type": "tool_use", "id": "tool-2", "name": "read_project_markdown_document", "input": {}}],
+        )
+        req = DummyRequest(content="给我一个提纲", project_id=1)
+
+        events = []
+        async for event in run_p3_followup(runtime, req, state):
+            events.append(event)
+
+        self.assertIn("没有生成最终正文", state.follow_up_text)
+        self.assertTrue(any("没有生成最终正文" in event for event in events))
 
 
 # ---------------------------------------------------------------------------

@@ -828,8 +828,11 @@ async def run_p3_followup(
             yield sse_event({"type": "text", "content": chunk})
 
     # Empty-response fallback
-    if not follow_up_text.strip() and not p3_tool_use_blocks:
-        follow_up_text = "模型正在思考中，尚未生成最终答复。你可以尝试补充更具体的矫正要求，或稍后再试。"
+    if not follow_up_text.strip():
+        follow_up_text = (
+            "我已经读取了项目上下文，但模型没有生成最终正文。"
+            "本轮不会把空白内容当作成功结果保存；请重新发送需求，或补充你希望提纲覆盖的沟通目标。"
+        )
         yield sse_event({"type": "text", "content": follow_up_text})
 
     logger.info(f"[P3] done. follow_up_text_len={len(follow_up_text)}")

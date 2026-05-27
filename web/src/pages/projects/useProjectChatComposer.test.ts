@@ -87,4 +87,68 @@ describe("useProjectChatComposer", () => {
     expect(useChatStreamStore.getState().streamingContent).not.toContain("旧对话回复");
     expect(fetchMessages).not.toHaveBeenCalledWith(1, expect.anything());
   });
+
+  it("blocks overlapping sends while a stream is in flight", async () => {
+    let messages: Message[] = [];
+    const setMessages = vi.fn((updater: SetStateAction<Message[]>) => {
+      messages = typeof updater === "function" ? updater(messages) : updater;
+    });
+    const fetchMessages = vi.fn().mockResolvedValue(undefined);
+    const fetchConversations = vi.fn().mockResolvedValue(undefined);
+    const createConversation = vi.fn();
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const encoder = new TextEncoder();
+    const responseStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    const fetchMock = vi.spyOn(window, "fetch").mockResolvedValue(
+      new Response(responseStream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useProjectChatComposer({
+        projectId: 32,
+        activeConvId: 1,
+        selectedSkillId: null,
+        forceSkill: false,
+        knowledgeScope: "project",
+        selectedModel: "",
+        setMessages,
+        createConversation,
+        fetchMessages,
+        fetchConversations,
+        isNearBottomRef: { current: false },
+        scrollToBottom: vi.fn(),
+        onSendError: vi.fn(),
+      }),
+    );
+
+    let firstSend: Promise<boolean> = Promise.resolve(false);
+    let secondSend: Promise<boolean> = Promise.resolve(true);
+    await act(async () => {
+      firstSend = result.current.sendMessage("第一轮");
+      secondSend = result.current.sendMessage("第二轮");
+    });
+
+    await waitFor(() => {
+      expect(streamController).not.toBeNull();
+    });
+
+    await act(async () => {
+      streamController?.enqueue(encoder.encode(sse({ type: "text", content: "回答" })));
+      streamController?.enqueue(encoder.encode(sse({ type: "done", assistant_message_id: 9002 })));
+      streamController?.close();
+      await firstSend;
+    });
+
+    await expect(secondSend).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "user", content: "第一轮" });
+  });
 });
