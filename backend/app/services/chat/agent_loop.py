@@ -23,6 +23,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
@@ -54,6 +55,21 @@ _CONTINUATION_PROMPT = (
 # ----------------------------------------------------------------------
 
 
+@dataclass
+class _StreamResult:
+    """Aggregates produced while draining one LLM stream.
+
+    Events are *yielded* live by ``_consume_stream``; these fields hold the
+    end-of-turn rollup the caller needs (final text, planned tool calls,
+    extended-thinking reasoning, and whether the output was truncated).
+    """
+
+    text: str = ""
+    tool_calls: list[dict] = field(default_factory=list)
+    reasoning: str = ""
+    truncated: bool = False
+
+
 async def _consume_stream(
     runtime: ChatRuntime,
     state: ChatSessionState,
@@ -61,28 +77,15 @@ async def _consume_stream(
     *,
     step_index: int,
     stream_label: str,
-) -> tuple[str, list[dict], str, bool, list[str]]:
-    """Drain a single ``stream_response`` call into structured fields.
+    result: _StreamResult,
+) -> AsyncIterator[str]:
+    """Drain a single ``stream_response`` call, yielding SSE frames as they arrive.
 
-    Returns
-    -------
-    text : str
-        plain user-visible text concatenated from non-tool chunks
-    tool_calls : list[dict]
-        ``{"type": "tool_use", ...}`` blocks the model emitted
-    reasoning : str
-        accumulated ``reasoning_content`` payload (Claude extended thinking)
-    truncated : bool
-        True iff the stream ended with the ``[OUTPUT_TRUNCATED]`` marker
-    events : list[str]
-        SSE frames to forward to the caller (text deltas, heartbeats, etc.)
+    Text deltas, heartbeats and status frames are yielded the moment the model
+    produces them, so the frontend renders the reply progressively instead of in
+    one burst at end-of-turn. User-visible text, planned tool calls, reasoning
+    and the truncation flag are accumulated into ``result`` for the caller.
     """
-    text = ""
-    tool_calls: list[dict] = []
-    reasoning = ""
-    truncated = False
-    events: list[str] = []
-
     started_at = time.perf_counter()
 
     async for item in iter_with_heartbeat(
@@ -98,34 +101,30 @@ async def _consume_stream(
         message="模型仍在生成中，请稍候...",
     ):
         if isinstance(item, dict):
-            events.append(sse_event(item))
+            yield sse_event(item)
             continue
 
         chunk: str = item
         if not state.first_model_event_recorded:
             state.first_model_event_recorded = True
             state.stage_timings["model_first_event_ms"] = round((time.perf_counter() - started_at) * 1000)
-            events.append(
-                sse_event(
-                    {
-                        "type": "timing",
-                        "key": "model_first_event_ms",
-                        "duration_ms": state.stage_timings["model_first_event_ms"],
-                    }
-                )
+            yield sse_event(
+                {
+                    "type": "timing",
+                    "key": "model_first_event_ms",
+                    "duration_ms": state.stage_timings["model_first_event_ms"],
+                }
             )
 
         chunk, was_truncated = strip_truncation_marker(chunk)
         if was_truncated:
-            truncated = True
-            events.append(
-                sse_event(
-                    {
-                        "type": "status",
-                        "stage": "continuing",
-                        "message": "模型输出较长，已触发长度上限，正在尝试继续生成...",
-                    }
-                )
+            result.truncated = True
+            yield sse_event(
+                {
+                    "type": "status",
+                    "stage": "continuing",
+                    "message": "模型输出较长，已触发长度上限，正在尝试继续生成...",
+                }
             )
             if not chunk:
                 continue
@@ -148,7 +147,7 @@ async def _consume_stream(
                 continue
             progress = _tool_start_progress_payload(tool_name)
             if progress:
-                events.append(sse_event({"type": "tool_executing", "tool_name": tool_name, **progress}))
+                yield sse_event({"type": "tool_executing", "tool_name": tool_name, **progress})
             continue
 
         chunk = _strip_internal_tool_markers(chunk)
@@ -161,19 +160,17 @@ async def _consume_stream(
         if mixed:
             for block in mixed:
                 if _accept_tool_block(runtime, state, block, stream_label, source="text"):
-                    tool_calls.append(block)
-                    events.append(
-                        sse_event(
-                            {
-                                "type": "status",
-                                "stage": "tool_planned",
-                                "message": f"模型已规划调用工具：{block.get('name')}",
-                            }
-                        )
+                    result.tool_calls.append(block)
+                    yield sse_event(
+                        {
+                            "type": "status",
+                            "stage": "tool_planned",
+                            "message": f"模型已规划调用工具：{block.get('name')}",
+                        }
                     )
             if cleaned:
-                text += cleaned
-                events.append(sse_event({"type": "text", "content": cleaned}))
+                result.text += cleaned
+                yield sse_event({"type": "text", "content": cleaned})
             continue
 
         # Pure JSON tool_use / reasoning_content envelope
@@ -185,25 +182,21 @@ async def _consume_stream(
             if isinstance(block, dict):
                 if block.get("type") == "tool_use":
                     if _accept_tool_block(runtime, state, block, stream_label, source="json"):
-                        tool_calls.append(block)
-                        events.append(
-                            sse_event(
-                                {
-                                    "type": "status",
-                                    "stage": "tool_planned",
-                                    "message": f"模型已规划调用工具：{block.get('name')}",
-                                }
-                            )
+                        result.tool_calls.append(block)
+                        yield sse_event(
+                            {
+                                "type": "status",
+                                "stage": "tool_planned",
+                                "message": f"模型已规划调用工具：{block.get('name')}",
+                            }
                         )
                     continue
                 if block.get("type") == "reasoning_content":
-                    reasoning += str(block.get("content") or "")
+                    result.reasoning += str(block.get("content") or "")
                     continue
 
-        text += chunk
-        events.append(sse_event({"type": "text", "content": chunk}))
-
-    return text, tool_calls, reasoning, truncated, events
+        result.text += chunk
+        yield sse_event({"type": "text", "content": chunk})
 
 
 def _accept_tool_block(
@@ -319,16 +312,21 @@ async def run_agent_loop(
         state.steps.append(step)
         step_started_at = time.perf_counter()
 
-        # ---------- one LLM turn ----------
-        text, tool_calls, reasoning, truncated, events = await _consume_stream(
+        # ---------- one LLM turn (events stream out live as the model writes) ----------
+        result = _StreamResult()
+        async for ev in _consume_stream(
             runtime,
             state,
             messages,
             step_index=step_index,
             stream_label=f"step_{step_index}",
-        )
-        for ev in events:
+            result=result,
+        ):
             yield ev
+        text = result.text
+        tool_calls = result.tool_calls
+        reasoning = result.reasoning
+        truncated = result.truncated
 
         # ---------- truncation auto-continue (step 0 only, no tools emitted) ----------
         if truncated and step_index == 0 and not tool_calls and text.strip():
@@ -336,19 +334,20 @@ async def run_agent_loop(
                 {"role": "assistant", "content": text.strip()},
                 {"role": "user", "content": _CONTINUATION_PROMPT},
             ]
-            extra_text, extra_tool_calls, extra_reasoning, extra_truncated, extra_events = await _consume_stream(
+            cont_result = _StreamResult()
+            async for ev in _consume_stream(
                 runtime,
                 state,
                 cont_messages,
                 step_index=step_index,
                 stream_label=f"step_{step_index}_continuation",
-            )
-            for ev in extra_events:
+                result=cont_result,
+            ):
                 yield ev
-            text += extra_text
-            reasoning += extra_reasoning
-            tool_calls.extend(extra_tool_calls)
-            if extra_truncated:
+            text += cont_result.text
+            reasoning += cont_result.reasoning
+            tool_calls.extend(cont_result.tool_calls)
+            if cont_result.truncated:
                 yield sse_event({"type": "truncated", "can_continue": True})
                 truncated = True
             else:
