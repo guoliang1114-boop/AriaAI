@@ -11,6 +11,7 @@ import {
   BookOpen,
   LogOut,
   Settings,
+  UserRound,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
@@ -18,13 +19,48 @@ import type { User } from '../types/api'
 import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
 
+function getStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<User>
+    if (!parsed || typeof parsed !== 'object') return null
+    const displayName = typeof parsed.display_name === 'string' ? parsed.display_name.trim() : ''
+    const email = typeof parsed.email === 'string' ? parsed.email : ''
+    if (!displayName && !email) return null
+    return {
+      id: typeof parsed.id === 'number' ? parsed.id : 0,
+      email,
+      display_name: displayName || email,
+      is_admin: !!parsed.is_admin,
+      is_active: parsed.is_active !== false,
+    }
+  } catch {
+    return null
+  }
+}
+
+function getUserInitials(user: User | null) {
+  const name = user?.display_name?.trim()
+  if (!name) return ''
+  const words = name.split(/\s+/).filter(Boolean)
+  if (words.length >= 2) {
+    return words
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase()
+  }
+  return Array.from(words[0] || name).slice(0, 2).join('').toUpperCase()
+}
+
 export function Layout() {
   const { t, i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const location = useLocation()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | null>(() => getStoredUser())
   const [unreadCount, setUnreadCount] = useState(0)
   const isProjectDetailRoute = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname)
 
@@ -39,7 +75,12 @@ export function Layout() {
   ]
 
   useEffect(() => {
-    api.get<User>('/auth/me').then(setUser).catch(() => {})
+    api.get<User>('/auth/me')
+      .then((nextUser) => {
+        setUser(nextUser)
+        localStorage.setItem('user', JSON.stringify(nextUser))
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -85,14 +126,7 @@ export function Layout() {
     window.location.href = '/login'
   }
 
-  const initials = user?.display_name
-    ? user.display_name
-        .split(' ')
-        .map((word) => word[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2)
-    : 'A'
+  const initials = getUserInitials(user)
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -151,10 +185,11 @@ export function Layout() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-primary text-[11px] font-medium leading-none text-white"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-primary text-[9px] font-semibold leading-none text-white"
+                  aria-label="User menu"
                   title={user?.display_name || 'User'}
                 >
-                  {initials}
+                  {initials || <UserRound className="h-3.5 w-3.5" aria-hidden="true" />}
                 </button>
 
                 {showUserMenu && (

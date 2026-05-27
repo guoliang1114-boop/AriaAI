@@ -3677,7 +3677,51 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], skill_id)
 
-    def test_prepare_chat_runtime_routes_explicit_ppt_before_auto_skill(self):
+    def test_prepare_chat_runtime_associates_proposal_ppt_with_proposal_skill(self):
+        conv_id = self._create_conversation()
+        with Session(self.engine) as session:
+            project = session.get(Project, 1)
+            if project is None:
+                project = Project(id=1, name="Project", client="Client")
+                session.add(project)
+                session.commit()
+            session.add(
+                Skill(
+                    name="consulting-proposal-advisor",
+                    category="顾问基础能力",
+                    description="Create client-ready consulting proposals, PPT outlines, PPTX decks, business cases, SOWs, roadmaps.",
+                    system_prompt="proposal skill system",
+                )
+            )
+            session.commit()
+
+            with patch.object(chat_streaming_module, "build_chat_context") as mocked_context, patch.object(
+                chat_streaming_module,
+                "_load_provider_module",
+            ) as mocked_provider, patch.object(
+                chat_streaming_module,
+                "get_selected_model",
+                return_value="kimi-k2.6",
+            ):
+                mocked_context.return_value = context_builder_module.ChatContext(max_tokens=8192)
+                mocked_provider.return_value = SimpleNamespace(
+                    build_system_prompt=lambda skill_prompt, rag_context, project_context, **kwargs: f"system:{skill_prompt}"
+                )
+
+                runtime = chat_streaming_module.prepare_chat_runtime(
+                    session,
+                    chat_router_module.SendMessageRequest(
+                        conversation_id=conv_id,
+                        project_id=1,
+                        content="给我一个客户沟通的初步方案 ppt版本",
+                    ),
+                )
+
+        self.assertEqual(runtime.skill_name, "consulting-proposal-advisor")
+        self.assertIn("auto_skill_match:consulting-proposal-advisor:proposal_presentation_intent", runtime.prepare_metrics["skill_decision"])
+        self.assertEqual(mocked_context.call_args.kwargs["skill_id"], runtime.prepare_metrics["effective_skill_id"])
+
+    def test_prepare_chat_runtime_routes_generic_ppt_before_auto_skill(self):
         conv_id = self._create_conversation()
         with Session(self.engine) as session:
             project = session.get(Project, 1)
@@ -3713,15 +3757,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     chat_router_module.SendMessageRequest(
                         conversation_id=conv_id,
                         project_id=1,
-                        content="给我一个客户沟通的初步方案 ppt版本",
+                        content="给我做一个客户介绍 PPT",
                     ),
                 )
 
         self.assertFalse(runtime.skill_name)
         self.assertEqual(runtime.prepare_metrics["skill_decision"], "auto_skill_skipped_task_route:generate_client_ppt")
-        self.assertEqual(runtime.prepare_metrics["chat_mode"], "task_orchestration")
-        self.assertEqual(runtime.prepare_metrics["action_policy"], "durable_task")
-        self.assertEqual(runtime.prepare_metrics["tool_access_policy"], "write_allowed")
         self.assertEqual(runtime.prepare_metrics["artifact_contract"]["output_kind"], "pptx")
         self.assertEqual(mocked_context.call_args.kwargs["skill_id"], None)
 

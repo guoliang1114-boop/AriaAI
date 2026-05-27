@@ -104,8 +104,8 @@ _SKILL_ALIAS_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("office", "文档编辑"), ("office", "word", "excel", "ppt", "pptx", "docx", "xlsx", "编辑文档", "修改ppt", "更新word")),
     (("顾问式ppt", "presentation"), ("ppt", "pptx", "演示文稿", "幻灯片", "deck", "汇报材料", "路演", "客户介绍")),
     (("presentation-builder", "presentation builder"), ("ppt", "pptx", "deck", "演示文稿", "汇报材料", "项目汇报", "客户简报")),
-    (("咨询提案", "proposal"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价方案", "客户方案")),
-    (("consulting-proposal-advisor", "proposal advisor"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价", "客户方案")),
+    (("咨询提案", "proposal"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价方案", "客户方案", "方案沟通", "客户沟通", "沟通材料")),
+    (("consulting-proposal-advisor", "proposal advisor"), ("提案", "建议书", "proposal", "sow", "商业案例", "报价", "客户方案", "方案沟通", "客户沟通", "沟通材料")),
     (("数字化战略", "digital"), ("数字化战略", "数字化转型", "转型战略", "digital strategy")),
     (("digital-strategy", "digital strategy"), ("数字化战略", "数字化转型", "转型路线图", "数字化蓝图", "top-level design")),
     (("ai-strategy", "ai strategy"), ("ai战略", "ai 战略", "人工智能战略", "ai roadmap", "ai转型")),
@@ -114,6 +114,28 @@ _SKILL_ALIAS_TERMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("访谈", "interview"), ("访谈", "访谈提纲", "访谈问题", "interview guide")),
     (("会前", "brief", "meeting"), ("会前", "见客户", "客户会议准备", "客户简报", "pre-meeting", "meeting prep")),
 )
+
+
+def is_proposal_presentation_request(content: str) -> bool:
+    """Return true for proposal/client-communication requests that need a deck."""
+    text = _normalize_for_skill_match(content)
+    if not text:
+        return False
+    presentation_terms = ("ppt", "pptx", "powerpoint", "deck", "演示文稿", "幻灯片")
+    proposal_terms = (
+        "方案沟通",
+        "客户沟通",
+        "沟通方案",
+        "沟通材料",
+        "客户方案",
+        "方案建议",
+        "提案",
+        "建议书",
+        "售前方案",
+        "汇报方案",
+        "项目方案",
+    )
+    return any(term in text for term in presentation_terms) and any(term in text for term in proposal_terms)
 
 
 def skill_auto_match_score(content: str, skill: Skill) -> tuple[int, str]:
@@ -128,6 +150,12 @@ def skill_auto_match_score(content: str, skill: Skill) -> tuple[int, str]:
     haystack = _normalize_for_skill_match(
         "\n".join([skill.name or "", skill.description or "", skill.category or ""])
     )
+    if is_proposal_presentation_request(content) and any(
+        marker in haystack
+        for marker in ("consulting-proposal-advisor", "proposaladvisor", "咨询提案", "提案", "建议书")
+    ):
+        return 94, "proposal_presentation_intent"
+
     best_score = 0
     best_reason = "no_match"
 

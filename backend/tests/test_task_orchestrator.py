@@ -356,6 +356,18 @@ def test_deliverable_title_removes_excel_command_language():
     assert task_orchestrator.file_name_for_deliverable(title, "xlsx") == "东阿阿胶股份有限公司-访谈问卷.xlsx"
 
 
+def test_deliverable_title_removes_final_modal_particle():
+    title = task_orchestrator.normalize_deliverable_title(
+        content="准备一个方案沟通ppt吧",
+        explicit_title="",
+        file_type="pptx",
+        client_name="广州岭南商旅投资集团有限公司",
+    )
+
+    assert title == "广州岭南商旅投资集团有限公司-方案沟通"
+    assert "吧" not in task_orchestrator.file_name_for_deliverable(title, "pptx")
+
+
 def test_llm_router_uses_structured_plan():
     async def fake_complete(*args, **kwargs):
         return json.dumps(

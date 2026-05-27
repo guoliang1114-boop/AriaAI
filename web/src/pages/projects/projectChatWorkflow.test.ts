@@ -31,7 +31,7 @@ describe("workflowStepsFromToolCalls", () => {
     expect(steps.map((step) => step.step_title)).toEqual([
       "理解需求与上下文",
       "制定执行计划",
-      "执行 Skill / 工具",
+      "执行工具",
       "整理结果与链接",
     ]);
     expect(steps[2].details).toContain("读取项目文件：已完成。");
@@ -40,6 +40,20 @@ describe("workflowStepsFromToolCalls", () => {
       "写入项目 Markdown 文档：已完成：Created 项目背景.md；已写入项目 Markdown 文件。",
     );
     expect(JSON.stringify(steps)).not.toContain("Executing read_project_file");
+  });
+
+  it("keeps Skill wording only for actual skill tool calls", () => {
+    const calls: ToolCallEvent[] = [
+      {
+        tool_name: "generate_ppt_from_skill",
+        status: "completed",
+        message: "Skill 交付物已生成。",
+      },
+    ];
+
+    const steps = workflowStepsFromToolCalls(calls);
+
+    expect(steps[2].step_title).toBe("执行 Skill / 工具");
   });
 
   it("preserves existing workflow steps without wrapping again", () => {

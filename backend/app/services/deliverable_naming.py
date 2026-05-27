@@ -47,6 +47,7 @@ def clean_deliverable_topic(value: str) -> str:
     for pattern in cleanup_patterns:
         text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", "", text).strip("-_｜|/ ")
+    text = re.sub(r"(吧|呢|吗|嘛|呀|啦|哈|哦|啊)+$", "", text)
     generic_values = {"", "客户", "项目", "方案", "建议", "材料", "交付物", "沟通", "初稿"}
     if any(marker in text for marker in _INSTRUCTION_ONLY_MARKERS):
         return ""

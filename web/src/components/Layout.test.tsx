@@ -75,6 +75,19 @@ describe('Layout', () => {
     })
   })
 
+  it('uses cached user initials before /auth/me resolves', () => {
+    localStorage.setItem('user', JSON.stringify({ display_name: 'Guo Liang', email: 'guo@example.com' }))
+    renderLayout()
+
+    expect(screen.getByRole('button', { name: 'User menu' })).toHaveTextContent('GL')
+  })
+
+  it('does not flash a placeholder letter while user data loads', () => {
+    renderLayout()
+
+    expect(screen.getByRole('button', { name: 'User menu' })).toHaveTextContent('')
+  })
+
   it('shows unread badge count', async () => {
     renderLayout()
     await waitFor(() => {

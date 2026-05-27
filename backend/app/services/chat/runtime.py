@@ -39,7 +39,12 @@ from app.services.chat.working_memory import (
 from app.services.consulting_intelligence import ConsultingTurnFrame, build_consulting_turn_frame
 from app.services.intent_router import IntentDecision, classify_chat_intent, classify_chat_intent_async
 from app.services.policy_guards import filter_tools_for_access
-from app.services.skill_router import SkillActivationDecision, auto_select_skill, decide_skill_activation
+from app.services.skill_router import (
+    SkillActivationDecision,
+    auto_select_skill,
+    decide_skill_activation,
+    is_proposal_presentation_request,
+)
 from app.services.task_orchestrator import RULE_FIRST_OVERRIDE_CONFIDENCE, rule_based_project_task_route
 from app.services.artifact_intent import ArtifactContract
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
@@ -287,6 +292,7 @@ def _resolve_effective_skill(session: Session, req: SendMessageRequest) -> tuple
             and task_route.task_type
             and task_route.confidence >= RULE_FIRST_OVERRIDE_CONFIDENCE
             and office_output_kind in {"pptx", "xlsx", "docx", "pdf"}
+            and not is_proposal_presentation_request(req.content)
         ):
             auto_decision = SkillActivationDecision(
                 False,

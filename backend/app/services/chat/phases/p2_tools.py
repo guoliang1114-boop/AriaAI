@@ -262,13 +262,19 @@ async def run_p2_tools(
     for workflow_event in workflow_plan_events():
         yield sse_event(workflow_event)
 
+    tool_step_title = "执行 Skill / 工具" if runtime.skill_name else "执行工具"
+    tool_step_message = (
+        "第 3 步：正在执行规划好的 Skill 或工具调用。"
+        if runtime.skill_name
+        else "第 3 步：正在执行规划好的工具调用。"
+    )
     yield sse_event(
         workflow_status(
             step_index=3,
             step_total=4,
-            title="执行 Skill / 工具",
+            title=tool_step_title,
             stage="tools",
-            message="第 3 步：正在执行规划好的 Skill 或工具调用。",
+            message=tool_step_message,
         )
     )
     yield sse_event(
@@ -312,7 +318,7 @@ async def run_p2_tools(
                     workflow_status(
                         step_index=3,
                         step_total=4,
-                        title="执行 Skill / 工具",
+                        title=tool_step_title,
                         stage="tools",
                         message=f"第 3 步：已补齐 Markdown 工具参数（{'；'.join(repaired_changes)}）。",
                     )
@@ -336,7 +342,7 @@ async def run_p2_tools(
                     workflow_status(
                         step_index=3,
                         step_total=4,
-                        title="执行 Skill / 工具",
+                        title=tool_step_title,
                         stage="tools",
                         message=f"第 3 步：已补齐文件生成参数（{'；'.join(repaired_changes)}）。",
                         )
@@ -451,7 +457,7 @@ async def run_p2_tools(
                 workflow_status(
                     step_index=3,
                     step_total=4,
-                    title="执行 Skill / 工具",
+                    title=tool_step_title,
                     stage="tools",
                     status="confirmation_required",
                     message="第 3 步：该操作会修改或删除项目内容，已暂停等待确认。",
@@ -611,7 +617,7 @@ async def run_p2_tools(
                 workflow_status(
                     step_index=3,
                     step_total=4,
-                    title="执行 Skill / 工具",
+                    title=tool_step_title,
                     stage="tools",
                     message=f"第 3 步：{tool_name} 首次执行失败，正在自动重试一次。",
                 )
@@ -666,7 +672,7 @@ async def run_p2_tools(
             workflow_status(
                 step_index=3,
                 step_total=4,
-                title="执行 Skill / 工具",
+                title=tool_step_title,
                 stage="tools",
                 status="confirmation_required" if has_confirmation else "error" if has_tool_error else "completed",
                 message=(
@@ -675,7 +681,7 @@ async def run_p2_tools(
                     else
                     "第 3 步：工具执行遇到错误，正在整理可恢复信息。"
                     if has_tool_error
-                    else "第 3 步：Skill / 工具调用已完成。"
+                    else f"第 3 步：{tool_step_title}已完成。"
                 ),
             )
         )
