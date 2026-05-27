@@ -115,6 +115,16 @@ class GeneratePptFromSkillTestCase(unittest.TestCase):
         args, _ = mock_generate_ppt.call_args
         self.assertTrue(args[3])  # template_path is truthy
 
+    def test_registry_rejects_missing_required_tool_input_before_handler(self):
+        from app.tools import registry
+        import app.tools.file_generators  # noqa: F401
+
+        result = asyncio.run(registry.execute("generate_ppt_from_skill", {}))
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["error_type"], "invalid_tool_input")
+        self.assertEqual(result["missing_required"], ["skill_name", "title", "slides"])
+
 
 class GeneratePptTestCase(unittest.TestCase):
     def _call(self, **kwargs):

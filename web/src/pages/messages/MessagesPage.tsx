@@ -97,7 +97,7 @@ export function MessagesPage() {
                 <Bell className="h-3.5 w-3.5" />
                 {isZh ? '消息中心' : 'Messages'}
               </div>
-              <h1 className="text-xl font-semibold text-on-surface">
+              <h1 className="text-2xl font-semibold text-on-surface">
                 {isZh ? '查看系统通知与管理员消息' : 'System notices and admin announcements'}
               </h1>
               <p className="mt-2 text-sm text-on-surface-muted">

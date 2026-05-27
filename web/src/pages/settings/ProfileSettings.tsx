@@ -126,7 +126,7 @@ export function ProfileSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-on-surface mb-1">个人信息</h2>
+        <h2 className="text-label-lg text-on-surface mb-1">个人信息</h2>
         <p className="text-body-sm text-on-surface-muted">管理你的个人资料</p>
       </div>
 

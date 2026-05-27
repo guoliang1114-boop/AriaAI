@@ -54,7 +54,7 @@ export function SettingsLayout() {
   return (
     <>
       <PageTitle title={t('settings.title')} />
-      <div className="min-h-full bg-surface">
+      <div className="settings-ui min-h-full bg-surface">
         <div className="w-full px-4 py-4 sm:px-6 lg:px-8">
           <div className="mb-4 flex flex-col gap-2 border-b border-outline/60 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">

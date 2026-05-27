@@ -12,6 +12,7 @@ from typing import Any
 from app.tools.office_documents import WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
 
+GENERATE_PPT_FROM_SKILL_TOOL_NAME = "generate_ppt_from_skill"
 
 FORMAT_TERMS: dict[str, tuple[str, ...]] = {
     "pptx": ("ppt", "pptx", "powerpoint", "deck", "slides", "幻灯片", "演示文稿", "演示材料", "客户介绍"),
@@ -209,7 +210,9 @@ def normalize_output_kind(value: Any) -> str:
 def allowed_tools_for_output_kind(output_kind: str) -> tuple[str, ...]:
     if output_kind == "md":
         return (PROJECT_MARKDOWN_TOOL_NAME,)
-    if output_kind in {"pptx", "xlsx", "docx", "pdf"}:
+    if output_kind == "pptx":
+        return (GENERATE_PPT_FROM_SKILL_TOOL_NAME, WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME)
+    if output_kind in {"xlsx", "docx", "pdf"}:
         return (WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME,)
     return ()
 

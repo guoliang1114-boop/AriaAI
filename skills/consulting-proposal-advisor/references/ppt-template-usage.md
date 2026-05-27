@@ -20,7 +20,7 @@ Use an original neutral consulting template by default. The goal is to create a 
 When an actual editable PPTX is required inside AriaAI chat:
 
 1. Build a slide-by-slide deck plan first.
-2. Call `generate_ppt_from_skill` with `skill_name: "consulting-proposal-advisor"`, the deck title, subtitle when useful, and the complete slides array.
+2. Call `generate_ppt_from_skill` with `skill_name: "presentation-builder"`, `deck_type: "proposal"`, the deck title, subtitle when useful, and the complete slides array.
 3. Use content-rich slides with conclusion-led titles, 3-6 specific bullets, and explicit visuals or proof objects.
 4. Do not ask the user to run local scripts.
 

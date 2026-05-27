@@ -107,6 +107,181 @@ def _repair_digital_strategy_ppt_tool_input(
     return repaired
 
 
+def _is_proposal_runtime(runtime: ChatRuntime) -> bool:
+    text = f"{runtime.skill_name or ''}\n{runtime.system or ''}".lower()
+    markers = (
+        "consulting-proposal-advisor",
+        "consulting proposal",
+        "proposal advisor",
+        "方案建议",
+        "咨询提案",
+        "咨询建议",
+        "解决方案deck",
+        "解决方案 deck",
+        "客户沟通",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _infer_presentation_deck_type(runtime: ChatRuntime, source_text: str = "") -> str:
+    text = f"{runtime.skill_name or ''}\n{runtime.system or ''}\n{source_text or ''}".lower()
+    if _is_proposal_runtime(runtime) or any(
+        marker in text
+        for marker in (
+            "proposal",
+            "sow",
+            "建议书",
+            "提案",
+            "客户方案",
+            "客户沟通",
+            "方案沟通",
+            "解决方案deck",
+            "解决方案 deck",
+        )
+    ):
+        return "proposal"
+    if any(marker in text for marker in ("strategy", "战略", "转型", "路线图", "roadmap")):
+        return "strategy"
+    return "project-update"
+
+
+def _normalize_presentation_skill_input(
+    runtime: ChatRuntime,
+    repaired: dict,
+    source_text: str,
+    changes: list[str],
+) -> dict:
+    """Route non-specialized PPT calls to the stable presentation renderer."""
+    if _is_digital_strategy_runtime(runtime):
+        return repaired
+    raw_skill = str(repaired.get("skill_name") or "").strip()
+    if raw_skill and raw_skill not in {"presentation-builder", "digital-strategy"}:
+        repaired["skill_name"] = "presentation-builder"
+        changes.append(f"规范化 PPT Skill：{raw_skill} -> presentation-builder")
+    if not raw_skill:
+        repaired["skill_name"] = "presentation-builder"
+        changes.append("补齐 PPT Skill：presentation-builder")
+    if repaired.get("skill_name") == "presentation-builder" and not str(repaired.get("deck_type") or "").strip():
+        deck_type = _infer_presentation_deck_type(runtime, source_text)
+        repaired["deck_type"] = deck_type
+        changes.append(f"补齐 deck_type：{deck_type}")
+    if repaired.get("skill_name") == "presentation-builder" and not str(repaired.get("template_key") or "").strip():
+        repaired["template_key"] = "digital-strategy"
+    return repaired
+
+
+def _infer_deck_title(source_text: str, default: str = "客户沟通方案 Deck") -> str:
+    lines = [line.strip(" #\t\r\n") for line in (source_text or "").splitlines()]
+    for line in lines[:16]:
+        cleaned = _clean_slide_line(line)
+        if 4 <= len(cleaned) <= 42 and not cleaned.startswith(("工具", "第 ", "步骤")):
+            return cleaned
+    return default
+
+
+def _build_proposal_slides_from_text(source_text: str) -> tuple[str, list[dict]]:
+    title = _infer_deck_title(source_text)
+    lines = [_clean_slide_line(line) for line in (source_text or "").splitlines()]
+    lines = [line for line in lines if line]
+    source_bullets = lines[:5] or [
+        "对齐客户沟通目标、决策议题与本次会议期望产出",
+        "基于项目材料梳理当前进展、关键事实和待确认问题",
+        "形成可直接用于客户沟通的议程、话术和下一步行动",
+    ]
+    source_content = "\n".join(f"- {line[:150]}" for line in source_bullets)
+    slides = [
+        {
+            "type": "content",
+            "title": "沟通目标与会议产出",
+            "content": (
+                "- 明确本次客户沟通要达成的共识、决策或授权\n"
+                "- 将项目背景、当前进展和客户关注点压缩成可讨论议题\n"
+                "- 输出会后可跟进的行动项、责任人和时间节点"
+            ),
+        },
+        {
+            "type": "content",
+            "title": "已知信息与客户关注点",
+            "content": source_content,
+        },
+        {
+            "type": "content",
+            "title": "建议沟通提纲",
+            "content": (
+                "- 开场：确认会议目标、参会角色和决策范围\n"
+                "- 背景：回顾客户诉求、项目现状和关键约束\n"
+                "- 方案：展示建议路径、优先级和预期价值\n"
+                "- 对齐：确认客户反馈、风险顾虑和需要补充的材料"
+            ),
+        },
+        {
+            "type": "roadmap",
+            "title": "会后推进路径",
+            "content": (
+                "- 会后 24 小时内：整理会议纪要和待确认事项\n"
+                "- 1 周内：补齐客户关切材料并提交方案版本\n"
+                "- 2-3 周内：对齐实施范围、里程碑和资源安排"
+            ),
+        },
+        {
+            "type": "next_steps",
+            "title": "下一步行动",
+            "content": (
+                "- 确认客户侧参会人、决策人和关键影响人\n"
+                "- 明确本次 deck 需要回答的 3-5 个核心问题\n"
+                "- 准备可量化价值、实施节奏和风险应对材料"
+            ),
+        },
+    ]
+    return title, slides
+
+
+def _repair_skill_ppt_tool_input(
+    runtime: ChatRuntime,
+    tool_name: str,
+    tool_input: dict,
+    source_text: str,
+    force_rebuild: bool = False,
+) -> tuple[dict, list[str]]:
+    """Fill required PPT Skill args when the model emitted an incomplete call."""
+    if tool_name != "generate_ppt_from_skill":
+        return tool_input, []
+
+    repaired = dict(tool_input or {})
+    changes: list[str] = []
+    slides = repaired.get("slides")
+    needs_title = not str(repaired.get("title") or "").strip()
+    needs_slides = force_rebuild or not isinstance(slides, list) or not slides
+
+    if _is_digital_strategy_runtime(runtime):
+        before = dict(repaired)
+        repaired = _repair_digital_strategy_ppt_tool_input(
+            runtime,
+            tool_name,
+            repaired,
+            source_text,
+            force_rebuild=force_rebuild,
+        )
+        if repaired != before:
+            changes.append("补齐数字化战略 PPT 必填参数")
+        return repaired, changes
+
+    repaired = _normalize_presentation_skill_input(runtime, repaired, source_text, changes)
+    if not (needs_title or needs_slides):
+        return repaired, changes
+
+    fallback_title, fallback_slides = _build_proposal_slides_from_text(source_text)
+    if needs_title:
+        repaired["title"] = fallback_title
+        changes.append(f"补齐 PPT 标题：{fallback_title}")
+    if needs_slides:
+        repaired["slides"] = fallback_slides
+        changes.append("补齐 PPT 页面结构")
+    if not str(repaired.get("subtitle") or "").strip():
+        repaired["subtitle"] = "客户沟通材料草案" if _is_proposal_runtime(runtime) else "Generated from chat context"
+    return repaired, changes
+
+
 def _clean_slide_line(line: str) -> str:
     cleaned = line.strip()
     cleaned = cleaned.lstrip("-*\u2022 ").strip()

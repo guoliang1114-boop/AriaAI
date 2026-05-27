@@ -87,7 +87,7 @@ export function MigrationSettings() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-on-surface">{isZh ? '数据库迁移状态' : 'Database Migrations'}</h2>
+          <h2 className="text-xl font-semibold text-on-surface">{isZh ? '数据库迁移状态' : 'Database Migrations'}</h2>
           <p className="mt-1 text-sm text-on-surface-muted">
             {isZh
               ? '只读查看当前数据库迁移治理状态，用于部署后校验和数据库类失败排查。'
@@ -120,7 +120,7 @@ export function MigrationSettings() {
             {healthy ? <CheckCircle2 className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
           </div>
           <div>
-            <div className="text-base font-semibold text-on-surface">
+            <div className="text-lg font-semibold text-on-surface">
               {healthy ? (isZh ? '迁移状态正常' : 'Migrations are healthy') : isZh ? '需要关注迁移状态' : 'Migration state needs attention'}
             </div>
             <p className="mt-1 text-sm leading-6 text-on-surface-muted">

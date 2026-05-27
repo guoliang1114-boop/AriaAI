@@ -19,7 +19,7 @@ Use conclusion-led section titles whenever drafting a proposal or PPT. A title s
 
 For PowerPoint deliverables, use an original neutral consulting template by default unless the user explicitly provides a template to follow. Do not use raw reference decks as generation starting points. Read `references/ppt-template-usage.md` before creating or editing PPT deliverables.
 
-When running inside AriaAI chat, create actual PPTX files by calling `generate_ppt_from_skill` with `skill_name: "consulting-proposal-advisor"` after the deck plan is complete. The local scripts in this package are for offline Codex use; do not ask the chat user to run them.
+When running inside AriaAI chat, create actual PPTX files by calling `generate_ppt_from_skill` with `skill_name: "presentation-builder"` and `deck_type: "proposal"` after the deck plan is complete. This Skill owns the consulting logic; `presentation-builder` owns the PPT rendering contract. The local scripts in this package are for offline Codex use; do not ask the chat user to run them.
 
 ## Intake
 
@@ -57,7 +57,7 @@ Choose the output mode before writing:
 
 - If the user asks for thinking, strategy, proposal content, or direction, produce a structured consulting memo or full proposal outline first.
 - If the user asks for a PPT outline, produce slide-by-slide content with titles, key messages, visuals, and speaker notes.
-- If the user asks for an actual PPTX, create an editable deck using an original neutral consulting template; in AriaAI chat, call `generate_ppt_from_skill` with `skill_name: "consulting-proposal-advisor"` and a content-rich slide plan.
+- If the user asks for an actual PPTX, create an editable deck using an original neutral consulting template; in AriaAI chat, call `generate_ppt_from_skill` with `skill_name: "presentation-builder"`, `deck_type: "proposal"`, and a content-rich slide plan.
 - If the user provides a reference deck, use it for inspiration only unless the user explicitly says to use it as a template. Never broad-replace over a reference deck.
 - If the user provides a template and explicitly asks to use it, first sanitize or create a clean skeleton, then build from that skeleton.
 

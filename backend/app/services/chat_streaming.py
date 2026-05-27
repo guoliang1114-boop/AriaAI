@@ -115,6 +115,7 @@ from app.services.chat_artifacts import (
     _is_digital_strategy_runtime,
     _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
+    _repair_skill_ppt_tool_input,
     _route_ppt_tool_for_skill,
 )
 

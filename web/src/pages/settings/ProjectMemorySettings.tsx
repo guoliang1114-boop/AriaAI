@@ -444,7 +444,7 @@ export function ProjectMemorySettings() {
               <Brain className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-on-surface">
+              <h2 className="text-xl font-semibold text-on-surface">
                 {isZh ? '项目记忆管理' : 'Project Memory Manager'}
               </h2>
               <p className="mt-1 text-sm text-on-surface-muted">

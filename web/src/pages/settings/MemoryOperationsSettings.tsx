@@ -915,7 +915,7 @@ export function MemoryOperationsSettings() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-on-surface">{isZh ? '记忆任务中心' : 'Memory Operations'}</h2>
+          <h2 className="text-xl font-semibold text-on-surface">{isZh ? '记忆任务中心' : 'Memory Operations'}</h2>
           <p className="mt-1 text-sm text-on-surface-muted">
             {isZh
               ? '统一查看项目与客户记忆的重建、摘要预热、重试和失败情况。'

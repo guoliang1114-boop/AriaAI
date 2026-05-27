@@ -183,7 +183,8 @@ class SkillsCrudTestCase(unittest.TestCase):
         self.assertEqual(skill.category, "顾问基础能力")
         self.assertIn("Consulting Proposal Advisor", skill.system_prompt)
         self.assertIn("Bundled Reference: proposal-structure.md", skill.system_prompt)
-        self.assertIn('skill_name: "consulting-proposal-advisor"', skill.system_prompt)
+        self.assertIn('skill_name: "presentation-builder"', skill.system_prompt)
+        self.assertIn('deck_type: "proposal"', skill.system_prompt)
         self.assertIn("客户可审阅", skill.user_template)
         self.assertEqual(skill.max_tokens, 32768)
         self.assertEqual(

@@ -1725,22 +1725,6 @@ GSTACK_PRO_SKILLS = [
         "tools": [],
     },
     {
-        "name": "审计差异与调整汇总",
-        "category": "审计与鉴证",
-        "description": "汇总审计过程中发现的错报、调整分录和未更正差异，生成审计调整汇总表和管理层沟通函要点。",
-        "system_prompt": _load_skill_package_prompt("audit-adjustments-summary"),
-        "user_template": (
-            "请汇总以下审计差异并生成调整汇总表。\n\n"
-            "客户名称：\n"
-            "审计期间：\n"
-            "已发现的错报清单（科目、金额、原因）：\n\n"
-            "未更正差异及原因（如有）："
-        ),
-        "estimated_time": "~10 min",
-        "max_tokens": 8192,
-        "tools": [],
-    },
-    {
         "name": "审计报告草案生成",
         "category": "审计与鉴证",
         "description": "基于 ISA 700/701/706 标准，生成审计报告草案（无保留/保留/否定/无法表示意见），附关键审计事项（KAM）和持续经营评估。",
@@ -1807,22 +1791,6 @@ GSTACK_PRO_SKILLS = [
         ),
         "estimated_time": "~15 min",
         "max_tokens": 12288,
-        "tools": [],
-    },
-    {
-        "name": "内审发现与整改追踪",
-        "category": "审计与鉴证",
-        "description": "结构化记录内部审计发现（CCCE框架）、风险评级、整改建议、责任人和跟踪机制，生成审计发现报告。",
-        "system_prompt": _load_skill_package_prompt("internal-audit-findings"),
-        "user_template": (
-            "请整理以下内审发现并生成整改追踪报告。\n\n"
-            "审计项目名称：\n"
-            "审计期间：\n"
-            "发现清单（条件/原因/后果/证据）：\n\n"
-            "管理层已承诺的整改措施（如有）："
-        ),
-        "estimated_time": "~12 min",
-        "max_tokens": 8192,
         "tools": [],
     },
     # ── 审计与鉴证：内部控制鉴证 ──────────────────────────────────────────────

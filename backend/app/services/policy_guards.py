@@ -20,6 +20,8 @@ from app.tools.office_documents import (
 )
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME, READ_MARKDOWN_TOOL_NAME
 
+PPT_GENERATION_TOOL_NAMES = {"generate_ppt", "generate_ppt_from_skill"}
+
 
 class PolicyRank(IntEnum):
     DIRECT_ANSWER = 0
@@ -530,6 +532,8 @@ def _required_policy_for_tool(tool_name: str, tool_input: dict[str, Any] | None 
             return ActionPolicy.MODIFY_EXISTING_FILE
         return ActionPolicy.WRITE_ARTIFACT
     if tool_name == WRITE_PROJECT_OFFICE_DOCUMENT_TOOL_NAME:
+        return ActionPolicy.WRITE_ARTIFACT
+    if tool_name in PPT_GENERATION_TOOL_NAMES:
         return ActionPolicy.WRITE_ARTIFACT
     if tool_name == MANAGE_PROJECT_FOLDERS_TOOL_NAME:
         action = str(tool_input.get("action") or "").lower()

@@ -20,6 +20,7 @@ from app.services.chat_streaming import (
     _is_standalone_fast_path,
     _looks_like_digital_strategy_tool_input,
     _repair_digital_strategy_ppt_tool_input,
+    _repair_skill_ppt_tool_input,
     _repair_project_office_tool_input,
     _resolve_runtime_model_and_tokens,
     _route_ppt_tool_for_skill,
@@ -518,6 +519,16 @@ class ChatModeActionPolicyTests(unittest.TestCase):
         self.assertTrue(allowed)
         self.assertEqual(required, ActionPolicy.WRITE_ARTIFACT)
 
+    def test_ppt_generation_tool_requires_write_policy(self):
+        allowed, reason, required = policy_allows_tool(
+            ActionPolicy.READ_ONLY_TOOL,
+            "generate_ppt_from_skill",
+            {"skill_name": "presentation-builder", "title": "Deck", "slides": []},
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(required, ActionPolicy.WRITE_ARTIFACT)
+        self.assertIn("policy_blocked", reason)
+
     def test_excel_how_to_question_stays_read_only(self):
         decision = classify_chat_mode_and_policy("如何写 Excel 公式？", project_id=26)
         self.assertEqual(decision.action_policy, ActionPolicy.READ_ONLY_TOOL)
@@ -865,6 +876,87 @@ class RepairDigitalStrategyPptToolInputTests(unittest.TestCase):
         inp = {"title": "T"}
         result = _repair_digital_strategy_ppt_tool_input(runtime, "generate_ppt_from_skill", inp, "text")
         self.assertEqual(result.get("subtitle"), "Generated from the digital strategy response")
+
+
+class RepairSkillPptToolInputTests(unittest.TestCase):
+    def test_repairs_empty_proposal_skill_ppt_call(self):
+        runtime = ChatRuntime(
+            conv_id=1,
+            selected_model="m",
+            llm=None,
+            system="consulting-proposal-advisor 客户沟通方案建议",
+            api_messages=[],
+            rag_sources=[],
+            tools=None,
+            max_tokens=1,
+            temperature=0.0,
+            skill_name="咨询提案顾问",
+        )
+
+        result, changes = _repair_skill_ppt_tool_input(
+            runtime,
+            "generate_ppt_from_skill",
+            {},
+            "给我准备一个解决方案deck，我要和客户沟通。",
+        )
+
+        self.assertEqual(result["skill_name"], "presentation-builder")
+        self.assertEqual(result["deck_type"], "proposal")
+        self.assertEqual(result["template_key"], "digital-strategy")
+        self.assertTrue(result["title"])
+        self.assertGreaterEqual(len(result["slides"]), 4)
+        self.assertIn("补齐 PPT 页面结构", changes)
+
+    def test_leaves_complete_ppt_call_unchanged(self):
+        runtime = ChatRuntime(
+            conv_id=1,
+            selected_model="m",
+            llm=None,
+            system="general",
+            api_messages=[],
+            rag_sources=[],
+            tools=None,
+            max_tokens=1,
+            temperature=0.0,
+        )
+        inp = {
+            "skill_name": "presentation-builder",
+            "deck_type": "project-update",
+            "template_key": "digital-strategy",
+            "title": "T",
+            "slides": [{"type": "content", "title": "A"}],
+        }
+
+        result, changes = _repair_skill_ppt_tool_input(runtime, "generate_ppt_from_skill", inp, "text")
+
+        self.assertEqual(result, inp)
+        self.assertEqual(changes, [])
+
+    def test_normalizes_complete_consulting_skill_call_to_presentation_builder(self):
+        runtime = ChatRuntime(
+            conv_id=1,
+            selected_model="m",
+            llm=None,
+            system="consulting-proposal-advisor",
+            api_messages=[],
+            rag_sources=[],
+            tools=None,
+            max_tokens=1,
+            temperature=0.0,
+            skill_name="consulting-proposal-advisor",
+        )
+        inp = {
+            "skill_name": "consulting-proposal-advisor",
+            "title": "客户方案",
+            "slides": [{"type": "content", "title": "A", "content": "- B"}],
+        }
+
+        result, changes = _repair_skill_ppt_tool_input(runtime, "generate_ppt_from_skill", inp, "客户沟通")
+
+        self.assertEqual(result["skill_name"], "presentation-builder")
+        self.assertEqual(result["deck_type"], "proposal")
+        self.assertEqual(result["template_key"], "digital-strategy")
+        self.assertIn("规范化 PPT Skill：consulting-proposal-advisor -> presentation-builder", changes)
 
 
 class CleanSlideLineTests(unittest.TestCase):

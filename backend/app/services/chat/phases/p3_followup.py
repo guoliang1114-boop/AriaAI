@@ -23,6 +23,7 @@ from app.services.policy_guards import policy_allows_tool
 from app.services.chat_artifacts import (
     _extract_artifact,
     _repair_digital_strategy_ppt_tool_input,
+    _repair_skill_ppt_tool_input,
     _route_ppt_tool_for_skill,
 )
 from app.services.chat.state import ChatSessionState
@@ -377,6 +378,29 @@ async def run_p3_followup(
             tool_input = _repair_digital_strategy_ppt_tool_input(
                 runtime, tool_name, tool_input, follow_up_text, force_rebuild=p3_truncated
             )
+            tool_input, ppt_repaired_changes = _repair_skill_ppt_tool_input(
+                runtime,
+                tool_name,
+                tool_input,
+                f"{req.content}\n\n{follow_up_text}",
+                force_rebuild=p3_truncated,
+            )
+            if ppt_repaired_changes:
+                state.record_trace_event(
+                    "tool_input_repaired",
+                    stage="p3",
+                    tool_name=tool_name,
+                    changes=ppt_repaired_changes,
+                )
+                yield sse_event(
+                    workflow_status(
+                        step_index=3,
+                        step_total=4,
+                        title=tool_step_title,
+                        stage="tools",
+                        message=f"第 3 步：已补齐后续 PPT 生成参数（{'；'.join(ppt_repaired_changes)}）。",
+                    )
+                )
             if tool_name in _PROJECT_MARKDOWN_TOOLS and runtime.project_id is not None:
                 tool_input = {**tool_input, "project_id": runtime.project_id}
                 tool_input, repaired_changes = _repair_project_markdown_tool_input(tool_name, tool_input)

@@ -20,8 +20,13 @@ from sqlmodel import Session, select
 from app.routers.chat_schemas import SendMessageRequest
 from app.config import UPLOADS_DIR
 from app.services.artifact_intent import ArtifactContract
-from app.services.chat_tools import ChatRuntime, _build_completed_skill_progress, _strip_internal_tool_markers
-from app.services.chat_artifacts import _build_artifact_notice
+from app.services.chat_tools import (
+    ChatRuntime,
+    _build_completed_skill_progress,
+    _strip_internal_tool_markers,
+    _summarize_tool_result,
+)
+from app.services.chat_artifacts import _build_artifact_notice, _extract_artifact, _repair_skill_ppt_tool_input
 from app.models.db import PendingToolAction
 from app.services.chat.mode_registry import ActionPolicy
 from app.services.chat.pending_actions import build_project_file_cleanup_pending_action
@@ -35,6 +40,7 @@ from app.services.chat.sse import sse_event
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status
 from app.services.title_generator import schedule_title_generation
+from app.tools import registry
 from app.tools.office_documents import MANAGE_PROJECT_FILES_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -90,6 +96,7 @@ _MUTATING_TOOL_NAMES = {
     "generate_xlsx",
     "generate_pdf",
 }
+_PPT_GENERATION_TOOL_NAME = "generate_ppt_from_skill"
 
 
 def _runtime_artifact_contract(runtime: ChatRuntime) -> ArtifactContract | None:
@@ -122,12 +129,159 @@ def _delivery_satisfied(state: ChatSessionState, contract: ArtifactContract | No
     return False
 
 
-def _delivery_failure_message(contract: ArtifactContract) -> str:
+def _tool_failure_detail_for_user(state: ChatSessionState) -> str:
+    errors: list[str] = []
+    for event in reversed(state.tool_call_events):
+        if str(event.get("status") or "").lower() != "error":
+            continue
+        raw_error = str(event.get("error") or event.get("summary") or event.get("message") or "").strip()
+        tool_name = str(event.get("tool_name") or "").strip()
+        if not raw_error:
+            continue
+        if (
+            ("generate_ppt_from_skill()" in raw_error and "missing" in raw_error)
+            or ("missing required tool input" in raw_error.lower() and tool_name == _PPT_GENERATION_TOOL_NAME)
+            or (
+                str(event.get("error_type") or "") == "invalid_tool_input"
+                and tool_name == _PPT_GENERATION_TOOL_NAME
+            )
+        ):
+            return (
+                "PPT 生成工具调用参数不完整，缺少 Skill、标题或页面结构参数。"
+                "系统已记录具体工具错误，后续会自动尝试补齐后再执行。"
+            )
+        if "template not found" in raw_error:
+            return "PPT 模板文件未找到，生成流程已停止以避免输出空白或低质量 deck。"
+        if tool_name:
+            errors.append(f"{tool_name}: {raw_error}")
+        else:
+            errors.append(raw_error)
+    if not errors:
+        return ""
+    detail = errors[0]
+    if len(detail) > 180:
+        detail = f"{detail[:177]}..."
+    return detail
+
+
+def _delivery_failure_message(contract: ArtifactContract, state: ChatSessionState | None = None) -> str:
     kind = (contract.output_kind or "文件").upper()
-    return (
+    message = (
         f"抱歉，这次没有成功生成 {kind} 文件，因此我不会把正文文本当作交付物完成。\n\n"
         "请重试一次，或切换模型后再试；系统会保留这次失败记录，便于排查具体原因。"
     )
+    if state is not None:
+        detail = _tool_failure_detail_for_user(state)
+        if detail:
+            message = f"{message}\n\n失败原因：{detail}"
+    return message
+
+
+def _tool_result_failed(result: dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return True
+    output = result.get("output") if isinstance(result.get("output"), dict) else {}
+    return (
+        result.get("status") == "error"
+        or result.get("success") is False
+        or bool(result.get("error"))
+        or output.get("success") is False
+        or bool(output.get("error"))
+    )
+
+
+def _remove_stale_ppt_failure_text(full_text: str) -> str:
+    if "没有成功生成" not in full_text and "未能生成" not in full_text:
+        return full_text
+    cleaned = re.sub(
+        r"抱歉[^\n]*(?:没有成功生成|未能生成)[^\n]*(?:PPTX|PPT|deck|幻灯片|演示文稿)[^\n]*"
+        r"(?:\n\n请重试[^\n]*)?",
+        "",
+        full_text,
+        flags=re.IGNORECASE,
+    ).strip()
+    return cleaned or full_text
+
+
+async def _maybe_generate_missing_ppt_artifact(
+    runtime: ChatRuntime,
+    req: SendMessageRequest,
+    state: ChatSessionState,
+    full_text: str,
+    contract: ArtifactContract | None,
+) -> bool:
+    if not contract or (contract.output_kind or "").lower() != "pptx":
+        return False
+    if _delivery_satisfied(state, contract) or state.confirmation_requested:
+        return False
+
+    seed_input = {
+        "skill_name": "presentation-builder",
+        "template_key": "digital-strategy",
+        "title": contract.title or "",
+        "slides": [],
+    }
+    tool_input, repaired_changes = _repair_skill_ppt_tool_input(
+        runtime,
+        _PPT_GENERATION_TOOL_NAME,
+        seed_input,
+        f"{req.content}\n\n{full_text}",
+        force_rebuild=True,
+    )
+    state.record_trace_event(
+        "deterministic_ppt_fallback_attempt",
+        stage="p4",
+        tool_name=_PPT_GENERATION_TOOL_NAME,
+        changes=repaired_changes,
+        output_kind=contract.output_kind,
+        title=tool_input.get("title"),
+    )
+
+    started_at = time.perf_counter()
+    result = await registry.execute(_PPT_GENERATION_TOOL_NAME, tool_input)
+    duration_ms = round((time.perf_counter() - started_at) * 1000)
+    failed = _tool_result_failed(result)
+    output = result.get("output", result) if isinstance(result, dict) else {}
+    error = ""
+    if isinstance(output, dict):
+        error = str(result.get("error") or output.get("error") or "")
+    elif isinstance(result, dict):
+        error = str(result.get("error") or "")
+
+    event: dict[str, Any] = {
+        "tool_name": _PPT_GENERATION_TOOL_NAME,
+        "status": "error" if failed else "completed",
+        "message": "已自动补齐 PPT 生成参数并执行。" if not failed else "自动补齐 PPT 生成参数后仍执行失败。",
+        "summary": _summarize_tool_result(result) if isinstance(result, dict) else "PPT fallback failed",
+        "duration_ms": duration_ms,
+        "source": "deterministic_ppt_fallback",
+    }
+    if error:
+        event["error"] = error
+    if isinstance(result, dict):
+        event["output"] = output
+    state.tool_call_events.append(event)
+
+    artifact = _extract_artifact(result) if isinstance(result, dict) else None
+    if artifact:
+        state.artifacts.append(artifact)
+        state.record_trace_event(
+            "deterministic_ppt_fallback_succeeded",
+            stage="p4",
+            tool_name=_PPT_GENERATION_TOOL_NAME,
+            artifact=artifact,
+            duration_ms=duration_ms,
+        )
+        return True
+
+    state.record_trace_event(
+        "deterministic_ppt_fallback_failed",
+        stage="p4",
+        tool_name=_PPT_GENERATION_TOOL_NAME,
+        error=error,
+        duration_ms=duration_ms,
+    )
+    return False
 
 
 def _contract_to_metadata(contract: ArtifactContract | None) -> dict[str, Any] | None:
@@ -406,11 +560,17 @@ async def run_p4_persist(
     yield sse_event({"type": "status", "stage": "saving", "message": "正在保存本次回复..."})
     save_started_at = time.perf_counter()
 
+    artifact_contract = _runtime_artifact_contract(runtime)
+    if artifact_contract and (artifact_contract.output_kind or "").lower() == "pptx" and not _delivery_satisfied(state, artifact_contract):
+        yield sse_event({"type": "status", "stage": "tools", "message": "正在补齐 PPT 生成参数并尝试生成交付文件..."})
+        generated = await _maybe_generate_missing_ppt_artifact(runtime, req, state, full_text, artifact_contract)
+        if generated:
+            full_text = _remove_stale_ppt_failure_text(full_text)
+            yield sse_event({"type": "status", "stage": "tools", "message": "PPT 交付文件已补齐生成，正在保存链接..."})
+
     # Persist artifacts
     if state.artifacts:
         state.artifacts = persist_generated_artifacts(bind, runtime.conv_id, state.artifacts, req.project_id)
-
-    artifact_contract = _runtime_artifact_contract(runtime)
 
     # Build artifact notice
     artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""
@@ -489,7 +649,7 @@ async def run_p4_persist(
     delivery_failed = False
     if artifact_contract and not _delivery_satisfied(state, artifact_contract):
         delivery_failed = True
-        failure_message = _delivery_failure_message(artifact_contract)
+        failure_message = _delivery_failure_message(artifact_contract, state)
         full_text = f"{full_text}\n\n{failure_message}".strip() if full_text else failure_message
         state.record_trace_event(
             "artifact_delivery_failed",

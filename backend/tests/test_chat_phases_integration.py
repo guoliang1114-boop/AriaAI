@@ -462,6 +462,112 @@ class ChatPhaseIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(persisted_metadata["artifact_contract"]["output_kind"], "xlsx")
         self.assertTrue(any(item["type"] == "artifact_delivery_failed" for item in state.trace_events))
 
+    async def test_p4_artifact_contract_failure_includes_tool_error_detail(self):
+        """P4 adds a user-friendly reason when the PPT tool failed before delivery."""
+        state = ChatSessionState()
+        state.text_buffer = ""
+        state.follow_up_text = ""
+        state.tool_call_events = [
+            {
+                "tool_name": "generate_ppt_from_skill",
+                "status": "error",
+                "error": (
+                    "generate_ppt_from_skill() missing 3 required positional arguments: "
+                    "'skill_name', 'title', and 'slides'"
+                ),
+            }
+        ]
+        state.stage_timings = {}
+
+        self.runtime.rag_sources = None
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="pptx",
+            title="客户沟通 Deck",
+            allowed_tools=("generate_ppt_from_skill",),
+            confidence=0.9,
+            reason="test",
+            source="llm_router",
+        )
+
+        tool_error = {
+            "type": "tool_result",
+            "tool_name": "generate_ppt_from_skill",
+            "status": "error",
+            "error": "generate_ppt_from_skill() missing required input",
+        }
+
+        with patch("app.services.chat.phases.p4_persist.registry.execute", new=AsyncMock(return_value=tool_error)), \
+             patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = []
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        self.assertIn("没有成功生成 PPTX 文件", state.full_text)
+        self.assertIn("失败原因：PPT 生成工具调用参数不完整", state.full_text)
+
+    async def test_p4_generates_missing_ppt_artifact_before_failure(self):
+        """P4 deterministically recovers when a PPT contract exists but the model skipped generation."""
+        state = ChatSessionState()
+        state.text_buffer = "客户沟通提纲\n- 对齐目标\n- 明确下一步"
+        state.follow_up_text = ""
+        state.tool_call_events = []
+        state.stage_timings = {}
+
+        self.runtime.rag_sources = None
+        self.runtime.skill_name = "咨询提案顾问"
+        self.runtime.artifact_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="pptx",
+            title="客户沟通 Deck",
+            allowed_tools=("generate_ppt_from_skill",),
+            confidence=0.9,
+            reason="test",
+            source="llm_router",
+        )
+
+        tool_result = {
+            "type": "tool_result",
+            "tool_name": "generate_ppt_from_skill",
+            "status": "success",
+            "output": {
+                "success": True,
+                "file_name": "client_deck.pptx",
+                "file_type": "pptx",
+                "file_path": "generated/client_deck.pptx",
+            },
+        }
+        persisted_artifacts = [
+            {
+                "id": 10,
+                "name": "client_deck.pptx",
+                "file_type": "pptx",
+                "path": "generated/client_deck.pptx",
+            }
+        ]
+
+        with patch("app.services.chat.phases.p4_persist.registry.execute", new=AsyncMock(return_value=tool_result)) as mock_execute, \
+             patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+            mock_persist.return_value = (False, 42)
+            mock_artifacts.return_value = persisted_artifacts
+
+            async for _ in run_p4_persist(self.runtime, self.req, self.bind, state):
+                pass
+
+        mock_execute.assert_awaited_once()
+        _, tool_input = mock_execute.await_args.args
+        self.assertEqual(tool_input["skill_name"], "presentation-builder")
+        self.assertEqual(tool_input["deck_type"], "proposal")
+        self.assertTrue(tool_input["slides"])
+        self.assertIn("已生成附件：client_deck.pptx", state.full_text)
+        persisted_metadata = mock_persist.call_args.args[4]
+        self.assertNotIn("delivery_failed", persisted_metadata)
+        self.assertEqual(persisted_metadata["artifacts"][0]["name"], "client_deck.pptx")
+
     async def test_p4_artifact_contract_satisfied_by_artifact(self):
         """P4 treats a persisted artifact as satisfying the contract."""
         state = ChatSessionState()

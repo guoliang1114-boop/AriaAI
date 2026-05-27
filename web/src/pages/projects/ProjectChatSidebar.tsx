@@ -28,19 +28,25 @@ import { ProjectSpaceFileIcon } from "./ProjectNotesFolderTree";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-function formatTime(dateStr: string, timeZone?: string) {
-  const d = new Date(dateStr);
-  const now = new Date();
+export function formatProjectConversationTime(
+  dateStr: string,
+  timeZone?: string,
+  now = new Date(),
+) {
   const todayKey = formatDatePartsKey(now, timeZone);
-  const targetKey = formatDatePartsKey(d, timeZone);
+  const targetKey = formatDatePartsKey(dateStr, timeZone);
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   const yesterdayKey = formatDatePartsKey(yesterday, timeZone);
   if (todayKey === targetKey)
-    return formatTimeOnly(d, { hour: "2-digit", minute: "2-digit" }, timeZone);
+    return formatTimeOnly(
+      dateStr,
+      { hour: "2-digit", minute: "2-digit", hour12: false },
+      timeZone,
+    );
   if (yesterdayKey === targetKey) return "昨天";
   return formatDateOnly(
-    d,
+    dateStr,
     { year: "numeric", month: "2-digit", day: "2-digit" },
     timeZone,
   );
@@ -466,7 +472,7 @@ export function ProjectChatSidebar({
                               {conversation.title || copy.defaultNewChatTitle}
                             </p>
                             <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
-                              {formatTime(
+                              {formatProjectConversationTime(
                                 conversation.updated_at,
                                 resolvedTimeZone,
                               )}
@@ -551,7 +557,7 @@ export function ProjectChatSidebar({
                                 </p>
                               )}
                               <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
-                                {formatTime(
+                                {formatProjectConversationTime(
                                   conversation.updated_at,
                                   resolvedTimeZone,
                                 )}

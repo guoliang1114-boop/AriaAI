@@ -1353,3 +1353,36 @@ samp {
 .project-ui h4 {
   letter-spacing: 0;
 }
+
+/* Settings pages — slightly tighter than default Tailwind but not as dense as project-ui. */
+.settings-ui {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.settings-ui .text-sm {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.settings-ui .text-base {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.settings-ui .text-lg {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.settings-ui .text-xl {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.settings-ui h1,
+.settings-ui h2,
+.settings-ui h3,
+.settings-ui h4 {
+  letter-spacing: 0;
+}

@@ -257,7 +257,7 @@ export function ApiLimitsSettings() {
               <ShieldAlert className="h-4 w-4" />
               {isZh ? 'API 健康观察' : 'API health monitor'}
             </div>
-            <h2 className="mt-4 text-lg font-semibold">{isZh ? 'API 限流提醒' : 'API Rate Limits'}</h2>
+            <h2 className="mt-4 text-2xl font-semibold">{isZh ? 'API 限流提醒' : 'API Rate Limits'}</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50/80">
               {isZh
                 ? '集中展示模型 API 的 429、rate limit、超时和预热预算压力，方便你快速判断是该等待恢复、降低并发，还是检查 API Key 与模型配置。'

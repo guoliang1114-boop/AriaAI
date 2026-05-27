@@ -16,12 +16,10 @@ from tests.test_database import create_test_engine, drop_all_tables
 EXPECTED_AUDIT_SKILLS = {
     "审计计划与风险评估": "审计与鉴证",
     "实质性程序设计": "审计与鉴证",
-    "审计差异与调整汇总": "审计与鉴证",
     "审计报告草案生成": "审计与鉴证",
     "集团审计策略": "审计与鉴证",
     "年度审计计划制定": "审计与鉴证",
     "内审项目执行工作底稿": "审计与鉴证",
-    "内审发现与整改追踪": "审计与鉴证",
     "SOX 合规检查清单": "审计与鉴证",
     "穿行测试与控制测试设计": "审计与鉴证",
     "IT 一般控制测试": "审计与鉴证",
@@ -63,12 +61,10 @@ EXPECTED_CONSULTING_SKILLS = {
 EXPECTED_SKILL_MD_SLUGS = [
     "audit-risk-assessment",
     "audit-substantive-procedures",
-    "audit-adjustments-summary",
     "audit-report-draft",
     "group-audit-strategy",
     "internal-audit-annual-plan",
     "internal-audit-execution",
-    "internal-audit-findings",
     "sox-compliance-checklist",
     "walkthrough-and-control-testing",
     "itgc-testing",
@@ -123,7 +119,7 @@ class NewSkillsRegistrationTestCase(unittest.TestCase):
             self.assertIn(name, all_registered, f"Missing consulting skill: {name}")
 
     def test_total_skill_count(self):
-        self.assertGreaterEqual(len(GSTACK_PRO_SKILLS), 73)
+        self.assertGreaterEqual(len(GSTACK_PRO_SKILLS), 71)
 
     def test_all_skills_have_required_fields(self):
         required_fields = ["name", "category", "description", "system_prompt", "user_template", "estimated_time"]
@@ -134,7 +130,7 @@ class NewSkillsRegistrationTestCase(unittest.TestCase):
 
     def test_audit_category_count(self):
         registered = self._get_skill_names_by_category("审计与鉴证")
-        self.assertEqual(len(registered), 13)
+        self.assertEqual(len(registered), 11)
 
     def test_tax_category_count(self):
         registered = self._get_skill_names_by_category("税务与法律")
@@ -198,7 +194,7 @@ class EnsureBuiltinProSkillsTestCase(unittest.TestCase):
             skills = session.exec(
                 select(Skill).where(Skill.category == "审计与鉴证")
             ).all()
-            self.assertEqual(len(skills), 13)
+            self.assertEqual(len(skills), 11)
 
     def test_ensure_builtin_creates_tax_skills(self):
         with Session(self.engine) as session:
