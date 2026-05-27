@@ -48,6 +48,27 @@ class SettingsRouterTestCase(unittest.TestCase):
         self.assertEqual(data["theme"], "dark")
         self.assertEqual(data["timezone"], "Asia/Shanghai")
 
+    def test_secret_keys_are_never_exposed(self):
+        with Session(self.engine) as session:
+            session.add(Setting(key="api_key", value="sk-super-secret"))
+            session.add(Setting(key="kimi_api_key", value="kimi-secret"))
+            session.commit()
+        settings_module._settings_cache.clear()
+
+        # Bulk read must not include any secret key.
+        bulk = self.client.get("/settings/").json()
+        self.assertNotIn("api_key", bulk)
+        self.assertNotIn("kimi_api_key", bulk)
+        self.assertIn("theme", bulk)
+
+        # Single-key read of a secret must 404 (do not confirm existence/value).
+        self.assertEqual(self.client.get("/settings/api_key").status_code, 404)
+
+        # Generic PUT must refuse to write a secret key.
+        self.assertEqual(
+            self.client.put("/settings/api_key", json={"value": "x"}).status_code, 403
+        )
+
     def test_list_settings_empty_db(self):
         SQLModel.metadata.drop_all(self.engine)
         drop_all_tables(self.engine)

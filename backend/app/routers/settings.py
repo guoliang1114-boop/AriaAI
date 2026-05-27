@@ -24,6 +24,21 @@ _SETTINGS_TTL = SETTINGS_CACHE_TTL  # Use unified config
 _ALL_KEY = "__all__"
 _DEFAULT_SETTINGS = {"timezone": "Asia/Shanghai"}
 
+# Provider API keys are persisted as plain Setting rows (see app.core.security).
+# They must never be returned through the generic settings read endpoints, nor
+# be writable through the generic PUT — the dedicated *-api-key endpoints (which
+# expose only masked status) are the only supported surface for them.
+_SECRET_SETTING_KEYS = frozenset(
+    {
+        "api_key",
+        "kimi_api_key",
+        "openai_api_key",
+        "deepseek_api_key",
+        "bigmodel_api_key",
+        "mimo_api_key",
+    }
+)
+
 
 def _bust_settings(key: str | None = None) -> None:
     _settings_cache.delete(_ALL_KEY)
@@ -231,7 +246,10 @@ def get_all_settings(session: Session = Depends(get_session)):
     settings = session.exec(
         __import__("sqlmodel").select(Setting)
     ).all()
-    result = {**_DEFAULT_SETTINGS, **{s.key: s.value for s in settings}}
+    result = {
+        **_DEFAULT_SETTINGS,
+        **{s.key: s.value for s in settings if s.key not in _SECRET_SETTING_KEYS},
+    }
     _settings_cache.set(_ALL_KEY, result, _SETTINGS_TTL)
     return result
 
@@ -264,6 +282,8 @@ def get_settings_hierarchy():
 
 @router.put("/{key}")
 def upsert_setting(key: str, data: SettingUpdate, session: Session = Depends(get_session)):
+    if key in _SECRET_SETTING_KEYS:
+        raise HTTPException(403, f"Use the dedicated endpoint to manage '{key}'.")
     existing = session.get(Setting, key)
     if existing:
         existing.value = data.value
@@ -277,6 +297,8 @@ def upsert_setting(key: str, data: SettingUpdate, session: Session = Depends(get
 
 @router.get("/{key}")
 def get_setting(key: str, session: Session = Depends(get_session)):
+    if key in _SECRET_SETTING_KEYS:
+        raise HTTPException(404, f"Setting '{key}' not found")
     cached = _settings_cache.get(key)
     if cached is not None:
         return cached
