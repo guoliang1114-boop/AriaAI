@@ -12,7 +12,7 @@ back, and repeats. Pre- and post-loop hooks remain:
 Supporting modules:
 
 * ``runtime``        — ``ChatRuntime`` dataclass + ``prepare_chat_runtime``
-* ``state``          — ``ChatSessionState`` (mutable cross-phase state)
+* ``state``          — ``ChatSessionState`` (mutable shared run state)
 * ``sse``            — SSE formatting, heartbeats, stream helpers
 * ``truncation``     — ``[OUTPUT_TRUNCATED]`` detection
 * ``workflow``       — workflow status builders & task-event normalizers

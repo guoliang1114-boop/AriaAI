@@ -1283,6 +1283,46 @@ samp {
   text-decoration: underline;
 }
 
+/* Global app font compact — applied at Layout level so all authenticated pages
+   get consistent sizing. Placed BEFORE .project-ui / .settings-ui so those inner
+   scopes win on source order at equal specificity (they intentionally override). */
+.app-ui {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.app-ui .text-sm {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.app-ui .text-base {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.app-ui .text-lg {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.app-ui .text-xl {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.app-ui .text-2xl {
+  font-size: 1.125rem;
+  line-height: 1.35;
+}
+
+.app-ui h1,
+.app-ui h2,
+.app-ui h3,
+.app-ui h4 {
+  letter-spacing: 0;
+}
+
 /* Project workspace is a dense operational surface. Keep its type tighter than
    marketing/dashboard pages while preserving readable body copy. */
 .project-ui {

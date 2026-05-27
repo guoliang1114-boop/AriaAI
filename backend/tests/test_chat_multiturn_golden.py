@@ -47,7 +47,7 @@ def test_multiturn_truth_gate_golden_cases():
         runtime.working_memory = {}
         req = SimpleNamespace(project_id=1, content="整理项目空间", action_confirmations=[])
         state = ChatSessionState()
-        state.text_buffer = case["assistant_text"]
+        state.full_text = case["assistant_text"]
         with patch("app.services.chat.persist.persist_assistant_message") as mock_persist, \
              patch("app.services.chat.persist.persist_generated_artifacts") as mock_artifacts:
             mock_persist.return_value = (False, 99)

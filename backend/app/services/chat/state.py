@@ -1,4 +1,4 @@
-"""Chat session state — mutable shared state across streaming phases."""
+"""Chat session state — mutable shared state for one agent-loop run."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,37 +8,20 @@ from app.services.chat.agent_step import AgentStep
 
 @dataclass
 class ChatSessionState:
-    """Mutable state that accumulates across P0 → P1 → P2 → P3 → P4.
+    """Mutable state accumulated across a single agent-loop run.
 
-    The orchestrator instantiates this once and passes it to every phase.
-    Each phase reads/writes the fields it owns.
+    The orchestrator instantiates this once and passes it to the agent loop,
+    the tool executor, and the persist step. Fields are grouped by the concern
+    that owns them.
     """
 
     # ------------------------------------------------------------------
-    # Cross-phase text accumulation
+    # User-visible text (assembled by the agent loop)
     # ------------------------------------------------------------------
     full_text: str = ""
 
     # ------------------------------------------------------------------
-    # P1 outputs
-    # ------------------------------------------------------------------
-    text_buffer: str = ""
-    tool_use_blocks: list[dict] = field(default_factory=list)
-    reasoning_content: str = ""
-    p1_truncated: bool = False
-    p1_double_truncated: bool = False
-
-    # ------------------------------------------------------------------
-    # P3 outputs
-    # ------------------------------------------------------------------
-    follow_up_text: str = ""
-    p3_tool_use_blocks: list[dict] = field(default_factory=list)
-    p3_reasoning_content: str = ""
-    p3_truncated: bool = False
-    p3_double_truncated: bool = False
-
-    # ------------------------------------------------------------------
-    # P2/P3 shared: tool execution
+    # Tool execution: last batch of results fed back to the LLM
     # ------------------------------------------------------------------
     tool_result_blocks: list[dict] = field(default_factory=list)
 

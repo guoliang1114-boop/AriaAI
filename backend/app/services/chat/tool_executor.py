@@ -1,7 +1,6 @@
 """Unified tool execution for the agent loop.
 
-This module folds together the duplicate tool-handling logic that lives
-today in ``phases/p2_tools.py`` and ``phases/p3_followup.py``:
+This module owns all tool-handling logic invoked from the agent loop:
 
 * Tool input routing & repair (PPT, Markdown, Office)
 * Action-policy gate

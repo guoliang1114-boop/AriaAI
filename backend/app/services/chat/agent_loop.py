@@ -431,15 +431,6 @@ async def run_agent_loop(
         )
 
     state.full_text = accumulated_text
-    # The legacy P4 persist phase assembles its display text from
-    # ``state.text_buffer + state.follow_up_text``. Until that module is
-    # rewritten to read ``state.full_text`` directly (Commit 4), satisfy the
-    # legacy contract by mirroring the accumulated text into text_buffer.
-    state.text_buffer = accumulated_text
-    state.follow_up_text = ""
-    state.tool_use_blocks = (
-        list(state.steps[0].tool_calls) if state.steps else []
-    )
     state.stage_timings["agent_loop_ms"] = round((time.perf_counter() - loop_started_at) * 1000)
     yield sse_event(
         {"type": "timing", "key": "agent_loop_ms", "duration_ms": state.stage_timings["agent_loop_ms"]}
