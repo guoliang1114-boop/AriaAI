@@ -4859,7 +4859,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ).all()
             self.assertEqual(assistant_messages[0].content, "first half second half")
 
-    def test_stream_chat_events_continues_truncated_tool_response_before_execution(self):
+    def test_stream_chat_events_truncated_first_turn_skips_continuation_when_tools_present(self):
+        """When the first step is truncated AND emits a tool call, the agent loop
+        executes the tool instead of force-continuing — the tool result feeds the
+        model more context for the next iteration, which is more natural than
+        re-prompting it to "continue from the truncation point".
+        """
         conv_id = self._create_conversation()
         llm = FakeStreamingLLM(
             [
@@ -4871,7 +4876,6 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                     '{"type":"tool_use","id":"tool-1","name":"generate_ppt_from_skill","input":{"skill_name":"digital-strategy","title":"Deck","slides":[{"type":"content","title":"Thin","content":"- A"}]}}',
                 ],
                 ["\n## 路线图\n- 后半段补齐"],
-                ["done"],
             ]
         )
         runtime = ChatRuntime(
@@ -4906,8 +4910,12 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         joined = "".join(events)
+        # The text from BOTH steps is preserved (step 0 truncated text + step 1 follow-up).
+        self.assertIn("前半段内容", joined)
         self.assertIn("后半段补齐", joined)
-        self.assertEqual(llm.calls, 3)
+        # Two LLM calls: one truncated turn + one follow-up after tool execution.
+        self.assertEqual(llm.calls, 2)
+        # Tool input repair still rebuilds the thin slide list from the model's prose.
         _, repaired_input = execute_mock.await_args.args
         self.assertGreaterEqual(len(repaired_input["slides"]), 2)
         self.assertNotEqual(repaired_input["slides"][0]["title"], "Thin")
@@ -5204,7 +5212,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             ).all()
             self.assertEqual(len(assistant_messages), 1)
             metadata = json.loads(assistant_messages[0].metadata_json)
-            self.assertEqual(metadata["phase_error"]["phase"], "P1 planning")
+            self.assertEqual(metadata["phase_error"]["phase"], "agent_loop")
 
     def test_stream_chat_events_persists_p0_durable_task_errors(self):
         conv_id = self._create_conversation()
@@ -5231,7 +5239,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         runtime.intent_prepared_async = True
         req = chat_router_module.SendMessageRequest(content="生成一份项目任务", project_id=1)
 
-        with patch("app.services.chat.phases.p0_durable_task.create_task_run", side_effect=RuntimeError("task db failed")):
+        with patch("app.services.chat.durable_task.create_task_run", side_effect=RuntimeError("task db failed")):
             events = collect_async_generator(stream_chat_events(runtime, req, self.engine))
 
         text_event = next(
@@ -5239,7 +5247,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
             for event in events
             if json.loads(event.replace("data: ", "").strip()).get("type") == "text"
         )
-        self.assertIn("P0 durable task", text_event["content"])
+        self.assertIn("durable_task", text_event["content"])
         self.assertIn("task db failed", text_event["content"])
 
         with Session(self.engine) as session:
@@ -5247,7 +5255,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
                 select(Message).where(Message.conversation_id == conv_id, Message.role == "assistant")
             ).one()
             metadata = json.loads(assistant_message.metadata_json)
-            self.assertEqual(metadata["phase_error"]["phase"], "P0 durable task")
+            self.assertEqual(metadata["phase_error"]["phase"], "durable_task")
 
     def test_stream_chat_events_detects_pseudo_tool_use_json_in_p3_follow_up(self):
         """P3 pseudo write tools are detected, scrubbed, and routed to HITAS confirmation."""

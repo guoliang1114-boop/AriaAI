@@ -509,7 +509,7 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
     )
 
 
-async def run_p4_persist(
+async def run_persist(
     runtime: ChatRuntime,
     req: SendMessageRequest,
     bind,

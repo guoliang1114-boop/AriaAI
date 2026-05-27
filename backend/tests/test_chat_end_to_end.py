@@ -136,7 +136,7 @@ class ChatEndToEndBase(unittest.IsolatedAsyncioTestCase):
         # a no-op so we do not leak tasks across tests.
         self._stack.enter_context(
             patch(
-                "app.services.chat.phases.p4_persist.schedule_title_generation",
+                "app.services.chat.persist.schedule_title_generation",
                 new=lambda *a, **kw: None,
             )
         )

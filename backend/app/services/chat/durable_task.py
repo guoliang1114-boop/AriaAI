@@ -350,7 +350,7 @@ def _task_confirmation_reason(runtime: ChatRuntime, req: SendMessageRequest, tas
     return ""
 
 
-async def run_p0_durable_task(
+async def run_durable_task(
     runtime: ChatRuntime,
     req: SendMessageRequest,
     bind,
