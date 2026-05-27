@@ -5,6 +5,7 @@ import {
   getStoredAppTimeZone,
   getResolvedAppTimeZone,
   setAppTimeZone,
+  parseAppDateTime,
   formatDatePartsKey,
   formatTimeOnly,
   formatDateOnly,
@@ -136,10 +137,21 @@ describe('formatDatePartsKey', () => {
   })
 })
 
+describe('parseAppDateTime', () => {
+  it('treats backend ISO timestamps without timezone as UTC', () => {
+    expect(parseAppDateTime('2026-05-27T03:51:17').toISOString()).toBe('2026-05-27T03:51:17.000Z')
+  })
+})
+
 describe('formatTimeOnly', () => {
   it('returns a string containing time digits', () => {
     const result = formatTimeOnly('2024-01-15T14:30:00Z', undefined, 'UTC')
     expect(result).toMatch(/\d/)
+  })
+
+  it('formats backend UTC timestamps in the selected app timezone', () => {
+    const result = formatTimeOnly('2026-05-27T03:51:17', { hour12: false }, 'Asia/Shanghai')
+    expect(result).toBe('11:51')
   })
 })
 

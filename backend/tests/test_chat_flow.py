@@ -377,6 +377,41 @@ class ChatRouterTestCase(unittest.TestCase):
         self.assertIn('"conversation_id"', resp.text)
         self.assertIn('"done"', resp.text)
 
+    def test_send_route_persists_prepare_failure_for_refresh(self):
+        with Session(self.engine) as session:
+            conv = Conversation(title="Prepare Failure")
+            session.add(conv)
+            session.commit()
+            session.refresh(conv)
+            conv_id = conv.id
+
+        with patch.object(
+            chat_router_module,
+            "prepare_chat_runtime",
+            side_effect=RuntimeError("context builder unavailable"),
+        ), patch.object(chat_router_module, "stream_chat_events") as mocked_stream:
+            resp = self.client.post(
+                "/chat/send",
+                json={"conversation_id": conv_id, "content": "继续生成客户沟通提纲"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('"conversation_id"', resp.text)
+        self.assertIn('"done"', resp.text)
+        mocked_stream.assert_not_called()
+
+        with Session(self.engine) as session:
+            messages = session.exec(
+                select(Message).where(Message.conversation_id == conv_id).order_by(Message.created_at, Message.id)
+            ).all()
+
+        self.assertEqual([message.role for message in messages], ["user", "assistant"])
+        self.assertEqual(messages[0].content, "继续生成客户沟通提纲")
+        self.assertIn("刷新或重新打开链接后仍可看到原因", messages[1].content)
+        metadata = json.loads(messages[1].metadata_json or "{}")
+        self.assertTrue(metadata["delivery_failed"])
+        self.assertEqual(metadata["phase_error"]["phase"], "prepare_runtime")
+
     def test_login_rate_limit_blocks_repeated_failures(self):
         auth_router_module._LOGIN_ATTEMPTS.clear()
 

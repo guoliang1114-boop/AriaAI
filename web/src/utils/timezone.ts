@@ -48,8 +48,22 @@ function getFormatterTimeZone(timeZone?: string) {
   return timeZone && isValidTimeZone(timeZone) ? timeZone : getResolvedAppTimeZone();
 }
 
+const ISO_DATETIME_WITHOUT_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/;
+
+export function parseAppDateTime(input: string | number | Date) {
+  if (input instanceof Date) return input;
+  if (typeof input === "string") {
+    const value = input.trim();
+    if (ISO_DATETIME_WITHOUT_ZONE.test(value)) {
+      return new Date(`${value}Z`);
+    }
+    return new Date(value);
+  }
+  return new Date(input);
+}
+
 export function formatDatePartsKey(input: string | number | Date, timeZone?: string) {
-  const value = input instanceof Date ? input : new Date(input);
+  const value = parseAppDateTime(input);
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: getFormatterTimeZone(timeZone),
     year: "numeric",
@@ -64,7 +78,7 @@ export function formatDatePartsKey(input: string | number | Date, timeZone?: str
 }
 
 export function formatTimeOnly(input: string | number | Date, options?: Intl.DateTimeFormatOptions, timeZone?: string) {
-  const value = input instanceof Date ? input : new Date(input);
+  const value = parseAppDateTime(input);
   return value.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -74,7 +88,7 @@ export function formatTimeOnly(input: string | number | Date, options?: Intl.Dat
 }
 
 export function formatDateOnly(input: string | number | Date, options?: Intl.DateTimeFormatOptions, timeZone?: string) {
-  const value = input instanceof Date ? input : new Date(input);
+  const value = parseAppDateTime(input);
   return value.toLocaleDateString([], {
     year: "numeric",
     month: "2-digit",
@@ -90,7 +104,7 @@ export function formatDateTime(
   options?: Intl.DateTimeFormatOptions,
   timeZone?: string,
 ) {
-  const value = input instanceof Date ? input : new Date(input);
+  const value = parseAppDateTime(input);
   return value.toLocaleString(locale || undefined, {
     year: "numeric",
     month: "2-digit",

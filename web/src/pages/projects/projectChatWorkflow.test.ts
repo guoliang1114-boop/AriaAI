@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { workflowStepsFromToolCalls } from "./projectChatWorkflow";
+import { formatTaskEventTime, workflowStepsFromToolCalls } from "./projectChatWorkflow";
 import type { ToolCallEvent } from "../../types/api";
+
+describe("formatTaskEventTime", () => {
+  it("formats backend UTC timestamps with the app timezone", () => {
+    localStorage.setItem("aria-timezone", "Asia/Shanghai");
+
+    expect(formatTaskEventTime("2026-05-27T03:51:17")).toBe("11:51:17");
+  });
+});
 
 describe("workflowStepsFromToolCalls", () => {
   it("restores persisted raw tool logs into readable workflow steps", () => {

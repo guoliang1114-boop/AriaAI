@@ -6,12 +6,13 @@ import type {
   TaskRunStep,
   ToolCallEvent,
 } from "../../types/api";
+import { formatTimeOnly } from "../../utils/timezone";
 
 export function formatTaskEventTime(value?: string) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.slice(11, 19);
-  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return formatTimeOnly(value, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
 export function payloadSummary(payload?: Record<string, unknown>) {
