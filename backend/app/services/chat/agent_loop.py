@@ -33,7 +33,6 @@ from app.services.chat.state import ChatSessionState
 from app.services.chat.tool_executor import execute_tool_with_policy
 from app.services.chat.tool_repair import extract_tool_use_json_blocks
 from app.services.chat.truncation import strip_truncation_marker
-from app.services.chat.workflow import workflow_plan_events
 from app.services.chat_tools import (
     ChatRuntime,
     _strip_internal_tool_markers,
@@ -368,10 +367,10 @@ async def run_agent_loop(
             step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
             break
 
-        # ---------- announce workflow once when we know tools will run ----------
+        # ---------- mark workflow started once we know tools will run ----------
+        # No canned "判断执行方式 / 准备参数" plan steps: the real tool executions
+        # streamed below are the visible progress, matching the persisted view.
         if not workflow_announced:
-            for evt in workflow_plan_events():
-                yield sse_event(evt)
             workflow_announced = True
             state.workflow_started = True
 
