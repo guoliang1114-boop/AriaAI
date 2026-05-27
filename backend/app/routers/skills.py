@@ -1688,6 +1688,643 @@ GSTACK_PRO_SKILLS = [
         "max_tokens": 12288,
         "tools": VISUAL_MARKDOWN_TOOL_NAMES,
     },
+    # ── 审计与鉴证：财务报表审计 ──────────────────────────────────────────────
+    {
+        "name": "审计计划与风险评估",
+        "category": "审计与鉴证",
+        "description": "基于 ISA 315 框架，执行审计计划阶段的风险评估：了解被审计单位及其环境、识别重大错报风险、确定重要性水平、设计审计策略。",
+        "system_prompt": _load_skill_package_prompt("audit-risk-assessment"),
+        "user_template": (
+            "请基于 ISA 315 框架，为以下客户执行审计计划阶段的风险评估。\n\n"
+            "客户名称与行业：\n"
+            "审计期间：\n"
+            "客户主要业务描述：\n"
+            "已知的监管环境或行业特殊要求：\n\n"
+            "上年审计发现或保留事项（如有）：\n"
+            "本次审计重点关注领域（如有）："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "实质性程序设计",
+        "category": "审计与鉴证",
+        "description": "基于 ISA 330 框架，针对具体会计科目设计实质性审计程序：细节测试、分析性复核、函证方案，覆盖收入、存货、应收账款等高风险科目。",
+        "system_prompt": _load_skill_package_prompt("audit-substantive-procedures"),
+        "user_template": (
+            "请基于 ISA 330 框架，为以下科目设计实质性审计程序。\n\n"
+            "目标科目（如收入/存货/应收账款/固定资产）：\n"
+            "已识别的认定风险（存在/完整性/计价/权利义务/列报）：\n"
+            "科目金额与变动情况：\n"
+            "上年审计发现（如有）：\n\n"
+            "可用数据或已掌握信息："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "审计差异与调整汇总",
+        "category": "审计与鉴证",
+        "description": "汇总审计过程中发现的错报、调整分录和未更正差异，生成审计调整汇总表和管理层沟通函要点。",
+        "system_prompt": _load_skill_package_prompt("audit-adjustments-summary"),
+        "user_template": (
+            "请汇总以下审计差异并生成调整汇总表。\n\n"
+            "客户名称：\n"
+            "审计期间：\n"
+            "已发现的错报清单（科目、金额、原因）：\n\n"
+            "未更正差异及原因（如有）："
+        ),
+        "estimated_time": "~10 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    {
+        "name": "审计报告草案生成",
+        "category": "审计与鉴证",
+        "description": "基于 ISA 700/701/706 标准，生成审计报告草案（无保留/保留/否定/无法表示意见），附关键审计事项（KAM）和持续经营评估。",
+        "system_prompt": _load_skill_package_prompt("audit-report-draft"),
+        "user_template": (
+            "请基于以下审计结论生成审计报告草案。\n\n"
+            "客户名称与行业：\n"
+            "审计期间：\n"
+            "审计意见类型（无保留/保留/否定/无法表示意见）：\n"
+            "关键审计事项（KAM）：\n"
+            "持续经营评估结论：\n\n"
+            "其他需要强调或说明的事项："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "集团审计策略",
+        "category": "审计与鉴证",
+        "description": "针对集团审计设计策略：组成部分识别、重要性分配、组成部分审计师协调、合并层面程序设计。",
+        "system_prompt": _load_skill_package_prompt("group-audit-strategy"),
+        "user_template": (
+            "请为以下集团客户设计集团审计策略。\n\n"
+            "集团名称与架构描述：\n"
+            "组成部分数量与分布（地区/业务线）：\n"
+            "集团合并报表范围：\n"
+            "已知的组成部分审计师安排：\n\n"
+            "重点关注领域（如有）："
+        ),
+        "estimated_time": "~18 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 审计与鉴证：内部审计 ──────────────────────────────────────────────────
+    {
+        "name": "年度审计计划制定",
+        "category": "审计与鉴证",
+        "description": "基于 IIA 标准和风险评估方法论，制定年度内部审计计划：审计域识别、风险评分、频率确定、资源分配。",
+        "system_prompt": _load_skill_package_prompt("internal-audit-annual-plan"),
+        "user_template": (
+            "请基于 IIA 标准，为以下企业制定年度内部审计计划。\n\n"
+            "企业名称与行业：\n"
+            "内审团队规模与能力：\n"
+            "主要业务流程和职能领域：\n"
+            "上年内审发现汇总（如有）：\n\n"
+            "管理层或审计委员会关注重点（如有）："
+        ),
+        "estimated_time": "~18 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "内审项目执行工作底稿",
+        "category": "审计与鉴证",
+        "description": "针对具体审计域设计内部审计项目执行方案：审计目标、范围、程序、抽样方案和工作底稿模板。",
+        "system_prompt": _load_skill_package_prompt("internal-audit-execution"),
+        "user_template": (
+            "请为以下内审项目设计执行方案和工作底稿。\n\n"
+            "审计域（如采购循环/销售循环/人力资源/IT管理）：\n"
+            "审计目标与范围：\n"
+            "已知风险或关注点：\n"
+            "可用数据或系统访问权限："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "内审发现与整改追踪",
+        "category": "审计与鉴证",
+        "description": "结构化记录内部审计发现（CCCE框架）、风险评级、整改建议、责任人和跟踪机制，生成审计发现报告。",
+        "system_prompt": _load_skill_package_prompt("internal-audit-findings"),
+        "user_template": (
+            "请整理以下内审发现并生成整改追踪报告。\n\n"
+            "审计项目名称：\n"
+            "审计期间：\n"
+            "发现清单（条件/原因/后果/证据）：\n\n"
+            "管理层已承诺的整改措施（如有）："
+        ),
+        "estimated_time": "~12 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    # ── 审计与鉴证：内部控制鉴证 ──────────────────────────────────────────────
+    {
+        "name": "SOX 合规检查清单",
+        "category": "审计与鉴证",
+        "description": "生成 SOX 302/404 条款合规检查清单，覆盖管理层声明、内控评估报告、审计师鉴证要求。",
+        "system_prompt": _load_skill_package_prompt("sox-compliance-checklist"),
+        "user_template": (
+            "请为以下公司生成 SOX 合规检查清单。\n\n"
+            "公司名称与上市地：\n"
+            "财务报告内控范围：\n"
+            "已知的内控缺陷（如有）：\n"
+            "审计师安排（内审/外审）："
+        ),
+        "estimated_time": "~12 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    {
+        "name": "穿行测试与控制测试设计",
+        "category": "审计与鉴证",
+        "description": "基于 COSO 框架，针对具体业务流程设计穿行测试和控制测试程序，评估控制设计和运行有效性。",
+        "system_prompt": _load_skill_package_prompt("walkthrough-and-control-testing"),
+        "user_template": (
+            "请为以下业务流程设计穿行测试和控制测试程序。\n\n"
+            "业务流程名称（如采购到付款/销售到收款/薪酬循环）：\n"
+            "流程关键控制点（如有）：\n"
+            "已识别的风险：\n"
+            "测试期间："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 审计与鉴证：IT审计 ────────────────────────────────────────────────────
+    {
+        "name": "IT 一般控制测试",
+        "category": "审计与鉴证",
+        "description": "针对 ITGC 四大领域（访问控制、变更管理、系统开发、运维）设计测试程序和抽样方案。",
+        "system_prompt": _load_skill_package_prompt("itgc-testing"),
+        "user_template": (
+            "请为以下信息系统设计 IT 一般控制测试程序。\n\n"
+            "系统名称与类型（ERP/CRM/财务系统/自研系统）：\n"
+            "IT 组织架构与关键岗位：\n"
+            "审计重点（访问控制/变更管理/系统开发/运维）：\n\n"
+            "已知的 IT 控制问题（如有）："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "数据分析异常检测",
+        "category": "审计与鉴证",
+        "description": "基于提供的财务或运营数据，执行 Benford 定律分析、趋势异常检测、重复交易识别和关联方交易筛查。",
+        "system_prompt": _load_skill_package_prompt("data-analytics-anomaly-detection"),
+        "user_template": (
+            "请对以下数据执行异常检测分析。\n\n"
+            "数据类型（总账/应收明细/采购明细/银行流水）：\n"
+            "数据期间：\n"
+            "数据描述或样本（可粘贴）：\n\n"
+            "已知的关注点或假设（如有）："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 审计与鉴证：可持续发展鉴证 ────────────────────────────────────────────
+    {
+        "name": "ESG 报告鉴证准备",
+        "category": "审计与鉴证",
+        "description": "对标 ISSB/ESRS/GRI 标准，评估 ESG 数据采集流程、内部控制和报告质量，准备第三方鉴证。",
+        "system_prompt": _load_skill_package_prompt("esg-assurance-preparation"),
+        "user_template": (
+            "请为以下企业准备 ESG 报告鉴证。\n\n"
+            "企业名称与行业：\n"
+            "已发布的 ESG 报告（如有）：\n"
+            "ESG 数据采集现状：\n"
+            "目标鉴证等级（有限保证/合理保证）：\n\n"
+            "重点关注的 ESG 维度（E/S/G）："
+        ),
+        "estimated_time": "~18 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 税务与法律：企业税 ────────────────────────────────────────────────────
+    {
+        "name": "增值税合规与优化",
+        "category": "税务与法律",
+        "description": "分析增值税进项抵扣、税率适用、留抵退税、简易计税选择，识别合规风险和优化空间。",
+        "system_prompt": _load_skill_package_prompt("vat-compliance-optimization"),
+        "user_template": (
+            "请对以下企业的增值税情况进行分析。\n\n"
+            "企业类型与行业：\n"
+            "年增值税应税销售额：\n"
+            "主要税率适用情况：\n"
+            "进项税额结构（可抵扣/不可抵扣）：\n\n"
+            "已知的增值税问题或目标："
+        ),
+        "estimated_time": "~12 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    {
+        "name": "税收优惠申请方案",
+        "category": "税务与法律",
+        "description": "梳理企业可适用的税收优惠政策（高新技术企业、研发加计扣除、西部大开发、小微企业等），评估申请条件和节税效果。",
+        "system_prompt": _load_skill_package_prompt("tax-incentive-application"),
+        "user_template": (
+            "请梳理以下企业可适用的税收优惠政策。\n\n"
+            "企业名称与行业：\n"
+            "企业规模（营收/员工/资产）：\n"
+            "研发投入占比：\n"
+            "所在地区：\n\n"
+            "已享受的优惠政策（如有）："
+        ),
+        "estimated_time": "~12 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    {
+        "name": "税务争议应对策略",
+        "category": "税务与法律",
+        "description": "针对税务稽查、纳税评估、反避税调查等场景，制定应对策略、证据准备清单和沟通话术。",
+        "system_prompt": _load_skill_package_prompt("tax-dispute-response"),
+        "user_template": (
+            "请为以下税务争议制定应对策略。\n\n"
+            "争议事项描述：\n"
+            "涉及税种和金额：\n"
+            "税务机关要求或通知内容：\n"
+            "已掌握的证据或资料：\n\n"
+            "企业立场和诉求："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "税务合规日历与申报管理",
+        "category": "税务与法律",
+        "description": "生成年度税务合规日历、申报截止日、所需材料清单、常见申报错误提醒。",
+        "system_prompt": _load_skill_package_prompt("tax-compliance-calendar"),
+        "user_template": (
+            "请为以下企业生成年度税务合规日历。\n\n"
+            "企业类型（内资/外资/个体）：\n"
+            "涉及的主要税种：\n"
+            "所在地区：\n"
+            "特殊税务事项（如有，如出口退税/跨地区汇总纳税）："
+        ),
+        "estimated_time": "~8 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    # ── 税务与法律：并购税务 ──────────────────────────────────────────────────
+    {
+        "name": "并购税务尽职调查",
+        "category": "税务与法律",
+        "description": "针对并购交易目标公司进行税务尽调：历史纳税合规性、税务风险敞口、税收优惠延续性、潜在税务负债。",
+        "system_prompt": _load_skill_package_prompt("ma-tax-due-diligence"),
+        "user_template": (
+            "请对以下目标公司进行并购税务尽职调查。\n\n"
+            "目标公司名称与行业：\n"
+            "交易类型（股权收购/资产收购）：\n"
+            "目标公司所在地区：\n"
+            "已知的税务事项或风险（如有）：\n\n"
+            "已掌握的财务或税务信息："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "交易结构税务优化",
+        "category": "税务与法律",
+        "description": "比较股权收购 vs 资产收购、合并/分立/划转的税务影响，设计最优交易结构。",
+        "system_prompt": _load_skill_package_prompt("deal-structure-tax-optimization"),
+        "user_template": (
+            "请为以下交易设计税务优化结构。\n\n"
+            "交易双方描述：\n"
+            "交易类型与标的：\n"
+            "交易金额：\n"
+            "交易目的（战略整合/财务投资/退出）：\n\n"
+            "已知的税务约束或偏好："
+        ),
+        "estimated_time": "~18 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "并购后税务整合",
+        "category": "税务与法律",
+        "description": "并购交割后的税务整合规划：税务协同效应识别、集团税务架构调整、亏损利用方案、税务合规衔接。",
+        "system_prompt": _load_skill_package_prompt("post-merger-tax-integration"),
+        "user_template": (
+            "请为以下并购交易设计并购后税务整合方案。\n\n"
+            "收购方与目标方基本信息：\n"
+            "交易完成时间：\n"
+            "双方税务架构现状：\n"
+            "已知的税务协同机会：\n\n"
+            "整合时间表和优先级："
+        ),
+        "estimated_time": "~18 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 税务与法律：转让定价 ──────────────────────────────────────────────────
+    {
+        "name": "转让定价同期资料准备",
+        "category": "税务与法律",
+        "description": "按 OECD 指南和中国税法要求，生成主体文档、本地文档和国别报告的框架和核心内容。",
+        "system_prompt": _load_skill_package_prompt("tp-documentation-preparation"),
+        "user_template": (
+            "请为以下企业准备转让定价同期资料框架。\n\n"
+            "企业集团名称与架构：\n"
+            "关联交易类型与金额：\n"
+            "功能风险分析（已做/待做）：\n"
+            "当前转让定价方法：\n\n"
+            "适用的法规要求（中国/其他国家）："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "预约定价安排方案",
+        "category": "税务与法律",
+        "description": "评估预约定价安排（APA）可行性，准备申请材料框架，设计定价方法和可比分析方案。",
+        "system_prompt": _load_skill_package_prompt("apa-arrangement"),
+        "user_template": (
+            "请评估以下关联交易的 APA 可行性并设计申请方案。\n\n"
+            "关联交易描述：\n"
+            "涉及国家/地区：\n"
+            "关联交易金额与定价方法：\n"
+            "历史转让定价争议（如有）：\n\n"
+            "企业诉求（单边/双边/多边 APA）："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    # ── 税务与法律：国际税 ────────────────────────────────────────────────────
+    {
+        "name": "跨境投资架构税务优化",
+        "category": "税务与法律",
+        "description": "设计跨境投资控股架构、融资架构和知识产权布局，评估股息回流、资本利得、预提税影响。",
+        "system_prompt": _load_skill_package_prompt("cross-border-investment-tax"),
+        "user_template": (
+            "请为以下跨境投资设计税务优化架构。\n\n"
+            "投资方（母公司所在地）：\n"
+            "目标投资地：\n"
+            "投资金额与方式：\n"
+            "业务类型：\n"
+            "现有海外架构（如有）：\n\n"
+            "核心诉求（税负最小化/资金回流/风险隔离）："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "BEPS 2.0 支柱二影响评估",
+        "category": "税务与法律",
+        "description": "评估全球最低税（15%）对企业集团的影响，测算补足税金额，识别 GloBE 规则下的合规义务。",
+        "system_prompt": _load_skill_package_prompt("beps-pillar-two-assessment"),
+        "user_template": (
+            "请评估 BEPS 2.0 支柱二对以下企业集团的影响。\n\n"
+            "集团名称与总部所在地：\n"
+            "集团全球收入规模：\n"
+            "海外实体清单与所在地：\n"
+            "各辖区有效税率（如有）：\n\n"
+            "已采取的应对措施（如有）："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    # ── 税务与法律：全球雇主服务 ──────────────────────────────────────────────
+    {
+        "name": "高管薪酬税务筹划",
+        "category": "税务与法律",
+        "description": "针对高管薪酬结构（工资薪金、股权激励、递延薪酬、福利方案）设计个税优化方案。",
+        "system_prompt": _load_skill_package_prompt("executive-compensation-tax"),
+        "user_template": (
+            "请为以下高管薪酬方案设计税务优化方案。\n\n"
+            "高管人数与层级：\n"
+            "当前薪酬结构（固定/浮动/长期激励）：\n"
+            "适用的个税税率区间：\n"
+            "公司所在地与高管常驻地：\n\n"
+            "特殊需求（如股权激励行权规划）："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "外派人员税务方案",
+        "category": "税务与法律",
+        "description": "跨境派遣的个税、社保、税收协定适用、税收抵免计算，覆盖派遣前规划和派遣期间合规。",
+        "system_prompt": _load_skill_package_prompt("expatriate-tax-planning"),
+        "user_template": (
+            "请为以下外派人员设计税务方案。\n\n"
+            "外派人员基本信息（国籍/职位/薪酬）：\n"
+            "派遣目的地与派遣期间：\n"
+            "派遣前税务居民身份：\n"
+            "社保缴纳安排：\n\n"
+            "已知的税收协定适用问题（如有）："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "股权激励税务方案",
+        "category": "税务与法律",
+        "description": "针对期权/限制性股票/RSU 等股权激励，设计税务时点规划、税率优化和申报方案。",
+        "system_prompt": _load_skill_package_prompt("equity-incentive-tax"),
+        "user_template": (
+            "请为以下股权激励方案设计税务方案。\n\n"
+            "激励类型（期权/限制性股票/RSU/其他）：\n"
+            "激励对象人数与层级：\n"
+            "行权/解锁时间安排：\n"
+            "公司上市状态（A股/港股/美股/未上市）：\n\n"
+            "当前估值或行权价格："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 税务与法律：间接税 ────────────────────────────────────────────────────
+    {
+        "name": "关税与贸易合规",
+        "category": "税务与法律",
+        "description": "分析进出口环节的关税、消费税、增值税综合税负，评估自贸区/保税区/加工贸易等优化路径。",
+        "system_prompt": _load_skill_package_prompt("customs-and-trade-compliance"),
+        "user_template": (
+            "请对以下企业的关税与贸易合规情况进行分析。\n\n"
+            "企业类型（生产型/贸易型/综合型）：\n"
+            "主要进出口商品与 HS 编码：\n"
+            "年进出口金额：\n"
+            "贸易方式（一般贸易/加工贸易/保税物流）：\n\n"
+            "已知的关税问题或优化目标："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "消费税与其他间接税",
+        "category": "税务与法律",
+        "description": "分析消费税、印花税、房产税、城建税等小税种的合规义务和优化空间。",
+        "system_prompt": _load_skill_package_prompt("excise-and-other-indirect-taxes"),
+        "user_template": (
+            "请对以下企业的间接税情况进行分析。\n\n"
+            "企业类型与行业：\n"
+            "涉及的间接税种（消费税/印花税/房产税/城建税等）：\n"
+            "年应税金额（大致）：\n\n"
+            "已知的合规问题或优化目标："
+        ),
+        "estimated_time": "~10 min",
+        "max_tokens": 8192,
+        "tools": [],
+    },
+    # ── 税务与法律：税务管理咨询 ──────────────────────────────────────────────
+    {
+        "name": "税务数字化转型方案",
+        "category": "税务与法律",
+        "description": "税务系统选型、电子发票、税务数据治理、自动化申报方案设计。",
+        "system_prompt": _load_skill_package_prompt("tax-digital-transformation"),
+        "user_template": (
+            "请为以下企业设计税务数字化转型方案。\n\n"
+            "企业规模与行业：\n"
+            "当前税务管理现状（系统/流程/人员）：\n"
+            "主要痛点（申报效率/数据质量/合规风险）：\n"
+            "已有 IT 基础设施：\n\n"
+            "数字化转型目标与预算范围："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "税务风险管理框架",
+        "category": "税务与法律",
+        "description": "设计税务风险识别、评估、监控和报告体系建设方案。",
+        "system_prompt": _load_skill_package_prompt("tax-risk-management-framework"),
+        "user_template": (
+            "请为以下企业设计税务风险管理框架。\n\n"
+            "企业名称与行业：\n"
+            "当前税务风险管理现状：\n"
+            "已发生的税务风险事件（如有）：\n"
+            "集团税务组织架构：\n\n"
+            "管理层对税务风险的关注重点："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    # ── 咨询：交易咨询 ──────────────────────────────────────────────────────
+    {
+        "name": "商业尽职调查",
+        "category": "交易",
+        "description": "执行商业尽调：市场吸引力、竞争定位、客户质量、增长可持续性、商业模式韧性。",
+        "system_prompt": _load_skill_package_prompt("commercial-due-diligence"),
+        "user_template": (
+            "请对以下标的执行商业尽职调查。\n\n"
+            "标的公司名称与行业：\n"
+            "交易类型（并购/投资/合作）：\n"
+            "标的公司核心业务描述：\n"
+            "已知的市场和竞争信息：\n\n"
+            "买方关注重点（增长/盈利/风险）："
+        ),
+        "estimated_time": "~25 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "并购整合计划（PMI）",
+        "category": "交易",
+        "description": "并购交割后的整合规划：Day 1 清单、100 天计划、组织整合、系统整合、文化整合、协同效应追踪。",
+        "system_prompt": _load_skill_package_prompt("post-merger-integration"),
+        "user_template": (
+            "请为以下并购交易制定并购后整合计划（PMI）。\n\n"
+            "收购方与目标方基本信息：\n"
+            "交易目标与协同效应预期：\n"
+            "双方组织与文化差异（如有）：\n"
+            "计划的整合时间表：\n\n"
+            "已知的整合挑战或风险："
+        ),
+        "estimated_time": "~25 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "估值与交易定价",
+        "category": "交易",
+        "description": "使用 DCF、可比公司、可比交易、LBO 等方法进行企业估值和交易定价建议。",
+        "system_prompt": _load_skill_package_prompt("valuation-and-pricing"),
+        "user_template": (
+            "请对以下标的进行估值分析。\n\n"
+            "标的公司名称与行业：\n"
+            "估值目的（并购/融资/IPO/内部决策）：\n"
+            "已知财务数据（收入/EBITDA/净利润）：\n"
+            "可比公司或可比交易（如有）：\n\n"
+            "估值时间基准日："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    {
+        "name": "债务重组方案",
+        "category": "交易",
+        "description": "债务结构分析、重组路径设计、债权人沟通策略，支持企业财务困境下的债务重组。",
+        "system_prompt": _load_skill_package_prompt("debt-restructuring"),
+        "user_template": (
+            "请为以下企业设计债务重组方案。\n\n"
+            "企业名称与行业：\n"
+            "债务结构（银行贷款/债券/应付账款/其他）：\n"
+            "债务总额与到期分布：\n"
+            "当前现金流状况：\n\n"
+            "债权人构成与已知诉求："
+        ),
+        "estimated_time": "~20 min",
+        "max_tokens": 16384,
+        "tools": [],
+    },
+    # ── 咨询：法务与纠纷咨询 ────────────────────────────────────────────────
+    {
+        "name": "舞弊风险评估",
+        "category": "风险监管",
+        "description": "基于舞弊三角理论（压力/机会/自我合理化），识别企业舞弊风险领域，设计反舞弊控制措施。",
+        "system_prompt": _load_skill_package_prompt("fraud-risk-assessment"),
+        "user_template": (
+            "请对以下企业进行舞弊风险评估。\n\n"
+            "企业名称与行业：\n"
+            "主要业务流程：\n"
+            "已知的内控薄弱环节（如有）：\n"
+            "近期发生的异常事件（如有）：\n\n"
+            "管理层关注重点（财务舞弊/资产挪用/腐败）："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
+    {
+        "name": "合规调查程序设计",
+        "category": "风险监管",
+        "description": "设计内部合规调查方案：调查范围、证据保全、访谈策略、报告框架，支持反腐败、反洗钱等调查。",
+        "system_prompt": _load_skill_package_prompt("compliance-investigation-design"),
+        "user_template": (
+            "请为以下合规事件设计调查程序。\n\n"
+            "事件描述（匿名举报/监管发现/内部审计发现）：\n"
+            "涉及的合规领域（反腐败/反洗钱/数据隐私/利益冲突）：\n"
+            "已掌握的初步证据：\n"
+            "涉及的人员和部门：\n\n"
+            "调查目标和时间要求："
+        ),
+        "estimated_time": "~15 min",
+        "max_tokens": 12288,
+        "tools": [],
+    },
 ]
 
 

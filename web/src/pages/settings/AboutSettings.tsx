@@ -182,7 +182,7 @@ export function AboutSettings() {
             </div>
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-2xl font-semibold text-slate-950">AriaAI</h3>
+                <h3 className="text-xl font-semibold text-slate-950">AriaAI</h3>
                 <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
                   V{systemInfo.version}
                 </span>
