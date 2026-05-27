@@ -731,6 +731,19 @@ export interface ToolCallEvent {
   has_recoverable_task?: boolean
 }
 
+/**
+ * One iteration of the backend agent loop. Emitted as ``{"type": "agent_step", ...}``
+ * after the agent finishes executing the tools it planned in that turn. The
+ * frontend uses this to render a faithful "Step N — used K tools" timeline
+ * that replaces the brittle 4-stage hardcoded progress strip.
+ */
+export interface AgentStepView {
+  index: number
+  tool_names: string[]
+  duration_ms: number
+  truncated: boolean
+}
+
 export interface PendingChatActionResponse {
   can_confirm: boolean
   source_content: string

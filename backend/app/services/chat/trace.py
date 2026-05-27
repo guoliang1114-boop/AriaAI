@@ -66,10 +66,8 @@ def _build_prompt_layers(runtime: ChatRuntime) -> list[dict]:
 
 def _build_fallback_events(state: ChatSessionState) -> list[dict]:
     events: list[dict] = [event for event in state.trace_events if isinstance(event, dict)]
-    if state.p1_double_truncated:
-        events.append({"type": "p1_double_truncated"})
-    if state.p3_double_truncated:
-        events.append({"type": "p3_double_truncated"})
+    if any(step.truncated for step in state.steps):
+        events.append({"type": "output_truncated"})
     for event in state.tool_call_events:
         if not isinstance(event, dict):
             continue
@@ -105,7 +103,7 @@ def build_chat_trace_payload(runtime: ChatRuntime, state: ChatSessionState) -> d
         "fallback_events": _build_fallback_events(state),
         "metadata": {
             "workflow_started": state.workflow_started,
-            "tool_use_count": len(state.tool_use_blocks) + len(state.p3_tool_use_blocks),
+            "tool_use_count": sum(len(step.tool_calls) for step in state.steps),
             "full_text_chars": len(state.full_text or ""),
             "tool_access_policy": _enum_value(runtime.tool_access_policy),
             "prepare_metrics": runtime.prepare_metrics or {},

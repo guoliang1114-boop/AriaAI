@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import yaml
 
-from app.services.chat.phases.p4_persist import run_p4_persist
+from app.services.chat.persist import run_persist
 from app.services.chat.state import ChatSessionState
 from app.services.chat.working_memory import build_working_memory, should_continue_current_artifact
 
@@ -47,12 +47,12 @@ def test_multiturn_truth_gate_golden_cases():
         runtime.working_memory = {}
         req = SimpleNamespace(project_id=1, content="整理项目空间", action_confirmations=[])
         state = ChatSessionState()
-        state.text_buffer = case["assistant_text"]
-        with patch("app.services.chat.phases.p4_persist.persist_assistant_message") as mock_persist, \
-             patch("app.services.chat.phases.p4_persist.persist_generated_artifacts") as mock_artifacts:
+        state.full_text = case["assistant_text"]
+        with patch("app.services.chat.persist.persist_assistant_message") as mock_persist, \
+             patch("app.services.chat.persist.persist_generated_artifacts") as mock_artifacts:
             mock_persist.return_value = (False, 99)
             mock_artifacts.return_value = []
-            async for _ in run_p4_persist(runtime, req, MagicMock(), state):
+            async for _ in run_persist(runtime, req, MagicMock(), state):
                 pass
         return state.full_text
 

@@ -1,16 +1,26 @@
 """Chat streaming service — SSE orchestration engine.
 
-The monolithic ``chat_streaming.py`` has been refactored into a focused package:
+Replaces the legacy P1 → P2 → P3 cascade with a unified agent loop that
+streams the LLM, executes any tool_use blocks emitted, feeds the results
+back, and repeats. Pre- and post-loop hooks remain:
 
-* ``runtime`` — ``ChatRuntime`` dataclass + ``prepare_chat_runtime``
-* ``state`` — ``ChatSessionState`` (mutable cross-phase state)
-* ``sse`` — SSE formatting, heartbeats, stream helpers
-* ``truncation`` — ``[OUTPUT_TRUNCATED]`` detection
-* ``workflow`` — workflow status builders & task-event normalizers
-* ``tool_repair`` — office-document input repair, JSON extraction
-* ``phases/`` — P0 (durable task), P1 (planning), P2 (tools), P3 (follow-up), P4 (persist)
+* ``durable_task``  — long-running project tasks routed before the loop
+* ``agent_loop``    — the main streaming + tool-execution loop
+* ``persist``       — final-text assembly, artifact persistence, HITAS
+  pending-action storage, message persist
 
-Public API (unchanged signatures for backward compatibility):
+Supporting modules:
+
+* ``runtime``        — ``ChatRuntime`` dataclass + ``prepare_chat_runtime``
+* ``state``          — ``ChatSessionState`` (mutable shared run state)
+* ``sse``            — SSE formatting, heartbeats, stream helpers
+* ``truncation``     — ``[OUTPUT_TRUNCATED]`` detection
+* ``workflow``       — workflow status builders & task-event normalizers
+* ``tool_repair``    — office-document input repair, JSON extraction
+* ``tool_executor``  — unified tool routing, repair, policy, retry, validation
+* ``agent_step``     — ``AgentStep`` dataclass and serializers
+
+Public API:
 
 .. code-block:: python
 
@@ -111,20 +121,16 @@ async def stream_chat_events(
 ) -> AsyncIterator[str]:
     """Main SSE event generator.
 
-    Orchestrates the chat flow through phases P0 → P1 → P2 → P3 → P4.
-    Each phase is an async generator that yields SSE-formatted strings.
-    Mutable state is carried in a single ``ChatSessionState`` instance.
+    Drives ``durable_task`` (long-running task pre-loop) → ``agent_loop``
+    (streaming + tool execution) → ``persist`` (artifact persistence,
+    HITAS pending-action storage, message persist).
 
-    The function signature is **100 % backward-compatible** with the old
-    monolithic ``chat_streaming.py`` implementation.
+    The function signature is identical to the legacy monolithic
+    ``chat_streaming.py`` API — routers and tests do not need to change.
     """
-    from app.services.chat.phases import (
-        run_p0_durable_task,
-        run_p1_planning,
-        run_p2_tools,
-        run_p3_followup,
-        run_p4_persist,
-    )
+    from app.services.chat.agent_loop import run_agent_loop
+    from app.services.chat.durable_task import run_durable_task
+    from app.services.chat.persist import run_persist
 
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
@@ -155,26 +161,25 @@ async def stream_chat_events(
             )
 
     # ==================================================================
-    # P0 — Durable task early-return
+    # Durable task — early return for long-running project work
     # ==================================================================
     try:
-        async for event in run_p0_durable_task(runtime, req, bind, state):
+        async for event in run_durable_task(runtime, req, bind, state):
             yield event
     except Exception as exc:
-        logger.error(f"[P0 durable_task error] {exc}", exc_info=True)
+        logger.error(f"[durable_task error] {exc}", exc_info=True)
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
             bind=bind,
             state=state,
-            phase="P0 durable task",
+            phase="durable_task",
             exc=exc,
         ):
             yield event
         return
 
     if state.durable_task_completed:
-        # Fix total_stream_ms that was left as 0 in P0
         state.stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
         yield sse_event(
             {
@@ -186,100 +191,38 @@ async def stream_chat_events(
         return
 
     # ==================================================================
-    # P1 — Planning / initial LLM stream
+    # Agent loop — streaming + tool execution
     # ==================================================================
     try:
-        async for event in run_p1_planning(runtime, req, state):
+        async for event in run_agent_loop(runtime, req, state):
             yield event
     except Exception as exc:
-        logger.error(f"[P1 planning error] {exc}", exc_info=True)
+        logger.error(f"[agent_loop error] {exc}", exc_info=True)
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
             bind=bind,
             state=state,
-            phase="P1 planning",
+            phase="agent_loop",
             exc=exc,
         ):
             yield event
         return
 
     # ==================================================================
-    # P2 — Tool execution
-    # ==================================================================
-    if state.tool_use_blocks:
-        try:
-            async for event in run_p2_tools(runtime, req, state):
-                yield event
-        except Exception as exc:
-            logger.error(f"[P2 tools error] {exc}", exc_info=True)
-            for event in _persist_phase_error_events(
-                runtime=runtime,
-                req=req,
-                bind=bind,
-                state=state,
-                phase="P2 tools",
-                exc=exc,
-            ):
-                yield event
-            return
-
-    if state.confirmation_requested:
-        state.full_text = state.text_buffer.strip()
-        try:
-            async for event in run_p4_persist(runtime, req, bind, state):
-                yield event
-        except Exception as exc:
-            logger.error(f"[P4 persist error] {exc}", exc_info=True)
-            for event in _persist_phase_error_events(
-                runtime=runtime,
-                req=req,
-                bind=bind,
-                state=state,
-                phase="P4 persist",
-                exc=exc,
-            ):
-                yield event
-        return
-
-    # ==================================================================
-    # P3 — Follow-up / final reply
-    # =================================================================
-    if state.tool_use_blocks and state.tool_result_blocks:
-        try:
-            async for event in run_p3_followup(runtime, req, state):
-                yield event
-        except Exception as exc:
-            logger.error(f"[P3 follow-up error] {exc}", exc_info=True)
-            for event in _persist_phase_error_events(
-                runtime=runtime,
-                req=req,
-                bind=bind,
-                state=state,
-                phase="P3 follow-up",
-                exc=exc,
-            ):
-                yield event
-            return
-
-    state.full_text = state.text_buffer.strip()
-    if state.follow_up_text.strip():
-        state.full_text = (state.full_text + "\n\n" + state.follow_up_text.strip()).strip()
-
-    # ==================================================================
-    # P4 — Persistence & finalization
+    # Persist — final-text assembly, artifact persistence, HITAS, message
     # ==================================================================
     try:
-        async for event in run_p4_persist(runtime, req, bind, state):
+        async for event in run_persist(runtime, req, bind, state):
             yield event
     except Exception as exc:
-        logger.error(f"[P4 persist error] {exc}", exc_info=True)
+        logger.error(f"[persist error] {exc}", exc_info=True)
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
             bind=bind,
             state=state,
-            phase="P4 persist",
+            phase="persist",
             exc=exc,
         ):
             yield event

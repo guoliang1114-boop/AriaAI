@@ -39,8 +39,10 @@ from app.services.chat.mode_registry import ActionPolicy, ChatMode, ToolAccessPo
 from app.services.chat.state import ChatSessionState
 from app.services.chat.trace import build_chat_trace_payload
 from app.services.policy_guards import classify_chat_mode_and_policy, filter_tools_for_access, policy_allows_tool
-from app.services.chat.phases.p2_tools import _repair_project_markdown_tool_input
-from app.services.chat.phases.p3_followup import _repair_project_markdown_tool_input as _repair_project_markdown_followup_tool_input
+from app.services.chat.tool_executor import (
+    _repair_project_markdown_tool_input,
+    _repair_project_markdown_tool_input as _repair_project_markdown_followup_tool_input,
+)
 from app.tools import registry
 from app.tools.office_documents import READ_PROJECT_FILE_TOOL_NAME
 from app.tools.project_markdown import READ_MARKDOWN_TOOL_NAME

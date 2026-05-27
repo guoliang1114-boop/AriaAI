@@ -273,7 +273,7 @@ export function Layout() {
         </header>
       )}
 
-      <main className="flex-1 overflow-auto">
+      <main className="app-ui flex-1 overflow-auto">
         <Outlet />
       </main>
     </div>

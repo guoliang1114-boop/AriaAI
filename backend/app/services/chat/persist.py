@@ -1,7 +1,7 @@
-"""P4 — Persistence & finalization phase.
+"""Persistence & finalization — the post-loop step.
 
-Saves artifacts, builds metadata, persists the assistant message, schedules title
-generation, and emits the final ``done`` event.
+Runs after the agent loop finishes: saves artifacts, builds metadata, persists the
+assistant message, schedules title generation, and emits the final ``done`` event.
 """
 from __future__ import annotations
 
@@ -230,7 +230,7 @@ async def _maybe_generate_missing_ppt_artifact(
     )
     state.record_trace_event(
         "deterministic_ppt_fallback_attempt",
-        stage="p4",
+        stage="persist",
         tool_name=_PPT_GENERATION_TOOL_NAME,
         changes=repaired_changes,
         output_kind=contract.output_kind,
@@ -267,7 +267,7 @@ async def _maybe_generate_missing_ppt_artifact(
         state.artifacts.append(artifact)
         state.record_trace_event(
             "deterministic_ppt_fallback_succeeded",
-            stage="p4",
+            stage="persist",
             tool_name=_PPT_GENERATION_TOOL_NAME,
             artifact=artifact,
             duration_ms=duration_ms,
@@ -276,7 +276,7 @@ async def _maybe_generate_missing_ppt_artifact(
 
     state.record_trace_event(
         "deterministic_ppt_fallback_failed",
-        stage="p4",
+        stage="persist",
         tool_name=_PPT_GENERATION_TOOL_NAME,
         error=error,
         duration_ms=duration_ms,
@@ -501,7 +501,7 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
     )
     state.record_trace_event(
         "deterministic_cleanup_confirmation_created",
-        stage="p4",
+        stage="persist",
         tool_name=MANAGE_PROJECT_FILES_TOOL_NAME,
         confirmation_token=confirmation_token,
         candidate_count=len(details),
@@ -509,7 +509,7 @@ def _ensure_project_cleanup_confirmation(runtime: ChatRuntime, req: SendMessageR
     )
 
 
-async def run_p4_persist(
+async def run_persist(
     runtime: ChatRuntime,
     req: SendMessageRequest,
     bind,
@@ -528,23 +528,20 @@ async def run_p4_persist(
     stream_started_at = time.perf_counter() - (state.stage_timings.get("total_stream_ms", 0) / 1000)
 
     # Assemble full text
-    full_text = state.text_buffer.strip()
-    if state.follow_up_text.strip():
-        full_text = (full_text + "\n\n" + state.follow_up_text.strip()).strip()
-    full_text = _strip_internal_tool_markers(full_text).strip()
+    full_text = _strip_internal_tool_markers(state.full_text).strip()
 
-    if not state.tool_use_blocks:
+    if not state.tool_call_events:
         yield sse_event({"type": "status", "stage": "finalizing", "message": "模型回复已整理完成。"})
 
     # Suppress leaked tool_use JSON from saved text
     leaked_tool_blocks, cleaned_full_text = extract_tool_use_json_blocks(full_text)
     if leaked_tool_blocks:
         for block in leaked_tool_blocks:
-            state.record_tool_use_via_text("p4", block, status="suppressed")
+            state.record_tool_use_via_text("persist", block, status="suppressed")
         logger.warning(f"[SAVE] suppressed {len(leaked_tool_blocks)} leaked tool_use JSON block(s) from assistant text")
         full_text = cleaned_full_text.strip()
 
-    logger.info(f"[P4] persisting. full_text_len={len(full_text)}")
+    logger.info(f"[persist] persisting. full_text_len={len(full_text)}")
 
     if state.workflow_started:
         yield sse_event(
@@ -602,7 +599,7 @@ async def run_p4_persist(
                 "3. API Key 配置异常或余额不足\n\n"
                 "建议稍后重试，或前往「设置」检查 API Key 配置。"
             )
-            logger.warning("[P4] empty response detected, using fallback message")
+            logger.warning("[persist] empty response detected, using fallback message")
 
     fallback_markdown = _maybe_create_markdown_from_response(
         runtime=runtime,
@@ -624,7 +621,7 @@ async def run_p4_persist(
                 "folder_id": fallback_markdown.get("folder_id"),
                 "saved": True,
                 "saved_result": fallback_markdown,
-                "source": "p4_markdown_fallback",
+                "source": "persist_markdown_fallback",
             }
         )
         state.tool_call_events.append(
@@ -658,7 +655,7 @@ async def run_p4_persist(
             reason="contract_not_satisfied",
         )
         logger.warning(
-            "[P4] artifact contract not satisfied. output_kind=%s title=%s",
+            "[persist] artifact contract not satisfied. output_kind=%s title=%s",
             artifact_contract.output_kind,
             artifact_contract.title,
         )
@@ -688,7 +685,7 @@ async def run_p4_persist(
         )
         state.record_trace_event(
             "execution_truth_gate_blocked_completion_claim",
-            stage="p4",
+            stage="persist",
             action_policy=policy,
             original_text_preview=full_text[:240],
         )
@@ -776,7 +773,7 @@ async def run_p4_persist(
                 except Exception as exc:
                     error_message = str(exc) or exc.__class__.__name__
                     pending_action_persist_errors.append(error_message)
-                    logger.exception("[P4] failed to persist pending tool action: %s", exc)
+                    logger.exception("[persist] failed to persist pending tool action: %s", exc)
 
     if pending_action_persist_errors:
         failure_notice = (
@@ -793,7 +790,7 @@ async def run_p4_persist(
                     )
                     session.commit()
             except Exception as exc:
-                logger.exception("[P4] failed to fail-closed pending tool actions: %s", exc)
+                logger.exception("[persist] failed to fail-closed pending tool actions: %s", exc)
         pending_action_ids = []
         pending_action_batch_ids = []
         state.pending_tool_actions = []
@@ -809,7 +806,7 @@ async def run_p4_persist(
         )
         state.record_trace_event(
             "pending_action_persist_failed",
-            stage="p4",
+            stage="persist",
             error_count=len(pending_action_persist_errors),
             errors=pending_action_persist_errors[:3],
         )
@@ -852,7 +849,7 @@ async def run_p4_persist(
         prepare_metrics = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
         metadata["skill_id"] = req.skill_id or prepare_metrics.get("effective_skill_id")
         metadata["skill_progress"] = _build_completed_skill_progress(state.tool_call_events, full_text)
-    if state.p1_double_truncated or state.p3_double_truncated:
+    if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 
     state.stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
@@ -901,14 +898,14 @@ async def run_p4_persist(
                 )
                 session.commit()
         except Exception as exc:
-            logger.warning("[P4] failed to attach pending tool actions to assistant message: %s", exc)
+            logger.warning("[persist] failed to attach pending tool actions to assistant message: %s", exc)
     state.full_text = full_text
     state.need_title = need_title
 
     try:
         persist_chat_trace(bind, runtime, state, message_id=assistant_message_id)
     except Exception as exc:
-        logger.warning("[P4] failed to persist chat trace: %s", exc)
+        logger.warning("[persist] failed to persist chat trace: %s", exc)
 
     logger.info(f"[chat timing] conv={runtime.conv_id} metrics={state.stage_timings}")
     yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
