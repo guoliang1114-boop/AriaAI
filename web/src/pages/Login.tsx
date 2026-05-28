@@ -1,191 +1,353 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { useAuth } from '../contexts/AuthContext'
-import { Eye, EyeOff, Mail, Lock, Sparkles, AlertCircle } from 'lucide-react'
-import { api } from '../api/client'
-import { PageTitle } from '../components/PageTitle'
-import type { LoginResponse } from '../types/api'
+/**
+ * Login page — V0.0.6 Codex redesign (PR 3/N).
+ *
+ * Layout per ``design_handoff_aria_codex_redesign/direction-codex-part2.jsx:337``:
+ *   - LEFT: quiet hero panel with ``CxLogo``, animated dot grid +
+ *     2 floating accent orbs, accent line + 44px headline + soft body +
+ *     edition / copyright footer.
+ *   - RIGHT: minimal form — email + password + 登录. No "remember me",
+ *     no eye-toggle, no SSO, no "no account" link.
+ *
+ * The auth state machine is unchanged from the previous Login: same
+ * ``useAuth`` / ``api.post('/auth/login')`` / ``navigate('/')`` flow,
+ * same error surface, same i18n keys for labels.
+ *
+ * Codex tokens resolve because the outer wrapper carries the
+ * ``theme-codex`` class (registered in ``web/src/styles/codex.css``).
+ */
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+
+import { api } from "../api/client";
+import { useAuth } from "../contexts/AuthContext";
+import { PageTitle } from "../components/PageTitle";
+import { CxLogo } from "../components/codex";
+import type { LoginResponse } from "../types/api";
+
+const INPUT_STYLE = {
+  width: "100%",
+  padding: "10px 12px",
+  fontSize: 13.5,
+  background: "var(--color-codex-bg-elev)",
+  border: "1px solid var(--color-codex-line)",
+  borderRadius: "var(--codex-r-sm, 3px)",
+  color: "var(--color-codex-ink)",
+};
 
 export function Login() {
-  const navigate = useNavigate()
-  const { t } = useTranslation()
-  const { login } = useAuth()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
 
     try {
-      const response = await api.post<LoginResponse>('/auth/login', { 
-        email: email.toLowerCase().trim(), 
-        password 
-      })
-      
+      const response = await api.post<LoginResponse>("/auth/login", {
+        email: email.toLowerCase().trim(),
+        password,
+      });
+
       if (!response.token) {
-        throw new Error('No token received from server')
+        throw new Error("No token received from server");
       }
-      
-      // Store auth data and update context
-      login(response.token, response.user)
-      
-      navigate('/')
-    } catch (err: any) {
-      const message = err.response?.data?.detail || err.message || 'Login failed. Please check your credentials.'
-      setError(message)
+
+      login(response.token, response.user);
+      navigate("/");
+    } catch (err) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const message =
+        detail ||
+        (err instanceof Error ? err.message : null) ||
+        "Login failed. Please check your credentials.";
+      setError(message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <>
-      <PageTitle title={t('login.title')} />
-      <div className="min-h-screen flex">
-      {/* Left Side - Form */}
-      <div className="flex-1 flex items-center justify-center px-8 py-12 bg-surface">
-        <div className="w-full max-w-md">
-          {/* Logo */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-primary flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-white" />
-            </div>
-            <span className="font-manrope text-xl font-semibold text-on-surface">
-              Aria AI
-            </span>
+      <PageTitle title={t("login.title")} />
+      <div
+        className="theme-codex min-h-screen flex"
+        style={{ background: "var(--color-codex-bg)" }}
+      >
+        {/* ------------------------------------------------------------
+            Left — quiet hero (hidden on small screens; mobile gets the
+            form full-width). Order matters for the visual reading order.
+            ------------------------------------------------------------ */}
+        <aside
+          className="relative hidden lg:flex flex-col justify-between overflow-hidden"
+          style={{
+            flex: 1.1,
+            padding: "44px 56px",
+            background: "var(--color-codex-bg-elev)",
+            borderRight: "1px solid var(--color-codex-line)",
+          }}
+          aria-hidden="false"
+        >
+          {/* Faint dot grid — drifts on a 22s loop. Masked with an
+              ellipse so the dots fade out away from the visual centre. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage:
+                "radial-gradient(circle, var(--color-codex-line-strong) 1px, transparent 1px)",
+              backgroundSize: "24px 24px",
+              opacity: 0.4,
+              pointerEvents: "none",
+              maskImage:
+                "radial-gradient(ellipse 80% 60% at 70% 50%, black 30%, transparent 90%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 80% 60% at 70% 50%, black 30%, transparent 90%)",
+              animation: "codex-drift 22s ease-in-out infinite",
+            }}
+          />
+
+          {/* Two floating accent orbs — radial gradient + slight blur
+              for the "ambient" feel. Pure decoration. */}
+          <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: "18%",
+              right: "20%",
+              width: 240,
+              height: 240,
+              borderRadius: 9999,
+              background:
+                "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) 18%, transparent) 0%, transparent 70%)",
+              animation: "codex-float-a 14s ease-in-out infinite",
+              filter: "blur(2px)",
+              pointerEvents: "none",
+            }}
+          />
+          <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              bottom: "12%",
+              right: "55%",
+              width: 180,
+              height: 180,
+              borderRadius: 9999,
+              background:
+                "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) 12%, transparent) 0%, transparent 70%)",
+              animation: "codex-float-b 18s ease-in-out infinite",
+              filter: "blur(2px)",
+              pointerEvents: "none",
+            }}
+          />
+
+          {/* Brand mark — pinned top of the column. */}
+          <div className="relative">
+            <CxLogo size={26} wordmarkSize={18} />
           </div>
 
-          <h1 className="text-headline-sm text-on-surface mb-3">{t('login.welcomeBack')}</h1>
-          <p className="text-body-md text-on-surface-muted mb-8">
-            {t('login.subtitle')}
-          </p>
-
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-error/5 border border-error/10 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-error">{error}</p>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-label-md text-on-surface-variant mb-2">{t('login.email')}</label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-on-surface-muted" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3.5 bg-surface-container-lowest rounded-xl border-none text-on-surface placeholder:text-on-surface-muted outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="name@example.com"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-label-md text-on-surface-variant mb-2">{t('login.password')}</label>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-on-surface-muted" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-12 py-3.5 bg-surface-container-lowest rounded-xl border-none text-on-surface placeholder:text-on-surface-muted outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="Enter your password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-on-surface-muted hover:text-on-surface transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  className="w-4 h-4 rounded border-outline text-primary focus:ring-primary/20" 
-                />
-                <span className="text-sm text-on-surface-muted">{t('login.rememberMe')}</span>
-              </label>
-              <a href="#" className="text-sm text-primary hover:text-primary-container font-medium transition-colors">
-                {t('login.forgotPassword')}
-              </a>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 px-4 btn-primary disabled:opacity-50 flex items-center justify-center gap-2"
+          {/* Center — accent line + headline + body. */}
+          <div className="relative" style={{ maxWidth: 480 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--color-codex-accent)",
+                marginBottom: 22,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
             >
-              {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {t('login.signingIn')}
-                </>
-              ) : (
-                t('login.signIn')
-              )}
-            </button>
-          </form>
-
-          <p className="mt-8 text-center text-sm text-on-surface-muted">
-            Don&apos;t have an account?{' '}
-            <a href="#" className="text-primary hover:text-primary-container font-medium transition-colors">
-              Contact your admin
-            </a>
-          </p>
-        </div>
-      </div>
-
-      {/* Right Side - Visual */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-gray-900 via-slate-900 to-primary relative overflow-hidden">
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-primary/40 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 left-1/4 w-64 h-64 bg-secondary-container/30 rounded-full blur-3xl" />
-        </div>
-
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <span className="inline-block w-fit px-4 py-1.5 text-label-sm text-white/80 bg-white/10 rounded-full mb-6 backdrop-blur-sm">
-            CONSULTING ELITE EDITION
-          </span>
-          <h2 className="mb-4 font-manrope text-2xl font-semibold leading-tight">
-            {t('login.tagline')}
-          </h2>
-          <p className="max-w-md text-base leading-7 text-white/70">
-            {t('login.description')}
-          </p>
-
-          <div className="mt-10 flex items-center gap-8">
-            <div>
-              <div className="font-manrope text-2xl font-semibold">142+</div>
-              <div className="text-sm text-white/50">{t('login.activeSkills')}</div>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 18,
+                  height: 1,
+                  background: "var(--color-codex-accent)",
+                }}
+              />
+              {t("login.heroBadge")}
             </div>
-            <div className="w-px h-12 bg-white/20" />
-            <div>
-              <div className="font-manrope text-2xl font-semibold">50+</div>
-              <div className="text-sm text-white/50">{t('login.enterpriseClients')}</div>
-            </div>
-            <div className="w-px h-12 bg-white/20" />
-            <div>
-              <div className="font-manrope text-2xl font-semibold">99.9%</div>
-              <div className="text-sm text-white/50">{t('login.uptime')}</div>
-            </div>
+
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 44,
+                fontWeight: 400,
+                lineHeight: 1.18,
+                letterSpacing: "-0.025em",
+                color: "var(--color-codex-ink)",
+                whiteSpace: "pre-line",
+              }}
+            >
+              {t("login.heroHeadline")}
+            </h1>
+
+            <p
+              style={{
+                margin: "20px 0 0",
+                fontSize: 14,
+                color: "var(--color-codex-ink-soft)",
+                lineHeight: 1.75,
+                maxWidth: 380,
+              }}
+            >
+              {t("login.heroBody")}
+            </p>
           </div>
-        </div>
+
+          {/* Footer — edition tag + copyright. */}
+          <div
+            className="relative flex items-center justify-between"
+            style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
+          >
+            <span>{t("login.heroEdition")}</span>
+            <span>{t("login.heroCopyright")}</span>
+          </div>
+        </aside>
+
+        {/* ------------------------------------------------------------
+            Right — form. Centered, narrow column. No nav, no extras.
+            ------------------------------------------------------------ */}
+        <main
+          className="flex flex-1 items-center justify-center"
+          style={{ padding: "44px 60px", background: "var(--color-codex-bg)" }}
+        >
+          <div style={{ maxWidth: 340, width: "100%" }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 26,
+                fontWeight: 500,
+                color: "var(--color-codex-ink)",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              {t("login.welcomeBack")}
+            </h2>
+            <p
+              style={{
+                margin: "8px 0 30px",
+                fontSize: 13,
+                color: "var(--color-codex-ink-mute)",
+              }}
+            >
+              {t("login.subtitle")}
+            </p>
+
+            {error && (
+              <div
+                role="alert"
+                style={{
+                  marginBottom: 18,
+                  padding: "10px 12px",
+                  borderRadius: "var(--codex-r-sm, 3px)",
+                  background:
+                    "color-mix(in oklch, var(--color-codex-bad) 8%, transparent)",
+                  border:
+                    "1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)",
+                  color: "var(--color-codex-bad)",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              <label
+                htmlFor="login-email"
+                style={{
+                  fontSize: 12.5,
+                  color: "var(--color-codex-ink-soft)",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                {t("login.email")}
+              </label>
+              <input
+                id="login-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="codex-input"
+                style={{ ...INPUT_STYLE, marginBottom: 18 }}
+              />
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  marginBottom: 6,
+                }}
+              >
+                <label
+                  htmlFor="login-password"
+                  style={{
+                    fontSize: 12.5,
+                    color: "var(--color-codex-ink-soft)",
+                  }}
+                >
+                  {t("login.password")}
+                </label>
+                <a
+                  href="#"
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--color-codex-accent)",
+                  }}
+                  onClick={(e) => e.preventDefault()}
+                >
+                  {t("login.forgotPassword")}
+                </a>
+              </div>
+              <input
+                id="login-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="codex-input"
+                style={{ ...INPUT_STYLE, marginBottom: 24 }}
+              />
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: 11,
+                  background: "var(--color-codex-ink)",
+                  color: "var(--color-codex-bg-elev)",
+                  borderRadius: "var(--codex-r-sm, 3px)",
+                  fontSize: 13.5,
+                  fontWeight: 500,
+                  opacity: loading ? 0.5 : 1,
+                  cursor: loading ? "not-allowed" : "pointer",
+                  transition: "opacity 0.15s",
+                }}
+              >
+                {loading ? t("login.signingIn") : t("login.signIn")}
+              </button>
+            </form>
+          </div>
+        </main>
       </div>
-    </div>
     </>
-  )
+  );
 }

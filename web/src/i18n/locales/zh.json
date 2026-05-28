@@ -371,7 +371,12 @@
     "description": "为高级咨询师设计的 AI 驱动运营模块。执行复杂工作流程，交付高质量成果。",
     "activeSkills": "活跃技能",
     "enterpriseClients": "企业客户",
-    "uptime": "正常运行时间"
+    "uptime": "正常运行时间",
+    "heroBadge": "为咨询团队而做 · 2026",
+    "heroHeadline": "一个安静的\nAI 协作工作台。",
+    "heroBody": "把项目记忆、客户上下文、Skill 工作流，做成稳定的产品能力 — 给咨询、售前与交付团队使用。",
+    "heroEdition": "for consulting teams",
+    "heroCopyright": "© 2026 Aria"
   },
   "settings": {
     "title": "设置",
