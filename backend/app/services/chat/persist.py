@@ -705,10 +705,57 @@ async def run_persist(
 
     if _requires_execution_truth_gate(runtime, state, full_text):
         policy = _policy_value(runtime)
-        truth_gate_message = (
-            "没有完成这个操作：本轮没有成功执行项目空间写入/更新工具，也没有生成可验证的文件记录，"
-            "所以我不会声称已完成。请重新指定目标文件或确认操作范围后，我再执行。"
+
+        # Bucket the tool_use_via_text trace events so we can both log them in
+        # structured form (for offline diagnosis) and reflect what was actually
+        # attempted in the user-facing error.
+        attempted_via_text: dict[str, dict[str, int]] = {}
+        for ev in state.trace_events:
+            if ev.get("type") != "tool_use_via_text":
+                continue
+            tool_name = str(ev.get("tool_name") or "unknown")
+            status = str(ev.get("status") or "unknown")
+            slot = attempted_via_text.setdefault(tool_name, {})
+            slot[status] = slot.get(status, 0) + 1
+
+        contract = getattr(runtime, "artifact_contract", None)
+        contract_required = bool(
+            isinstance(contract, ArtifactContract) and contract.delivery_required
         )
+        artifact_claim = _has_own_artifact_delivery_claim(full_text)
+
+        # Single structured log line — easy to grep for after the fact when
+        # diagnosing why a specific turn got blocked. The text_preview is
+        # truncated to keep log volume reasonable.
+        logger.warning(
+            "[execution_truth_gate] blocked run_id=%s conv=%s policy=%s "
+            "artifact_claim=%s contract_required=%s "
+            "attempted_via_text=%s text_preview=%r",
+            getattr(state, "run_id", "") or "-",
+            getattr(runtime, "conv_id", None),
+            policy,
+            artifact_claim,
+            contract_required,
+            attempted_via_text or {},
+            full_text[:200],
+        )
+
+        # User-facing message: when the model attempted tool calls via text
+        # (typical for DeepSeek), naming them helps the user understand what
+        # actually happened instead of guessing at "operation didn't complete".
+        if attempted_via_text:
+            tool_list = "、".join(sorted(attempted_via_text.keys()))
+            truth_gate_message = (
+                f"我尝试调用了工具（{tool_list}），但模型把调用写成了普通文本而不是结构化的工具调用，"
+                "所以系统没有真正执行它们。为了不误导你，我不会声称已经完成。\n\n"
+                "可以试试：把请求改成更明确的「读取 / 修改」表述，或者换一个 Skill / 对话模式。"
+            )
+        else:
+            truth_gate_message = (
+                "没有完成这个操作：本轮没有成功执行项目空间写入/更新工具，也没有生成可验证的文件记录，"
+                "所以我不会声称已完成。请重新指定目标文件或确认操作范围后，我再执行。"
+            )
+
         state.tool_call_events.append(
             {
                 "tool_name": "execution_truth_gate",
@@ -716,12 +763,16 @@ async def run_persist(
                 "message": "拦截了没有工具结果支撑的完成表述。",
                 "summary": "No successful mutation result was present.",
                 "policy": policy,
+                "attempted_via_text": attempted_via_text or {},
             }
         )
         state.record_trace_event(
             "execution_truth_gate_blocked_completion_claim",
             stage="persist",
             action_policy=policy,
+            artifact_claim=artifact_claim,
+            contract_required=contract_required,
+            attempted_via_text=attempted_via_text or {},
             original_text_preview=full_text[:240],
         )
         full_text = f"{full_text}\n\n{truth_gate_message}".strip() if full_text else truth_gate_message
