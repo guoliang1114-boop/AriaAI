@@ -34,6 +34,21 @@ interface ChangelogEntry {
   changes: string[]
 }
 
+const labelStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+  color: 'var(--color-codex-ink-mute)',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+}
+
+const cardStyle: React.CSSProperties = {
+  padding: 18,
+  background: 'var(--color-codex-bg-elev)',
+  border: '1px solid var(--color-codex-line)',
+  borderRadius: 'var(--codex-r-md, 6px)',
+}
+
 export function AboutSettings() {
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -107,15 +122,15 @@ export function AboutSettings() {
   ]
 
   const techStack = [
-    { name: 'React', color: 'bg-sky-100 text-sky-700 border-sky-200' },
-    { name: 'TypeScript', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-    { name: 'Vite', color: 'bg-violet-100 text-violet-700 border-violet-200' },
-    { name: 'Tailwind CSS', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-    { name: 'FastAPI', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    { name: 'PostgreSQL', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-    { name: 'SQLModel', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-    { name: 'Claude API', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-    { name: 'Moonshot AI', color: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200' },
+    'React',
+    'TypeScript',
+    'Vite',
+    'Tailwind CSS',
+    'FastAPI',
+    'PostgreSQL',
+    'SQLModel',
+    'Claude API',
+    'Moonshot AI',
   ]
 
   const links = [
@@ -193,35 +208,83 @@ export function AboutSettings() {
     t('about.subtitle') || (isZh ? '版本信息与技术说明' : 'Version info and technical details')
 
   const renderOverview = () => (
-    <div className="space-y-6">
-      <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-[linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(239,246,255,0.96)_38%,_rgba(236,253,245,0.92)_100%)] p-6 shadow-[0_24px_70px_-42px_rgba(59,130,246,0.28)]">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5">
+      {/* Identity card */}
+      <div style={cardStyle}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500 shadow-lg shadow-sky-500/20">
-              <Sparkles className="h-8 w-8 text-white" />
+            <div
+              className="flex h-14 w-14 flex-shrink-0 items-center justify-center"
+              style={{
+                background: 'var(--color-codex-accent-bg)',
+                color: 'var(--color-codex-accent)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
+              <Sparkles className="h-7 w-7" />
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-2xl font-semibold text-slate-950">AriaAI</h3>
-                <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 22,
+                    fontWeight: 500,
+                    color: 'var(--color-codex-ink)',
+                    letterSpacing: '-0.015em',
+                  }}
+                >
+                  AriaAI
+                </h2>
+                <span
+                  className="font-mono"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    background: 'var(--color-codex-bg-tint)',
+                    color: 'var(--color-codex-ink-soft)',
+                    border: '1px solid var(--color-codex-line)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                    letterSpacing: '0.04em',
+                  }}
+                >
                   V{systemInfo.version}
                 </span>
                 <span
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    systemInfo.apiStatus === 'online'
-                      ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200'
-                      : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200'
-                  }`}
+                  className="font-mono"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 10.5,
+                    background:
+                      systemInfo.apiStatus === 'online'
+                        ? 'var(--color-codex-accent-bg)'
+                        : 'color-mix(in oklch, var(--color-codex-bad) 12%, transparent)',
+                    color:
+                      systemInfo.apiStatus === 'online'
+                        ? 'var(--color-codex-accent-ink)'
+                        : 'var(--color-codex-bad)',
+                    borderRadius: 'var(--codex-r-pill, 999px)',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
                 >
                   {systemInfo.apiStatus === 'online'
-                    ? t('about.systemOnline') || (isZh ? '系统在线' : 'Online')
-                    : t('about.systemOffline') || (isZh ? '系统离线' : 'Offline')}
+                    ? t('about.systemOnline') || (isZh ? '在线' : 'Online')
+                    : t('about.systemOffline') || (isZh ? '离线' : 'Offline')}
                 </span>
               </div>
-              <p className="text-sm text-slate-600">
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--color-codex-ink-soft)' }}>
                 {t('about.tagline') || (isZh ? '智能咨询助手' : 'Intelligent Consulting Assistant')}
               </p>
-              <p className="max-w-2xl text-sm leading-6 text-slate-600">
+              <p
+                style={{
+                  margin: 0,
+                  maxWidth: 560,
+                  fontSize: 12.5,
+                  lineHeight: 1.6,
+                  color: 'var(--color-codex-ink-mute)',
+                }}
+              >
                 {isZh
                   ? '当前版本页汇总产品版本、打包时间、API 状态与基础技术栈，方便发布留档与环境核对。'
                   : 'This release page summarizes the product version, build time, API status, and baseline stack for quick release verification.'}
@@ -230,36 +293,51 @@ export function AboutSettings() {
           </div>
           <button
             onClick={copyVersionInfo}
-            className="inline-flex items-center gap-2 self-start rounded-2xl border border-white/80 bg-white/85 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-white"
+            className="inline-flex flex-shrink-0 items-center gap-2 self-start px-3 py-2 transition-colors"
+            style={{
+              fontSize: 12.5,
+              background: 'var(--color-codex-bg)',
+              color: 'var(--color-codex-ink-soft)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
             title={t('about.copyInfo') || (isZh ? '复制版本信息' : 'Copy version info')}
           >
-            {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-            {copied ? (isZh ? '已复制' : 'Copied') : t('about.copyInfo') || (isZh ? '复制版本信息' : 'Copy version info')}
+            {copied ? (
+              <Check className="h-3.5 w-3.5" style={{ color: 'var(--color-codex-accent)' }} />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? (isZh ? '已复制' : 'Copied') : t('about.copyInfo') || (isZh ? '复制版本信息' : 'Copy info')}
           </button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {/* Stat grid */}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
           {
             icon: Package,
             label: t('about.version') || (isZh ? '版本' : 'Version'),
             value: `V${systemInfo.version}`,
-            sub: t('about.webVersion') || (isZh ? '前端发布版本' : 'Web release version'),
+            sub: t('about.webVersion') || (isZh ? '前端发布版本' : 'Web release'),
           },
           {
             icon: Server,
             label: t('about.apiVersion') || (isZh ? 'API 版本' : 'API Version'),
             value: systemInfo.apiVersion || '-',
-            sub: systemInfo.apiStatus === 'online'
-              ? t('about.connected') || (isZh ? '接口已连接' : 'Connected')
-              : (isZh ? '接口未连接' : 'Unavailable'),
+            sub:
+              systemInfo.apiStatus === 'online'
+                ? t('about.connected') || (isZh ? '接口已连接' : 'Connected')
+                : isZh
+                  ? '接口未连接'
+                  : 'Unavailable',
           },
           {
             icon: Calendar,
             label: t('about.buildDate') || (isZh ? '构建日期' : 'Build Date'),
             value: systemInfo.buildDate,
-            sub: `${t('about.packagedAt') || (isZh ? '打包时间' : 'Packaged at')}: ${packagedAtLabel}`,
+            sub: `${t('about.packagedAt') || (isZh ? '打包时间' : 'Packaged')}: ${packagedAtLabel}`,
           },
           {
             icon: Shield,
@@ -273,36 +351,89 @@ export function AboutSettings() {
         ].map((item) => (
           <div
             key={item.label}
-            className="rounded-3xl border border-slate-200/80 bg-white/92 p-5 shadow-[0_16px_40px_-32px_rgba(59,130,246,0.2)]"
+            style={{
+              padding: 16,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
           >
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm text-slate-500">{item.label}</div>
-              <div className="rounded-xl bg-sky-50 p-2 text-sky-600">
-                <item.icon className="h-4 w-4" />
+              <div style={labelStyle}>{item.label}</div>
+              <div
+                className="flex h-7 w-7 items-center justify-center"
+                style={{
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
+                <item.icon className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-xl font-semibold text-slate-950">{item.value}</div>
-            <div className="mt-2 text-sm leading-6 text-slate-600">{item.sub}</div>
+            <div
+              className="font-mono"
+              style={{
+                fontSize: 18,
+                fontWeight: 500,
+                color: 'var(--color-codex-ink)',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              {item.value}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11.5,
+                lineHeight: 1.55,
+                color: 'var(--color-codex-ink-mute)',
+              }}
+            >
+              {item.sub}
+            </div>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-base font-semibold text-on-surface">
+      {/* Release notes + tech stack */}
+      <div className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr]">
+        <div style={cardStyle}>
+          <div className="mb-3">
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
               {isZh ? '版本说明' : 'Release Notes'}
             </h3>
-            <p className="mt-1 text-sm text-on-surface-muted">
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               {isZh ? '当前记录版本的定位与说明。' : 'Purpose and scope of the current recorded release.'}
             </p>
           </div>
-          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
-              <Sparkles className="h-4 w-4" />
+          <div
+            style={{
+              padding: 14,
+              background: 'var(--color-codex-bg-tint)',
+              border: '1px solid var(--color-codex-line-soft)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
+          >
+            <div
+              className="flex items-center gap-2"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: 'var(--color-codex-accent-ink)',
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
               {isZh ? 'V0.0.3 发布版本' : 'V0.0.3 Release'}
             </div>
-            <p className="mt-3 text-sm leading-7 text-slate-700">
+            <p
+              style={{
+                margin: '10px 0 0',
+                fontSize: 12.5,
+                lineHeight: 1.7,
+                color: 'var(--color-codex-ink-soft)',
+              }}
+            >
               {isZh
                 ? '本版本聚焦 Skill 体系治理、Harness 架构设计和记忆系统升级，为 AriaAI 从项目助手向可控、可沉淀、可审计的项目 AI 工作台演进奠定架构基础。'
                 : 'This release focuses on Skill governance, Harness architecture design, and memory system upgrades, laying the architectural foundation for evolving AriaAI from a project assistant to a controllable, traceable, and auditable project AI workbench.'}
@@ -310,100 +441,229 @@ export function AboutSettings() {
           </div>
         </div>
 
-        <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-base font-semibold text-on-surface">
+        <div style={cardStyle}>
+          <div className="mb-3">
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
               {t('about.techStack') || (isZh ? '技术栈' : 'Tech Stack')}
             </h3>
-            <p className="mt-1 text-sm text-on-surface-muted">
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               {isZh ? '当前版本主要依赖的核心技术。' : 'Core technologies behind the current release.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {techStack.map((tech) => (
-              <span key={tech.name} className={`rounded-xl border px-3 py-1.5 text-sm font-medium ${tech.color}`}>
-                {tech.name}
+            {techStack.map((name) => (
+              <span
+                key={name}
+                className="font-mono"
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 11.5,
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-soft)',
+                  border: '1px solid var(--color-codex-line-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {name}
               </span>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="rounded-[28px] border border-outline/10 bg-surface p-6 shadow-sm">
-        <div className="mb-4">
-          <h3 className="text-base font-semibold text-on-surface">
+      {/* Quick links */}
+      <div style={cardStyle}>
+        <div className="mb-3">
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
             {isZh ? '常用链接' : 'Quick Links'}
           </h3>
-          <p className="mt-1 text-sm text-on-surface-muted">
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
             {isZh ? '跳转到仓库、支持与反馈入口。' : 'Jump to repository, support, and feedback destinations.'}
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           {links.map((link) => (
             <a
               key={link.title}
               href={link.href}
               target={link.href.startsWith('http') ? '_blank' : undefined}
               rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-              className="group flex items-center gap-3 rounded-2xl border border-outline/10 bg-surface-container-low px-4 py-4 transition hover:border-outline/30 hover:bg-surface-container-lowest"
+              className="group flex items-center gap-3 transition-colors"
+              style={{
+                padding: '12px 14px',
+                background: 'var(--color-codex-bg)',
+                border: '1px solid var(--color-codex-line-soft)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--color-codex-bg)'
+              }}
             >
-              <div className="rounded-xl bg-surface-container-high p-2.5 text-on-surface-muted transition group-hover:bg-sky-50 group-hover:text-sky-600">
+              <div
+                className="flex h-8 w-8 items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
                 <link.icon className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-on-surface">{link.title}</div>
-                <div className="truncate text-xs text-on-surface-muted">{link.subtitle}</div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: 'var(--color-codex-ink)',
+                  }}
+                >
+                  {link.title}
+                </div>
+                <div
+                  className="truncate font-mono"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--color-codex-ink-mute)',
+                  }}
+                >
+                  {link.subtitle}
+                </div>
               </div>
-              <ExternalLink className="h-4 w-4 text-on-surface-muted" />
+              <ExternalLink
+                className="h-3.5 w-3.5"
+                style={{ color: 'var(--color-codex-ink-faint)' }}
+              />
             </a>
           ))}
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 border-t border-outline/10 pt-6 text-xs text-on-surface-muted sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-1">
-          Made with <Heart className="h-3 w-3 text-error" /> by AriaAI Team
+      {/* Footer */}
+      <div
+        className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+        style={{
+          paddingTop: 18,
+          borderTop: '1px solid var(--color-codex-line-soft)',
+          fontSize: 11.5,
+          color: 'var(--color-codex-ink-mute)',
+        }}
+      >
+        <p className="flex items-center gap-1" style={{ margin: 0 }}>
+          Made with <Heart className="h-3 w-3" style={{ color: 'var(--color-codex-bad)' }} /> by AriaAI Team
         </p>
-        <p>© 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}</p>
+        <p style={{ margin: 0 }} className="font-mono">
+          © 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}
+        </p>
       </div>
     </div>
   )
 
   const renderChangelog = () => (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h3 className="text-lg font-semibold text-on-surface">
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
           {t('about.changelog') || (isZh ? '更新日志' : 'Changelog')}
-        </h3>
-        <p className="mt-1 text-sm text-on-surface-muted">
+        </h2>
+        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--color-codex-ink-mute)' }}>
           {isZh ? '记录每个正式版本的重要变更。' : 'Track the important changes for each recorded release.'}
         </p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {changelog.map((entry, index) => (
           <div
             key={entry.version}
-            className={`relative pl-6 ${index !== changelog.length - 1 ? 'border-l-2 border-outline/20 pb-6' : ''}`}
+            className="relative pl-6"
+            style={
+              index !== changelog.length - 1
+                ? {
+                    paddingBottom: 20,
+                    borderLeft: '1px solid var(--color-codex-line)',
+                    marginLeft: 4,
+                  }
+                : { marginLeft: 4 }
+            }
           >
-            <div className="absolute left-0 top-1 h-3 w-3 -translate-x-[7px] rounded-full bg-primary" />
-            <div className="rounded-2xl border border-outline/10 bg-surface p-5 shadow-sm">
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <span className="rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary">
+            <div
+              className="absolute"
+              style={{
+                left: -5,
+                top: 6,
+                width: 9,
+                height: 9,
+                borderRadius: 'var(--codex-r-pill, 999px)',
+                background: index === 0 ? 'var(--color-codex-accent)' : 'var(--color-codex-ink-faint)',
+              }}
+            />
+            <div style={cardStyle}>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span
+                  className="font-mono"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    background: 'var(--color-codex-bg-tint)',
+                    color: 'var(--color-codex-ink)',
+                    border: '1px solid var(--color-codex-line)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                    letterSpacing: '0.04em',
+                  }}
+                >
                   V{entry.version}
                 </span>
-                <span className="text-sm text-on-surface-muted">{entry.date}</span>
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+                >
+                  {entry.date}
+                </span>
                 {index === 0 ? (
-                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                  <span
+                    className="font-mono"
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: 10.5,
+                      background: 'var(--color-codex-accent-bg)',
+                      color: 'var(--color-codex-accent-ink)',
+                      borderRadius: 'var(--codex-r-pill, 999px)',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
                     {t('about.latest') || (isZh ? '最新' : 'Latest')}
                   </span>
                 ) : null}
               </div>
-              <p className="mb-4 text-sm leading-6 text-slate-700">{entry.summary}</p>
+              <p
+                style={{
+                  margin: '0 0 14px',
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  color: 'var(--color-codex-ink-soft)',
+                }}
+              >
+                {entry.summary}
+              </p>
               <ul className="space-y-2">
                 {entry.changes.map((change) => (
-                  <li key={change} className="flex items-start gap-2 text-sm text-on-surface">
-                    <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+                  <li
+                    key={change}
+                    className="flex items-start gap-2"
+                    style={{
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    <ChevronRight
+                      className="mt-0.5 h-3.5 w-3.5 flex-shrink-0"
+                      style={{ color: 'var(--color-codex-accent)' }}
+                    />
                     {change}
                   </li>
                 ))}
@@ -416,39 +676,46 @@ export function AboutSettings() {
   )
 
   const renderLicense = () => (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h3 className="text-lg font-semibold text-on-surface">
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
           {t('about.license') || (isZh ? '许可说明' : 'License')}
-        </h3>
-        <p className="mt-1 text-sm text-on-surface-muted">
+        </h2>
+        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--color-codex-ink-mute)' }}>
           {isZh ? '当前产品许可与第三方依赖许可概览。' : 'Overview of product licensing and third-party dependencies.'}
         </p>
       </div>
 
-      <div className="rounded-2xl border border-outline/10 bg-surface p-6 shadow-sm">
-        <h4 className="mb-4 font-medium text-on-surface">
+      <div style={cardStyle}>
+        <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
           {isZh ? 'AriaAI 使用许可' : 'AriaAI License Agreement'}
-        </h4>
-        <div className="space-y-4 text-sm leading-7 text-on-surface-muted">
-          <p>Copyright © 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}.</p>
-          <p>
+        </h3>
+        <div
+          className="space-y-3"
+          style={{ fontSize: 12.5, lineHeight: 1.75, color: 'var(--color-codex-ink-mute)' }}
+        >
+          <p style={{ margin: 0 }}>
+            Copyright © 2026 AriaAI. {t('about.allRightsReserved') || (isZh ? '保留所有权利' : 'All rights reserved')}.
+          </p>
+          <p style={{ margin: 0 }}>
             {isZh
               ? '本软件为专有软件与保密资产。未经授权，不得以任何形式复制、转让或分发。'
               : 'This software is proprietary and confidential. Unauthorized copying, transfer, or distribution is prohibited.'}
           </p>
-          <p>
+          <p style={{ margin: 0 }}>
             {isZh
-              ? '软件按“现状”提供，不附带任何明示或暗示担保，包括适销性、特定用途适用性及非侵权担保。'
+              ? '软件按"现状"提供，不附带任何明示或暗示担保，包括适销性、特定用途适用性及非侵权担保。'
               : 'The software is provided "as is", without warranty of any kind, express or implied, including merchantability, fitness for a particular purpose, and noninfringement.'}
           </p>
         </div>
       </div>
 
       <div>
-        <h4 className="mb-3 font-medium text-on-surface">
+        <h3
+          style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+        >
           {t('about.thirdPartyLicenses') || (isZh ? '第三方许可证' : 'Third-party Licenses')}
-        </h4>
+        </h3>
         <div className="space-y-2">
           {[
             { name: 'React', license: 'MIT License' },
@@ -458,10 +725,23 @@ export function AboutSettings() {
           ].map((item) => (
             <div
               key={item.name}
-              className="flex items-center justify-between rounded-xl border border-outline/10 bg-surface-container-low px-4 py-3"
+              className="flex items-center justify-between"
+              style={{
+                padding: '10px 14px',
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
             >
-              <span className="text-sm font-medium text-on-surface">{item.name}</span>
-              <span className="text-xs text-on-surface-muted">{item.license}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-codex-ink)' }}>
+                {item.name}
+              </span>
+              <span
+                className="font-mono"
+                style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+              >
+                {item.license}
+              </span>
             </div>
           ))}
         </div>
@@ -471,37 +751,82 @@ export function AboutSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div
+        className="theme-codex flex items-center justify-center py-12"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="mb-1 text-lg font-semibold text-on-surface">{headerTitle}</h2>
-        <p className="text-sm text-on-surface-muted">{headerSubtitle}</p>
-      </div>
+    <div
+      className="theme-codex"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+        padding: '8px 4px 32px',
+      }}
+    >
+      <header style={{ marginBottom: 18 }}>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 22,
+            fontWeight: 500,
+            color: 'var(--color-codex-ink)',
+            letterSpacing: '-0.015em',
+          }}
+        >
+          {headerTitle}
+        </h1>
+        <p
+          style={{
+            margin: '6px 0 0',
+            fontSize: 13,
+            color: 'var(--color-codex-ink-mute)',
+            lineHeight: 1.6,
+          }}
+        >
+          {headerSubtitle}
+        </p>
+      </header>
 
-      <div className="flex gap-1 rounded-xl bg-surface-container-low p-1">
+      <div
+        className="mb-5 flex gap-1 p-1"
+        style={{
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-sm, 3px)',
+        }}
+      >
         {[
           { id: 'overview', label: t('about.overview') || (isZh ? '概览' : 'Overview') },
           { id: 'changelog', label: t('about.changelog') || (isZh ? '更新日志' : 'Changelog') },
           { id: 'license', label: t('about.license') || (isZh ? '许可说明' : 'License') },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'changelog' | 'license')}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? 'bg-surface text-on-surface shadow-sm'
-                : 'text-on-surface-muted hover:text-on-surface'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        ].map((tab) => {
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as 'overview' | 'changelog' | 'license')}
+              className="flex-1 px-3 py-2 transition-all"
+              style={{
+                fontSize: 12.5,
+                fontWeight: isActive ? 600 : 500,
+                background: isActive ? 'var(--color-codex-bg)' : 'transparent',
+                color: isActive ? 'var(--color-codex-ink)' : 'var(--color-codex-ink-mute)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                border: isActive
+                  ? '1px solid var(--color-codex-line)'
+                  : '1px solid transparent',
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
 
       {activeTab === 'overview' && renderOverview()}

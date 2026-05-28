@@ -111,6 +111,22 @@ function isBudgetTight(budget: BudgetInfo | null) {
   return budget.remaining <= Math.max(5, Math.floor(budget.limit * 0.15))
 }
 
+type Tone = 'default' | 'warning' | 'danger' | 'success'
+
+const TONE_ICON_BG: Record<Tone, string> = {
+  default: 'var(--color-codex-bg-tint)',
+  warning: 'color-mix(in oklch, var(--color-codex-warn) 14%, transparent)',
+  danger: 'color-mix(in oklch, var(--color-codex-bad) 12%, transparent)',
+  success: 'var(--color-codex-accent-bg)',
+}
+
+const TONE_ICON_COLOR: Record<Tone, string> = {
+  default: 'var(--color-codex-ink-soft)',
+  warning: 'var(--color-codex-warn)',
+  danger: 'var(--color-codex-bad)',
+  success: 'var(--color-codex-accent)',
+}
+
 function StatusCard({
   icon: Icon,
   title,
@@ -122,32 +138,53 @@ function StatusCard({
   title: string
   value: string | number
   description: string
-  tone?: 'default' | 'warning' | 'danger' | 'success'
+  tone?: Tone
 }) {
-  const toneClass = {
-    default: 'bg-surface-container-low text-on-surface',
-    warning: 'bg-amber-50 text-amber-950',
-    danger: 'bg-red-50 text-red-950',
-    success: 'bg-emerald-50 text-emerald-950',
-  }[tone]
-
-  const iconClass = {
-    default: 'bg-primary/10 text-primary',
-    warning: 'bg-amber-100 text-amber-700',
-    danger: 'bg-red-100 text-red-700',
-    success: 'bg-emerald-100 text-emerald-700',
-  }[tone]
-
   return (
-    <div className={`rounded-2xl p-4 ${toneClass}`}>
+    <div
+      style={{
+        padding: 16,
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+      }}
+    >
       <div className="flex items-center justify-between gap-3">
-        <div className={`rounded-xl p-2 ${iconClass}`}>
-          <Icon className="h-5 w-5" />
+        <div
+          className="flex h-9 w-9 items-center justify-center"
+          style={{
+            background: TONE_ICON_BG[tone],
+            color: TONE_ICON_COLOR[tone],
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+        >
+          <Icon className="h-4 w-4" />
         </div>
-        <div className="text-right text-2xl font-semibold">{value}</div>
+        <div
+          className="text-right font-mono"
+          style={{
+            fontSize: 22,
+            fontWeight: 500,
+            color: 'var(--color-codex-ink)',
+          }}
+        >
+          {value}
+        </div>
       </div>
-      <div className="mt-4 text-sm font-medium">{title}</div>
-      <div className="mt-1 text-xs opacity-75">{description}</div>
+      <div
+        className="mt-3 font-mono"
+        style={{
+          fontSize: 10.5,
+          color: 'var(--color-codex-ink-mute)',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--color-codex-ink-mute)', lineHeight: 1.5 }}>
+        {description}
+      </div>
     </div>
   )
 }
@@ -155,13 +192,24 @@ function StatusCard({
 function BudgetStrip({ title, budget, isZh }: { title: string; budget: BudgetInfo | null; isZh: boolean }) {
   const percent = getBudgetPercent(budget)
   const tight = isBudgetTight(budget)
+  const barColor = tight ? 'var(--color-codex-warn)' : 'var(--color-codex-accent)'
 
   return (
-    <div className="rounded-2xl border border-outline-variant/50 bg-surface-container-low p-4">
+    <div
+      style={{
+        padding: 14,
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+      }}
+    >
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <div className="text-sm font-medium text-on-surface">{title}</div>
-          <div className="mt-1 text-xs text-on-surface-muted">
+        <div className="min-w-0">
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-codex-ink)' }}>{title}</div>
+          <div
+            className="mt-0.5 font-mono"
+            style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+          >
             {budget
               ? isZh
                 ? `已用 ${budget.used} / ${budget.limit}，剩余 ${budget.remaining}`
@@ -171,10 +219,39 @@ function BudgetStrip({ title, budget, isZh }: { title: string; budget: BudgetInf
                 : 'No budget data yet'}
           </div>
         </div>
-        {tight && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">{isZh ? '接近上限' : 'Tight'}</span>}
+        {tight && (
+          <span
+            className="font-mono"
+            style={{
+              padding: '2px 8px',
+              fontSize: 10.5,
+              background: 'color-mix(in oklch, var(--color-codex-warn) 14%, transparent)',
+              color: 'var(--color-codex-warn)',
+              borderRadius: 'var(--codex-r-pill, 999px)',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {isZh ? '接近上限' : 'Tight'}
+          </span>
+        )}
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container-high">
-        <div className={`h-full rounded-full ${tight ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${percent}%` }} />
+      <div
+        className="mt-3 h-1.5 overflow-hidden"
+        style={{
+          background: 'var(--color-codex-bg-tint)',
+          borderRadius: 'var(--codex-r-pill, 999px)',
+        }}
+      >
+        <div
+          className="h-full"
+          style={{
+            width: `${percent}%`,
+            background: barColor,
+            borderRadius: 'var(--codex-r-pill, 999px)',
+            transition: 'width 0.4s',
+          }}
+        />
       </div>
     </div>
   )
@@ -242,47 +319,106 @@ export function ApiLimitsSettings() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[420px] items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div
+        className="theme-codex flex min-h-[420px] items-center justify-center p-8"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-teal-900 to-slate-950 p-6 text-white shadow-sm">
-        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-emerald-50">
-              <ShieldAlert className="h-4 w-4" />
-              {isZh ? 'API 健康观察' : 'API health monitor'}
-            </div>
-            <h2 className="mt-4 text-2xl font-semibold">{isZh ? 'API 限流提醒' : 'API Rate Limits'}</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50/80">
-              {isZh
-                ? '集中展示模型 API 的 429、rate limit、超时和预热预算压力，方便你快速判断是该等待恢复、降低并发，还是检查 API Key 与模型配置。'
-                : 'A focused view for 429s, rate limits, timeouts, and warm-up budget pressure so you can decide whether to wait, reduce concurrency, or inspect model settings.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadLimits(true)}
-            disabled={refreshing}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-emerald-950 transition hover:bg-emerald-50 disabled:opacity-60"
+    <div
+      className="theme-codex"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+        padding: '8px 4px 32px',
+      }}
+    >
+      <header
+        className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
+        style={{ marginBottom: 20 }}
+      >
+        <div>
+          <div
+            className="inline-flex items-center gap-1.5"
+            style={{
+              marginBottom: 6,
+              padding: '2px 8px',
+              fontSize: 10.5,
+              background: 'var(--color-codex-bg-tint)',
+              color: 'var(--color-codex-ink-soft)',
+              borderRadius: 'var(--codex-r-pill, 999px)',
+              fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+            }}
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {isZh ? '刷新' : 'Refresh'}
-          </button>
+            <ShieldAlert className="h-3 w-3" />
+            {isZh ? 'API 健康观察' : 'API health monitor'}
+          </div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 500,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '-0.015em',
+            }}
+          >
+            {isZh ? 'API 限流提醒' : 'API Rate Limits'}
+          </h1>
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 13,
+              color: 'var(--color-codex-ink-mute)',
+              lineHeight: 1.6,
+              maxWidth: 640,
+            }}
+          >
+            {isZh
+              ? '集中展示模型 API 的 429、rate limit、超时和预热预算压力，方便你快速判断是该等待恢复、降低并发，还是检查 API Key 与模型配置。'
+              : 'A focused view for 429s, rate limits, timeouts, and warm-up budget pressure so you can decide whether to wait, reduce concurrency, or inspect model settings.'}
+          </p>
         </div>
-      </div>
+        <button
+          type="button"
+          onClick={() => void loadLimits(true)}
+          disabled={refreshing}
+          className="inline-flex flex-shrink-0 items-center gap-2 px-3 py-2 transition-colors disabled:opacity-60"
+          style={{
+            fontSize: 12.5,
+            background: 'var(--color-codex-bg-elev)',
+            color: 'var(--color-codex-ink-soft)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          {isZh ? '刷新' : 'Refresh'}
+        </button>
+      </header>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '10px 14px',
+            background: 'color-mix(in oklch, var(--color-codex-bad) 8%, transparent)',
+            border: '1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            color: 'var(--color-codex-bad)',
+            fontSize: 13,
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-4">
         <StatusCard
           icon={Gauge}
           title={isZh ? '限流告警' : 'Rate-limit alerts'}
@@ -313,13 +449,36 @@ export function ApiLimitsSettings() {
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-outline-variant/50 bg-surface-container-low p-5">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-3">
+          <div
+            style={{
+              padding: 18,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-on-surface">{isZh ? '最近限流提醒' : 'Recent API limit alerts'}</h3>
-                <p className="mt-1 text-sm text-on-surface-muted">
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: 'var(--color-codex-ink)',
+                  }}
+                >
+                  {isZh ? '最近限流提醒' : 'Recent API limit alerts'}
+                </h2>
+                <p
+                  style={{
+                    margin: '4px 0 0',
+                    fontSize: 12.5,
+                    color: 'var(--color-codex-ink-mute)',
+                    lineHeight: 1.55,
+                  }}
+                >
                   {rateLimitFailures.length > 0
                     ? isZh
                       ? '这些任务已经被归类为 API 限流，建议稍后重试或降低批量预热节奏。'
@@ -329,54 +488,173 @@ export function ApiLimitsSettings() {
                       : 'No explicit rate limit found; recent model-pressure events are shown below for diagnosis.'}
                 </p>
               </div>
-              {hasPressure ? (
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-                  {isZh ? '需要关注' : 'Needs attention'}
-                </span>
-              ) : (
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-                  {isZh ? '运行平稳' : 'Healthy'}
-                </span>
-              )}
+              <span
+                className="font-mono flex-shrink-0"
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 10.5,
+                  background: hasPressure
+                    ? 'color-mix(in oklch, var(--color-codex-warn) 14%, transparent)'
+                    : 'var(--color-codex-accent-bg)',
+                  color: hasPressure
+                    ? 'var(--color-codex-warn)'
+                    : 'var(--color-codex-accent-ink)',
+                  borderRadius: 'var(--codex-r-pill, 999px)',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {hasPressure
+                  ? isZh
+                    ? '需要关注'
+                    : 'Attention'
+                  : isZh
+                    ? '运行平稳'
+                    : 'Healthy'}
+              </span>
             </div>
           </div>
 
           {latestFailures.length === 0 ? (
-            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center text-emerald-950">
-              <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
-              <h3 className="mt-4 text-lg font-semibold">{isZh ? '目前没有 API 限流提醒' : 'No API limit alerts right now'}</h3>
-              <p className="mx-auto mt-2 max-w-lg text-sm text-emerald-800">
+            <div
+              className="text-center"
+              style={{
+                padding: '32px 24px',
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
+              <CheckCircle2
+                className="mx-auto h-9 w-9"
+                style={{ color: 'var(--color-codex-accent)' }}
+              />
+              <h3
+                style={{
+                  margin: '12px 0 0',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: 'var(--color-codex-ink)',
+                }}
+              >
+                {isZh ? '目前没有 API 限流提醒' : 'No API limit alerts right now'}
+              </h3>
+              <p
+                style={{
+                  margin: '6px auto 0',
+                  maxWidth: 420,
+                  fontSize: 12.5,
+                  color: 'var(--color-codex-ink-mute)',
+                  lineHeight: 1.6,
+                }}
+              >
                 {isZh
                   ? '系统没有检测到 429、rate limit 或模型压力失败。页面会每 15 秒自动刷新一次。'
                   : 'No 429, rate limit, or model-pressure failures were detected. This page refreshes every 15 seconds.'}
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {latestFailures.map((failure) => (
                 <button
                   key={`${failure.scope}-${getFailureName(failure)}-${failure.stage}-${failure.failed_at}`}
                   type="button"
                   onClick={() => navigate(getFailureLink(failure))}
-                  className="w-full rounded-2xl border border-outline-variant/60 bg-surface p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
+                  className="w-full text-left transition-colors"
+                  style={{
+                    padding: 14,
+                    background: 'var(--color-codex-bg-elev)',
+                    border: '1px solid var(--color-codex-line)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--color-codex-bg-elev)'
+                  }}
                 >
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-800">
-                          {isRateLimitFailure(failure) ? (isZh ? 'API 限流' : 'Rate limit') : failure.category || (isZh ? '模型压力' : 'Model pressure')}
+                        <span
+                          className="font-mono"
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: 10.5,
+                            background: 'color-mix(in oklch, var(--color-codex-bad) 12%, transparent)',
+                            color: 'var(--color-codex-bad)',
+                            borderRadius: 'var(--codex-r-pill, 999px)',
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {isRateLimitFailure(failure)
+                            ? isZh
+                              ? 'API 限流'
+                              : 'Rate limit'
+                            : failure.category || (isZh ? '模型压力' : 'Pressure')}
                         </span>
-                        <span className="rounded-full bg-surface-container-high px-2.5 py-1 text-xs text-on-surface-muted">
+                        <span
+                          className="font-mono"
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: 10.5,
+                            background: 'var(--color-codex-bg-tint)',
+                            color: 'var(--color-codex-ink-mute)',
+                            borderRadius: 'var(--codex-r-pill, 999px)',
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
                           {failure.scope === 'project' ? (isZh ? '项目' : 'Project') : isZh ? '客户' : 'Client'}
                         </span>
-                        <span className="text-xs text-on-surface-muted">{formatDate(failure.failed_at, isZh)}</span>
+                        <span
+                          className="font-mono"
+                          style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+                        >
+                          {formatDate(failure.failed_at, isZh)}
+                        </span>
                       </div>
-                      <div className="mt-3 text-base font-semibold text-on-surface">{getFailureName(failure)}</div>
-                      <div className="mt-1 text-xs text-on-surface-muted">{failure.stage}</div>
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-on-surface-muted">{failure.message}</p>
+                      <div
+                        className="mt-2"
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: 'var(--color-codex-ink)',
+                        }}
+                      >
+                        {getFailureName(failure)}
+                      </div>
+                      <div
+                        className="mt-1 font-mono"
+                        style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+                      >
+                        {failure.stage}
+                      </div>
+                      <p
+                        className="line-clamp-2"
+                        style={{
+                          margin: '6px 0 0',
+                          fontSize: 12.5,
+                          lineHeight: 1.55,
+                          color: 'var(--color-codex-ink-soft)',
+                        }}
+                      >
+                        {failure.message}
+                      </p>
                     </div>
-                    <div className="shrink-0 rounded-xl bg-surface-container-low px-3 py-2 text-xs text-on-surface-muted">
-                      {isZh ? '重试次数' : 'Retries'}: {failure.retry_count ?? 0}
+                    <div
+                      className="font-mono flex-shrink-0"
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: 11,
+                        background: 'var(--color-codex-bg-tint)',
+                        color: 'var(--color-codex-ink-mute)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                      }}
+                    >
+                      {isZh ? '重试' : 'Retries'}: {failure.retry_count ?? 0}
                     </div>
                   </div>
                 </button>
@@ -385,40 +663,124 @@ export function ApiLimitsSettings() {
           )}
         </div>
 
-        <aside className="space-y-4">
-          <div className="rounded-2xl border border-outline-variant/50 bg-surface-container-low p-5">
-            <h3 className="text-base font-semibold text-on-surface">{isZh ? '处理建议' : 'Recommended actions'}</h3>
-            <div className="mt-4 space-y-3">
+        <aside className="space-y-3">
+          <div
+            style={{
+              padding: 18,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--color-codex-ink)',
+              }}
+            >
+              {isZh ? '处理建议' : 'Recommended actions'}
+            </h2>
+            <div className="mt-3 space-y-2">
               <button
                 type="button"
                 onClick={() => navigate('/settings/memory-ops')}
-                className="flex w-full items-start gap-3 rounded-xl bg-surface px-4 py-3 text-left transition hover:bg-surface-container-high"
+                className="flex w-full items-start gap-3 text-left transition-colors"
+                style={{
+                  padding: '12px 14px',
+                  background: 'var(--color-codex-bg)',
+                  border: '1px solid var(--color-codex-line-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg)'
+                }}
               >
-                <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
+                <AlertTriangle
+                  className="mt-0.5 h-4 w-4 flex-shrink-0"
+                  style={{ color: 'var(--color-codex-warn)' }}
+                />
                 <span>
-                  <span className="block text-sm font-medium text-on-surface">{isZh ? '先暂停批量预热' : 'Pause batch warm-ups first'}</span>
-                  <span className="mt-1 block text-xs leading-5 text-on-surface-muted">
-                    {isZh ? '限流出现时优先减少并发和重试风暴，再手动处理高优先级任务。' : 'When rate limits appear, reduce concurrency and avoid retry storms before handling priority jobs.'}
+                  <span
+                    style={{
+                      display: 'block',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    {isZh ? '先暂停批量预热' : 'Pause batch warm-ups first'}
+                  </span>
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 2,
+                      fontSize: 11.5,
+                      lineHeight: 1.55,
+                      color: 'var(--color-codex-ink-mute)',
+                    }}
+                  >
+                    {isZh
+                      ? '限流出现时优先减少并发和重试风暴，再手动处理高优先级任务。'
+                      : 'When rate limits appear, reduce concurrency and avoid retry storms before handling priority jobs.'}
                   </span>
                 </span>
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/settings/ai')}
-                className="flex w-full items-start gap-3 rounded-xl bg-surface px-4 py-3 text-left transition hover:bg-surface-container-high"
+                className="flex w-full items-start gap-3 text-left transition-colors"
+                style={{
+                  padding: '12px 14px',
+                  background: 'var(--color-codex-bg)',
+                  border: '1px solid var(--color-codex-line-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg)'
+                }}
               >
-                <Brain className="mt-0.5 h-5 w-5 text-primary" />
+                <Brain
+                  className="mt-0.5 h-4 w-4 flex-shrink-0"
+                  style={{ color: 'var(--color-codex-accent)' }}
+                />
                 <span>
-                  <span className="block text-sm font-medium text-on-surface">{isZh ? '检查模型与 API Key' : 'Check model and API key'}</span>
-                  <span className="mt-1 block text-xs leading-5 text-on-surface-muted">
-                    {isZh ? '如果限流持续，检查供应商额度、模型可用性和当前 API Key 状态。' : 'If pressure continues, inspect provider quota, model availability, and API key status.'}
+                  <span
+                    style={{
+                      display: 'block',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    {isZh ? '检查模型与 API Key' : 'Check model and API key'}
+                  </span>
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 2,
+                      fontSize: 11.5,
+                      lineHeight: 1.55,
+                      color: 'var(--color-codex-ink-mute)',
+                    }}
+                  >
+                    {isZh
+                      ? '如果限流持续，检查供应商额度、模型可用性和当前 API Key 状态。'
+                      : 'If pressure continues, inspect provider quota, model availability, and API key status.'}
                   </span>
                 </span>
               </button>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             <BudgetStrip title={isZh ? '项目记忆预热预算' : 'Project memory warm budget'} budget={projectBudget} isZh={isZh} />
             <BudgetStrip title={isZh ? '客户记忆预热预算' : 'Client memory warm budget'} budget={clientBudget} isZh={isZh} />
           </div>
