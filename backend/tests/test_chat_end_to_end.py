@@ -584,5 +584,58 @@ class SkillExecutionTests(ChatEndToEndBase):
         self.assertNotIn("skill_progress", metadata)
 
 
+# ----------------------------------------------------------------------
+# Scenario 7: Product Run Event v1 boundary events (docs/13 §4.1 A1 wave 2)
+# ----------------------------------------------------------------------
+
+
+class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
+    """The orchestrator must emit the v1 boundary events alongside legacy ones.
+
+    These are additive — old frontends ignore them, but a v1-aware frontend can
+    use them to track run lifecycle without parsing legacy event shapes.
+    """
+
+    async def test_happy_path_emits_run_started_message_persisted_run_done(self) -> None:
+        self.set_llm_stream([["Hello"]])
+
+        events = await self.drain()
+
+        starts = _events_of_type(events, "run_started")
+        dones = _events_of_type(events, "run_done")
+        persisted = _events_of_type(events, "message_persisted")
+
+        self.assertEqual(len(starts), 1, "should emit exactly one run_started")
+        self.assertEqual(len(dones), 1, "should emit exactly one run_done")
+        self.assertEqual(len(persisted), 1, "should emit message_persisted before legacy done")
+
+        run_id = starts[0]["run_id"]
+        self.assertTrue(run_id.startswith("run_"))
+        self.assertEqual(dones[0]["run_id"], run_id, "run_done must reuse the run_started run_id")
+        self.assertEqual(dones[0]["final_status"], "completed")
+        self.assertEqual(persisted[0]["run_id"], run_id)
+        # message_persisted must come before the legacy done so v1 consumers can
+        # swap the streaming bubble for the persisted message at the right beat.
+        idx_persisted = events.index(persisted[0])
+        legacy_done = _events_of_type(events, "done")[0]
+        self.assertLess(idx_persisted, events.index(legacy_done))
+
+    async def test_run_started_carries_skill_identity_when_set(self) -> None:
+        self.runtime.skill_name = "digital-strategy"
+        self.set_llm_stream([["ok"]])
+
+        events = await self.drain()
+        started = _events_of_type(events, "run_started")[0]
+        self.assertEqual(started.get("skill", {}).get("name"), "digital-strategy")
+
+    async def test_no_skill_means_no_skill_field_on_run_started(self) -> None:
+        self.runtime.skill_name = ""
+        self.set_llm_stream([["plain"]])
+
+        events = await self.drain()
+        started = _events_of_type(events, "run_started")[0]
+        self.assertNotIn("skill", started)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

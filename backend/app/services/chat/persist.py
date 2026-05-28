@@ -908,6 +908,12 @@ async def run_persist(
         logger.warning("[persist] failed to persist chat trace: %s", exc)
 
     logger.info(f"[chat timing] conv={runtime.conv_id} metrics={state.stage_timings}")
+    # Product Run Event v1: signal that the assistant message is now persisted,
+    # right before the legacy done event. Additive — old frontends ignore it.
+    if state.run_id and assistant_message_id is not None:
+        from app.services.chat.product_run_events import message_persisted as _message_persisted
+
+        yield sse_event(_message_persisted(state.run_id, assistant_message_id))
     yield sse_event({"type": "done", **metadata, "assistant_message_id": assistant_message_id})
 
     if need_title and full_text:

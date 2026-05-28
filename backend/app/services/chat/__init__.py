@@ -38,6 +38,14 @@ from app.services.chat_tools import ChatRuntime, _to_user_friendly_error
 from app.services.chat_store import persist_assistant_message
 from app.services.chat.state import ChatSessionState
 from app.services.chat.sse import sse_event
+from app.services.chat.product_run_events import (
+    ErrorCode,
+    RunFinalStatus,
+    make_run_id,
+    run_done,
+    run_failed,
+    run_started,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,18 +96,47 @@ def _persist_phase_error_events(
         )
     except Exception as persist_exc:
         logger.error("[chat phase error persist failed] %s", persist_exc, exc_info=True)
-        return [sse_event({"type": "error", "message": friendly})]
+        events: list[str] = []
+        if state.run_id:
+            events.append(
+                sse_event(
+                    run_failed(
+                        state.run_id,
+                        ErrorCode.PERSISTENCE_ERROR,
+                        friendly,
+                        retryable=True,
+                    )
+                )
+            )
+        events.append(sse_event({"type": "error", "message": friendly}))
+        return events
 
-    return [
-        sse_event({"type": "text", "content": full_text}),
-        sse_event(
-            {
-                "type": "done",
-                "metadata": metadata,
-                "assistant_message_id": assistant_message_id,
-            }
-        ),
-    ]
+    events_list: list[str] = []
+    if state.run_id:
+        events_list.append(
+            sse_event(
+                run_failed(
+                    state.run_id,
+                    ErrorCode.UNKNOWN,
+                    friendly,
+                    retryable=True,
+                    fallback_content=full_text,
+                )
+            )
+        )
+    events_list.extend(
+        [
+            sse_event({"type": "text", "content": full_text}),
+            sse_event(
+                {
+                    "type": "done",
+                    "metadata": metadata,
+                    "assistant_message_id": assistant_message_id,
+                }
+            ),
+        ]
+    )
+    return events_list
 
 
 def prepare_chat_runtime(*args, **kwargs):
@@ -134,11 +171,22 @@ async def stream_chat_events(
 
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
+    state.run_id = make_run_id()
 
     # ------------------------------------------------------------------
-    # Emit conversation_id and prepare metrics upfront
+    # Emit conversation_id, run_started (Product Run Event v1), and prepare
+    # metrics upfront. run_started is additive — legacy frontends ignore it.
     # ------------------------------------------------------------------
     yield sse_event({"type": "conversation_id", "id": runtime.conv_id})
+
+    _run_started_skill = None
+    if getattr(runtime, "skill_name", "") or getattr(runtime, "skill_id", None):
+        _run_started_skill = {"name": runtime.skill_name or ""}
+        if getattr(runtime, "skill_id", None):
+            _run_started_skill["id"] = str(runtime.skill_id)
+        if not _run_started_skill["name"]:
+            _run_started_skill = None  # name is required by the builder
+    yield sse_event(run_started(state.run_id, skill=_run_started_skill))
 
     if runtime.rag_sources:
         yield sse_event({"type": "references", "references": runtime.rag_sources})
@@ -188,6 +236,7 @@ async def stream_chat_events(
                 "duration_ms": state.stage_timings["total_stream_ms"],
             }
         )
+        yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
         return
 
     # ==================================================================
@@ -227,3 +276,6 @@ async def stream_chat_events(
         ):
             yield event
         return
+
+    # Successful end-of-run terminator (Product Run Event v1).
+    yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))

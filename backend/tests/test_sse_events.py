@@ -186,7 +186,10 @@ class TextOnlySseContract(SseEventContractBase):
         # The transition graph must contain:
         #   conversation_id → ... → text → ... → done
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "done")
+        self.assertEqual(compact[-1], "run_done")
+        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
+        self.assertLess(compact.index("done"), compact.index("run_done"))
         self.assertIn("text", compact)
         for forbidden in ("tool_executing", "tool_result", "tool_planned", "truncated"):
             self.assertNotIn(forbidden, compact, f"{forbidden!r} must not appear")
@@ -230,7 +233,10 @@ class SingleToolSseContract(SseEventContractBase):
 
         # Required: conversation_id present, ends with done, both tool events appear
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "done")
+        self.assertEqual(compact[-1], "run_done")
+        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
+        self.assertLess(compact.index("done"), compact.index("run_done"))
         self.assertIn("tool_executing", compact)
         self.assertIn("tool_result", compact)
         # tool_executing must precede tool_result
@@ -282,7 +288,10 @@ class DestructiveConfirmationSseContract(SseEventContractBase):
 
         # Conversation must still open and close cleanly
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "done")
+        self.assertEqual(compact[-1], "run_done")
+        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
+        self.assertLess(compact.index("done"), compact.index("run_done"))
         # tool_result is the conventional surface for confirmation-required
         self.assertIn("tool_result", compact)
 
@@ -305,7 +314,10 @@ class TruncationSseContract(SseEventContractBase):
         compact = _unique_in_order(types)
 
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "done")
+        self.assertEqual(compact[-1], "run_done")
+        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
+        self.assertLess(compact.index("done"), compact.index("run_done"))
         self.assertIn("text", compact)
         # Successfully continued — never a "truncated" event surfaced to UI
         self.assertNotIn("truncated", compact)
@@ -322,10 +334,14 @@ class TruncationSseContract(SseEventContractBase):
         compact = _unique_in_order(types)
 
         self.assertEqual(compact[0], "conversation_id")
-        self.assertEqual(compact[-1], "done")
+        self.assertEqual(compact[-1], "run_done")
+        # Legacy ``done`` is still emitted during v1 double-send and precedes ``run_done``.
+        self.assertIn("done", compact, "legacy done must still be emitted alongside v1")
+        self.assertLess(compact.index("done"), compact.index("run_done"))
         self.assertIn("truncated", compact)
-        # truncated must come before done
+        # truncated must come before the run terminators
         self.assertLess(compact.index("truncated"), compact.index("done"))
+        self.assertLess(compact.index("truncated"), compact.index("run_done"))
 
 
 if __name__ == "__main__":  # pragma: no cover
