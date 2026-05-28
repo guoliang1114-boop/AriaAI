@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { 
-  Users, 
-  UserPlus, 
-  Trash2, 
-  Shield, 
-  User, 
-  Loader2, 
-  AlertCircle, 
+import {
+  Users,
+  UserPlus,
+  Trash2,
+  Shield,
+  User,
+  Loader2,
+  AlertCircle,
   Check,
   Lock,
   Edit3,
@@ -15,7 +15,7 @@ import {
   Mail,
   UserCog,
   Search,
-  RefreshCw
+  RefreshCw,
 } from 'lucide-react'
 import { api } from '../../api/client'
 
@@ -34,6 +34,105 @@ interface UserFormData {
   password?: string
 }
 
+const INPUT_STYLE: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  fontSize: 13.5,
+  background: 'var(--color-codex-bg)',
+  border: '1px solid var(--color-codex-line)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+  color: 'var(--color-codex-ink)',
+  outline: 'none',
+}
+
+const LABEL_STYLE: React.CSSProperties = {
+  display: 'block',
+  marginBottom: 6,
+  fontSize: 10.5,
+  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+  color: 'var(--color-codex-ink-mute)',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+}
+
+const GHOST_BUTTON_STYLE: React.CSSProperties = {
+  padding: '8px 14px',
+  fontSize: 13,
+  background: 'var(--color-codex-bg)',
+  color: 'var(--color-codex-ink-soft)',
+  border: '1px solid var(--color-codex-line)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+}
+
+const ACCENT_BUTTON_STYLE: React.CSSProperties = {
+  padding: '8px 14px',
+  fontSize: 13,
+  fontWeight: 500,
+  background: 'var(--color-codex-accent)',
+  color: 'var(--color-codex-bg-elev)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+}
+
+const DANGER_BUTTON_STYLE: React.CSSProperties = {
+  padding: '8px 14px',
+  fontSize: 13,
+  fontWeight: 500,
+  background: 'var(--color-codex-bad)',
+  color: 'var(--color-codex-bg-elev)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+}
+
+function DialogShell({ icon: Icon, iconTone, title, children }: {
+  icon: typeof UserPlus
+  iconTone: 'accent' | 'danger' | 'neutral'
+  title: string
+  children: React.ReactNode
+}) {
+  const toneBg = iconTone === 'danger'
+    ? 'color-mix(in oklch, var(--color-codex-bad) 12%, transparent)'
+    : iconTone === 'neutral'
+      ? 'var(--color-codex-bg-tint)'
+      : 'var(--color-codex-accent-bg)'
+  const toneColor = iconTone === 'danger'
+    ? 'var(--color-codex-bad)'
+    : iconTone === 'neutral'
+      ? 'var(--color-codex-ink-soft)'
+      : 'var(--color-codex-accent)'
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+    >
+      <div
+        className="w-full max-w-md p-6"
+        style={{
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+          boxShadow: '0 24px 60px -16px rgba(0,0,0,0.32)',
+        }}
+      >
+        <div className="mb-4 flex items-center gap-3">
+          <div
+            className="flex h-10 w-10 items-center justify-center"
+            style={{
+              background: toneBg,
+              color: toneColor,
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
+          >
+            <Icon className="h-5 w-5" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
+            {title}
+          </h3>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export function UsersSettings() {
   const { t } = useTranslation()
   const [users, setUsers] = useState<UserItem[]>([])
@@ -41,15 +140,13 @@ export function UsersSettings() {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  
-  // Dialog states
+
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false)
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null)
-  
-  // Form states
+
   const [formData, setFormData] = useState<UserFormData>({
     email: '',
     display_name: '',
@@ -59,7 +156,6 @@ export function UsersSettings() {
   const [newPassword, setNewPassword] = useState('')
   const [formLoading, setFormLoading] = useState(false)
 
-  // Load users on mount
   useEffect(() => {
     loadUsers()
   }, [])
@@ -82,10 +178,10 @@ export function UsersSettings() {
       setError(t('users.emailAndPasswordRequired') || 'Email and password are required')
       return
     }
-    
+
     setFormLoading(true)
     setError('')
-    
+
     try {
       await api.post('/auth/users', {
         email: formData.email,
@@ -93,12 +189,12 @@ export function UsersSettings() {
         display_name: formData.display_name || formData.email.split('@')[0],
         is_admin: formData.is_admin,
       })
-      
+
       setSuccessMessage(t('users.userAdded') || 'User added successfully')
       setShowAddDialog(false)
       resetForm()
       await loadUsers()
-      
+
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to add user')
@@ -109,22 +205,22 @@ export function UsersSettings() {
 
   const handleEditUser = async () => {
     if (!selectedUser) return
-    
+
     setFormLoading(true)
     setError('')
-    
+
     try {
       await api.patch(`/auth/users/${selectedUser.id}`, {
         display_name: formData.display_name,
         is_admin: formData.is_admin,
         is_active: true,
       })
-      
+
       setSuccessMessage(t('users.userUpdated') || 'User updated successfully')
       setShowEditDialog(false)
       setSelectedUser(null)
       await loadUsers()
-      
+
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to update user')
@@ -135,18 +231,18 @@ export function UsersSettings() {
 
   const handleDeleteUser = async () => {
     if (!selectedUser) return
-    
+
     setFormLoading(true)
     setError('')
-    
+
     try {
       await api.delete(`/auth/users/${selectedUser.id}`)
-      
+
       setSuccessMessage(t('users.userDeleted') || 'User deleted successfully')
       setShowDeleteDialog(false)
       setSelectedUser(null)
       await loadUsers()
-      
+
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to delete user')
@@ -160,20 +256,20 @@ export function UsersSettings() {
       setError(t('users.passwordRequired') || 'Password is required')
       return
     }
-    
+
     setFormLoading(true)
     setError('')
-    
+
     try {
       await api.post(`/auth/users/${selectedUser.id}/reset-password`, {
         new_password: newPassword,
       })
-      
+
       setSuccessMessage(t('users.passwordReset') || 'Password reset successfully')
       setShowResetPasswordDialog(false)
       setSelectedUser(null)
       setNewPassword('')
-      
+
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to reset password')
@@ -213,29 +309,57 @@ export function UsersSettings() {
     })
   }
 
-  // Filter users by search query
-  const filteredUsers = users.filter(user => 
-    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredUsers = users.filter(
+    (user) =>
+      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.display_name.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+      <div
+        className="theme-codex flex items-center justify-center py-12"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div
+      className="theme-codex"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+        padding: '8px 4px 32px',
+      }}
+    >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <header
+        className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+        style={{ marginBottom: 20 }}
+      >
         <div>
-          <h2 className="text-lg font-semibold text-on-surface mb-1">
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 500,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '-0.015em',
+            }}
+          >
             {t('users.title') || '用户管理'}
-          </h2>
-          <p className="text-sm text-on-surface-muted">
+          </h1>
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 13,
+              color: 'var(--color-codex-ink-mute)',
+              lineHeight: 1.6,
+            }}
+          >
             {t('users.subtitle') || '管理团队成员和权限'}
           </p>
         </div>
@@ -244,385 +368,519 @@ export function UsersSettings() {
             resetForm()
             setShowAddDialog(true)
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-medium transition-all"
+          className="inline-flex items-center justify-center gap-2 px-3 py-2 transition-colors"
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            background: 'var(--color-codex-accent)',
+            color: 'var(--color-codex-bg-elev)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
         >
-          <UserPlus className="w-4 h-4" />
+          <UserPlus className="h-3.5 w-3.5" />
           {t('users.addUser') || '添加用户'}
         </button>
-      </div>
+      </header>
 
       {/* Alerts */}
       {error && (
-        <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center gap-2 text-error text-sm">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+        <div
+          className="mb-4 flex items-center gap-2"
+          style={{
+            padding: '10px 14px',
+            fontSize: 13,
+            background: 'color-mix(in oklch, var(--color-codex-bad) 8%, transparent)',
+            border: '1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            color: 'var(--color-codex-bad)',
+          }}
+        >
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error}
-          <button 
+          <button
             onClick={() => setError('')}
-            className="ml-auto hover:opacity-70"
+            className="ml-auto opacity-70 hover:opacity-100"
+            aria-label="Dismiss"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}
-      
+
       {successMessage && (
-        <div className="p-3 bg-success/10 border border-success/20 rounded-lg flex items-center gap-2 text-success text-sm">
-          <Check className="w-4 h-4 flex-shrink-0" />
+        <div
+          className="mb-4 flex items-center gap-2"
+          style={{
+            padding: '10px 14px',
+            fontSize: 13,
+            background: 'var(--color-codex-accent-bg)',
+            border: '1px solid color-mix(in oklch, var(--color-codex-accent) 30%, transparent)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            color: 'var(--color-codex-accent-ink)',
+          }}
+        >
+          <Check className="h-4 w-4 flex-shrink-0" />
           {successMessage}
         </div>
       )}
 
-      {/* Search and Refresh */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-muted" />
+      {/* Search + refresh */}
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Search
+            className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"
+            style={{ color: 'var(--color-codex-ink-faint)' }}
+          />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('users.search') || '搜索用户...'}
-            className="w-full pl-10 pr-4 py-2.5 bg-surface-container-low border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+            style={{ ...INPUT_STYLE, paddingLeft: 32 }}
           />
         </div>
         <button
           onClick={loadUsers}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-2.5 border border-outline/20 rounded-xl hover:bg-surface-container-high transition-all disabled:opacity-50 text-on-surface-secondary"
+          className="flex items-center justify-center px-3 py-2 transition-colors disabled:opacity-50"
+          style={GHOST_BUTTON_STYLE}
+          title={t('common.refresh') || 'Refresh'}
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Users List */}
+      {/* User list */}
       <div className="space-y-2">
-        {filteredUsers.map(user => (
+        {filteredUsers.map((user) => (
           <div
             key={user.id}
-            className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl border border-outline/10 hover:border-outline/20 transition-all"
+            className="flex items-center justify-between"
+            style={{
+              padding: '14px 16px',
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                <User className="w-5 h-5 text-primary" />
+              <div
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center"
+                style={{
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
+                <User className="h-5 w-5" />
               </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-on-surface">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
                     {user.display_name}
                   </span>
                   {user.is_admin && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 text-xs bg-tertiary-container text-on-tertiary-container rounded-full">
-                      <Shield className="w-3 h-3" />
-                      {t('users.admin') || '管理员'}
+                    <span
+                      className="flex items-center gap-1 font-mono"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: 10.5,
+                        background: 'var(--color-codex-accent-bg)',
+                        color: 'var(--color-codex-accent-ink)',
+                        borderRadius: 'var(--codex-r-pill, 999px)',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      <Shield className="h-3 w-3" />
+                      {t('users.admin') || 'Admin'}
                     </span>
                   )}
                   {!user.is_active && (
-                    <span className="px-2 py-0.5 text-xs bg-error/10 text-error rounded-full">
-                      {t('users.inactive') || '已停用'}
+                    <span
+                      className="font-mono"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: 10.5,
+                        background: 'color-mix(in oklch, var(--color-codex-bad) 12%, transparent)',
+                        color: 'var(--color-codex-bad)',
+                        borderRadius: 'var(--codex-r-pill, 999px)',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {t('users.inactive') || 'Inactive'}
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-on-surface-muted flex items-center gap-1">
-                  <Mail className="w-3 h-3" />
+                <p
+                  className="flex items-center gap-1 font-mono"
+                  style={{
+                    margin: '4px 0 0',
+                    fontSize: 11.5,
+                    color: 'var(--color-codex-ink-mute)',
+                  }}
+                >
+                  <Mail className="h-3 w-3" />
                   {user.email}
                 </p>
               </div>
             </div>
-            
-            {/* Actions */}
+
             <div className="flex items-center gap-1">
               <button
                 onClick={() => openEditDialog(user)}
-                className="p-2 hover:bg-surface-container-high rounded-lg transition-colors"
+                className="p-2 transition-colors"
+                style={{ color: 'var(--color-codex-ink-soft)', borderRadius: 'var(--codex-r-sm, 3px)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
                 title={t('users.edit') || '编辑'}
               >
-                <Edit3 className="w-4 h-4 text-on-surface-muted" />
+                <Edit3 className="h-4 w-4" />
               </button>
               <button
                 onClick={() => openResetPasswordDialog(user)}
-                className="p-2 hover:bg-surface-container-high rounded-lg transition-colors"
+                className="p-2 transition-colors"
+                style={{ color: 'var(--color-codex-ink-soft)', borderRadius: 'var(--codex-r-sm, 3px)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
                 title={t('users.resetPassword') || '重置密码'}
               >
-                <Lock className="w-4 h-4 text-on-surface-muted" />
+                <Lock className="h-4 w-4" />
               </button>
               <button
                 onClick={() => openDeleteDialog(user)}
-                className="p-2 hover:bg-error/10 rounded-lg transition-colors group"
+                className="group p-2 transition-colors"
+                style={{ color: 'var(--color-codex-ink-soft)', borderRadius: 'var(--codex-r-sm, 3px)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background =
+                    'color-mix(in oklch, var(--color-codex-bad) 10%, transparent)'
+                  e.currentTarget.style.color = 'var(--color-codex-bad)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
+                }}
                 title={t('users.delete') || '删除'}
               >
-                <Trash2 className="w-4 h-4 text-on-surface-muted group-hover:text-error" />
+                <Trash2 className="h-4 w-4" />
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Empty State */}
+      {/* Empty state */}
       {filteredUsers.length === 0 && !loading && (
-        <div className="text-center py-12 bg-surface-container-low rounded-xl border border-outline/10">
-          <Users className="w-12 h-12 text-on-surface-muted mx-auto mb-4" />
-          <p className="text-on-surface-muted">
-            {searchQuery 
-              ? (t('users.noSearchResults') || '未找到匹配的用户')
-              : (t('users.noUsers') || '暂无其他用户')
-            }
+        <div
+          className="text-center"
+          style={{
+            padding: '40px 24px',
+            background: 'var(--color-codex-bg-tint)',
+            border: '1px dashed var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+        >
+          <Users
+            className="mx-auto mb-4 h-10 w-10"
+            style={{ color: 'var(--color-codex-ink-faint)' }}
+          />
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-codex-ink-mute)' }}>
+            {searchQuery
+              ? t('users.noSearchResults') || '未找到匹配的用户'
+              : t('users.noUsers') || '暂无其他用户'}
           </p>
         </div>
       )}
 
-      {/* Add User Dialog */}
+      {/* Add user dialog */}
       {showAddDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-outline/20">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                <UserPlus className="w-5 h-5 text-primary" />
-              </div>
-              <h3 className="text-lg font-semibold text-on-surface">
-                {t('users.addUser') || '添加用户'}
-              </h3>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                  {t('users.email') || '邮箱地址'} *
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="user@example.com"
-                  className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                  {t('users.displayName') || '显示名称'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.display_name}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  placeholder={t('users.displayNamePlaceholder') || '输入显示名称'}
-                  className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                  {t('users.password') || '密码'} *
-                </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder={t('users.passwordPlaceholder') || '至少6位字符'}
-                  className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
-                />
-              </div>
-              
-              <div className="flex items-center gap-3 p-3 bg-surface-container-high rounded-xl">
-                <input
-                  type="checkbox"
-                  id="isAdmin"
-                  checked={formData.is_admin}
-                  onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                  className="w-4 h-4 accent-primary rounded"
-                />
-                <label htmlFor="isAdmin" className="flex-1 text-sm text-on-surface cursor-pointer">
-                  <span className="font-medium">{t('users.setAsAdmin') || '设为管理员'}</span>
-                  <p className="text-xs text-on-surface-muted mt-0.5">
-                    {t('users.adminDesc') || '管理员可以管理用户和系统设置'}
-                  </p>
-                </label>
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowAddDialog(false)}
-                className="px-4 py-2.5 text-on-surface-secondary hover:bg-surface-container-high rounded-xl transition-all"
-              >
-                {t('common.cancel') || '取消'}
-              </button>
-              <button
-                onClick={handleAddUser}
-                disabled={formLoading || !formData.email || !formData.password}
-                className="flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-xl transition-all"
-              >
-                {formLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {t('users.add') || '添加'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit User Dialog */}
-      {showEditDialog && selectedUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-outline/20">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-secondary/10 rounded-xl flex items-center justify-center">
-                <UserCog className="w-5 h-5 text-secondary" />
-              </div>
-              <h3 className="text-lg font-semibold text-on-surface">
-                {t('users.editUser') || '编辑用户'}
-              </h3>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                  {t('users.email') || '邮箱地址'}
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  disabled
-                  className="w-full px-4 py-2.5 bg-surface-container-low border border-outline/20 rounded-xl text-on-surface-muted cursor-not-allowed"
-                />
-                <p className="text-xs text-on-surface-muted mt-1">
-                  {t('users.emailCannotChange') || '邮箱地址无法更改'}
-                </p>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                  {t('users.displayName') || '显示名称'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.display_name}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
-                />
-              </div>
-              
-              <div className="flex items-center gap-3 p-3 bg-surface-container-high rounded-xl">
-                <input
-                  type="checkbox"
-                  id="editIsAdmin"
-                  checked={formData.is_admin}
-                  onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                  className="w-4 h-4 accent-primary rounded"
-                />
-                <label htmlFor="editIsAdmin" className="flex-1 text-sm text-on-surface cursor-pointer">
-                  <span className="font-medium">{t('users.setAsAdmin') || '设为管理员'}</span>
-                </label>
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowEditDialog(false)}
-                className="px-4 py-2.5 text-on-surface-secondary hover:bg-surface-container-high rounded-xl transition-all"
-              >
-                {t('common.cancel') || '取消'}
-              </button>
-              <button
-                onClick={handleEditUser}
-                disabled={formLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-xl transition-all"
-              >
-                {formLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {t('common.save') || '保存'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete User Dialog */}
-      {showDeleteDialog && selectedUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-outline/20">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-error/10 rounded-xl flex items-center justify-center">
-                <Trash2 className="w-5 h-5 text-error" />
-              </div>
-              <h3 className="text-lg font-semibold text-on-surface">
-                {t('users.deleteUser') || '删除用户'}
-              </h3>
-            </div>
-            
-            <p className="text-on-surface-muted mb-4">
-              {t('users.deleteConfirm') || '确定要删除用户'} 
-              <span className="font-medium text-on-surface"> {selectedUser.display_name}</span>?
-              {t('users.deleteWarning') || '此操作无法撤销。'}
-            </p>
-            
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteDialog(false)}
-                className="px-4 py-2.5 text-on-surface-secondary hover:bg-surface-container-high rounded-xl transition-all"
-              >
-                {t('common.cancel') || '取消'}
-              </button>
-              <button
-                onClick={handleDeleteUser}
-                disabled={formLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-error hover:bg-error/90 disabled:opacity-50 text-white rounded-xl transition-all"
-              >
-                {formLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {t('common.delete') || '删除'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reset Password Dialog */}
-      {showResetPasswordDialog && selectedUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-outline/20">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                <Lock className="w-5 h-5 text-primary" />
-              </div>
-              <h3 className="text-lg font-semibold text-on-surface">
-                {t('users.resetPassword') || '重置密码'}
-              </h3>
-            </div>
-            
-            <p className="text-sm text-on-surface-muted mb-4">
-              {t('users.resetPasswordFor') || '为'} 
-              <span className="font-medium text-on-surface"> {selectedUser.display_name} </span>
-              {t('users.setNewPassword') || '设置新密码'}
-            </p>
-            
+        <DialogShell
+          icon={UserPlus}
+          iconTone="accent"
+          title={t('users.addUser') || '添加用户'}
+        >
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-on-surface-secondary mb-1.5">
-                {t('users.newPassword') || '新密码'}
-              </label>
+              <label style={LABEL_STYLE}>{t('users.email') || '邮箱地址'} *</label>
               <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={t('users.passwordPlaceholder') || '至少6位字符'}
-                className="w-full px-4 py-2.5 bg-surface-container-lowest border border-outline/20 rounded-xl text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="user@example.com"
+                style={INPUT_STYLE}
               />
             </div>
-            
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowResetPasswordDialog(false)}
-                className="px-4 py-2.5 text-on-surface-secondary hover:bg-surface-container-high rounded-xl transition-all"
-              >
-                {t('common.cancel') || '取消'}
-              </button>
-              <button
-                onClick={handleResetPassword}
-                disabled={formLoading || !newPassword}
-                className="flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-xl transition-all"
-              >
-                {formLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {t('users.reset') || '重置'}
-              </button>
+
+            <div>
+              <label style={LABEL_STYLE}>{t('users.displayName') || '显示名称'}</label>
+              <input
+                type="text"
+                value={formData.display_name}
+                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                placeholder={t('users.displayNamePlaceholder') || '输入显示名称'}
+                style={INPUT_STYLE}
+              />
             </div>
+
+            <div>
+              <label style={LABEL_STYLE}>{t('users.password') || '密码'} *</label>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder={t('users.passwordPlaceholder') || '至少6位字符'}
+                style={INPUT_STYLE}
+              />
+            </div>
+
+            <label
+              className="flex items-center gap-3"
+              style={{
+                padding: '10px 14px',
+                background: 'var(--color-codex-bg-tint)',
+                border: '1px solid var(--color-codex-line-soft)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
+            >
+              <input
+                type="checkbox"
+                id="isAdmin"
+                checked={formData.is_admin}
+                onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
+                className="h-4 w-4"
+                style={{ accentColor: 'var(--color-codex-accent)' }}
+              />
+              <div className="flex-1">
+                <span
+                  style={{
+                    display: 'block',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: 'var(--color-codex-ink)',
+                  }}
+                >
+                  {t('users.setAsAdmin') || '设为管理员'}
+                </span>
+                <p
+                  style={{
+                    margin: '2px 0 0',
+                    fontSize: 11.5,
+                    color: 'var(--color-codex-ink-mute)',
+                  }}
+                >
+                  {t('users.adminDesc') || '管理员可以管理用户和系统设置'}
+                </p>
+              </div>
+            </label>
           </div>
-        </div>
+
+          <div className="mt-6 flex justify-end gap-2">
+            <button onClick={() => setShowAddDialog(false)} style={GHOST_BUTTON_STYLE}>
+              {t('common.cancel') || '取消'}
+            </button>
+            <button
+              onClick={handleAddUser}
+              disabled={formLoading || !formData.email || !formData.password}
+              className="inline-flex items-center gap-2 disabled:opacity-50"
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {formLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('users.add') || '添加'}
+            </button>
+          </div>
+        </DialogShell>
+      )}
+
+      {/* Edit user dialog */}
+      {showEditDialog && selectedUser && (
+        <DialogShell
+          icon={UserCog}
+          iconTone="neutral"
+          title={t('users.editUser') || '编辑用户'}
+        >
+          <div className="space-y-4">
+            <div>
+              <label style={LABEL_STYLE}>{t('users.email') || '邮箱地址'}</label>
+              <input
+                type="email"
+                value={formData.email}
+                disabled
+                style={{
+                  ...INPUT_STYLE,
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-mute)',
+                  cursor: 'not-allowed',
+                }}
+              />
+              <p
+                style={{
+                  margin: '4px 0 0',
+                  fontSize: 11,
+                  color: 'var(--color-codex-ink-mute)',
+                }}
+              >
+                {t('users.emailCannotChange') || '邮箱地址无法更改'}
+              </p>
+            </div>
+
+            <div>
+              <label style={LABEL_STYLE}>{t('users.displayName') || '显示名称'}</label>
+              <input
+                type="text"
+                value={formData.display_name}
+                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                style={INPUT_STYLE}
+              />
+            </div>
+
+            <label
+              className="flex items-center gap-3"
+              style={{
+                padding: '10px 14px',
+                background: 'var(--color-codex-bg-tint)',
+                border: '1px solid var(--color-codex-line-soft)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
+            >
+              <input
+                type="checkbox"
+                id="editIsAdmin"
+                checked={formData.is_admin}
+                onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
+                className="h-4 w-4"
+                style={{ accentColor: 'var(--color-codex-accent)' }}
+              />
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--color-codex-ink)',
+                }}
+              >
+                {t('users.setAsAdmin') || '设为管理员'}
+              </span>
+            </label>
+          </div>
+
+          <div className="mt-6 flex justify-end gap-2">
+            <button onClick={() => setShowEditDialog(false)} style={GHOST_BUTTON_STYLE}>
+              {t('common.cancel') || '取消'}
+            </button>
+            <button
+              onClick={handleEditUser}
+              disabled={formLoading}
+              className="inline-flex items-center gap-2 disabled:opacity-50"
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {formLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('common.save') || '保存'}
+            </button>
+          </div>
+        </DialogShell>
+      )}
+
+      {/* Delete user dialog */}
+      {showDeleteDialog && selectedUser && (
+        <DialogShell
+          icon={Trash2}
+          iconTone="danger"
+          title={t('users.deleteUser') || '删除用户'}
+        >
+          <p
+            style={{
+              margin: '0 0 20px',
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: 'var(--color-codex-ink-soft)',
+            }}
+          >
+            {t('users.deleteConfirm') || '确定要删除用户'}
+            <span style={{ fontWeight: 600, color: 'var(--color-codex-ink)' }}>
+              {' '}{selectedUser.display_name}
+            </span>
+            ?{' '}
+            {t('users.deleteWarning') || '此操作无法撤销。'}
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowDeleteDialog(false)} style={GHOST_BUTTON_STYLE}>
+              {t('common.cancel') || '取消'}
+            </button>
+            <button
+              onClick={handleDeleteUser}
+              disabled={formLoading}
+              className="inline-flex items-center gap-2 disabled:opacity-50"
+              style={DANGER_BUTTON_STYLE}
+            >
+              {formLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('common.delete') || '删除'}
+            </button>
+          </div>
+        </DialogShell>
+      )}
+
+      {/* Reset password dialog */}
+      {showResetPasswordDialog && selectedUser && (
+        <DialogShell
+          icon={Lock}
+          iconTone="accent"
+          title={t('users.resetPassword') || '重置密码'}
+        >
+          <p
+            style={{
+              margin: '0 0 16px',
+              fontSize: 12.5,
+              color: 'var(--color-codex-ink-mute)',
+            }}
+          >
+            {t('users.resetPasswordFor') || '为'}
+            <span style={{ fontWeight: 500, color: 'var(--color-codex-ink)' }}>
+              {' '}{selectedUser.display_name}{' '}
+            </span>
+            {t('users.setNewPassword') || '设置新密码'}
+          </p>
+
+          <div>
+            <label style={LABEL_STYLE}>{t('users.newPassword') || '新密码'}</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder={t('users.passwordPlaceholder') || '至少6位字符'}
+              style={INPUT_STYLE}
+            />
+          </div>
+
+          <div className="mt-6 flex justify-end gap-2">
+            <button onClick={() => setShowResetPasswordDialog(false)} style={GHOST_BUTTON_STYLE}>
+              {t('common.cancel') || '取消'}
+            </button>
+            <button
+              onClick={handleResetPassword}
+              disabled={formLoading || !newPassword}
+              className="inline-flex items-center gap-2 disabled:opacity-50"
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {formLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {t('users.reset') || '重置'}
+            </button>
+          </div>
+        </DialogShell>
       )}
     </div>
   )
