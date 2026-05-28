@@ -103,6 +103,8 @@ def _flatten_bullets(preferences: dict[str, Any]) -> list[str]:
                     continue
                 if top_key == "personal_info" and sub_key == "preferred_name":
                     continue  # promoted to lead line
+                if top_key == "personal_info" and sub_key == "onboarding_seen":
+                    continue  # housekeeping flag, not a preference
                 line = f"{top_key}.{sub_key}: {_format_value(sub_val)}"
                 if len(line) > _MAX_BULLET_CHARS:
                     line = line[: _MAX_BULLET_CHARS - 1] + "…"
