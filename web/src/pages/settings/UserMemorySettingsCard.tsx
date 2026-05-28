@@ -29,6 +29,9 @@ interface UserMemoryResponse {
 }
 
 interface PreferencesShape {
+  personal_info?: {
+    preferred_name?: string;
+  };
   response_preferences?: {
     language?: Language;
     tone?: Tone;
@@ -61,6 +64,11 @@ const FORMAT_OPTIONS: { value: FormatShape; label: string }[] = [
 
 function compactPreferences(prefs: PreferencesShape): Record<string, unknown> {
   const compact: PreferencesShape = {};
+  const preferredName = prefs.personal_info?.preferred_name?.trim() ?? "";
+  if (preferredName) {
+    compact.personal_info = { preferred_name: preferredName };
+  }
+
   const rp = prefs.response_preferences ?? {};
   const rpOut: PreferencesShape["response_preferences"] = {};
   if (rp.language) rpOut.language = rp.language;
@@ -77,9 +85,15 @@ function compactPreferences(prefs: PreferencesShape): Record<string, unknown> {
 
 function readShape(raw: Record<string, unknown> | undefined): PreferencesShape {
   if (!raw || typeof raw !== "object") return {};
+  const pi = (raw as { personal_info?: unknown }).personal_info;
   const rp = (raw as { response_preferences?: unknown }).response_preferences;
   const ws = (raw as { work_style?: unknown }).work_style;
   const out: PreferencesShape = {};
+  if (pi && typeof pi === "object") {
+    const block = pi as Partial<Record<string, unknown>>;
+    const name = typeof block.preferred_name === "string" ? block.preferred_name : "";
+    if (name) out.personal_info = { preferred_name: name };
+  }
   if (rp && typeof rp === "object") {
     const block = rp as Partial<Record<string, unknown>>;
     out.response_preferences = {
@@ -198,6 +212,25 @@ export function UserMemorySettingsCard() {
       ) : (
         <>
           <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-label-sm text-on-surface-muted">Aria 怎么称呼你</label>
+              <input
+                type="text"
+                value={prefs.personal_info?.preferred_name ?? ""}
+                onChange={(e) => {
+                  setPrefs((cur) => ({
+                    ...cur,
+                    personal_info: { preferred_name: e.target.value },
+                  }));
+                  setMsg(null);
+                }}
+                placeholder="例如：李总、小李、Liang"
+                maxLength={40}
+                className={selectCls + " w-full"}
+                autoComplete="off"
+              />
+            </div>
+
             <div className="space-y-1.5">
               <label className="text-label-sm text-on-surface-muted">回复语言</label>
               <select

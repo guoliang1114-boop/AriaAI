@@ -18,6 +18,26 @@ import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
+import { FirstRunPreferredNameModal } from './FirstRunPreferredNameModal'
+
+interface UserMemoryFetchResponse {
+  preferences: Record<string, unknown>
+  version: number
+  updated_at: string
+}
+
+/**
+ * Returns the saved 称呼 from a user-memory preferences blob, or "" if missing
+ * / non-string / whitespace. Pulled out so the gating decision in Layout is a
+ * single expression rather than nested optional chains.
+ */
+function readPreferredName(preferences: Record<string, unknown> | null): string {
+  if (!preferences || typeof preferences !== 'object') return ''
+  const personal = (preferences as { personal_info?: unknown }).personal_info
+  if (!personal || typeof personal !== 'object') return ''
+  const name = (personal as { preferred_name?: unknown }).preferred_name
+  return typeof name === 'string' ? name.trim() : ''
+}
 
 function getStoredUser(): User | null {
   try {
@@ -62,6 +82,9 @@ export function Layout() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [user, setUser] = useState<User | null>(() => getStoredUser())
   const [unreadCount, setUnreadCount] = useState(0)
+  // ``null`` = haven't checked yet (don't render gate). Once loaded we know
+  // whether the user has set 称呼 — if not, the modal blocks the UI.
+  const [userMemoryPrefs, setUserMemoryPrefs] = useState<Record<string, unknown> | null>(null)
   const isProjectDetailRoute = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname)
 
   const navItems = [
@@ -89,6 +112,20 @@ export function Layout() {
         setAppTimeZone(settings.timezone || DEFAULT_APP_TIMEZONE)
       })
       .catch(() => {})
+  }, [])
+
+  // First-run gate: fetch /user-memory once so we can decide whether to mount
+  // the 称呼 modal. On fetch failure we fail open (empty prefs) — locking the
+  // entire app out because of an API hiccup is worse than skipping onboarding.
+  useEffect(() => {
+    api
+      .get<UserMemoryFetchResponse>('/user-memory')
+      .then((response) => {
+        setUserMemoryPrefs(response.preferences || {})
+      })
+      .catch(() => {
+        setUserMemoryPrefs({})
+      })
   }, [])
 
   useEffect(() => {
@@ -128,6 +165,12 @@ export function Layout() {
 
   const initials = getUserInitials(user)
   const initialsScale = initials.length > 2 ? 0.85 : 1
+
+  // We've fetched user-memory AND the user hasn't set a preferred name yet →
+  // block the UI with the onboarding modal. ``null`` means still loading, so
+  // we don't flash the modal during the initial fetch.
+  const shouldShowFirstRunModal =
+    userMemoryPrefs !== null && readPreferredName(userMemoryPrefs) === ''
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -276,6 +319,12 @@ export function Layout() {
       <main className="app-ui flex-1 overflow-auto">
         <Outlet />
       </main>
+      {shouldShowFirstRunModal && userMemoryPrefs ? (
+        <FirstRunPreferredNameModal
+          existingPreferences={userMemoryPrefs}
+          onSaved={(next) => setUserMemoryPrefs(next)}
+        />
+      ) : null}
     </div>
   )
 }
