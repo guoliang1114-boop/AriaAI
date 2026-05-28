@@ -115,15 +115,47 @@ function SectionCard({
   description: string
   tone?: 'default' | 'warning'
 }) {
+  const isWarn = tone === 'warning'
   return (
     <div
-      className={`rounded-2xl p-4 ${
-        tone === 'warning' ? 'bg-amber-50 text-amber-950' : 'bg-surface-container-low text-on-surface'
-      }`}
+      style={{
+        padding: 14,
+        background: 'var(--color-codex-bg-elev)',
+        border: isWarn
+          ? '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)'
+          : '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+      }}
     >
-      <div className={`text-sm ${tone === 'warning' ? 'text-amber-800' : 'text-on-surface-muted'}`}>{title}</div>
-      <div className="mt-2 text-2xl font-semibold">{value}</div>
-      <div className={`mt-1 text-xs ${tone === 'warning' ? 'text-amber-700' : 'text-on-surface-muted'}`}>
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 10.5,
+          color: isWarn ? 'var(--color-codex-warn)' : 'var(--color-codex-ink-mute)',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {title}
+      </div>
+      <div
+        className="mt-2 font-mono"
+        style={{
+          fontSize: 20,
+          fontWeight: 500,
+          color: 'var(--color-codex-ink)',
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          marginTop: 4,
+          fontSize: 11,
+          lineHeight: 1.55,
+          color: isWarn ? 'var(--color-codex-warn)' : 'var(--color-codex-ink-mute)',
+        }}
+      >
         {description}
       </div>
     </div>
@@ -672,9 +704,25 @@ export function MemoryOperationsSettings() {
   const renderFailureDetailPanel = () => {
     if (!selectedFailure) {
       return (
-        <div className="rounded-2xl border border-dashed border-outline bg-surface p-4 text-sm text-on-surface-muted">
-          <div className="font-medium text-on-surface">{isZh ? '失败明细' : 'Failure details'}</div>
-          <p className="mt-2 leading-6">
+        <div
+          style={{
+            padding: 16,
+            background: 'var(--color-codex-bg-elev)',
+            border: '1px dashed var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-md, 6px)',
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
+            {isZh ? '失败明细' : 'Failure details'}
+          </div>
+          <p
+            style={{
+              margin: '8px 0 0',
+              fontSize: 12.5,
+              lineHeight: 1.6,
+              color: 'var(--color-codex-ink-mute)',
+            }}
+          >
             {isZh
               ? '从左侧选择一条失败记录，这里会显示原始错误、分类判断和建议动作。'
               : 'Select a failure on the left to inspect the raw error, classification, and suggested action.'}
@@ -694,49 +742,94 @@ export function MemoryOperationsSettings() {
           : `Client / ${selectedFailure.client_name}`
     const busyRetry = actionKey === `${selectedFailure.scope}-failure-${selectedFailure.failed_at}`
 
+    const subBox: React.CSSProperties = {
+      padding: '10px 12px',
+      background: 'var(--color-codex-bg)',
+      border: '1px solid var(--color-codex-line-soft)',
+      borderRadius: 'var(--codex-r-sm, 3px)',
+    }
+
     return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+      <div
+        style={{
+          padding: 16,
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+        }}
+      >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-amber-950">{isZh ? '失败明细' : 'Failure details'}</div>
-            <div className="mt-1 text-sm text-amber-900">{title}</div>
+          <div className="min-w-0">
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
+              {isZh ? '失败明细' : 'Failure details'}
+            </div>
+            <div
+              className="mt-1 truncate"
+              style={{ fontSize: 12.5, color: 'var(--color-codex-ink-soft)' }}
+            >
+              {title}
+            </div>
           </div>
           <button
             type="button"
             onClick={() => setSelectedFailureKey(null)}
-            className="rounded-lg p-1 text-amber-700 hover:bg-amber-100"
+            className="rounded p-1 transition-colors"
+            style={{ color: 'var(--color-codex-ink-soft)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-codex-bg-tint)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
             aria-label={isZh ? '关闭失败明细' : 'Close failure details'}
           >
             <XCircle className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mt-4 grid gap-2 text-xs text-amber-900">
-          <div className="rounded-xl bg-white/70 p-3">
-            <div className="font-medium">{isZh ? '失败分类' : 'Category'}</div>
-            <div className="mt-1">{getFailureCategoryLabel(category, isZh)}</div>
+        <div className="mt-4 grid gap-2" style={{ fontSize: 11.5, color: 'var(--color-codex-ink-soft)' }}>
+          <div style={subBox}>
+            <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {isZh ? '失败分类' : 'Category'}
+            </div>
+            <div className="mt-1" style={{ color: 'var(--color-codex-ink)' }}>
+              {getFailureCategoryLabel(category, isZh)}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-white/70 p-3">
-              <div className="font-medium">{isZh ? '阶段' : 'Stage'}</div>
-              <div className="mt-1">{selectedFailure.stage}</div>
+            <div style={subBox}>
+              <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                {isZh ? '阶段' : 'Stage'}
+              </div>
+              <div className="mt-1 font-mono" style={{ color: 'var(--color-codex-ink)' }}>{selectedFailure.stage}</div>
             </div>
-            <div className="rounded-xl bg-white/70 p-3">
-              <div className="font-medium">{isZh ? '重试次数' : 'Retries'}</div>
-              <div className="mt-1">{selectedFailure.retry_count ?? 0}</div>
+            <div style={subBox}>
+              <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                {isZh ? '重试次数' : 'Retries'}
+              </div>
+              <div className="mt-1 font-mono" style={{ color: 'var(--color-codex-ink)' }}>{selectedFailure.retry_count ?? 0}</div>
             </div>
           </div>
-          <div className="rounded-xl bg-white/70 p-3">
-            <div className="font-medium">{isZh ? '失败时间' : 'Failed at'}</div>
-            <div className="mt-1">{formatDate(selectedFailure.failed_at, isZh)}</div>
+          <div style={subBox}>
+            <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {isZh ? '失败时间' : 'Failed at'}
+            </div>
+            <div className="mt-1 font-mono" style={{ color: 'var(--color-codex-ink)' }}>{formatDate(selectedFailure.failed_at, isZh)}</div>
           </div>
-          <div className="rounded-xl bg-white/70 p-3">
-            <div className="font-medium">{isZh ? '原始错误' : 'Raw error'}</div>
-            <div className="mt-2 whitespace-pre-wrap break-words leading-5">{selectedFailure.message}</div>
+          <div style={subBox}>
+            <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {isZh ? '原始错误' : 'Raw error'}
+            </div>
+            <div
+              className="mt-2 whitespace-pre-wrap break-words font-mono"
+              style={{ lineHeight: 1.55, color: 'var(--color-codex-ink)' }}
+            >
+              {selectedFailure.message}
+            </div>
           </div>
-          <div className="rounded-xl bg-white/70 p-3">
-            <div className="font-medium">{isZh ? '处理建议' : 'Suggested handling'}</div>
-            <div className="mt-2 leading-5">{getFailureCategoryAdvice(category, isZh)}</div>
+          <div style={subBox}>
+            <div className="font-mono" style={{ fontSize: 10.5, color: 'var(--color-codex-ink-mute)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {isZh ? '处理建议' : 'Suggested handling'}
+            </div>
+            <div className="mt-2" style={{ lineHeight: 1.55, color: 'var(--color-codex-ink-soft)' }}>
+              {getFailureCategoryAdvice(category, isZh)}
+            </div>
           </div>
         </div>
 
@@ -745,25 +838,48 @@ export function MemoryOperationsSettings() {
             type="button"
             onClick={() => void retryFailure(selectedFailure)}
             disabled={busyRetry}
-            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+            className="inline-flex items-center gap-2 disabled:opacity-60"
+            style={{
+              padding: '6px 10px',
+              fontSize: 11.5,
+              background: 'var(--color-codex-accent)',
+              color: 'var(--color-codex-bg-elev)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {busyRetry ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
             {isZh ? '立即重试' : 'Retry now'}
           </button>
           <button
             type="button"
             onClick={() => runSuggestedAction(selectedFailure)}
-            className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10"
+            className="inline-flex items-center gap-2"
+            style={{
+              padding: '6px 10px',
+              fontSize: 11.5,
+              background: 'var(--color-codex-bg)',
+              color: 'var(--color-codex-ink-soft)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink className="h-3 w-3" />
             {getSuggestedActionLabel(category, isZh)}
           </button>
           <button
             type="button"
             onClick={() => openEntity(selectedFailure)}
-            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            className="inline-flex items-center gap-2"
+            style={{
+              padding: '6px 10px',
+              fontSize: 11.5,
+              background: 'var(--color-codex-bg)',
+              color: 'var(--color-codex-ink-soft)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink className="h-3 w-3" />
             {isZh ? '打开对象' : 'Open entity'}
           </button>
         </div>
@@ -788,35 +904,83 @@ export function MemoryOperationsSettings() {
           : 'Client memory'
 
     return (
-      <div key={`${success.scope}-${success.completed_at}-${index}`} className="rounded-xl bg-emerald-50/80 p-3">
+      <div
+        key={`${success.scope}-${success.completed_at}-${index}`}
+        style={{
+          padding: 12,
+          background: 'var(--color-codex-accent-bg)',
+          border: '1px solid color-mix(in oklch, var(--color-codex-accent) 25%, transparent)',
+          borderRadius: 'var(--codex-r-sm, 3px)',
+        }}
+      >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-emerald-950">
-              <CheckCircle2 className="h-4 w-4" />
-              {title}
+          <div className="min-w-0">
+            <div
+              className="flex items-center gap-2"
+              style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-codex-accent-ink)' }}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">{title}</span>
             </div>
-            <div className="mt-1 text-xs text-emerald-800">
+            <div
+              className="mt-1 font-mono"
+              style={{ fontSize: 11, color: 'var(--color-codex-accent-ink)' }}
+            >
               {subLabel}
-              {' / '}
-              {isZh ? '阶段' : 'Stage'}: {success.stage}
-              {' / '}
-              {isZh ? '版本' : 'Version'} {success.version ?? '-'}
+              {' · '}
+              {success.stage}
+              {' · v'}
+              {success.version ?? '-'}
             </div>
           </div>
-          <div className="text-xs text-emerald-800">{formatDate(success.completed_at, isZh)}</div>
+          <div
+            className="font-mono flex-shrink-0"
+            style={{ fontSize: 11, color: 'var(--color-codex-accent-ink)' }}
+          >
+            {formatDate(success.completed_at, isZh)}
+          </div>
         </div>
-        <div className="mt-2 text-sm text-emerald-950">{success.message}</div>
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 12.5,
+            color: 'var(--color-codex-ink)',
+            lineHeight: 1.55,
+          }}
+        >
+          {success.message}
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {success.trigger ? (
-            <span className="rounded-lg border border-emerald-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-emerald-800">
-              {isZh ? '触发' : 'Trigger'}: {success.trigger}
+            <span
+              className="font-mono"
+              style={{
+                padding: '4px 8px',
+                fontSize: 10.5,
+                background: 'var(--color-codex-bg)',
+                color: 'var(--color-codex-accent-ink)',
+                border: '1px solid color-mix(in oklch, var(--color-codex-accent) 25%, transparent)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {isZh ? '触发 ' : 'Trigger '}
+              {success.trigger}
             </span>
           ) : null}
           <button
             onClick={() => openEntity(success)}
-            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:bg-white"
+            className="inline-flex items-center gap-1.5"
+            style={{
+              padding: '4px 9px',
+              fontSize: 11,
+              background: 'var(--color-codex-bg)',
+              color: 'var(--color-codex-ink-soft)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink className="h-3 w-3" />
             {isZh ? '打开详情' : 'Open'}
           </button>
         </div>
@@ -841,36 +1005,79 @@ export function MemoryOperationsSettings() {
     const busyRun = actionKey === `${job.scope}-${job.job_id}-run`
     const busyCancel = actionKey === `${job.scope}-${job.job_id}-cancel`
 
+    const chipStyle: React.CSSProperties = {
+      padding: '2px 8px',
+      fontSize: 10.5,
+      background: 'var(--color-codex-bg-tint)',
+      color: 'var(--color-codex-ink-soft)',
+      borderRadius: 'var(--codex-r-pill, 999px)',
+      fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+      letterSpacing: '0.04em',
+    }
+    const ghostBtn: React.CSSProperties = {
+      padding: '6px 10px',
+      fontSize: 12,
+      background: 'var(--color-codex-bg)',
+      color: 'var(--color-codex-ink-soft)',
+      border: '1px solid var(--color-codex-line)',
+      borderRadius: 'var(--codex-r-sm, 3px)',
+    }
     return (
-      <div key={`${job.scope}-${job.job_id}`} className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
+      <div
+        key={`${job.scope}-${job.job_id}`}
+        style={{
+          padding: 16,
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+        }}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-on-surface">{label}</div>
-            <div className="mt-1 text-xs text-on-surface-muted">{subLabel}</div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-on-surface-muted">
-              <span className="rounded-full bg-surface-container-low px-2.5 py-1">{jobLabel}</span>
-              {job.language ? (
-                <span className="rounded-full bg-surface-container-low px-2.5 py-1">{job.language}</span>
-              ) : null}
-              <span className="rounded-full bg-surface-container-low px-2.5 py-1">
-                {isZh ? '版本' : 'Version'} {job.memory_version}
-              </span>
-              <span className="rounded-full bg-surface-container-low px-2.5 py-1">
-                {isZh ? '重试' : 'Retry'} {job.retry_count ?? 0}/{job.max_retries ?? 0}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-codex-ink)' }}>{label}</div>
+            <div
+              className="mt-1 font-mono"
+              style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+            >
+              {subLabel}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span style={chipStyle}>{jobLabel}</span>
+              {job.language ? <span style={chipStyle}>{job.language}</span> : null}
+              <span style={chipStyle}>v{job.memory_version}</span>
+              <span style={chipStyle}>
+                {isZh ? '重试 ' : 'Retry '}
+                {job.retry_count ?? 0}/{job.max_retries ?? 0}
               </span>
               {job.trigger ? (
-                <span className="rounded-full bg-surface-container-low px-2.5 py-1">
-                  {isZh ? '触发' : 'Trigger'}: {job.trigger}
+                <span style={chipStyle}>
+                  {isZh ? '触发 ' : 'Trigger '}
+                  {job.trigger}
                 </span>
               ) : null}
               {job.summary_types?.length ? (
-                <span className="rounded-full bg-surface-container-low px-2.5 py-1">{job.summary_types.join(', ')}</span>
+                <span style={chipStyle}>{job.summary_types.join(', ')}</span>
               ) : null}
             </div>
           </div>
-          <div className="text-right text-xs text-on-surface-muted">
-            <div>{isZh ? '计划执行' : 'Scheduled'}</div>
-            <div className="mt-1 font-medium text-on-surface">{formatDate(job.next_run_at, isZh)}</div>
+          <div className="text-right flex-shrink-0">
+            <div
+              className="font-mono"
+              style={{
+                fontSize: 10.5,
+                color: 'var(--color-codex-ink-mute)',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {isZh ? '计划执行' : 'Scheduled'}
+            </div>
+            <div
+              className="mt-1 font-mono"
+              style={{ fontSize: 12, color: 'var(--color-codex-ink) ' }}
+            >
+              {formatDate(job.next_run_at, isZh)}
+            </div>
           </div>
         </div>
 
@@ -878,25 +1085,28 @@ export function MemoryOperationsSettings() {
           <button
             onClick={() => void runNow(job)}
             disabled={busyRun || busyCancel}
-            className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low disabled:opacity-60"
+            className="inline-flex items-center gap-2 disabled:opacity-60"
+            style={ghostBtn}
           >
-            {busyRun ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {isZh ? '立即执行' : 'Run now'}
+            {busyRun ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {isZh ? '立即' : 'Run'}
           </button>
           <button
             onClick={() => void cancelJob(job)}
             disabled={busyRun || busyCancel}
-            className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low disabled:opacity-60"
+            className="inline-flex items-center gap-2 disabled:opacity-60"
+            style={ghostBtn}
           >
-            {busyCancel ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-            {isZh ? '取消任务' : 'Cancel'}
+            {busyCancel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+            {isZh ? '取消' : 'Cancel'}
           </button>
           <button
             onClick={() => openEntity(job)}
-            className="inline-flex items-center gap-2 rounded-xl border border-outline px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low"
+            className="inline-flex items-center gap-2"
+            style={ghostBtn}
           >
-            <ExternalLink className="h-4 w-4" />
-            {isZh ? '打开详情' : 'Open'}
+            <ExternalLink className="h-3.5 w-3.5" />
+            {isZh ? '打开' : 'Open'}
           </button>
         </div>
       </div>
@@ -905,18 +1115,49 @@ export function MemoryOperationsSettings() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div
+        className="theme-codex flex min-h-[320px] items-center justify-center"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div
+      className="theme-codex"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+        padding: '8px 4px 32px',
+      }}
+    >
+      <header
+        className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"
+        style={{ marginBottom: 20 }}
+      >
         <div>
-          <h2 className="text-xl font-semibold text-on-surface">{isZh ? '记忆任务中心' : 'Memory Operations'}</h2>
-          <p className="mt-1 text-sm text-on-surface-muted">
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 500,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '-0.015em',
+            }}
+          >
+            {isZh ? '记忆任务中心' : 'Memory Operations'}
+          </h1>
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 13,
+              color: 'var(--color-codex-ink-mute)',
+              lineHeight: 1.6,
+              maxWidth: 640,
+            }}
+          >
             {isZh
               ? '统一查看项目与客户记忆的重建、摘要预热、重试和失败情况。'
               : 'Monitor rebuild, summary warming, retries, and failures for project and client memory.'}
@@ -924,12 +1165,20 @@ export function MemoryOperationsSettings() {
         </div>
         <button
           onClick={() => void loadJobs()}
-          className="inline-flex items-center gap-2 rounded-xl border border-outline px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-container-low"
+          className="inline-flex flex-shrink-0 items-center gap-2"
+          style={{
+            padding: '8px 14px',
+            fontSize: 13,
+            background: 'var(--color-codex-bg-elev)',
+            color: 'var(--color-codex-ink-soft)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
         >
-          <RefreshCw className="h-4 w-4" />
+          <RefreshCw className="h-3.5 w-3.5" />
           {isZh ? '刷新任务' : 'Refresh jobs'}
         </button>
-      </div>
+      </header>
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-9">
         <SectionCard
@@ -998,23 +1247,42 @@ export function MemoryOperationsSettings() {
       </div>
 
       <div
-        className={`rounded-2xl border p-4 shadow-sm ${
-          alertSummary.length > 0
-            ? 'border-amber-200 bg-gradient-to-br from-amber-50 via-orange-50 to-white'
-            : 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-teal-50 to-white'
-        }`}
+        style={{
+          marginTop: 16,
+          padding: 16,
+          background: 'var(--color-codex-bg-elev)',
+          border:
+            alertSummary.length > 0
+              ? '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)'
+              : '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+        }}
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div
-              className={`flex items-center gap-2 text-sm font-semibold ${
-                alertSummary.length > 0 ? 'text-amber-950' : 'text-emerald-950'
-              }`}
+              className="flex items-center gap-2"
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: alertSummary.length > 0 ? 'var(--color-codex-warn)' : 'var(--color-codex-accent-ink)',
+              }}
             >
-              <AlertTriangle className="h-4 w-4" />
+              {alertSummary.length > 0 ? (
+                <AlertTriangle className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
               {isZh ? '失败告警汇总' : 'Failure alert summary'}
             </div>
-            <p className={`mt-1 text-sm ${alertSummary.length > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>
+            <p
+              style={{
+                margin: '4px 0 0',
+                fontSize: 12.5,
+                color: 'var(--color-codex-ink-mute)',
+                lineHeight: 1.55,
+              }}
+            >
               {alertSummary.length > 0
                 ? isZh
                   ? '按风险优先级汇总当前需要关注的记忆任务问题。'
@@ -1032,200 +1300,334 @@ export function MemoryOperationsSettings() {
                 setFailureCategoryFilter('all')
                 setAttentionFilter('all')
               }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+              className="inline-flex flex-shrink-0 items-center justify-center gap-2"
+              style={{
+                padding: '6px 12px',
+                fontSize: 12.5,
+                background: 'var(--color-codex-bg)',
+                color: 'var(--color-codex-warn)',
+                border: '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
             >
-              <Filter className="h-4 w-4" />
+              <Filter className="h-3.5 w-3.5" />
               {isZh ? '查看全部失败' : 'View all failures'}
             </button>
           ) : null}
         </div>
 
         {alertSummary.length > 0 ? (
-          <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-            {alertSummary.map((alert) => (
-              <div
-                key={alert.key}
-                className={`rounded-xl border bg-white/80 p-3 ${
-                  alert.severity === 'critical'
-                    ? 'border-red-200'
-                    : alert.severity === 'warning'
-                      ? 'border-amber-200'
-                      : 'border-blue-200'
-                }`}
-              >
+          <div className="mt-4 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {alertSummary.map((alert) => {
+              const sevColor =
+                alert.severity === 'critical'
+                  ? 'var(--color-codex-bad)'
+                  : alert.severity === 'warning'
+                    ? 'var(--color-codex-warn)'
+                    : 'var(--color-codex-accent-ink)'
+              return (
                 <div
-                  className={`text-sm font-semibold ${
-                    alert.severity === 'critical'
-                      ? 'text-red-900'
-                      : alert.severity === 'warning'
-                        ? 'text-amber-900'
-                        : 'text-blue-900'
-                  }`}
+                  key={alert.key}
+                  style={{
+                    padding: 12,
+                    background: 'var(--color-codex-bg)',
+                    border: `1px solid color-mix(in oklch, ${sevColor} 25%, transparent)`,
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
                 >
-                  {alert.title}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: sevColor }}>{alert.title}</div>
+                  <div
+                    style={{
+                      marginTop: 4,
+                      minHeight: 36,
+                      fontSize: 11.5,
+                      lineHeight: 1.55,
+                      color: 'var(--color-codex-ink-mute)',
+                    }}
+                  >
+                    {alert.description}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={alert.onClick}
+                    className="mt-3 inline-flex items-center gap-2"
+                    style={{
+                      padding: '4px 9px',
+                      fontSize: 11,
+                      background: 'var(--color-codex-bg-elev)',
+                      color: 'var(--color-codex-ink-soft)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {alert.action}
+                  </button>
                 </div>
-                <div className="mt-1 min-h-[40px] text-xs leading-5 text-on-surface-muted">{alert.description}</div>
-                <button
-                  type="button"
-                  onClick={alert.onClick}
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-surface-container-low"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  {alert.action}
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : null}
       </div>
 
-      <div className="rounded-2xl border border-outline bg-surface p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(6,minmax(0,1fr))]">
+      <div
+        style={{
+          marginTop: 16,
+          padding: 14,
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+        }}
+      >
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1.5fr)_repeat(6,minmax(0,1fr))]">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-muted" />
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"
+              style={{ color: 'var(--color-codex-ink-faint)' }}
+            />
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={isZh ? '搜索项目、客户、触发来源或摘要类型' : 'Search by project, client, trigger, or summary type'}
-              className="w-full rounded-xl border border-outline bg-surface px-10 py-2.5 text-sm text-on-surface outline-none transition focus:border-primary"
+              placeholder={isZh ? '搜索项目、客户、触发或摘要' : 'Search projects, clients, trigger, summary'}
+              className="w-full outline-none"
+              style={{
+                padding: '8px 12px 8px 34px',
+                fontSize: 13,
+                background: 'var(--color-codex-bg)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                color: 'var(--color-codex-ink)',
+              }}
             />
           </div>
 
-          <select
-            value={scopeFilter}
-            onChange={(event) => setScopeFilter(event.target.value as JobScopeFilter)}
-            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
-          >
-            <option value="all">{isZh ? '全部范围' : 'All scopes'}</option>
-            <option value="project">{isZh ? '仅项目' : 'Projects only'}</option>
-            <option value="client">{isZh ? '仅客户' : 'Clients only'}</option>
-          </select>
-
-          <select
-            value={jobTypeFilter}
-            onChange={(event) => setJobTypeFilter(event.target.value as JobTypeFilter)}
-            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
-          >
-            <option value="all">{isZh ? '全部任务类型' : 'All job types'}</option>
-            <option value="rebuild">{isZh ? '仅记忆重建' : 'Rebuild only'}</option>
-            <option value="summary_warm">{isZh ? '仅摘要预热' : 'Summary warm only'}</option>
-          </select>
-
-          <select
-            value={retryFilter}
-            onChange={(event) => setRetryFilter(event.target.value as RetryFilter)}
-            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
-          >
-            <option value="all">{isZh ? '全部重试状态' : 'All retry states'}</option>
-            <option value="retrying">{isZh ? '仅重试中的任务' : 'Retrying only'}</option>
-            <option value="clean">{isZh ? '仅未重试任务' : 'No-retry only'}</option>
-          </select>
-
-          <select
-            value={failureCategoryFilter}
-            onChange={(event) => setFailureCategoryFilter(event.target.value as FailureCategory)}
-            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
-          >
-            {(['all', 'budget', 'rate_limit', 'timeout', 'database', 'data', 'scheduler', 'llm', 'unknown'] as FailureCategory[]).map((category) => (
-              <option key={category} value={category}>
-                {getFailureCategoryLabel(category, isZh)}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={attentionFilter}
-            onChange={(event) => setAttentionFilter(event.target.value as AttentionFilter)}
-            className="rounded-xl border border-outline bg-surface px-3 py-2.5 text-sm text-on-surface"
-          >
-            <option value="all">{isZh ? '全部处理方式' : 'All handling'}</option>
-            <option value="manual">{isZh ? '仅需人工处理' : 'Manual attention only'}</option>
-          </select>
+          {[
+            {
+              value: scopeFilter,
+              onChange: (v: string) => setScopeFilter(v as JobScopeFilter),
+              options: [
+                { value: 'all', label: isZh ? '全部范围' : 'All scopes' },
+                { value: 'project', label: isZh ? '仅项目' : 'Projects' },
+                { value: 'client', label: isZh ? '仅客户' : 'Clients' },
+              ],
+            },
+            {
+              value: jobTypeFilter,
+              onChange: (v: string) => setJobTypeFilter(v as JobTypeFilter),
+              options: [
+                { value: 'all', label: isZh ? '全部任务' : 'All jobs' },
+                { value: 'rebuild', label: isZh ? '记忆重建' : 'Rebuild' },
+                { value: 'summary_warm', label: isZh ? '摘要预热' : 'Summary' },
+              ],
+            },
+            {
+              value: retryFilter,
+              onChange: (v: string) => setRetryFilter(v as RetryFilter),
+              options: [
+                { value: 'all', label: isZh ? '全部重试' : 'All retry' },
+                { value: 'retrying', label: isZh ? '仅重试中' : 'Retrying' },
+                { value: 'clean', label: isZh ? '仅未重试' : 'Clean' },
+              ],
+            },
+            {
+              value: failureCategoryFilter,
+              onChange: (v: string) => setFailureCategoryFilter(v as FailureCategory),
+              options: (
+                ['all', 'budget', 'rate_limit', 'timeout', 'database', 'data', 'scheduler', 'llm', 'unknown'] as FailureCategory[]
+              ).map((category) => ({
+                value: category,
+                label: getFailureCategoryLabel(category, isZh),
+              })),
+            },
+            {
+              value: attentionFilter,
+              onChange: (v: string) => setAttentionFilter(v as AttentionFilter),
+              options: [
+                { value: 'all', label: isZh ? '全部处理' : 'All handling' },
+                { value: 'manual', label: isZh ? '仅人工' : 'Manual' },
+              ],
+            },
+          ].map((select, idx) => (
+            <select
+              key={idx}
+              value={select.value}
+              onChange={(event) => select.onChange(event.target.value)}
+              style={{
+                padding: '8px 10px',
+                fontSize: 12.5,
+                background: 'var(--color-codex-bg)',
+                color: 'var(--color-codex-ink)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
+            >
+              {select.options.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ))}
 
           <button
             onClick={() => setShowFailuresOnly((current) => !current)}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
-              showFailuresOnly
-                ? 'border-amber-300 bg-amber-50 text-amber-900'
-                : 'border-outline bg-surface text-on-surface hover:bg-surface-container-low'
-            }`}
+            className="inline-flex items-center justify-center gap-2"
+            style={{
+              padding: '8px 10px',
+              fontSize: 12.5,
+              fontWeight: 500,
+              background: showFailuresOnly
+                ? 'color-mix(in oklch, var(--color-codex-warn) 12%, transparent)'
+                : 'var(--color-codex-bg)',
+              color: showFailuresOnly ? 'var(--color-codex-warn)' : 'var(--color-codex-ink-soft)',
+              border: showFailuresOnly
+                ? '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)'
+                : '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            <Filter className="h-4 w-4" />
-            {showFailuresOnly ? (isZh ? '只看失败记录' : 'Failures only') : isZh ? '显示失败记录' : 'Show failures'}
+            <Filter className="h-3.5 w-3.5" />
+            {showFailuresOnly ? (isZh ? '仅失败' : 'Failures') : isZh ? '显示失败' : 'Show failures'}
           </button>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
-        <div className="space-y-4">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
+        <div className="space-y-3">
           {!showFailuresOnly && filteredJobs.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-outline p-10 text-center text-sm text-on-surface-muted">
-              <Clock3 className="mx-auto mb-3 h-6 w-6" />
+            <div
+              className="text-center"
+              style={{
+                padding: '40px 24px',
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px dashed var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+                fontSize: 13,
+                color: 'var(--color-codex-ink-mute)',
+              }}
+            >
+              <Clock3
+                className="mx-auto mb-3 h-6 w-6"
+                style={{ color: 'var(--color-codex-ink-faint)' }}
+              />
               {isZh ? '当前筛选条件下没有匹配的排队或进行中任务。' : 'No queued or running jobs match the current filters.'}
             </div>
           ) : null}
 
-          {!showFailuresOnly ? <div className="grid gap-4">{filteredJobs.map(renderJobCard)}</div> : null}
+          {!showFailuresOnly ? <div className="space-y-3">{filteredJobs.map(renderJobCard)}</div> : null}
 
           {!showFailuresOnly && filteredSuccesses.length > 0 ? (
-            <div className="rounded-2xl border border-emerald-200 bg-surface p-4 shadow-sm">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-950">
-                <CheckCircle2 className="h-4 w-4" />
+            <div
+              style={{
+                padding: 16,
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
+              <div
+                className="mb-3 flex items-center gap-2"
+                style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-codex-accent-ink)' }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 {isZh ? '最近成功记录' : 'Recent successes'}
               </div>
-              <div className="space-y-3">{filteredSuccesses.slice(0, 12).map(renderSuccessCard)}</div>
+              <div className="space-y-2">{filteredSuccesses.slice(0, 12).map(renderSuccessCard)}</div>
             </div>
           ) : null}
 
           {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length > 0 ? (
-            <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
+            <div
+              style={{
+                padding: 16,
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-on-surface">
-                  <AlertTriangle className="h-4 w-4" />
+                <div
+                  className="flex items-center gap-2"
+                  style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
                   {isZh ? '最近失败记录' : 'Recent failures'}
-                  <span className="text-xs font-normal text-on-surface-muted">
+                  <span
+                    className="font-mono"
+                    style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-codex-ink-mute)' }}
+                  >
                     ({filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length})
                   </span>
                 </div>
                 <button
                   onClick={toggleSelectAllVisible}
-                  className="text-xs text-primary hover:underline"
+                  className="hover:underline"
+                  style={{ fontSize: 11.5, color: 'var(--color-codex-accent-ink)' }}
                 >
                   {selectedFailureKeys.size > 0
-                    ? (isZh ? '取消全选' : 'Deselect all')
-                    : (isZh ? '全选' : 'Select all')}
+                    ? isZh ? '取消全选' : 'Deselect all'
+                    : isZh ? '全选' : 'Select all'}
                 </button>
               </div>
 
               {selectedFailureKeys.size > 0 && (
-                <div className="mb-3 flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2">
-                  <span className="text-xs text-primary font-medium">
-                    {isZh ? `已选 ${selectedFailureKeys.size} 条` : `${selectedFailureKeys.size} selected`}
+                <div
+                  className="mb-3 flex items-center gap-2"
+                  style={{
+                    padding: '8px 12px',
+                    background: 'var(--color-codex-accent-bg)',
+                    border: '1px solid color-mix(in oklch, var(--color-codex-accent) 25%, transparent)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
+                >
+                  <span
+                    className="font-mono"
+                    style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-codex-accent-ink)' }}
+                  >
+                    {isZh ? `已选 ${selectedFailureKeys.size}` : `${selectedFailureKeys.size} selected`}
                   </span>
                   <div className="flex-1" />
                   <button
                     onClick={() => void batchRetryFailures()}
                     disabled={isBatchRetrying}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                    className="inline-flex items-center gap-1.5 disabled:opacity-60"
+                    style={{
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      background: 'var(--color-codex-accent)',
+                      color: 'var(--color-codex-bg-elev)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
                   >
-                    {isBatchRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                    {isBatchRetrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                     {isZh ? '批量重试' : 'Batch retry'}
                   </button>
                   <button
                     onClick={dismissSelectedFailures}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
+                    className="inline-flex items-center gap-1.5"
+                    style={{
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      background: 'var(--color-codex-bg)',
+                      color: 'var(--color-codex-ink-soft)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3 w-3" />
                     {isZh ? '忽略' : 'Dismiss'}
                   </button>
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).slice(0, 12).map((failure, index) => {
                   const busyRetry = actionKey === `${failure.scope}-failure-${failure.failed_at}`
                   const failureKey = getFailureKey(failure)
                   const isSelected = selectedFailureKeys.has(failureKey)
+                  const category = inferFailureCategory(failure)
+                  const isManual = ['database', 'data', 'unknown'].includes(category)
                   const title =
                     failure.scope === 'project'
                       ? isZh
@@ -1235,66 +1637,142 @@ export function MemoryOperationsSettings() {
                         ? `客户 / ${failure.client_name}`
                         : `Client / ${failure.client_name}`
                   return (
-                    <div key={`${failure.scope}-${index}`} className={`rounded-xl bg-surface-container-low p-3 ${isSelected ? 'ring-2 ring-primary/30' : ''}`}>
+                    <div
+                      key={`${failure.scope}-${index}`}
+                      style={{
+                        padding: 12,
+                        background: 'var(--color-codex-bg)',
+                        border: isSelected
+                          ? '1px solid color-mix(in oklch, var(--color-codex-accent) 35%, transparent)'
+                          : '1px solid var(--color-codex-line-soft)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                        boxShadow: isSelected
+                          ? '0 0 0 2px color-mix(in oklch, var(--color-codex-accent) 18%, transparent)'
+                          : 'none',
+                      }}
+                    >
                       <div className="flex items-start gap-3">
                         <button
                           onClick={() => toggleFailureSelection(failureKey)}
-                          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border transition-colors ${
-                            isSelected
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-gray-300 bg-white text-transparent hover:border-primary/50'
-                          }`}
+                          className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center transition-colors"
+                          style={{
+                            background: isSelected
+                              ? 'var(--color-codex-accent)'
+                              : 'var(--color-codex-bg-elev)',
+                            color: isSelected ? 'var(--color-codex-bg-elev)' : 'transparent',
+                            border: isSelected
+                              ? '1px solid var(--color-codex-accent)'
+                              : '1px solid var(--color-codex-line)',
+                            borderRadius: 2,
+                          }}
                         >
-                          {isSelected ? <Check className="h-3 w-3" /> : <Square className="h-3 w-3" />}
+                          {isSelected ? <Check className="h-2.5 w-2.5" /> : <Square className="h-2.5 w-2.5" />}
                         </button>
                         <div className="flex-1">
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium text-on-surface">{title}</div>
-                              <div className="mt-1 text-xs text-on-surface-muted">
-                                {isZh ? '阶段' : 'Stage'}: {failure.stage}
-                                {' / '}
-                                {getFailureCategoryLabel(inferFailureCategory(failure), isZh)}
-                                {' / '}
-                                {isZh ? '重试' : 'Retry'}: {failure.retry_count ?? 0}
+                            <div className="min-w-0">
+                              <div
+                                className="truncate"
+                                style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-codex-ink)' }}
+                              >
+                                {title}
+                              </div>
+                              <div
+                                className="mt-1 font-mono"
+                                style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+                              >
+                                {failure.stage}
+                                {' · '}
+                                {getFailureCategoryLabel(category, isZh)}
+                                {' · '}
+                                {isZh ? '重试 ' : 'Retry '}
+                                {failure.retry_count ?? 0}
                               </div>
                             </div>
-                            <div className="text-xs text-on-surface-muted">{formatDate(failure.failed_at, isZh)}</div>
+                            <div
+                              className="font-mono flex-shrink-0"
+                              style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+                            >
+                              {formatDate(failure.failed_at, isZh)}
+                            </div>
                           </div>
-                          <div className="mt-2 text-sm text-on-surface">{failure.message}</div>
+                          <div
+                            className="mt-2"
+                            style={{
+                              fontSize: 12.5,
+                              lineHeight: 1.55,
+                              color: 'var(--color-codex-ink)',
+                            }}
+                          >
+                            {failure.message}
+                          </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               onClick={() => void retryFailure(failure)}
                               disabled={busyRetry}
-                              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-60 ${
-                                ['database', 'data', 'unknown'].includes(inferFailureCategory(failure))
-                                  ? 'border-amber-200 bg-amber-50 text-amber-800'
-                                  : 'border-outline text-on-surface'
-                              }`}
+                              className="inline-flex items-center gap-1.5 disabled:opacity-60"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 11.5,
+                                background: isManual
+                                  ? 'color-mix(in oklch, var(--color-codex-warn) 10%, transparent)'
+                                  : 'var(--color-codex-bg-elev)',
+                                color: isManual
+                                  ? 'var(--color-codex-warn)'
+                                  : 'var(--color-codex-ink-soft)',
+                                border: isManual
+                                  ? '1px solid color-mix(in oklch, var(--color-codex-warn) 30%, transparent)'
+                                  : '1px solid var(--color-codex-line)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
                             >
-                              {busyRetry ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                              {busyRetry ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                               {isZh ? '立即重试' : 'Retry now'}
                             </button>
                             <button
                               onClick={() => runSuggestedAction(failure)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                              className="inline-flex items-center gap-1.5"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 11.5,
+                                background: 'var(--color-codex-accent-bg)',
+                                color: 'var(--color-codex-accent-ink)',
+                                border: '1px solid color-mix(in oklch, var(--color-codex-accent) 25%, transparent)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
                             >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              {getSuggestedActionLabel(inferFailureCategory(failure), isZh)}
+                              <ExternalLink className="h-3 w-3" />
+                              {getSuggestedActionLabel(category, isZh)}
                             </button>
                             <button
                               onClick={() => setSelectedFailureKey(failureKey)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                              className="inline-flex items-center gap-1.5"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 11.5,
+                                background: 'var(--color-codex-bg-elev)',
+                                color: 'var(--color-codex-ink-soft)',
+                                border: '1px solid var(--color-codex-line)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
                             >
-                              <AlertTriangle className="h-3.5 w-3.5" />
+                              <AlertTriangle className="h-3 w-3" />
                               {isZh ? '查看明细' : 'Details'}
                             </button>
                             <button
                               onClick={() => openEntity(failure)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-outline px-3 py-1.5 text-xs font-medium text-on-surface hover:bg-white"
+                              className="inline-flex items-center gap-1.5"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 11.5,
+                                background: 'var(--color-codex-bg-elev)',
+                                color: 'var(--color-codex-ink-soft)',
+                                border: '1px solid var(--color-codex-line)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
                             >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              {isZh ? '打开详情' : 'Open'}
+                              <ExternalLink className="h-3 w-3" />
+                              {isZh ? '打开' : 'Open'}
                             </button>
                           </div>
                         </div>
@@ -1307,68 +1785,158 @@ export function MemoryOperationsSettings() {
           ) : null}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {renderFailureDetailPanel()}
 
-          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
-              <Wallet className="h-4 w-4" />
+          <div
+            style={{
+              padding: 16,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
+            <div
+              className="mb-3 flex items-center gap-2"
+              style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+            >
+              <Wallet className="h-3.5 w-3.5" />
               {isZh ? '摘要预热预算' : 'Summary warm budgets'}
             </div>
-            <div className="space-y-3 text-sm text-on-surface-muted">
-              <div className="rounded-xl bg-surface-container-low p-3">
-                <div className="font-medium text-on-surface">{isZh ? '项目记忆' : 'Project memory'}</div>
-                <div className="mt-1">
-                  {isZh
-                    ? `今日已使用 ${projectBudget?.used ?? 0} / ${projectBudget?.limit ?? 0}，剩余 ${projectBudget?.remaining ?? 0}`
-                    : `${projectBudget?.used ?? 0} / ${projectBudget?.limit ?? 0} used today, ${projectBudget?.remaining ?? 0} left`}
+            <div className="space-y-2">
+              {[
+                {
+                  label: isZh ? '项目记忆' : 'Project memory',
+                  budget: projectBudget,
+                },
+                {
+                  label: isZh ? '客户记忆' : 'Client memory',
+                  budget: clientBudget,
+                },
+              ].map((entry) => (
+                <div
+                  key={entry.label}
+                  style={{
+                    padding: '10px 12px',
+                    background: 'var(--color-codex-bg)',
+                    border: '1px solid var(--color-codex-line-soft)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    {entry.label}
+                  </div>
+                  <div
+                    className="mt-1 font-mono"
+                    style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+                  >
+                    {isZh
+                      ? `${entry.budget?.used ?? 0} / ${entry.budget?.limit ?? 0} · 剩余 ${entry.budget?.remaining ?? 0}`
+                      : `${entry.budget?.used ?? 0} / ${entry.budget?.limit ?? 0} · ${entry.budget?.remaining ?? 0} left`}
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-xl bg-surface-container-low p-3">
-                <div className="font-medium text-on-surface">{isZh ? '客户记忆' : 'Client memory'}</div>
-                <div className="mt-1">
-                  {isZh
-                    ? `今日已使用 ${clientBudget?.used ?? 0} / ${clientBudget?.limit ?? 0}，剩余 ${clientBudget?.remaining ?? 0}`
-                    : `${clientBudget?.used ?? 0} / ${clientBudget?.limit ?? 0} used today, ${clientBudget?.remaining ?? 0} left`}
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
-              <AlertTriangle className="h-4 w-4" />
+          <div
+            style={{
+              padding: 16,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
+            <div
+              className="mb-3 flex items-center gap-2"
+              style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
               {isZh ? '任务说明' : 'What to watch'}
             </div>
-            <div className="space-y-3 text-sm text-on-surface-muted">
-              <div className="rounded-xl bg-surface-container-low p-3">
-                {isZh
+            <div className="space-y-2">
+              {[
+                isZh
                   ? '默认会先预热核心摘要。扩展摘要只会在显式请求、详情页切换或批量治理动作里进入队列。'
-                  : 'Core summaries warm first by default. Extended views are only queued by explicit actions, page requests, or governance flows.'}
-              </div>
-              <div className="rounded-xl bg-surface-container-low p-3">
-                {isZh
+                  : 'Core summaries warm first by default. Extended views are only queued by explicit actions, page requests, or governance flows.',
+                isZh
                   ? '如果预算接近上限，建议先处理失败记录和重试中的任务，再继续发起批量预热。'
-                  : 'When budgets get tight, clear failures and retries first before starting more batch warming.'}
-              </div>
+                  : 'When budgets get tight, clear failures and retries first before starting more batch warming.',
+              ].map((line) => (
+                <div
+                  key={line}
+                  style={{
+                    padding: '10px 12px',
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    background: 'var(--color-codex-bg)',
+                    border: '1px solid var(--color-codex-line-soft)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                    color: 'var(--color-codex-ink-soft)',
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-outline bg-surface p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-on-surface">
-              <AlertTriangle className="h-4 w-4" />
+          <div
+            style={{
+              padding: 16,
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
+            <div
+              className="mb-3 flex items-center gap-2"
+              style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
               {isZh ? '失败处理建议' : 'Failure playbook'}
             </div>
-            <div className="space-y-3 text-sm text-on-surface-muted">
+            <div className="space-y-2">
               {(failureCategoryFilter === 'all'
                 ? ([mostCommonFailureCategory.category, 'budget', 'rate_limit', 'database'] as FailureCategory[])
                 : ([failureCategoryFilter, 'all'] as FailureCategory[])
               )
                 .filter((category, index, list) => list.indexOf(category) === index)
                 .map((category) => (
-                  <div key={category} className="rounded-xl bg-surface-container-low p-3">
-                    <div className="font-medium text-on-surface">{getFailureCategoryLabel(category, isZh)}</div>
-                    <div className="mt-1 leading-6">{getFailureCategoryAdvice(category, isZh)}</div>
+                  <div
+                    key={category}
+                    style={{
+                      padding: '10px 12px',
+                      background: 'var(--color-codex-bg)',
+                      border: '1px solid var(--color-codex-line-soft)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        color: 'var(--color-codex-ink)',
+                      }}
+                    >
+                      {getFailureCategoryLabel(category, isZh)}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 11.5,
+                        lineHeight: 1.6,
+                        color: 'var(--color-codex-ink-mute)',
+                      }}
+                    >
+                      {getFailureCategoryAdvice(category, isZh)}
+                    </div>
                   </div>
                 ))}
             </div>
