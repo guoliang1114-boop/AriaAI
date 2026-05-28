@@ -12,6 +12,7 @@ import {
   Globe,
   Info,
   ListChecks,
+  Palette,
   Server,
   User,
   Users,
@@ -30,6 +31,7 @@ export function SettingsLayout() {
 
   const settingNavItems = [
     { path: '', icon: User, label: t('settings.profile') },
+    { path: 'appearance', icon: Palette, label: t('settings.appearance') },
     { path: 'ai', icon: Brain, label: t('settings.aiModel') },
     { path: 'memory', icon: Database, label: isZh ? '项目记忆' : 'Project Memory' },
     { path: 'client-memory', icon: Users, label: isZh ? '客户记忆' : 'Client Memory' },

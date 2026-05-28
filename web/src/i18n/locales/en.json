@@ -383,6 +383,7 @@
     "title": "Settings",
     "description": "Manage your application preferences and configuration",
     "profile": "Profile",
+    "appearance": "Appearance",
     "aiModel": "AI Model",
     "server": "Server",
     "language": "Language",

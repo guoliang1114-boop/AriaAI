@@ -15,6 +15,7 @@ export const loadClientMemoryPage = () => import('./pages/clients/ClientMemoryPa
 export const loadMessagesPage = () => import('./pages/messages/MessagesPage')
 export const loadSettingsLayout = () => import('./pages/settings/SettingsLayout')
 export const loadProfileSettings = () => import('./pages/settings/ProfileSettings')
+export const loadAppearanceSettings = () => import('./pages/settings/AppearanceSettings')
 export const loadAISettings = () => import('./pages/settings/AISettings')
 export const loadUsersSettings = () => import('./pages/settings/UsersSettings')
 export const loadServerSettings = () => import('./pages/settings/ServerSettings')
