@@ -53,4 +53,34 @@ describe("ProjectChatTracePanel", () => {
     expect(screen.getByText(/tool_input_repaired/)).toBeInTheDocument();
     expect(screen.getByText("风险清单.md")).toBeInTheDocument();
   });
+
+  it("renders prepare / first-token / total chips when timings are present", () => {
+    const traceWithTimings: ChatTrace = {
+      ...trace,
+      stage_timings: {
+        prepare_total_ms: 85,
+        model_first_event_ms: 2147,
+        total_stream_ms: 5230,
+      },
+    };
+    render(<ProjectChatTracePanel trace={traceWithTimings} isZh />);
+
+    // <1000ms renders as ms with rounding; ≥1000ms collapses to s with 1 decimal.
+    expect(screen.getByText(/准备\s*85ms/)).toBeInTheDocument();
+    expect(screen.getByText(/首响\s*2\.1s/)).toBeInTheDocument();
+    expect(screen.getByText(/总\s*5\.2s/)).toBeInTheDocument();
+  });
+
+  it("omits timing chips when the underlying metric is missing", () => {
+    const traceMissingPrepare: ChatTrace = {
+      ...trace,
+      stage_timings: { model_first_event_ms: 800 }, // no prepare_total_ms, no total
+    };
+    render(<ProjectChatTracePanel trace={traceMissingPrepare} isZh />);
+
+    // Only first-response chip should appear.
+    expect(screen.queryByText(/^准备/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^总/)).not.toBeInTheDocument();
+    expect(screen.getByText(/首响\s*800ms/)).toBeInTheDocument();
+  });
 });

@@ -58,6 +58,22 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
   const promptLayers = trace.prompt_layers || [];
   const fallbackEvents = trace.fallback_events || [];
   const totalMs = timings.total_stream_ms;
+  const prepareMs = timings.prepare_total_ms;
+  const firstEventMs = timings.model_first_event_ms;
+
+  // Render an ms value as ms when <1000, s with one decimal otherwise — keeps
+  // chips short for fast turns while showing useful precision for slow ones.
+  const formatMs = (raw: number | string | undefined): string | null => {
+    if (raw === undefined || raw === null || raw === "") return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    if (value < 1000) return `${Math.round(value)}ms`;
+    return `${(value / 1000).toFixed(1)}s`;
+  };
+
+  const prepareLabel = formatMs(prepareMs);
+  const firstEventLabel = formatMs(firstEventMs);
+  const totalLabel = formatMs(totalMs);
 
   return (
     <div className="mt-3 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white/80 px-3.5 py-3 shadow-sm">
@@ -74,10 +90,31 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
           {trace.model_used ? (
             <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">{trace.model_used}</span>
           ) : null}
-          {typeof totalMs !== "undefined" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
+          {prepareLabel ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              title={isZh ? "请求前准备（prepare_total_ms）" : "Prepare (prepare_total_ms)"}
+            >
               <Clock3 className="h-3.5 w-3.5" />
-              {Math.round(Number(totalMs))}ms
+              {isZh ? "准备" : "Prep"} {prepareLabel}
+            </span>
+          ) : null}
+          {firstEventLabel ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              title={isZh ? "首次响应（model_first_event_ms）" : "First token (model_first_event_ms)"}
+            >
+              <Clock3 className="h-3.5 w-3.5" />
+              {isZh ? "首响" : "TTFT"} {firstEventLabel}
+            </span>
+          ) : null}
+          {totalLabel ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              title={isZh ? "本轮总耗时（total_stream_ms）" : "Total (total_stream_ms)"}
+            >
+              <Clock3 className="h-3.5 w-3.5" />
+              {isZh ? "总" : "Total"} {totalLabel}
             </span>
           ) : null}
         </div>
