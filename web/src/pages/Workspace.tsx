@@ -32,7 +32,12 @@ import { api } from "../api/client";
 import { CxLogo, CxStatus, type CxStatusTone } from "../components/codex";
 import { PageTitle } from "../components/PageTitle";
 import { parseAppDateTime } from "../utils/timezone";
-import type { Conversation, SkillSummary, User } from "../types/api";
+import type {
+  Conversation,
+  MyProjectTodo,
+  SkillSummary,
+  User,
+} from "../types/api";
 
 interface DashboardProjectSummary {
   id: number
@@ -128,6 +133,27 @@ function formatHeroDate(isZh: boolean): string {
   });
 }
 
+/**
+ * Compact due-date label for the right rail rows. Today / 明天 in zh
+ * (Today / Tomorrow in en) get word labels; further-out dates show as
+ * "M/D" so the rail stays scannable.
+ */
+function formatDueLabel(value: string, isZh: boolean): string {
+  const due = parseAppDateTime(value);
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+  const today = new Date();
+  const todayDay = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+  const diff = Math.round((dueDay - todayDay) / 86400000);
+  if (diff < 0) return isZh ? `逾期 ${Math.abs(diff)}d` : `${Math.abs(diff)}d late`;
+  if (diff === 0) return isZh ? "今天" : "Today";
+  if (diff === 1) return isZh ? "明天" : "Tomorrow";
+  return `${due.getMonth() + 1}/${due.getDate()}`;
+}
+
 // Quick skill card definitions — wired to the existing skill resolver
 // below so clicking a card routes to the right Skill or falls back to
 // a chat prompt when the underlying skill isn't installed.
@@ -211,6 +237,7 @@ export function Workspace() {
   const [projects, setProjects] = useState<DashboardProjectSummary[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [todos, setTodos] = useState<MyProjectTodo[]>([]);
   const [user] = useState<User | null>(() => getStoredUser());
 
   useEffect(() => {
@@ -221,14 +248,18 @@ export function Workspace() {
     try {
       setLoading(true);
       setError(null);
-      const [allProjects, allConversations, allSkills] = await Promise.all([
+      const [allProjects, allConversations, allSkills, allTodos] = await Promise.all([
         api.get<DashboardProjectSummary[]>("/projects/meta/dashboard-summary"),
         api.get<Conversation[]>("/chat/conversations"),
         api.get<SkillSummary[]>("/skills/meta/summary"),
+        // Todos may not yet be available depending on permissions; soft-fail
+        // so the workspace still renders the rest of the page if 403/500.
+        api.get<MyProjectTodo[]>("/projects/todos/my").catch(() => [] as MyProjectTodo[]),
       ]);
       setProjects(allProjects);
       setConversations(allConversations);
       setSkills(allSkills);
+      setTodos(allTodos);
     } catch (err) {
       const apiError = err as AxiosError;
       setError(
@@ -261,6 +292,48 @@ export function Workspace() {
         .slice(0, 5),
     [conversations],
   );
+
+  // Today's todos = anything undone that is either overdue or due in the
+  // next ~24 hours. Sorted by due date so the most urgent floats up.
+  const todayTodos = useMemo(() => {
+    const now = Date.now();
+    const endOfTomorrow = now + 36 * 60 * 60 * 1000;
+    return todos
+      .filter((todo) => !todo.is_done && todo.due_date)
+      .filter((todo) => {
+        const due = parseAppDateTime(todo.due_date as string).getTime();
+        return due <= endOfTomorrow;
+      })
+      .sort(
+        (a, b) =>
+          parseAppDateTime(a.due_date as string).getTime() -
+          parseAppDateTime(b.due_date as string).getTime(),
+      );
+  }, [todos]);
+
+  // "Upcoming this week" = undone, due in (~36h … 7d]. Mirrors the prototype's
+  // 即将里程碑 panel; without a backend "my milestones" endpoint we surface
+  // upcoming-due todos which carry the same "what's around the corner" intent.
+  const upcomingTodos = useMemo(() => {
+    const now = Date.now();
+    const startOfNext = now + 36 * 60 * 60 * 1000;
+    const endOfWeek = now + 7 * 24 * 60 * 60 * 1000;
+    return todos
+      .filter((todo) => !todo.is_done && todo.due_date)
+      .filter((todo) => {
+        const due = parseAppDateTime(todo.due_date as string).getTime();
+        return due > startOfNext && due <= endOfWeek;
+      })
+      .sort(
+        (a, b) =>
+          parseAppDateTime(a.due_date as string).getTime() -
+          parseAppDateTime(b.due_date as string).getTime(),
+      );
+  }, [todos]);
+
+  const highPriorityTodayCount = todayTodos.filter(
+    (todo) => todo.priority === "high",
+  ).length;
 
   const skillCards = isZh ? SKILL_CARDS.zh : SKILL_CARDS.en;
 
@@ -631,8 +704,7 @@ export function Workspace() {
           </div>
 
           {/* ============================================================
-              RIGHT — placeholder shells (PR 9/N replaces with real
-              todos / milestones / conversations panels).
+              RIGHT — 今日待办 / 即将到期 / 最近对话 (PR 9/N).
               ============================================================ */}
           <aside
             className="flex flex-col"
@@ -642,10 +714,193 @@ export function Workspace() {
               borderLeft: "1px solid var(--color-codex-line)",
               paddingLeft: 36,
             }}
+            data-testid="workspace-right-rail"
           >
-            {/* Recent Conversations — kept functional in this PR; will be
-                visually refined in PR 9. */}
-            <div>
+            {/* Today's todos — checkbox + title + project · due + priority dot */}
+            <div data-testid="workspace-today-todos">
+              <SectionHeader
+                title={
+                  isZh
+                    ? `今日待办 · ${todayTodos.length}`
+                    : `Today · ${todayTodos.length}`
+                }
+                action={
+                  highPriorityTodayCount > 0 ? (
+                    <CxStatus tone="warn">
+                      {isZh
+                        ? `${highPriorityTodayCount} 项高优`
+                        : `${highPriorityTodayCount} hi-pri`}
+                    </CxStatus>
+                  ) : null
+                }
+              />
+              {todayTodos.length ? (
+                todayTodos.slice(0, 5).map((todo) => (
+                  <button
+                    key={todo.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
+                    className="codex-row-hov flex w-full items-start text-left"
+                    style={{
+                      gap: 10,
+                      padding: "8px 0",
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="flex-shrink-0"
+                      style={{
+                        width: 14,
+                        height: 14,
+                        marginTop: 3,
+                        borderRadius: 3,
+                        border: "1px solid var(--color-codex-line-strong)",
+                      }}
+                    />
+                    <div className="flex-1" style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "var(--color-codex-ink)",
+                          lineHeight: 1.45,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {todo.content}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-codex-ink-mute)",
+                          marginTop: 2,
+                        }}
+                      >
+                        {todo.project_name || "—"}
+                        {todo.due_date ? (
+                          <>
+                            {" · "}
+                            <span className="font-mono">
+                              {formatDueLabel(todo.due_date, isZh)}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                    {todo.priority === "high" && (
+                      <span
+                        aria-label={isZh ? "高优" : "high priority"}
+                        className="flex-shrink-0"
+                        style={{
+                          width: 5,
+                          height: 5,
+                          borderRadius: 999,
+                          background: "var(--color-codex-accent)",
+                          marginTop: 9,
+                        }}
+                      />
+                    )}
+                  </button>
+                ))
+              ) : (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-codex-ink-mute)",
+                    padding: "8px 0",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {isZh
+                    ? "今天没有到期的待办。喘口气。"
+                    : "No todos due today. Breathe."}
+                </p>
+              )}
+            </div>
+
+            {/* Upcoming this week — date-prefixed rows. Without a backend
+                "my milestones" endpoint, we surface upcoming todos which
+                carry the same "what's around the corner" intent. */}
+            <div data-testid="workspace-upcoming">
+              <SectionHeader
+                title={isZh ? "即将到期" : "Upcoming"}
+                action={
+                  <span
+                    style={{ fontSize: 11, color: "var(--color-codex-ink-faint)" }}
+                  >
+                    {isZh ? "未来 7 天" : "next 7 days"}
+                  </span>
+                }
+              />
+              {upcomingTodos.length ? (
+                upcomingTodos.slice(0, 4).map((todo) => (
+                  <button
+                    key={todo.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
+                    className="codex-row-hov flex w-full items-start text-left"
+                    style={{
+                      gap: 12,
+                      padding: "8px 0",
+                    }}
+                  >
+                    <span
+                      className="font-mono flex-shrink-0"
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-codex-accent)",
+                        paddingTop: 1,
+                        minWidth: 36,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {todo.due_date ? formatDueLabel(todo.due_date, isZh) : "—"}
+                    </span>
+                    <div className="flex-1" style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "var(--color-codex-ink)",
+                          lineHeight: 1.45,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {todo.content}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-codex-ink-mute)",
+                          marginTop: 2,
+                        }}
+                      >
+                        {todo.project_name || "—"}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-codex-ink-mute)",
+                    padding: "8px 0",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {isZh
+                    ? "未来一周没有到期的待办。"
+                    : "Nothing on the radar for the next week."}
+                </p>
+              )}
+            </div>
+
+            {/* Recent conversations — refined row pattern with cleaner
+                hover + tighter spacing per the prototype. */}
+            <div data-testid="workspace-recent-chats">
               <SectionHeader
                 title={isZh ? "最近对话" : "Recent chats"}
                 action={
@@ -699,58 +954,19 @@ export function Workspace() {
                   </button>
                 ))
               ) : (
-                <div
+                <p
                   style={{
                     fontSize: 12,
                     color: "var(--color-codex-ink-mute)",
-                    padding: "10px 0",
+                    padding: "8px 0",
                   }}
                 >
                   {isZh ? "暂无对话。" : "No recent chats."}
-                </div>
+                </p>
               )}
             </div>
 
-            {/* Upcoming / placeholder — PR 9 will replace this with
-                today's todos + this-week milestone timeline. */}
-            <div>
-              <SectionHeader
-                title={isZh ? "即将" : "Upcoming"}
-                action={
-                  <span
-                    style={{ fontSize: 11, color: "var(--color-codex-ink-faint)" }}
-                  >
-                    {isZh ? "PR 9 即将上线" : "Coming in PR 9"}
-                  </span>
-                }
-              />
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "var(--color-codex-ink-mute)",
-                  lineHeight: 1.6,
-                }}
-              >
-                {isZh
-                  ? "进入项目查看里程碑和待办事项。"
-                  : "Open a project to view its milestones and todos."}
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate("/projects")}
-                className="mt-2 inline-flex items-center gap-1"
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--color-codex-accent)",
-                }}
-              >
-                {isZh ? "查看项目" : "View projects"}
-                <ArrowRight className="h-3 w-3" aria-hidden="true" />
-              </button>
-            </div>
-
-            {/* Tiny brand mark — fills the rail's bottom space, keeps
-                a quiet "you are home" anchor. */}
+            {/* Tiny brand mark — anchors the rail's bottom edge. */}
             <div
               className="mt-auto flex items-center gap-2"
               style={{
@@ -761,8 +977,9 @@ export function Workspace() {
               }}
             >
               <Sparkles className="h-3 w-3" aria-hidden="true" />
-              <span>
-                <CxLogo size={16} showWordmark={false} /> Aria · workspace
+              <span className="inline-flex items-center gap-1.5">
+                <CxLogo size={16} showWordmark={false} />
+                {isZh ? "Aria · 工作台" : "Aria · workspace"}
               </span>
             </div>
           </aside>
