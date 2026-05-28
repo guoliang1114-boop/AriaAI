@@ -635,7 +635,10 @@ export function useProjectChatComposer({
       } finally {
         sendInFlightRef.current = false;
         abortControllerRef.current = null;
-        if (canUpdateVisibleStream(requestId, conversationId)) {
+        // Clear isLoading whenever this stream is still the active one, even if
+        // the user has switched conversations in the meantime. If a newer send
+        // has already bumped streamRequestSeqRef, leave its loading state alone.
+        if (requestId === streamRequestSeqRef.current) {
           setStreamIsLoading(false);
         }
       }
