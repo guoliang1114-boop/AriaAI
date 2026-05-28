@@ -28,6 +28,14 @@ from typing import Any
 
 from app.routers.chat_schemas import SendMessageRequest
 from app.services.chat.agent_step import AgentStep, build_agent_step_event
+from app.services.chat.product_run_events import (
+    StepCompletedStatus,
+    ToolProgressStatus,
+    step_completed as _step_completed_event,
+    step_started as _step_started_event,
+    text_delta as _text_delta_event,
+    tool_progress as _tool_progress_event,
+)
 from app.services.chat.sse import iter_with_heartbeat, sse_event
 from app.services.chat.state import ChatSessionState
 from app.services.chat.tool_executor import execute_tool_with_policy
@@ -147,6 +155,16 @@ async def _consume_stream(
             progress = _tool_start_progress_payload(tool_name)
             if progress:
                 yield sse_event({"type": "tool_executing", "tool_name": tool_name, **progress})
+                if state.run_id:
+                    yield sse_event(
+                        _tool_progress_event(
+                            state.run_id,
+                            step_index + 1,
+                            title=tool_name,
+                            status=ToolProgressStatus.RUNNING,
+                            detail=progress.get("message"),
+                        )
+                    )
             continue
 
         chunk = _strip_internal_tool_markers(chunk)
@@ -170,6 +188,8 @@ async def _consume_stream(
             if cleaned:
                 result.text += cleaned
                 yield sse_event({"type": "text", "content": cleaned})
+                if state.run_id:
+                    yield sse_event(_text_delta_event(state.run_id, cleaned))
             continue
 
         # Pure JSON tool_use / reasoning_content envelope
@@ -196,6 +216,8 @@ async def _consume_stream(
 
         result.text += chunk
         yield sse_event({"type": "text", "content": chunk})
+        if state.run_id:
+            yield sse_event(_text_delta_event(state.run_id, chunk))
 
 
 def _accept_tool_block(
@@ -311,6 +333,13 @@ async def run_agent_loop(
         state.steps.append(step)
         step_started_at = time.perf_counter()
 
+        # Product Run Event v1: open a step (1-based index; title is generic
+        # because tool names aren't known until the model emits tool_use blocks).
+        if state.run_id:
+            yield sse_event(
+                _step_started_event(state.run_id, step_index + 1, title=f"第 {step_index + 1} 步")
+            )
+
         # ---------- one LLM turn (events stream out live as the model writes) ----------
         result = _StreamResult()
         async for ev in _consume_stream(
@@ -365,6 +394,16 @@ async def run_agent_loop(
 
         if not tool_calls:
             step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
+            if state.run_id:
+                yield sse_event(
+                    _step_completed_event(
+                        state.run_id,
+                        step_index + 1,
+                        StepCompletedStatus.COMPLETED,
+                        step.duration_ms,
+                        truncated=truncated,
+                    )
+                )
             break
 
         # ---------- mark workflow started once we know tools will run ----------
@@ -395,6 +434,10 @@ async def run_agent_loop(
             if outcome.markdown_inline_text:
                 accumulated_text = _append_text(accumulated_text, outcome.markdown_inline_text)
                 yield sse_event({"type": "text", "content": outcome.markdown_inline_text})
+                if state.run_id:
+                    yield sse_event(
+                        _text_delta_event(state.run_id, outcome.markdown_inline_text)
+                    )
 
             tool_result_blocks.append(outcome.result_block)
 
@@ -412,6 +455,16 @@ async def run_agent_loop(
         step.duration_ms = round((time.perf_counter() - step_started_at) * 1000)
 
         yield sse_event(build_agent_step_event(step))
+        if state.run_id:
+            yield sse_event(
+                _step_completed_event(
+                    state.run_id,
+                    step_index + 1,
+                    StepCompletedStatus.COMPLETED,
+                    step.duration_ms,
+                    truncated=truncated,
+                )
+            )
 
         if state.confirmation_requested:
             break
