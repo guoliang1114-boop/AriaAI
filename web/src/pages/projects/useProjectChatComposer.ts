@@ -214,7 +214,9 @@ export function useProjectChatComposer({
       resetStream();
       resetRunActivity();
       setStreamIsLoading(true);
-      setStreamStatus("AI 正在读取项目上下文并准备回复...");
+      // Same text as backend agent_loop heartbeat so 2s pings during slow
+      // TTFT don't flicker the label between different sentences.
+      setStreamStatus("Aria 正在思考...");
 
       const tempUserMsg: Message = {
         id: optimisticMessageId,

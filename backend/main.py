@@ -150,6 +150,33 @@ async def lifespan(app: FastAPI):
             args=[engine],
             metadata={"job_type": "hitas_reaper"},
         )
+
+    # Pre-warm the LLM HTTPS connection so the first real chat doesn't pay
+    # the TLS handshake + first-request initialization tax (observed at ~3.6s
+    # on DeepSeek). Fired as a background task so startup isn't delayed if the
+    # upstream is slow or unreachable — server still starts to serve traffic.
+    import asyncio as _asyncio_warmup
+    _warmup_logger = logging.getLogger(__name__)
+
+    async def _warm_llm_client() -> None:
+        try:
+            from app.services.project_llm import complete_with_selected_model
+            await _asyncio_warmup.wait_for(
+                complete_with_selected_model(
+                    [{"role": "user", "content": "hi"}],
+                    max_tokens=1,
+                    system="",
+                ),
+                timeout=15.0,
+            )
+            _warmup_logger.info("[llm warmup] complete")
+        except _asyncio_warmup.TimeoutError:
+            _warmup_logger.warning("[llm warmup] timeout after 15s — first chat may still be cold")
+        except Exception as exc:
+            _warmup_logger.warning("[llm warmup] failed: %s — first chat may still be cold", exc)
+
+    _asyncio_warmup.create_task(_warm_llm_client())
+
     yield
     # Shutdown
     scheduler.shutdown()
@@ -232,6 +259,7 @@ app.include_router(projects_files.router, prefix="/projects")
 app.include_router(projects_briefing.router, prefix="/projects")
 app.include_router(projects_tasks.router, prefix="/projects")
 app.include_router(knowledge.router)
+app.include_router(knowledge.router, prefix="/api/v1")
 app.include_router(settings.router)
 app.include_router(skills.router)
 app.include_router(schedules.router)

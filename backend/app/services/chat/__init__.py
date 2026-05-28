@@ -172,6 +172,11 @@ async def stream_chat_events(
     stream_started_at = time.perf_counter()
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
     state.run_id = make_run_id()
+    # Stamp the stream start time so persist can compute total_stream_ms
+    # against the actual stream start, not against persist's own start.
+    # The local ``stream_started_at`` above is still used by the
+    # durable-task early-exit path below.
+    state.stream_started_at = stream_started_at
 
     # V0.0.4 D.3: structured run-lifecycle log. Stays human-readable; easy to
     # grep / pipe into JSON later. Emitted at run start, persist success, and
@@ -221,18 +226,6 @@ async def stream_chat_events(
                     "duration_ms": state.stage_timings[metric_key],
                 }
             )
-
-    # Prepare is done; the LLM call hasn't started yet. Emit one status frame
-    # so the composer can flip its label from "AI 正在读取项目上下文..." to
-    # "正在唤起模型..." — gives the 3–5s cold-connect window perceivable
-    # structure instead of leaving the prepare status frozen on screen.
-    yield sse_event(
-        {
-            "type": "status",
-            "stage": "context_ready",
-            "message": "项目上下文已就绪，正在唤起模型...",
-        }
-    )
 
     # ==================================================================
     # Durable task — early return for long-running project work

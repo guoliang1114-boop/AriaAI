@@ -46,6 +46,11 @@ class ChatSessionState:
     # ------------------------------------------------------------------
     stage_timings: dict[str, int | str] = field(default_factory=dict)
     first_model_event_recorded: bool = False
+    # ``time.perf_counter()`` value captured the moment ``stream_chat_events``
+    # was entered. Used by persist to compute ``total_stream_ms`` correctly.
+    # Stays 0.0 until the orchestrator stamps it; persist treats 0.0 as
+    # "not stamped" and falls back to its own timer.
+    stream_started_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Durable-task early-return
