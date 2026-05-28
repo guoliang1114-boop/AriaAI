@@ -71,8 +71,28 @@ def _format_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _extract_preferred_name(preferences: dict[str, Any]) -> str:
+    """Return the user's preferred form of address (称呼) or empty string.
+
+    Pulled out of the generic bullet flow so it can be promoted to a dedicated
+    lead line — "address the user as X" is a different kind of signal from
+    "user prefers conclusion-first replies" and deserves emphasis.
+    """
+    info = preferences.get("personal_info")
+    if not isinstance(info, dict):
+        return ""
+    name = info.get("preferred_name")
+    if not isinstance(name, str):
+        return ""
+    return name.strip()[: _MAX_BULLET_CHARS]
+
+
 def _flatten_bullets(preferences: dict[str, Any]) -> list[str]:
-    """Walk one level of nesting and produce ``key: value`` bullets."""
+    """Walk one level of nesting and produce ``key: value`` bullets.
+
+    ``personal_info.preferred_name`` is intentionally excluded — it's rendered
+    separately as a lead line in :func:`format_user_memory_for_prompt`.
+    """
     bullets: list[str] = []
     for top_key, top_val in preferences.items():
         if not _is_meaningful(top_val):
@@ -81,6 +101,8 @@ def _flatten_bullets(preferences: dict[str, Any]) -> list[str]:
             for sub_key, sub_val in top_val.items():
                 if not _is_meaningful(sub_val):
                     continue
+                if top_key == "personal_info" and sub_key == "preferred_name":
+                    continue  # promoted to lead line
                 line = f"{top_key}.{sub_key}: {_format_value(sub_val)}"
                 if len(line) > _MAX_BULLET_CHARS:
                     line = line[: _MAX_BULLET_CHARS - 1] + "…"
@@ -101,16 +123,20 @@ def format_user_memory_for_prompt(preferences: dict[str, Any] | None) -> str:
     """Render a compact prompt section from a preferences dict, or empty string."""
     if not isinstance(preferences, dict) or not preferences:
         return ""
+    preferred_name = _extract_preferred_name(preferences)
     bullets = _flatten_bullets(preferences)
-    if not bullets:
+    if not preferred_name and not bullets:
         return ""
-    body = "\n".join(f"- {b}" for b in bullets)
-    section = (
-        "## 当前用户偏好（User Memory）\n"
+    parts: list[str] = [
+        "## 当前用户偏好（User Memory）",
         "用户已显式声明的工作方式与回复偏好。除非用户在本轮明确说明相反，"
-        "请在不影响项目事实与客户事实的前提下尽量遵循。\n"
-        f"{body}"
-    )
+        "请在不影响项目事实与客户事实的前提下尽量遵循。",
+    ]
+    if preferred_name:
+        parts.append(f"用户希望被称呼为：{preferred_name}。请在回复中自然使用这一称呼。")
+    if bullets:
+        parts.append("\n".join(f"- {b}" for b in bullets))
+    section = "\n".join(parts)
     if len(section) > _MAX_PROMPT_CHARS:
         section = section[: _MAX_PROMPT_CHARS - 1] + "…"
     return section
