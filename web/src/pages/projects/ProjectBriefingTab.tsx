@@ -311,13 +311,19 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
           ) : null}
 
           {refinedBriefing ? (
-            <section className="rounded-lg border border-primary/20 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+            <section className="relative overflow-hidden rounded-2xl border border-primary/15 bg-gradient-to-br from-white via-white to-primary/[0.03] p-6 shadow-sm ring-1 ring-primary/5">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-12 -right-12 h-40 w-40 rounded-full bg-primary/5 blur-3xl"
+              />
+              <div className="relative mb-4 flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
                   {isZh ? "可直接使用的话术" : "Ready-to-use script"}
                 </div>
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                   {refinedBriefing.cached ? (isZh ? "缓存命中" : "Cache hit") : isZh ? "刚刚生成" : "Generated"}
                 </span>
                 {refinedGeneratedAt ? <span className="text-xs text-slate-400">{refinedGeneratedAt}</span> : null}
@@ -325,13 +331,13 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                   type="button"
                   onClick={() => void refineBriefing(true)}
                   disabled={isRefining}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/70 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-white disabled:opacity-60"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {isZh ? "重新生成" : "Regenerate"}
                 </button>
               </div>
-              <div className="text-sm leading-7 text-slate-800">
+              <div className="briefing-script md-root relative">
                 <MarkdownRenderer content={refinedBriefing.content} />
               </div>
             </section>
