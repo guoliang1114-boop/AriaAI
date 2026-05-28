@@ -372,7 +372,12 @@
     "description": "Access AI-driven operational modules designed for senior consultants. Execute complex workflows and deliver high-fidelity outputs.",
     "activeSkills": "Active Skills",
     "enterpriseClients": "Enterprise Clients",
-    "uptime": "Uptime"
+    "uptime": "Uptime",
+    "heroBadge": "Built for consulting teams · 2026",
+    "heroHeadline": "A quiet AI workspace\nfor consulting teams.",
+    "heroBody": "Project memory, client context, and skill workflows — turned into reliable product capabilities for consulting, pre-sales, and delivery teams.",
+    "heroEdition": "for consulting teams",
+    "heroCopyright": "© 2026 Aria"
   },
   "settings": {
     "title": "Settings",
