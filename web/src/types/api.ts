@@ -916,6 +916,12 @@ export interface MessageMetadata {
   }>
   project_id?: number
   truncated?: boolean
+  /** V0.0.4 A4: routing decision snapshot (intent_method / intent_reason / chat_mode). */
+  route_decision?: {
+    method?: string
+    reason?: string
+    chat_mode?: string
+  }
 }
 
 export interface MentionContext {

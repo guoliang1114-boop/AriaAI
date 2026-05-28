@@ -569,6 +569,33 @@ async def run_persist(
     if state.artifacts:
         state.artifacts = persist_generated_artifacts(bind, runtime.conv_id, state.artifacts, req.project_id)
 
+        # Product Run Event v1: announce each newly-persisted artifact so a v1
+        # frontend can render a "ready to download" card without polling.
+        if state.run_id:
+            from app.services.chat.product_run_events import (
+                artifact_ready as _artifact_ready,
+            )
+
+            _ARTIFACT_TYPE_V1_MAP = {
+                "pptx": "pptx",
+                "docx": "docx",
+                "xlsx": "xlsx",
+                "pdf": "pdf",
+                "md": "markdown",
+                "markdown": "markdown",
+            }
+            for artifact in state.artifacts:
+                artifact_id = artifact.get("id") or artifact.get("project_file_id")
+                if not artifact_id:
+                    continue
+                raw_kind = str(
+                    artifact.get("file_type") or artifact.get("output_kind") or ""
+                ).lower().lstrip(".")
+                v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
+                if not v1_kind:
+                    continue
+                yield sse_event(_artifact_ready(state.run_id, artifact_id, v1_kind))
+
     # Build artifact notice
     artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""
     if not full_text and artifact_notice:
@@ -860,6 +887,19 @@ async def run_persist(
     activity_timeline = build_activity_timeline(state, runtime, full_text=full_text)
     if activity_timeline is not None:
         metadata["activity_timeline"] = activity_timeline
+
+    # V0.0.4 A4: surface the routing decision so the frontend can show a small
+    # badge ("按对话大纲生成 PPT" vs "自动生成项目 PPT" etc.) without re-running
+    # any heuristic on its side.
+    prepare_metrics_all = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
+    route_method = prepare_metrics_all.get("intent_method") or ""
+    route_reason = prepare_metrics_all.get("intent_reason") or ""
+    if route_method or route_reason:
+        route_decision = {"method": str(route_method), "reason": str(route_reason)}
+        chat_mode_value = prepare_metrics_all.get("chat_mode")
+        if chat_mode_value:
+            route_decision["chat_mode"] = str(chat_mode_value)
+        metadata["route_decision"] = route_decision
 
     state.stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
     state.stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
