@@ -610,6 +610,122 @@ samp {
   font-style: italic;
 }
 
+/* === Briefing AI script ("可直接使用的话术") === */
+/* A polished variant of the markdown styling tuned for the briefing tab's
+   AI-refined script card. The deterministic briefing above uses bullet
+   chips and stat tiles; this section gets typographic hierarchy that
+   reads as an authoritative one-pager rather than a chat reply. */
+
+.briefing-script {
+  font-size: 0.9375rem;
+  line-height: 1.85;
+  color: var(--color-on-surface);
+}
+
+.briefing-script .md-paragraph {
+  margin: 0.5rem 0 0.85rem;
+}
+
+.briefing-script .md-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.briefing-script .md-heading {
+  font-family: var(--font-display);
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 1.5rem 0 0.6rem;
+  font-weight: 650;
+  color: var(--color-on-surface);
+  letter-spacing: 0.01em;
+}
+
+.briefing-script > .md-heading:first-child,
+.briefing-script > :first-child .md-heading:first-child {
+  margin-top: 0;
+}
+
+.briefing-script .md-heading::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.95em;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to bottom,
+    var(--color-primary),
+    color-mix(in srgb, var(--color-primary) 55%, transparent)
+  );
+  flex-shrink: 0;
+}
+
+.briefing-script .md-h1 {
+  font-size: 1.125rem;
+}
+
+.briefing-script .md-h2 {
+  font-size: 1.0625rem;
+}
+
+.briefing-script .md-h3 {
+  font-size: 1rem;
+}
+
+.briefing-script .md-h4 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-on-surface-variant);
+}
+
+.briefing-script .md-list {
+  margin: 0.4rem 0 0.9rem;
+  padding-left: 1.35rem;
+}
+
+.briefing-script .md-list-ul {
+  list-style-type: disc !important;
+}
+
+.briefing-script .md-list-ol {
+  list-style-type: decimal !important;
+}
+
+.briefing-script .md-list-item {
+  margin: 0.35rem 0;
+  line-height: 1.8;
+}
+
+.briefing-script .md-list-item::marker {
+  color: color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.briefing-script .md-strong {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-primary) 70%, var(--color-on-surface));
+}
+
+.briefing-script .md-em {
+  font-style: italic;
+  color: var(--color-on-surface-variant);
+}
+
+.briefing-script .md-blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding: 0.25rem 0 0.25rem 0.9rem;
+  margin: 0.75rem 0;
+  color: var(--color-on-surface-variant);
+  background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.briefing-script .md-hr {
+  border: none;
+  border-top: 1px dashed
+    color-mix(in srgb, var(--color-outline) 60%, transparent);
+  margin: 1.25rem 0;
+}
+
 /* === Table Styles === */
 .md-root .md-table-wrapper {
   overflow-x: auto;
