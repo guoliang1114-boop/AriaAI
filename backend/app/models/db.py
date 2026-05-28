@@ -678,7 +678,26 @@ class UserToken(SQLModel, table=True):
     device_info: str = ""  # 设备信息（可选）
     created_at: datetime = Field(default_factory=utc_now_naive)
     last_used_at: datetime = Field(default_factory=utc_now_naive)
-    
+
+    user: Optional[User] = Relationship()
+
+
+class UserMemory(SQLModel, table=True):
+    """用户层记忆（V0.0.4 主干 B v1）。
+
+    存放跨项目的个人偏好/工作风格/语言偏好等。**只装显式偏好**，不写入客户事实或
+    项目业务结论（那些归 client/project memory）。一个用户一行，preferences_json
+    存 JSON 对象。详见 ``docs/12-记忆系统优化方案.md`` 与
+    ``docs/13-V0.0.4迭代计划.md`` §3 / §5。
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", unique=True, index=True)
+    preferences_json: str = Field(default="{}")
+    version: int = Field(default=1)
+    created_at: datetime = Field(default_factory=utc_now_naive)
+    updated_at: datetime = Field(default_factory=utc_now_naive)
+
     user: Optional[User] = Relationship()
 
 
