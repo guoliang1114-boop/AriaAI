@@ -879,6 +879,15 @@ async def run_persist(
     if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 
+    # Product Run Event v1: snapshot the activity timeline so the persisted
+    # view (ProjectChatMessageBubble) can re-render it on refresh. Returns
+    # None when state.run_id is empty (legacy / no run tracked) — skip silently.
+    from app.services.chat.activity_timeline_persist import build_activity_timeline
+
+    activity_timeline = build_activity_timeline(state, runtime, full_text=full_text)
+    if activity_timeline is not None:
+        metadata["activity_timeline"] = activity_timeline
+
     # V0.0.4 A4: surface the routing decision so the frontend can show a small
     # badge ("按对话大纲生成 PPT" vs "自动生成项目 PPT" etc.) without re-running
     # any heuristic on its side.
