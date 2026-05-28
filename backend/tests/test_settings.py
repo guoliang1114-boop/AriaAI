@@ -8,6 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.db import User, Setting
 from app.routers import settings as settings_module
+from app.routers.auth import get_current_user
 from app.routers.settings import router
 from app.services.cache import TTLCache
 from tests.test_database import create_test_engine, drop_all_tables
@@ -31,7 +32,22 @@ class SettingsRouterTestCase(unittest.TestCase):
             with Session(self.engine) as session:
                 yield session
 
+        # Default: authenticated as a non-admin user; specific tests can flip
+        # ``self.current_user_is_admin = True`` to exercise admin-gated paths.
+        self.current_user_is_admin = False
+        self.app = app
+
+        def override_current_user():
+            return User(
+                id=1,
+                email="user@example.com",
+                display_name="Test User",
+                is_admin=self.current_user_is_admin,
+                is_active=True,
+            )
+
         app.dependency_overrides[settings_module.get_session] = override_session
+        app.dependency_overrides[get_current_user] = override_current_user
         self.client = TestClient(app, raise_server_exceptions=False)
 
         settings_module._settings_cache.clear()
@@ -47,6 +63,22 @@ class SettingsRouterTestCase(unittest.TestCase):
         self.assertIn("theme", data)
         self.assertEqual(data["theme"], "dark")
         self.assertEqual(data["timezone"], "Asia/Shanghai")
+
+    def test_admin_only_keys_reject_non_admin_writes(self):
+        # Non-admin cannot modify sensitive global config.
+        for key in ("api_base_url", "selected_model", "temperature", "max_tokens"):
+            resp = self.client.put(f"/settings/{key}", json={"value": "x"})
+            self.assertEqual(resp.status_code, 403, f"{key} should be admin-only")
+
+        # User-preference keys remain writable by ordinary users.
+        for key in ("timezone", "theme", "language", "font_size"):
+            resp = self.client.put(f"/settings/{key}", json={"value": "x"})
+            self.assertEqual(resp.status_code, 200, f"{key} should be user-writable")
+
+        # Admin can write the gated keys.
+        self.current_user_is_admin = True
+        resp = self.client.put("/settings/api_base_url", json={"value": "https://example.com"})
+        self.assertEqual(resp.status_code, 200)
 
     def test_secret_keys_are_never_exposed(self):
         with Session(self.engine) as session:

@@ -14,7 +14,8 @@ from app.core.security import (
     get_mimo_api_key, set_mimo_api_key, delete_mimo_api_key,
 )
 from app.database import get_session
-from app.models.db import Setting
+from app.models.db import Setting, User
+from app.routers.auth import get_current_user
 from app.services.cache import TTLCache
 from app.config import SETTINGS_CACHE_TTL
 
@@ -36,6 +37,24 @@ _SECRET_SETTING_KEYS = frozenset(
         "deepseek_api_key",
         "bigmodel_api_key",
         "mimo_api_key",
+    }
+)
+
+# Global/sensitive settings that affect every user (LLM endpoint + model config).
+# Writes are restricted to admins; reads remain open so that ordinary users can
+# see the current defaults (no secrets are involved). User-preference keys like
+# timezone / theme / language / font_size stay writable by any logged-in user.
+_ADMIN_ONLY_SETTING_KEYS = frozenset(
+    {
+        "api_base_url",
+        "ai_model",  # legacy alias, kept for backwards compatibility
+        "selected_model",
+        "llm_provider",
+        "temperature",
+        "max_tokens",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
     }
 )
 
@@ -281,9 +300,16 @@ def get_settings_hierarchy():
 
 
 @router.put("/{key}")
-def upsert_setting(key: str, data: SettingUpdate, session: Session = Depends(get_session)):
+def upsert_setting(
+    key: str,
+    data: SettingUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     if key in _SECRET_SETTING_KEYS:
         raise HTTPException(403, f"Use the dedicated endpoint to manage '{key}'.")
+    if key in _ADMIN_ONLY_SETTING_KEYS and not current_user.is_admin:
+        raise HTTPException(403, f"Setting '{key}' can only be modified by an administrator.")
     existing = session.get(Setting, key)
     if existing:
         existing.value = data.value
