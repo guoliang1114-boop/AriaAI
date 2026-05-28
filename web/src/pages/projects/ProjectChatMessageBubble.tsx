@@ -25,8 +25,11 @@ import type {
 } from "../../types/api";
 import type { ChatTrace } from "../../types/api";
 import { api } from "../../api/client";
+import type { RunActivityTimeline } from "../../stores/runActivityReducer";
+import { isRunHarnessV1Enabled } from "../../utils/runHarnessFlag";
 import { getProjectChatCopy } from "./projectChatCopy";
 import { MarkdownDiffViewer } from "./MarkdownDiffViewer";
+import { ProjectChatActivityTimeline } from "./ProjectChatActivityTimeline";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatTracePanel } from "./ProjectChatTracePanel";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
@@ -219,6 +222,7 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             ) : (
               <div className="md-root project-chat-answer w-full">
                 <MarkdownRenderer content={msg.content} />
+                <PersistedRunActivityTimelineSection metadata={metadata} />
               </div>
             )}
           </div>
@@ -429,3 +433,47 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     prev.onSaveToNotes === next.onSaveToNotes &&
     prev.onContinue === next.onContinue,
 );
+
+/**
+ * Persisted Run Activity Timeline section (Product Run Event v1).
+ *
+ * Reads ``metadata.activity_timeline`` from a saved assistant message and, when
+ * the feature flag is on and the payload looks well-formed, renders the same
+ * ``ProjectChatActivityTimeline`` component used during streaming. Until the
+ * backend starts writing this field at persist time this is a graceful no-op,
+ * so the bubble keeps rendering normally on legacy messages.
+ */
+function PersistedRunActivityTimelineSection({
+  metadata,
+}: {
+  metadata: MessageMetadata;
+}) {
+  if (!isRunHarnessV1Enabled()) return null;
+  const raw = (metadata as { activity_timeline?: unknown }).activity_timeline;
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as Partial<RunActivityTimeline>;
+  if (typeof candidate.run_id !== "string" || !candidate.run_id) return null;
+  if (!Array.isArray(candidate.steps) || !Array.isArray(candidate.artifacts)) return null;
+
+  // Re-shape with safe defaults so the renderer never crashes on
+  // missing-but-optional fields. The reducer's output shape is the contract.
+  const timeline: RunActivityTimeline = {
+    run_id: candidate.run_id,
+    skill: candidate.skill,
+    display_mode: candidate.display_mode,
+    steps: candidate.steps as RunActivityTimeline["steps"],
+    artifacts: candidate.artifacts as RunActivityTimeline["artifacts"],
+    task: candidate.task,
+    confirmation: candidate.confirmation,
+    message_id: candidate.message_id,
+    final_status: candidate.final_status,
+    error: candidate.error,
+    text: typeof candidate.text === "string" ? candidate.text : "",
+  };
+  return (
+    <div className="mt-2.5">
+      <ProjectChatActivityTimeline timeline={timeline} />
+    </div>
+  );
+}
+
