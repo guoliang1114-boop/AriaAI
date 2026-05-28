@@ -389,6 +389,25 @@ class DestructiveConfirmationTests(ChatEndToEndBase):
         self.assertEqual(actions[0].tool_name, "manage_project_files")
         self.assertEqual(actions[0].status, "pending")
 
+        # Product Run Event v1: must emit confirmation_required (not a
+        # completed tool_progress) for the destructive tool.
+        confirms = _events_of_type(events, "confirmation_required")
+        self.assertEqual(len(confirms), 1)
+        self.assertTrue(confirms[0]["action"])
+        self.assertTrue(confirms[0]["impact"])
+        # The destructive tool did not actually run, so no completed/failed
+        # tool_progress for it.
+        terminal_statuses = [
+            p["status"]
+            for p in _events_of_type(events, "tool_progress")
+            if p["status"] in ("completed", "failed")
+        ]
+        self.assertEqual(
+            terminal_statuses,
+            [],
+            f"unexpected terminal tool_progress on HITAS path: {terminal_statuses}",
+        )
+
 
 # ----------------------------------------------------------------------
 # Scenario 4: tool returns error → no artifact, error surfaced in text
@@ -727,6 +746,82 @@ class ProductRunEventV1InsideEventsTests(ChatEndToEndBase):
             None,
         )
         self.assertEqual(last_v1, "run_done")
+
+    async def test_tool_progress_emits_running_then_completed(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_ok",
+                "name": "read_project_markdown_document",
+                "input": {"action": "list"},
+            }
+        )
+        self.set_llm_stream(
+            [
+                [f"checking. {tool_block}"],
+                ["done."],
+            ]
+        )
+        self.set_tool_handler(
+            AsyncMock(
+                return_value={
+                    "type": "tool_result",
+                    "tool_name": "read_project_markdown_document",
+                    "tool_use_id": "tu_ok",
+                    "status": "success",
+                    "output": {"files": []},
+                }
+            )
+        )
+
+        events = await self.drain()
+        progresses = _events_of_type(events, "tool_progress")
+
+        statuses = [p["status"] for p in progresses]
+        self.assertIn("running", statuses, "should emit a running tool_progress at [TOOL_START]")
+        self.assertIn("completed", statuses, "should emit a completed tool_progress after the tool result")
+        # running precedes completed for the same tool.
+        running_idx = next(i for i, p in enumerate(progresses) if p["status"] == "running")
+        completed_idx = next(i for i, p in enumerate(progresses) if p["status"] == "completed")
+        self.assertLess(running_idx, completed_idx)
+        # All tool_progress events carry the same run_id as run_started.
+        run_id = _events_of_type(events, "run_started")[0]["run_id"]
+        self.assertTrue(all(p["run_id"] == run_id for p in progresses))
+
+    async def test_tool_progress_classifies_failure_from_result_payload(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_bad",
+                "name": "read_project_markdown_document",
+                "input": {"action": "list"},
+            }
+        )
+        self.set_llm_stream(
+            [
+                [f"trying. {tool_block}"],
+                ["sorry, no result."],
+            ]
+        )
+        # Tool ran but returned an error payload — v1 must classify it as failed.
+        self.set_tool_handler(
+            AsyncMock(
+                return_value={
+                    "type": "tool_result",
+                    "tool_name": "read_project_markdown_document",
+                    "tool_use_id": "tu_bad",
+                    "status": "error",
+                    "output": {"success": False, "error": "boom"},
+                }
+            )
+        )
+
+        events = await self.drain()
+        progresses = _events_of_type(events, "tool_progress")
+        terminal = [p for p in progresses if p["status"] in ("completed", "failed")]
+        self.assertTrue(terminal, "expected at least one terminal tool_progress")
+        # The terminal entry for this tool must be failed, not completed.
+        self.assertEqual(terminal[-1]["status"], "failed")
 
 
 if __name__ == "__main__":  # pragma: no cover

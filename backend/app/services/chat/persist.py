@@ -569,6 +569,33 @@ async def run_persist(
     if state.artifacts:
         state.artifacts = persist_generated_artifacts(bind, runtime.conv_id, state.artifacts, req.project_id)
 
+        # Product Run Event v1: announce each newly-persisted artifact so a v1
+        # frontend can render a "ready to download" card without polling.
+        if state.run_id:
+            from app.services.chat.product_run_events import (
+                artifact_ready as _artifact_ready,
+            )
+
+            _ARTIFACT_TYPE_V1_MAP = {
+                "pptx": "pptx",
+                "docx": "docx",
+                "xlsx": "xlsx",
+                "pdf": "pdf",
+                "md": "markdown",
+                "markdown": "markdown",
+            }
+            for artifact in state.artifacts:
+                artifact_id = artifact.get("id") or artifact.get("project_file_id")
+                if not artifact_id:
+                    continue
+                raw_kind = str(
+                    artifact.get("file_type") or artifact.get("output_kind") or ""
+                ).lower().lstrip(".")
+                v1_kind = _ARTIFACT_TYPE_V1_MAP.get(raw_kind)
+                if not v1_kind:
+                    continue
+                yield sse_event(_artifact_ready(state.run_id, artifact_id, v1_kind))
+
     # Build artifact notice
     artifact_notice = _build_artifact_notice(state.artifacts) if state.artifacts else ""
     if not full_text and artifact_notice:

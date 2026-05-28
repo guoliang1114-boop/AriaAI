@@ -31,6 +31,7 @@ from app.services.chat.agent_step import AgentStep, build_agent_step_event
 from app.services.chat.product_run_events import (
     StepCompletedStatus,
     ToolProgressStatus,
+    confirmation_required as _confirmation_required_event,
     step_completed as _step_completed_event,
     step_started as _step_started_event,
     text_delta as _text_delta_event,
@@ -155,16 +156,9 @@ async def _consume_stream(
             progress = _tool_start_progress_payload(tool_name)
             if progress:
                 yield sse_event({"type": "tool_executing", "tool_name": tool_name, **progress})
-                if state.run_id:
-                    yield sse_event(
-                        _tool_progress_event(
-                            state.run_id,
-                            step_index + 1,
-                            title=tool_name,
-                            status=ToolProgressStatus.RUNNING,
-                            detail=progress.get("message"),
-                        )
-                    )
+            # v1 tool_progress(running) is emitted around the real tool
+            # execution below (so it fires exactly once per tool call,
+            # regardless of whether the model emits a [TOOL_START] marker).
             continue
 
         chunk = _strip_internal_tool_markers(chunk)
@@ -218,6 +212,33 @@ async def _consume_stream(
         yield sse_event({"type": "text", "content": chunk})
         if state.run_id:
             yield sse_event(_text_delta_event(state.run_id, chunk))
+
+
+def _classify_tool_outcome_status(outcome: Any) -> str:
+    """Map a tool ``ToolOutcome`` to a Product Run Event v1 tool_progress status.
+
+    Reads the JSON-encoded ``content`` of the ``tool_result`` block fed back to
+    the LLM. Any explicit error / success=False / status="error|failed" signal
+    classifies the call as ``failed``; everything else (incl. unparseable
+    payloads, since the tool clearly ran without raising) is ``completed``.
+    """
+    content_str = ""
+    result_block = getattr(outcome, "result_block", None)
+    if isinstance(result_block, dict):
+        content_str = str(result_block.get("content") or "")
+    try:
+        payload = json.loads(content_str) if content_str else {}
+    except (json.JSONDecodeError, TypeError):
+        payload = {}
+    if isinstance(payload, dict):
+        if payload.get("error"):
+            return ToolProgressStatus.FAILED
+        if payload.get("success") is False or payload.get("ok") is False:
+            return ToolProgressStatus.FAILED
+        status_text = str(payload.get("status") or "").lower()
+        if status_text in {"error", "failed"}:
+            return ToolProgressStatus.FAILED
+    return ToolProgressStatus.COMPLETED
 
 
 def _accept_tool_block(
@@ -418,6 +439,18 @@ async def run_agent_loop(
 
         tool_result_blocks: list[dict] = []
         for tc_index, tool_call in enumerate(tool_calls):
+            # Product Run Event v1: emit a single tool_progress(running) right
+            # before the real tool execution. Legacy tool_executing inside
+            # outcome.events still fires afterwards.
+            if state.run_id:
+                yield sse_event(
+                    _tool_progress_event(
+                        state.run_id,
+                        step_index + 1,
+                        title=str(tool_call.get("name") or "工具"),
+                        status=ToolProgressStatus.RUNNING,
+                    )
+                )
             outcome = await execute_tool_with_policy(
                 runtime,
                 state,
@@ -429,6 +462,46 @@ async def run_agent_loop(
             )
             for ev in outcome.events:
                 yield ev
+
+            # Product Run Event v1: pair each tool with its terminal state.
+            # confirmation_required is its own event; otherwise emit
+            # tool_progress(completed|failed) to close the running pair from
+            # the [TOOL_START] marker.
+            if state.run_id:
+                tool_name_v1 = str(tool_call.get("name") or "") or "工具"
+                if outcome.confirmation_required:
+                    pending = (
+                        state.pending_tool_confirmations[-1]
+                        if state.pending_tool_confirmations
+                        else {}
+                    )
+                    action_text = str(pending.get("tool_name") or tool_name_v1)
+                    impact_text = (
+                        str(pending.get("summary") or "")
+                        or "该动作会修改或删除项目内容，需要用户确认才能继续。"
+                    )
+                    params_snapshot = (
+                        pending.get("tool_input")
+                        if isinstance(pending.get("tool_input"), dict)
+                        else None
+                    )
+                    yield sse_event(
+                        _confirmation_required_event(
+                            state.run_id,
+                            action=action_text,
+                            impact=impact_text,
+                            params_snapshot=params_snapshot,
+                        )
+                    )
+                else:
+                    yield sse_event(
+                        _tool_progress_event(
+                            state.run_id,
+                            step_index + 1,
+                            title=tool_name_v1,
+                            status=_classify_tool_outcome_status(outcome),
+                        )
+                    )
 
             # Markdown tools also stream their content as user-visible text.
             if outcome.markdown_inline_text:
