@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, Loader2, MessageSquare, RefreshCw, Sparkles, Users } from "lucide-react";
 import { api } from "../../api/client";
+import { MarkdownRenderer } from "../../components/MarkdownRenderer";
 import type { ProjectDetail, ProjectMeetingBriefing, ProjectMeetingBriefingRefineResponse } from "../../types/api";
 import { resolveProjectStage } from "../../types/enums";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
@@ -330,7 +331,9 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
                   {isZh ? "重新生成" : "Regenerate"}
                 </button>
               </div>
-              <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{refinedBriefing.content}</div>
+              <div className="text-sm leading-7 text-slate-800">
+                <MarkdownRenderer content={refinedBriefing.content} />
+              </div>
             </section>
           ) : null}
 

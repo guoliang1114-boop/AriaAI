@@ -41,14 +41,18 @@ import { PageTitle } from '../../components/PageTitle'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
-import { formatDateOnly, formatDatePartsKey, formatTimeOnly } from '../../utils/timezone'
+import { formatDateOnly, formatDatePartsKey, formatTimeOnly, parseAppDateTime } from '../../utils/timezone'
 
 const PAGE_SIZE = 20
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
 function formatTime(dateStr: string, timeZone?: string) {
-  const d = new Date(dateStr)
+  // Backend timestamps are tz-naive UTC ("2026-05-28T13:22:00", no Z); plain
+  // ``new Date(...)`` would treat them as browser-local and skew by the local
+  // offset. ``parseAppDateTime`` appends Z so the same string parses as UTC,
+  // which is what the timezone formatters below expect.
+  const d = parseAppDateTime(dateStr)
   const now = new Date()
   const todayKey = formatDatePartsKey(now, timeZone)
   const targetKey = formatDatePartsKey(d, timeZone)
