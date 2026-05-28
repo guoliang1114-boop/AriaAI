@@ -637,5 +637,107 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
         self.assertNotIn("skill", started)
 
 
+# ----------------------------------------------------------------------
+# Scenario 9: Product Run Event v1 contract goldens (docs/13 §7.2 / D.2)
+# ----------------------------------------------------------------------
+#
+# These tests pin the SHAPE of the v1 events that flow from the orchestrator
+# today. They protect against silent protocol drift when later waves extend the
+# event types — a missing or renamed required field will break the contract
+# test immediately, before frontend consumers (PR #9) get hit by it.
+
+
+def _strip_volatile_run_event_fields(event: dict) -> dict:
+    """Drop fields that legitimately change between runs (timestamps, run_id)
+    so the assertion can equality-check against a stable golden snapshot."""
+    cleaned = dict(event)
+    for vol_key in ("run_id", "timestamp"):
+        cleaned.pop(vol_key, None)
+    return cleaned
+
+
+class ProductRunEventV1ContractGoldens(ChatEndToEndBase):
+    """Lock down the exact field shape of every v1 event the orchestrator emits
+    today. New event types added by later A1 waves must add their own golden."""
+
+    async def test_happy_text_only_run_started_shape(self) -> None:
+        self.set_llm_stream([["hi"]])
+        events = await self.drain()
+        started = _events_of_type(events, "run_started")[0]
+        # Plain text-only run: no skill, no display_mode (we don't set them yet).
+        self.assertEqual(_strip_volatile_run_event_fields(started), {"type": "run_started"})
+        # Volatile fields are nonetheless present and well-formed.
+        self.assertTrue(started["run_id"].startswith("run_"))
+        self.assertIsInstance(started["timestamp"], str)
+        self.assertGreater(len(started["timestamp"]), 10)
+
+    async def test_run_started_skill_block_shape(self) -> None:
+        self.runtime.skill_name = "digital-strategy"
+        self.set_llm_stream([["ok"]])
+        events = await self.drain()
+        started = _events_of_type(events, "run_started")[0]
+        cleaned = _strip_volatile_run_event_fields(started)
+        # Skill block has exactly {name}; no id is set unless runtime.skill_id is.
+        self.assertEqual(cleaned, {"type": "run_started", "skill": {"name": "digital-strategy"}})
+
+    async def test_message_persisted_shape(self) -> None:
+        self.set_llm_stream([["hello"]])
+        events = await self.drain()
+        persisted = _events_of_type(events, "message_persisted")[0]
+        cleaned = _strip_volatile_run_event_fields(persisted)
+        # message_id is an int from the DB; assert the shape, not the value.
+        self.assertEqual(set(cleaned.keys()), {"type", "message_id"})
+        self.assertEqual(cleaned["type"], "message_persisted")
+        self.assertIsInstance(cleaned["message_id"], int)
+
+    async def test_run_done_completed_shape(self) -> None:
+        self.set_llm_stream([["hello"]])
+        events = await self.drain()
+        done = _events_of_type(events, "run_done")[0]
+        self.assertEqual(
+            _strip_volatile_run_event_fields(done),
+            {"type": "run_done", "final_status": "completed"},
+        )
+
+    async def test_run_failed_shape_on_llm_exception(self) -> None:
+        async def boom(*_a, **_kw):
+            raise RuntimeError("boom: model exploded")
+            # unreachable but keeps this a valid async generator if not raised
+            yield ""  # pragma: no cover
+
+        self.runtime.llm.stream_response = boom
+
+        events = await self.drain()
+        failed = _events_of_type(events, "run_failed")
+        self.assertEqual(len(failed), 1)
+        cleaned = _strip_volatile_run_event_fields(failed[0])
+        # Required + expected-optional fields; error_code is from the enum.
+        self.assertEqual(cleaned["type"], "run_failed")
+        self.assertEqual(cleaned["error_code"], "UNKNOWN")
+        self.assertIsInstance(cleaned["error_message"], str)
+        self.assertTrue(cleaned["error_message"])
+        # retryable is set; fallback_content carries the full failure text.
+        self.assertIn("retryable", cleaned)
+        self.assertIn("fallback_content", cleaned)
+
+    async def test_v1_event_order_is_stable(self) -> None:
+        """The v1 boundary events must appear in this exact relative order:
+        run_started → ... → message_persisted → run_done."""
+        self.set_llm_stream([["hello"]])
+        events = await self.drain()
+
+        positions = {
+            t: next((i for i, e in enumerate(events) if e.get("type") == t), -1)
+            for t in ("run_started", "message_persisted", "run_done")
+        }
+        self.assertGreater(positions["run_started"], -1)
+        self.assertGreater(positions["message_persisted"], positions["run_started"])
+        self.assertGreater(positions["run_done"], positions["message_persisted"])
+        # And legacy ``done`` is still emitted before ``run_done``.
+        legacy_done = next((i for i, e in enumerate(events) if e.get("type") == "done"), -1)
+        self.assertGreater(legacy_done, -1)
+        self.assertLess(legacy_done, positions["run_done"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
