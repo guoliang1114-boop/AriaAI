@@ -31,6 +31,10 @@ interface UserMemoryResponse {
 interface PreferencesShape {
   personal_info?: {
     preferred_name?: string;
+    // Housekeeping flag (the post-login Welcome page sets this once). The
+    // settings card preserves it on every save so writes don't bounce users
+    // back to /onboarding — see compactPreferences.
+    onboarding_seen?: boolean;
   };
   response_preferences?: {
     language?: Language;
@@ -64,10 +68,17 @@ const FORMAT_OPTIONS: { value: FormatShape; label: string }[] = [
 
 function compactPreferences(prefs: PreferencesShape): Record<string, unknown> {
   const compact: PreferencesShape = {};
+
+  // The settings card is reachable only AFTER onboarding, so by definition the
+  // user has seen it. Re-stamp the flag on every save so the back-end PUT
+  // (whole-object replace, see backend/app/routers/user_memory.py) doesn't
+  // accidentally wipe it and bounce the user back to /onboarding next refresh.
   const preferredName = prefs.personal_info?.preferred_name?.trim() ?? "";
-  if (preferredName) {
-    compact.personal_info = { preferred_name: preferredName };
-  }
+  const personalOut: NonNullable<PreferencesShape["personal_info"]> = {
+    onboarding_seen: true,
+  };
+  if (preferredName) personalOut.preferred_name = preferredName;
+  compact.personal_info = personalOut;
 
   const rp = prefs.response_preferences ?? {};
   const rpOut: PreferencesShape["response_preferences"] = {};
@@ -323,3 +334,5 @@ export function UserMemorySettingsCard() {
     </div>
   );
 }
+
+export const __test__ = { compactPreferences, readShape };
