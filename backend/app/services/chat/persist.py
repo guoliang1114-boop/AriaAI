@@ -879,6 +879,19 @@ async def run_persist(
     if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 
+    # V0.0.4 A4: surface the routing decision so the frontend can show a small
+    # badge ("按对话大纲生成 PPT" vs "自动生成项目 PPT" etc.) without re-running
+    # any heuristic on its side.
+    prepare_metrics_all = getattr(runtime, "prepare_metrics", {}) if isinstance(getattr(runtime, "prepare_metrics", {}), dict) else {}
+    route_method = prepare_metrics_all.get("intent_method") or ""
+    route_reason = prepare_metrics_all.get("intent_reason") or ""
+    if route_method or route_reason:
+        route_decision = {"method": str(route_method), "reason": str(route_reason)}
+        chat_mode_value = prepare_metrics_all.get("chat_mode")
+        if chat_mode_value:
+            route_decision["chat_mode"] = str(chat_mode_value)
+        metadata["route_decision"] = route_decision
+
     state.stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
     state.stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
     metadata["stage_timings"] = state.stage_timings

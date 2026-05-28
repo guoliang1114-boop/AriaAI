@@ -173,6 +173,20 @@ async def stream_chat_events(
     state = ChatSessionState(stage_timings=dict(runtime.prepare_metrics or {}))
     state.run_id = make_run_id()
 
+    # V0.0.4 D.3: structured run-lifecycle log. Stays human-readable; easy to
+    # grep / pipe into JSON later. Emitted at run start, persist success, and
+    # in every error path so we can correlate runs to failures by run_id.
+    logger.info(
+        "[run start] run_id=%s conv=%s project=%s mode=%s policy=%s skill=%s model=%s",
+        state.run_id,
+        runtime.conv_id,
+        getattr(req, "project_id", None),
+        getattr(runtime, "chat_mode", ""),
+        getattr(runtime, "action_policy", ""),
+        getattr(runtime, "skill_name", "") or "-",
+        getattr(runtime, "selected_model", ""),
+    )
+
     # ------------------------------------------------------------------
     # Emit conversation_id, run_started (Product Run Event v1), and prepare
     # metrics upfront. run_started is additive — legacy frontends ignore it.
@@ -215,7 +229,11 @@ async def stream_chat_events(
         async for event in run_durable_task(runtime, req, bind, state):
             yield event
     except Exception as exc:
-        logger.error(f"[durable_task error] {exc}", exc_info=True)
+        logger.error(
+            "[run failed] run_id=%s phase=durable_task exc_type=%s exc=%s",
+            state.run_id, exc.__class__.__name__, exc,
+            exc_info=True,
+        )
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
@@ -237,6 +255,13 @@ async def stream_chat_events(
             }
         )
         yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
+        logger.info(
+            "[run done] run_id=%s path=durable_task duration_ms=%s artifacts=%s tool_events=%s",
+            state.run_id,
+            state.stage_timings.get("total_stream_ms"),
+            len(state.artifacts or []),
+            len(state.tool_call_events or []),
+        )
         return
 
     # ==================================================================
@@ -246,7 +271,11 @@ async def stream_chat_events(
         async for event in run_agent_loop(runtime, req, state):
             yield event
     except Exception as exc:
-        logger.error(f"[agent_loop error] {exc}", exc_info=True)
+        logger.error(
+            "[run failed] run_id=%s phase=agent_loop exc_type=%s exc=%s",
+            state.run_id, exc.__class__.__name__, exc,
+            exc_info=True,
+        )
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
@@ -265,7 +294,11 @@ async def stream_chat_events(
         async for event in run_persist(runtime, req, bind, state):
             yield event
     except Exception as exc:
-        logger.error(f"[persist error] {exc}", exc_info=True)
+        logger.error(
+            "[run failed] run_id=%s phase=persist exc_type=%s exc=%s",
+            state.run_id, exc.__class__.__name__, exc,
+            exc_info=True,
+        )
         for event in _persist_phase_error_events(
             runtime=runtime,
             req=req,
@@ -279,3 +312,12 @@ async def stream_chat_events(
 
     # Successful end-of-run terminator (Product Run Event v1).
     yield sse_event(run_done(state.run_id, RunFinalStatus.COMPLETED))
+    logger.info(
+        "[run done] run_id=%s path=agent_loop duration_ms=%s steps=%s artifacts=%s tool_events=%s",
+        state.run_id,
+        state.stage_timings.get("total_stream_ms")
+        or round((time.perf_counter() - stream_started_at) * 1000),
+        len(state.steps or []),
+        len(state.artifacts or []),
+        len(state.tool_call_events or []),
+    )

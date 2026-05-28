@@ -663,6 +663,22 @@ def prepare_chat_runtime(
     )
     intent_frame = _build_intent_frame(intent_decision, skill_decision, effective_skill, context_mode, consulting_frame)
     system = _append_intent_frame(system, intent_frame, consulting_frame)
+
+    # V0.0.4 track B: inject the current user's explicit preferences (language,
+    # tone, reporting style, …) so AI behaviour stays consistent across
+    # projects without re-asking every turn. Skipped when there's no user_id
+    # or no UserMemory row.
+    from app.services.chat.user_memory_prompt import (
+        format_user_memory_for_prompt,
+        load_user_memory_preferences,
+    )
+
+    user_memory_prefs = load_user_memory_preferences(session, owner_user_id)
+    user_memory_section = format_user_memory_for_prompt(user_memory_prefs)
+    if user_memory_section:
+        system = f"{system.rstrip()}\n\n{user_memory_section}\n"
+        prepare_metrics["user_memory_injected"] = True
+        prepare_metrics["user_memory_chars"] = len(user_memory_section)
     prepare_metrics["intent_frame"] = intent_frame
     prepare_metrics["consulting_frame"] = {
         "job_type": consulting_frame.job_type,
