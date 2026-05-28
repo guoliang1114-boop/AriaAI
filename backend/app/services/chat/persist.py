@@ -852,6 +852,15 @@ async def run_persist(
     if any(step.truncated for step in state.steps):
         metadata["truncated"] = True
 
+    # Product Run Event v1: snapshot the activity timeline so the persisted
+    # view (ProjectChatMessageBubble) can re-render it on refresh. Returns
+    # None when state.run_id is empty (legacy / no run tracked) — skip silently.
+    from app.services.chat.activity_timeline_persist import build_activity_timeline
+
+    activity_timeline = build_activity_timeline(state, runtime, full_text=full_text)
+    if activity_timeline is not None:
+        metadata["activity_timeline"] = activity_timeline
+
     state.stage_timings["save_ms"] = round((time.perf_counter() - save_started_at) * 1000)
     state.stage_timings["total_stream_ms"] = round((time.perf_counter() - stream_started_at) * 1000)
     metadata["stage_timings"] = state.stage_timings

@@ -620,6 +620,18 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
         legacy_done = _events_of_type(events, "done")[0]
         self.assertLess(idx_persisted, events.index(legacy_done))
 
+        # The persisted assistant message must carry the snapshot timeline so
+        # the persisted view can re-render it on refresh (A3).
+        assistant = [m for m in self.assistant_messages() if m.role == "assistant"]
+        self.assertEqual(len(assistant), 1)
+        metadata = json.loads(assistant[0].metadata_json or "{}")
+        timeline = metadata.get("activity_timeline")
+        self.assertIsInstance(timeline, dict, "expected metadata.activity_timeline to be saved")
+        self.assertEqual(timeline["run_id"], run_id)
+        self.assertEqual(timeline["final_status"], "completed")
+        self.assertIsInstance(timeline.get("steps"), list)
+        self.assertIsInstance(timeline.get("artifacts"), list)
+
     async def test_run_started_carries_skill_identity_when_set(self) -> None:
         self.runtime.skill_name = "digital-strategy"
         self.set_llm_stream([["ok"]])
