@@ -80,7 +80,9 @@ describe("useProjectChatComposer", () => {
       conversation_id: -1,
     });
     expect(useChatStreamStore.getState().isLoading).toBe(true);
-    expect(useChatStreamStore.getState().streamingStatus).toBe("AI 正在读取项目上下文并准备回复...");
+    // Initial status text was unified in PR #23 to match the backend heartbeat
+    // so 2s pings during slow TTFT don't flicker the label.
+    expect(useChatStreamStore.getState().streamingStatus).toBe("Aria 正在思考...");
     expect(scrollToBottom).toHaveBeenCalled();
 
     await act(async () => {

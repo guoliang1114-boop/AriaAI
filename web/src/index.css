@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Codex-style tokens (V0.0.6 frontend redesign). Additive — opt-in via the
+   ``theme-codex`` class on a subtree. Doesn't affect any existing page. */
+@import "./styles/codex.css";
+
 @theme {
   /* === The Intelligent Stratum Design System === */
 
