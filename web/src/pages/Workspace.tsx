@@ -17,7 +17,7 @@ import { api } from '../api/client'
 import { PageTitle } from '../components/PageTitle'
 import type { Conversation, SkillSummary } from '../types/api'
 import { resolveProjectStage } from '../types/enums'
-import { formatDateOnly, getResolvedAppTimeZone } from '../utils/timezone'
+import { formatDateOnly, getResolvedAppTimeZone, parseAppDateTime } from '../utils/timezone'
 
 interface DashboardProjectSummary {
   id: number
@@ -34,7 +34,7 @@ const panelClass = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0
 
 function formatRelativeTime(value?: string | null, isZh = true) {
   if (!value) return isZh ? '暂无记录' : 'No recent activity'
-  const diffMinutes = Math.floor((Date.now() - new Date(value).getTime()) / 60000)
+  const diffMinutes = Math.floor((Date.now() - parseAppDateTime(value).getTime()) / 60000)
   if (diffMinutes < 1) return isZh ? '刚刚' : 'Just now'
   if (diffMinutes < 60) return isZh ? `${diffMinutes} 分钟前` : `${diffMinutes} min ago`
   if (diffMinutes < 1440) return isZh ? `${Math.floor(diffMinutes / 60)} 小时前` : `${Math.floor(diffMinutes / 60)} h ago`
@@ -117,7 +117,7 @@ export function Workspace() {
   )
 
   const recentConversations = useMemo(
-    () => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 5),
+    () => [...conversations].sort((a, b) => parseAppDateTime(b.updated_at).getTime() - parseAppDateTime(a.updated_at).getTime()).slice(0, 5),
     [conversations],
   )
 
