@@ -199,6 +199,24 @@ def _clamp_policy(rule_policy: ActionPolicy, proposed_policy: ActionPolicy) -> A
     return rule_policy
 
 
+_PRIOR_OUTLINE_REFERENCE_MARKERS = (
+    "基于这", "基于上", "基于以上", "基于上述", "基于前", "基于刚", "基于此", "基于该",
+    "根据这", "根据上", "根据以上", "根据上述", "根据刚", "根据前", "根据此", "根据该",
+    "按这个", "按照这", "按上面", "按以上", "按上述",
+    "用这个大纲", "用上面", "用以上", "用刚才", "用上述",
+    "把上面", "把以上", "把刚才", "把上述", "把这个大纲", "把这份大纲",
+    "上面的大纲", "上述大纲", "刚才的大纲", "之前的大纲", "前面的大纲",
+    "这个大纲", "这份大纲", "该大纲", "上面的内容", "以上内容", "上述内容",
+    "based on this", "based on the above", "based on our",
+)
+
+
+def _references_prior_outline(content: str) -> bool:
+    """True when the user is building on an outline/content from earlier in the chat."""
+    text = (content or "").lower()
+    return any(marker in text for marker in _PRIOR_OUTLINE_REFERENCE_MARKERS)
+
+
 def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = None) -> IntentDecision:
     if req.project_id and is_save_previous_answer_as_markdown_request(req.content):
         artifact_contract = ArtifactContract(
@@ -250,6 +268,45 @@ def _rule_decision(req: SendMessageRequest, *, effective_skill_id: int | None = 
             reason=getattr(task_route, "reason", "") or "rule_task_router",
             source="rule_task_router",
         )
+    if (
+        task_route
+        and getattr(task_route, "output_kind", "") == "pptx"
+        and _references_prior_outline(req.content)
+    ):
+        # The user is asking for a PPT built on an outline they just gave in the
+        # conversation. The deterministic generate_client_ppt pipeline regenerates
+        # its own outline from project memory and ignores that, so route through the
+        # conversational agent loop instead — the model turns the referenced outline
+        # into slides via generate_ppt — while still requiring a pptx deliverable.
+        pptx_contract = ArtifactContract(
+            delivery_required=True,
+            output_kind="pptx",
+            title=getattr(task_route, "title", "") or "",
+            allowed_tools=allowed_tools_for_output_kind("pptx"),
+            confidence=task_route.confidence,
+            reason="rule:pptx_from_prior_outline",
+            source="rule_task_router",
+        )
+        return IntentDecision(
+            chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+            action_policy=ActionPolicy.WRITE_ARTIFACT,
+            tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+            task_route=None,
+            artifact_contract=pptx_contract,
+            confidence=task_route.confidence,
+            reason="rule:pptx_from_prior_outline",
+            method="rule_task_router",
+            trace=_decision_trace(
+                method="rule_task_router",
+                final_chat_mode=ChatMode.PROJECT_DEEP_DIVE,
+                final_action_policy=ActionPolicy.WRITE_ARTIFACT,
+                final_tool_access_policy=ToolAccessPolicy.WRITE_ALLOWED,
+                artifact_contract=pptx_contract,
+                confidence=task_route.confidence,
+                reason="rule:pptx_from_prior_outline",
+            ),
+        )
+
     if task_route:
         return IntentDecision(
             chat_mode=ChatMode.TASK_ORCHESTRATION,

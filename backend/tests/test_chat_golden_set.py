@@ -307,6 +307,27 @@ def test_unified_router_short_circuits_explicit_office_generation():
     assert called is False
 
 
+def test_pptx_request_referencing_prior_outline_uses_conversational_artifact():
+    called = False
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal called
+        called = True
+        return "{}"
+
+    req = SendMessageRequest(content="基于这个大纲，给我做一份 PPT。", project_id=27)
+    decision = asyncio.run(classify_chat_intent_async(req, llm_complete=fake_llm))
+    # When the user builds on an outline from the conversation, the deterministic
+    # generate_client_ppt pipeline (which ignores that outline) must be bypassed in
+    # favor of the conversational agent loop, while still requiring a pptx deliverable.
+    assert decision.action_policy == ActionPolicy.WRITE_ARTIFACT
+    assert decision.task_route is None
+    assert decision.artifact_contract.delivery_required is True
+    assert decision.artifact_contract.output_kind == "pptx"
+    assert decision.reason == "rule:pptx_from_prior_outline"
+    assert called is False
+
+
 def test_tool_specs_are_loaded_from_yaml_and_drive_policy():
     spec = load_tool_spec("update_project_markdown_document")
     assert spec["required_policy"]["append"] == "modify_existing_file"
