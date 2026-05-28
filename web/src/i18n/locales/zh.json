@@ -436,6 +436,8 @@
   "language": {
     "title": "语言设置",
     "description": "选择您的首选语言",
+    "interfaceLanguage": "界面语言",
+    "interfaceLanguageHint": "切换后立即预览，保存后写入服务器并同步到其他设备。",
     "save": "保存设置",
     "saving": "保存中…",
     "saved": "已保存"
