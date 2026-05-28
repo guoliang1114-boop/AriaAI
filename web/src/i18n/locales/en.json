@@ -437,6 +437,8 @@
   "language": {
     "title": "Language Settings",
     "description": "Select your preferred language",
+    "interfaceLanguage": "Interface language",
+    "interfaceLanguageHint": "Preview applies instantly. Save persists to the server and syncs across devices.",
     "save": "Save Settings",
     "saving": "Saving…",
     "saved": "Saved"
