@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard,
@@ -18,7 +18,6 @@ import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
-import { FirstRunPreferredNameModal } from './FirstRunPreferredNameModal'
 
 interface UserMemoryFetchResponse {
   preferences: Record<string, unknown>
@@ -27,16 +26,19 @@ interface UserMemoryFetchResponse {
 }
 
 /**
- * Returns the saved 称呼 from a user-memory preferences blob, or "" if missing
- * / non-string / whitespace. Pulled out so the gating decision in Layout is a
- * single expression rather than nested optional chains.
+ * Has the user finished the post-login preferences onboarding flow?
+ *
+ * Stored as ``personal_info.onboarding_seen: true`` in user memory, which is
+ * written by ``PreferenceOnboarding`` whether the user saves preferences or
+ * clicks "稍后再说". Treating "seen" (rather than "preferred_name set") as
+ * the gate matches the V0.0.4 follow-up decision that ALL personal preferences
+ * are optional — we just need each user to land on the welcome page once.
  */
-function readPreferredName(preferences: Record<string, unknown> | null): string {
-  if (!preferences || typeof preferences !== 'object') return ''
+function hasSeenOnboarding(preferences: Record<string, unknown> | null): boolean {
+  if (!preferences || typeof preferences !== 'object') return false
   const personal = (preferences as { personal_info?: unknown }).personal_info
-  if (!personal || typeof personal !== 'object') return ''
-  const name = (personal as { preferred_name?: unknown }).preferred_name
-  return typeof name === 'string' ? name.trim() : ''
+  if (!personal || typeof personal !== 'object') return false
+  return (personal as { onboarding_seen?: unknown }).onboarding_seen === true
 }
 
 function getStoredUser(): User | null {
@@ -82,8 +84,8 @@ export function Layout() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [user, setUser] = useState<User | null>(() => getStoredUser())
   const [unreadCount, setUnreadCount] = useState(0)
-  // ``null`` = haven't checked yet (don't render gate). Once loaded we know
-  // whether the user has set 称呼 — if not, the modal blocks the UI.
+  // ``null`` = haven't checked yet (don't redirect). Once loaded we know
+  // whether the user has been through the post-login onboarding flow.
   const [userMemoryPrefs, setUserMemoryPrefs] = useState<Record<string, unknown> | null>(null)
   const isProjectDetailRoute = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname)
 
@@ -166,11 +168,14 @@ export function Layout() {
   const initials = getUserInitials(user)
   const initialsScale = initials.length > 2 ? 0.85 : 1
 
-  // We've fetched user-memory AND the user hasn't set a preferred name yet →
-  // block the UI with the onboarding modal. ``null`` means still loading, so
-  // we don't flash the modal during the initial fetch.
-  const shouldShowFirstRunModal =
-    userMemoryPrefs !== null && readPreferredName(userMemoryPrefs) === ''
+  // First-run gate: ``null`` = still loading. Once loaded, redirect to
+  // /onboarding ONLY if the user has not yet been through the flow. We do
+  // this from Layout (rather than at the route level) so the redirect waits
+  // until /user-memory has resolved — otherwise we'd flash the workspace
+  // for one render before bouncing the user away.
+  if (userMemoryPrefs !== null && !hasSeenOnboarding(userMemoryPrefs)) {
+    return <Navigate to="/onboarding" replace />
+  }
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -319,12 +324,6 @@ export function Layout() {
       <main className="app-ui flex-1 overflow-auto">
         <Outlet />
       </main>
-      {shouldShowFirstRunModal && userMemoryPrefs ? (
-        <FirstRunPreferredNameModal
-          existingPreferences={userMemoryPrefs}
-          onSaved={(next) => setUserMemoryPrefs(next)}
-        />
-      ) : null}
     </div>
   )
 }

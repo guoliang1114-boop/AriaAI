@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import i18n from 'i18next'
 import { initReactI18next, I18nextProvider } from 'react-i18next'
 import en from '../i18n/locales/en.json'
@@ -14,10 +14,10 @@ vi.mock('../api/client', () => ({
       if (url === '/settings/') return Promise.resolve({ timezone: 'UTC' })
       if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 7 })
       if (url === '/user-memory')
-        // Default: name already set → the first-run modal stays closed and
-        // existing tests below don't have to know about it.
+        // Default: onboarding already done → no redirect to /onboarding and
+        // the existing layout assertions below run as normal.
         return Promise.resolve({
-          preferences: { personal_info: { preferred_name: '李总' } },
+          preferences: { personal_info: { preferred_name: '李总', onboarding_seen: true } },
           version: 1,
           updated_at: '',
         })
@@ -44,7 +44,10 @@ function renderLayout(path = '/') {
   return render(
     <I18nextProvider i18n={i18n}>
       <MemoryRouter initialEntries={[path]}>
-        <Layout />
+        <Routes>
+          <Route path="/onboarding" element={<div data-testid="onboarding-stub">onboarding</div>} />
+          <Route path="*" element={<Layout />} />
+        </Routes>
       </MemoryRouter>
     </I18nextProvider>,
   )
@@ -113,34 +116,33 @@ describe('Layout', () => {
     })
   })
 
-  it('does not show the first-run modal when a preferred name is already set', async () => {
+  it('does not redirect to /onboarding when onboarding_seen is true', async () => {
     renderLayout()
-    // Modal must not appear after the (mocked) /user-memory resolves with a name.
     await waitFor(() => {
       expect(screen.getByText('Aria AI')).toBeInTheDocument()
     })
-    expect(screen.queryByTestId('first-run-preferred-name-modal')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('onboarding-stub')).not.toBeInTheDocument()
   })
 
-  it('shows the first-run modal when /user-memory has no preferred_name', async () => {
-    // Override the default mock for this one test: empty preferences.
+  it('redirects to /onboarding when /user-memory has no onboarding_seen flag', async () => {
     const { api } = await import('../api/client')
     const getMock = api.get as unknown as ReturnType<typeof vi.fn>
-    getMock.mockImplementationOnce(async (url: string) => {
-      // /auth/me fires first
-      return { display_name: 'John Doe', email: 'john@example.com' }
+    // Reorder is not deterministic across effects; intercept by URL instead.
+    getMock.mockImplementation((url: string) => {
+      if (url === '/auth/me')
+        return Promise.resolve({ display_name: 'John Doe', email: 'john@example.com' })
+      if (url === '/settings/') return Promise.resolve({ timezone: 'UTC' })
+      if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 0 })
+      if (url === '/user-memory')
+        return Promise.resolve({ preferences: {}, version: 0, updated_at: '' })
+      return Promise.resolve({})
     })
-    getMock.mockImplementationOnce(async () => ({ timezone: 'UTC' }))
-    getMock.mockImplementationOnce(async () => ({
-      preferences: {},
-      version: 0,
-      updated_at: '',
-    }))
-    getMock.mockImplementationOnce(async () => ({ unread_count: 0 }))
 
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByTestId('first-run-preferred-name-modal')).toBeInTheDocument()
+      expect(screen.getByTestId('onboarding-stub')).toBeInTheDocument()
     })
+    // The Layout header should NOT render once the redirect lands.
+    expect(screen.queryByText('Aria AI')).not.toBeInTheDocument()
   })
 })

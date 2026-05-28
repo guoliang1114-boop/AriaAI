@@ -109,6 +109,21 @@ class FormatUserMemoryTest(unittest.TestCase):
         self.assertIn("用户希望被称呼为：李总", out)
         self.assertIn("- personal_info.title: CEO", out)
 
+    def test_onboarding_seen_is_treated_as_housekeeping_not_a_preference(self):
+        """``personal_info.onboarding_seen`` is the post-login welcome-page
+        completion flag. It must never appear in the model's prompt — it's
+        operational state, not user-stated preference."""
+        out = format_user_memory_for_prompt(
+            {"personal_info": {"preferred_name": "李总", "onboarding_seen": True}}
+        )
+        self.assertIn("用户希望被称呼为：李总", out)
+        self.assertNotIn("onboarding_seen", out)
+
+    def test_onboarding_seen_alone_yields_empty_section(self):
+        """A user who only clicked '稍后再说' has nothing for the model to read."""
+        out = format_user_memory_for_prompt({"personal_info": {"onboarding_seen": True}})
+        self.assertEqual(out, "")
+
 
 class LoadUserMemoryFromDbTest(unittest.TestCase):
     def setUp(self):

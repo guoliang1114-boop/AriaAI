@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './pages/Login'
 import {
   loadWelcome,
+  loadPreferenceOnboarding,
   loadWorkspace,
   loadChat,
   loadSkills,
@@ -38,6 +39,9 @@ import {
 } from './routeLoaders'
 
 const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
+const PreferenceOnboarding = lazy(() =>
+  loadPreferenceOnboarding().then((module) => ({ default: module.PreferenceOnboarding })),
+)
 const Workspace = lazy(() => loadWorkspace().then((module) => ({ default: module.Workspace })))
 const Chat = lazy(() => loadChat().then((module) => ({ default: module.Chat })))
 const Skills = lazy(() => loadSkills().then((module) => ({ default: module.Skills })))
@@ -131,6 +135,16 @@ function AppRoutes() {
           <LazyPage>
             <Forbidden />
           </LazyPage>
+        }
+      />
+      <Route
+        path="/onboarding"
+        element={
+          <AuthGuard>
+            <LazyPage>
+              <PreferenceOnboarding />
+            </LazyPage>
+          </AuthGuard>
         }
       />
       <Route
