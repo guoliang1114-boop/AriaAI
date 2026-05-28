@@ -1,12 +1,12 @@
 # Model + Harness 产品方案设计
 
-> 更新日期：2026-05-28  
-> 关联文档：[05-对话系统设计与规范](./05-对话系统设计与规范.md)、[06-HITAS设计](./06-Human-in-the-Loop%20Tool%20Approval%20设计.md)、[08-Skill体系评估与优化路线图](./08-Skill体系评估与优化路线图.md)
+> 更新日期：2026-05-28
+> 关联文档：[05-对话系统设计与规范](./05-对话系统设计与规范.md)、[06-HITAS设计](./06-Human-in-the-Loop%20Tool%20Approval%20设计.md)、[08-Skill体系评估与优化路线图](./08-Skill体系评估与优化路线图.md)、[10-代码Review遗留事项](./10-代码Review遗留事项.md)
 
 ## 目录
 
 - [1. 文档定位](#1-文档定位)
-- [2. 为什么现在引入](#2-为什么现在引入)
+- [2. 为什么现在引入（含现状核实）](#2-为什么现在引入含现状核实)
 - [3. 设计目标](#3-设计目标)
   - [3.1 产品目标](#31-产品目标)
   - [3.2 工程目标](#32-工程目标)
@@ -26,9 +26,15 @@
   - [6.7 Run Manager](#67-run-manager)
 - [7. Run Lifecycle 设计](#7-run-lifecycle-设计)
   - [7.1 状态枚举](#71-状态枚举)
-  - [7.2 Display Mode](#72-display-mode)
+  - [7.2 失败恢复策略](#72-失败恢复策略)
+  - [7.3 Display Mode](#73-display-mode)
 - [8. Product Run Event 协议](#8-product-run-event-协议)
 - [9. 前端展示原则](#9-前端展示原则)
+  - [9.1 普通项目问答](#91-普通项目问答)
+  - [9.2 明确读取文件](#92-明确读取文件)
+  - [9.3 长任务和交付物生成](#93-长任务和交付物生成)
+  - [9.4 高风险动作](#94-高风险动作)
+  - [9.5 Run Activity Timeline（Phase 1 UI 落地）](#95-run-activity-timelinephase-1-ui-落地)
 - [10. 与现有系统的关系](#10-与现有系统的关系)
 - [11. 分阶段落地](#11-分阶段落地)
 - [12. 风险与取舍](#12-风险与取舍)
@@ -38,7 +44,7 @@
 
 ## 1. 文档定位
 
-本文描述 AriaAI 在产品层面引入 Model + Harness 的设计方案。目标不是立即重构为完整 Agent 平台，而是把现有项目对话、Skill、工具调用、项目记忆、交付物生成和用户确认机制收敛为一套稳定的 AI Run Harness。
+本文描述 AriaAI 在产品层面引入 Model + Harness 的设计方案。目标不是立即重构为完整 Agent 平台，而是把现有项目对话、Skill、工具调用、项目记忆、交付物生成和用户确认机制收敛为一套稳定的 AI Run Harness，并在 Phase 1 给出可落地的 UI（项目对话 Run Activity Timeline）。
 
 核心判断：
 
@@ -48,17 +54,29 @@
 
 当前 AriaAI 已有 Harness 雏形，包括对话 runtime、context builder、tool executor、HITAS、task orchestration、project memory、stream events 和 artifact 保存。但这些能力仍比较分散，部分内部日志和底层 tool event 会直接暴露给前端，导致产品体验不稳定。
 
-## 2. 为什么现在引入
+## 2. 为什么现在引入（含现状核实）
 
 近期项目对话暴露出的几个问题，本质上都是 Harness 问题：
 
 | 现象 | 本质原因 |
 |---|---|
-| 普通问答下展示“任务进度” | 底层工具调用事件直接映射到用户界面 |
-| “AI 正在读取”出现后很快消失 | 前端状态与真实 run lifecycle 没有统一协议 |
+| 普通问答下展示"任务进度" | 底层工具调用事件直接映射到用户界面 |
+| "AI 正在读取"出现后很快消失 | 前端状态与真实 run lifecycle 没有统一协议 |
 | 回复看起来不是流式输出 | 后端内部收集 LLM chunk 后再统一发送 |
 | Markdown、表格和工具日志混在一起 | assistant content、tool summary、run progress 边界不清 |
 | 生成物、记忆、任务、消息保存逻辑分散 | 缺少统一的 run persistence contract |
+
+### 2.1 现状核实（项目对话场景，已逐条核对代码）
+
+| 场景 | 当前呈现 | 缺陷 | 代码锚点 |
+|---|---|---|---|
+| 普通工具回合 | 实时工具卡 + 思考转圈 | 工具卡零散堆叠，无"第几步"结构 | [`ProjectChatMessages.tsx`](../web/src/pages/projects/ProjectChatMessages.tsx)、[`ProjectChatToolCallCard.tsx`](../web/src/pages/projects/ProjectChatToolCallCard.tsx) |
+| 调用 Skill | 项目对话**完全不显示**用了哪个 Skill、也没有 Skill 步骤 | 漂亮的 5 步 `skill_progress` 只在独立聊天页渲染 | [`Chat.tsx`](../web/src/pages/chat/Chat.tsx)（`metadata.skill_progress`）；项目对话无对应消费者 |
+| 复杂/后台任务 | 对话仅显示"已转入后台,任务记录 #X" | 真实 4 步（收集上下文→生成大纲→生成保存→整理交付）只在「任务」面板，需跳出去看 | [`useProjectChatComposer.ts`](../web/src/pages/projects/useProjectChatComposer.ts)（"已转入后台执行"）、`task_orchestrator.py` |
+| 步骤边界 | 后端发的 `agent_step` 被前端丢弃 | `streamingSteps` / `upsertStep` / `AgentStepView` 全是死代码 | [`chatStreamStore.ts`](../web/src/stores/chatStreamStore.ts)、[`agent_loop.py`](../backend/app/services/chat/agent_loop.py) `build_agent_step_event` |
+| PPT 与对话大纲无关 | 凡说"ppt"被规则路由器丢给 `generate_client_ppt` 流水线 | 流水线无视对话大纲；本轮已修：引用大纲时改走对话模型 | [`intent_router.py`](../backend/app/services/intent_router.py)（`rule:pptx_from_prior_outline`） |
+
+这些**都不是模型问题**，而是 Harness 边界不清的体现：底层事件直接到 UI、无统一 run 生命周期、Skill 身份/步骤未作为产品级信号、不同流水线各自维护自己的进度。
 
 因此，当前引入 Harness 的意义是：
 
@@ -74,6 +92,7 @@
 - 用户发送消息后立即获得稳定反馈。
 - 普通问答保持轻量，不展示内部执行日志。
 - 长任务展示进度，但使用产品语言而不是技术日志。
+- Skill 调用时清晰展示"用的哪个 Skill + 每一步"。
 - 危险或不可逆动作必须明确确认。
 - AI 输出可以沉淀为消息、项目记忆、任务、文件或交付物。
 - 失败时给出可理解的结果，而不是中断在内部状态。
@@ -84,6 +103,7 @@
 - 统一后端到前端的 run event 协议。
 - 统一上下文构造、工具执行、权限判断和结果持久化边界。
 - 将 UI 从底层 tool call 中解耦。
+- 流式输出与持久化消息使用同一套渲染逻辑（避免直播/刷新差异）。
 - 保留现有对话、Skill、HITAS 和 task orchestration 能力，采用渐进式收敛。
 
 ### 3.3 非目标
@@ -166,7 +186,7 @@ AI Run 可以对应：
 ```text
 Frontend
   ├── Chat UI
-  ├── Run Status UI
+  ├── Run Activity Timeline (§9.5)
   ├── Confirmation UI
   └── Artifact / Memory / Task UI
 
@@ -197,6 +217,7 @@ Model Layer（外部推理服务）
 - 后端输出给前端的是产品事件，不是底层工具日志。
 - 底层 trace 仍然保留，但默认只用于调试和审计。
 - 普通对话与长任务共用 run lifecycle，但前端展示策略不同。
+- 流式与持久化共享同一渲染数据模型（§9.5）。
 
 ## 6. Harness 分层设计
 
@@ -209,28 +230,15 @@ Model Layer（外部推理服务）
 - 区分自动注入上下文和按需读取上下文。
 - 避免模型为了普通问答频繁调用只读工具。
 
-输入：
+输入：user message / project id / conversation id / selected skill / mention context / knowledge scope / recent history。
 
-- user message
-- project id
-- conversation id
-- selected skill
-- mention context
-- knowledge scope
-- recent history
-
-输出：
-
-- structured project context
-- selected files or memory snippets
-- prompt context block
-- context trace
+输出：structured project context / selected files or memory snippets / prompt context block / context trace。
 
 设计原则：
 
 - 普通项目问答优先使用已注入上下文。
 - 用户明确提到文件、文档、空间内容时，才进入 read-on-demand。
-- Context Harness 不负责 UI 展示，只负责“模型看到什么”。
+- Context Harness 不负责 UI 展示，只负责"模型看到什么"。
 
 ### 6.2 Routing Harness
 
@@ -240,18 +248,13 @@ Model Layer（外部推理服务）
 - 输出 mode、action policy、tool access policy。
 - 限制模型不能自行升级权限。
 
-当前基础：
-
-- `ChatMode`
-- `ActionPolicy`
-- `ToolAccessPolicy`
-- `IntentRouter`
-- `Consulting Turn Frame`
+当前基础：`ChatMode` / `ActionPolicy` / `ToolAccessPolicy` / `IntentRouter` / `Consulting Turn Frame`。
 
 后续收敛方向：
 
 - 路由结果成为 AI Run 的正式字段。
 - 前端展示不直接依赖 route 细节，只消费 run display mode。
+- 已实现的"引用大纲→对话模型"路由（`rule:pptx_from_prior_outline`）是这套思路的早期落地。
 
 ### 6.3 Tool Harness
 
@@ -263,7 +266,7 @@ Model Layer（外部推理服务）
 
 设计原则：
 
-- 只读工具默认不在普通问答中展示为“任务进度”。
+- 只读工具默认不在普通问答中展示为"任务进度"。
 - 写入、新建、修改、删除类工具可以展示产品级进度。
 - 需要确认的工具必须进入 HITAS，而不是依赖模型复述确认。
 - 工具执行失败要返回可保存、可展示的失败结果。
@@ -277,12 +280,7 @@ Model Layer（外部推理服务）
 - 控制是否需要用户确认。
 - 保护项目、客户、用户权限范围。
 
-设计原则：
-
-- 默认从严。
-- 读写分离。
-- 修改和删除必须可审计。
-- 用户确认后执行冻结参数，不重新让模型生成工具调用。
+设计原则：默认从严；读写分离；修改和删除必须可审计；用户确认后执行冻结参数，不重新让模型生成工具调用。
 
 ### 6.5 Persistence Harness
 
@@ -308,8 +306,8 @@ Model Layer（外部推理服务）
 
 事件分两层：
 
-1. Internal Trace Event：用于调试、审计、回放。
-2. Product Run Event：用于前端展示。
+1. Internal Trace Event：用于调试、审计、回放（保留现有 `tool_executing` / `tool_result` / `agent_step` / `task_run` 等作为内部信号）。
+2. Product Run Event：用于前端展示（§8）。
 
 前端默认只消费 Product Run Event。
 
@@ -347,7 +345,7 @@ Model Layer（外部推理服务）
 | `failed` | 失败 |
 | `cancelled` | 用户取消 |
 
-### 失败恢复策略
+### 7.2 失败恢复策略
 
 | 失败阶段 | 用户感知 | 恢复方式 | 数据一致性 |
 |---------|---------|---------|-----------|
@@ -358,19 +356,18 @@ Model Layer（外部推理服务）
 
 关键原则：失败时必须给用户可理解的状态，而不是空白或无限 loading。
 
-### 7.2 Display Mode
+### 7.3 Display Mode
 
 同一个 run status 在不同场景下展示方式不同。
 
 | display mode | 场景 | 展示策略 |
 |---|---|---|
-| `quiet` | 普通问答 | 只展示输入中、正在生成、正文流式输出 |
-| `contextual` | 明确读文件或检索资料 | 可展示“正在读取相关资料” |
-| `task` | 长任务或交付物生成 | 展示任务进度 |
+| `quiet` | 普通问答 | 只展示输入中、正在生成、正文流式输出（无活动时间线） |
+| `contextual` | 明确读文件或检索资料 | 展示精简版活动时间线："正在读取相关资料" + 文件列表 |
+| `task` | 长任务或交付物生成 | 展示完整活动时间线（步骤、子工具、进度、交付物） |
+| `skill` | Skill 执行 | 在活动时间线顶部展示 Skill 身份横幅 |
 | `confirmation` | 需要用户确认 | 展示确认卡片 |
-| `debug` | 开发或内部审计 | 展示完整 tool trace |
-
-普通用户默认不进入 `debug`。
+| `debug` | 开发或内部审计 | 展示完整 tool trace（普通用户默认不进入） |
 
 ### Display Mode 决策规则
 
@@ -386,18 +383,20 @@ Model Layer（外部推理服务）
 
 ## 8. Product Run Event 协议
 
-建议第一版事件：
+第一版事件：
 
 | event type | 用途 | 必填字段 | 选填字段 | 字段约束 |
 |---|---|---|---|---|
-| `run_started` | run 已开始，前端立即进入 loading | `run_id`, `timestamp` | `display_mode` | `display_mode` 必须在 run 创建时提供 |
+| `run_started` | run 已开始，前端立即进入 loading | `run_id`, `timestamp` | `display_mode`, `skill` | `display_mode` 必须在 run 创建时提供；`skill` = `{name, id?}`，存在则 UI 渲染 Skill 横幅 |
 | `status` | 产品级状态文案 | `run_id`, `message` | `display_mode`, `progress` | `message` 长度 ≤ 50 字，面向用户 |
 | `text_delta` | 模型文本增量 | `run_id`, `content` | - | `content` 为 UTF-8 文本片段，禁止在后端批量缓存后发送 |
 | `reference_delta` | 资料来源增量 | `run_id`, `source` | `url`, `title` | `source` 为文件/文档标识符 |
-| `artifact_ready` | 交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url` | `artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
-| `tool_progress` | 可展示工具进度 | `run_id`, `title`, `status` | `detail`, `progress` | `status` 枚举：`pending`, `running`, `completed`, `failed` |
+| `step_started` | 一个时间线步骤开始 | `run_id`, `step_index`, `title` | `step_total` | 对应一轮"LLM→工具"或一个 task 阶段 |
+| `step_completed` | 步骤完成 | `run_id`, `step_index`, `status`, `duration_ms` | `truncated` | 对应内部 `agent_step` |
+| `tool_progress` | 可展示工具进度 | `run_id`, `step_index`, `title`, `status` | `detail`, `progress` | `status` 枚举：`pending`, `running`, `completed`, `failed`；归属于当前步骤 |
+| `task_update` | 长任务进度更新 | `run_id`, `task_id`, `status` | `progress_pct`, `current_step`, `total_steps`, `step_title` | `progress_pct` 为 0–100 整数；在 `task` mode 下作为时间线步骤渲染 |
 | `confirmation_required` | 需要用户确认 | `run_id`, `action`, `impact` | `params_snapshot`, `deadline` | `action` 必须人类可读，`params_snapshot` 用于确认后冻结执行 |
-| `task_update` | 长任务进度更新 | `run_id`, `task_id`, `status` | `progress_pct`, `current_step`, `total_steps` | `progress_pct` 为 0–100 整数 |
+| `artifact_ready` | 交付物可用 | `run_id`, `artifact_id`, `artifact_type` | `download_url`, `preview_url` | `artifact_type` 枚举：`pptx`, `docx`, `xlsx`, `pdf`, `markdown` |
 | `message_persisted` | assistant message 已保存 | `run_id`, `message_id` | `parent_run_id` | 用于 streaming 气泡替换为持久化消息 |
 | `run_done` | run 完成 | `run_id`, `final_status` | `message_id`, `artifact_ids` | `final_status` 必须与 run status 一致 |
 | `run_failed` | run 失败 | `run_id`, `error_code`, `error_message` | `retryable`, `fallback_content` | `error_message` 面向用户，禁止暴露内部堆栈 |
@@ -405,30 +404,27 @@ Model Layer（外部推理服务）
 示例：
 
 ```json
-{
-  "type": "status",
-  "run_id": "run_123",
-  "display_mode": "quiet",
-  "message": "正在生成回复..."
-}
+{ "type": "run_started", "run_id": "run_123", "display_mode": "skill",
+  "skill": { "name": "数字化战略", "id": "digital-strategy" } }
 ```
 
 ```json
-{
-  "type": "text_delta",
-  "run_id": "run_123",
-  "content": "这里是对项目风险的总结："
-}
+{ "type": "step_started", "run_id": "run_123", "step_index": 1,
+  "step_total": 3, "title": "读取项目资料" }
 ```
 
 ```json
-{
-  "type": "tool_progress",
-  "run_id": "run_123",
-  "display_mode": "task",
-  "title": "生成项目简报",
-  "status": "running"
-}
+{ "type": "tool_progress", "run_id": "run_123", "step_index": 1,
+  "title": "读取项目文档", "status": "running" }
+```
+
+```json
+{ "type": "step_completed", "run_id": "run_123", "step_index": 1,
+  "status": "completed", "duration_ms": 230 }
+```
+
+```json
+{ "type": "text_delta", "run_id": "run_123", "content": "这里是对项目风险的总结：" }
 ```
 
 ### Event 字段约束
@@ -438,6 +434,7 @@ Model Layer（外部推理服务）
 | `run_id` | 全局唯一，格式 `run_{uuid}`，贯穿同一次 AI Run 的全部事件 |
 | `timestamp` | ISO 8601 格式，精确到毫秒，用于事件排序和时序分析 |
 | `display_mode` | 与 run 的 display mode 一致，前端据此选择展示组件 |
+| `step_index` | 单调递增，1 起算；`tool_progress` / `step_completed` 的 `step_index` 必须先有对应 `step_started` |
 | `message` | 面向最终用户的中文文案，禁止包含内部技术术语或堆栈信息 |
 | `content` | 纯文本片段，禁止包含 Markdown 格式控制符（由前端统一渲染） |
 | `error_code` | 机器可读的错误码，如 `TOOL_EXECUTION_FAILED`、`MODEL_TIMEOUT`、`PERSISTENCE_ERROR` |
@@ -446,64 +443,138 @@ Model Layer（外部推理服务）
 
 - 前端不再直接根据底层 `tool_executing` 决定是否展示任务进度。
 - `text_delta` 必须尽量实时转发，不能在后端整轮缓存后批量发送；允许 50–100ms 的合并窗口以降低 WS 压力。
-- `status` 文案应面向用户，而不是工具内部日志。
+- `status` / `tool_progress.title` 文案应面向用户，而不是工具内部日志。
+
+### 内部事件 → Product Run Event 映射
+
+Event Harness 在 Phase 1 负责把现有内部事件映射为 Product Run Event：
+
+| 内部事件 | 映射到 Product Run Event |
+|---|---|
+| 流开始 + `runtime.skill_name` | `run_started`（带 `skill`） |
+| `status` | `status`（按 display_mode 过滤） |
+| LLM text chunk | `text_delta` |
+| 进入一个新工具轮 | `step_started` |
+| `tool_executing` | `tool_progress` (status=running) |
+| `tool_result` | `tool_progress` (status=completed/failed) |
+| `agent_step` | `step_completed` |
+| `task_run` 更新 | `task_update` |
+| HITAS pending action | `confirmation_required` |
+| artifact 持久化 | `artifact_ready` |
+| persist 完成 | `message_persisted` → `run_done` |
+| 异常 | `run_failed` |
 
 ## 9. 前端展示原则
 
 ### 9.1 普通项目问答
 
-展示：
+展示：用户消息立即出现；AI 占位立即出现；正文流式输出；必要时展示引用来源。
 
-- 用户消息立即出现。
-- AI 占位立即出现。
-- 正文流式输出。
-- 必要时展示引用来源。
-
-不展示：
-
-- 读取项目上下文的内部步骤。
-- 只读工具日志。
-- “步骤 1/4”类内部执行过程。
+不展示：读取项目上下文的内部步骤；只读工具日志；"步骤 1/4"类内部执行过程。
 
 ### 9.2 明确读取文件
 
-展示：
+展示：精简版活动时间线（"正在读取相关文件" + 文件名）；最终回答；文件来源。
 
-- “正在读取相关文件”
-- 最终回答
-- 文件来源
-
-谨慎展示：
-
-- 读取多个文件时可以显示简短状态，但不展开技术日志。
+谨慎展示：读取多个文件时可以显示简短状态，但不展开技术日志。
 
 ### 9.3 长任务和交付物生成
 
-展示：
+展示：任务标题；当前阶段（活动时间线 task mode）；生成物状态；失败原因和可重试入口。
 
-- 任务标题。
-- 当前阶段。
-- 生成物状态。
-- 失败原因和可重试入口。
-
-不展示：
-
-- 每个底层工具调用的原始参数。
-- 模型内部思考或 prompt。
+不展示：每个底层工具调用的原始参数；模型内部思考或 prompt。
 
 ### 9.4 高风险动作
 
-展示：
+展示：明确确认卡片；影响范围；即将执行的动作；Confirm / Reject。
 
-- 明确确认卡片。
-- 影响范围。
-- 即将执行的动作。
-- Confirm / Reject。
+不允许：模型一句话确认后直接执行；前端确认后重新跑模型来"猜"原动作。
 
-不允许：
+### 9.5 Run Activity Timeline（Phase 1 UI 落地）
 
-- 模型一句话确认后直接执行。
-- 前端确认后重新跑模型来“猜”原动作。
+> 这是 §9.1–9.4 各 display mode（除 `quiet` 外）共用的核心 UI 组件，也是 Phase 1 的主要交付。
+> 设计来源：与本设计一同评审的"项目对话活动时间线"草案。
+
+#### 9.5.1 数据模型
+
+流式与持久化共用：
+
+```ts
+type ActivityStatus = "pending" | "running" | "completed" | "error" | "confirmation_required";
+
+interface ActivityItem {        // 时间线里的一个"工具/子动作"
+  tool_name: string;            // 显示名（复用 readableToolName）
+  status: ActivityStatus;
+  message?: string;
+  details?: string[];
+  artifact?: GeneratedArtifact;
+}
+
+interface ActivityStep {        // 一个步骤
+  index: number;
+  title: string;
+  status: ActivityStatus;
+  duration_ms?: number;
+  items: ActivityItem[];
+  truncated?: boolean;
+}
+
+interface ActivityTimeline {
+  skill?: { name: string; id?: string };    // 顶部 Skill 横幅
+  steps: ActivityStep[];
+  artifacts: GeneratedArtifact[];
+  display_mode: "contextual" | "task" | "skill" | "confirmation";
+  kind: "chat" | "durable_task";
+}
+```
+
+#### 9.5.2 Product Run Event → Timeline 映射
+
+| Event | 时间线变更 |
+|---|---|
+| `run_started.skill` | 设 `timeline.skill` 横幅 |
+| `step_started` | 在 `timeline.steps` 末尾 push 一个 step（status=running） |
+| `tool_progress` | upsert 到当前 step 的 `items`（同 `tool_name` 合并） |
+| `step_completed` | 把对应 step 状态置 completed/error，写入 `duration_ms` |
+| `task_update` | 在 `task` mode 下：把 TaskRun 的 step 同步进 `steps`（按 `task.steps`） |
+| `confirmation_required` | 当前 step 末尾追加一个 `confirmation_required` 状态的 item |
+| `artifact_ready` | push 到 `timeline.artifacts` |
+
+#### 9.5.3 组件结构
+
+```text
+ProjectChatActivityTimeline({ timeline, ... })
+├── SkillBanner(timeline.skill)            // 有 skill 才渲染
+├── steps.map(ActivityStepRow)             // 抽取自 ProjectChatToolCallCard
+│     └── items.map(ActivityItemRow)
+└── artifacts.map(ProjectChatArtifactCard) // 已有组件
+```
+
+复用现有 `ProjectChatToolCallCard` 的视觉（它已支持 step 形态），抽出"步骤 + 子项分组"容器即可，不重造样式。`ChatStreamingMessage`（流式）和 `ProjectChatMessageBubble`（持久化）都改为：正文 + `<ProjectChatActivityTimeline timeline={...} />`。
+
+#### 9.5.4 ASCII 示意
+
+```text
+🟦 Aria
+┌ Skill：数字化战略 ───────────────────────┐   ← 仅 skill 激活时
+└──────────────────────────────────────────┘
+（正文 markdown 流式渲染中…▌）
+
+活动 ▾                                        ← 可折叠
+ ① 读取上下文          ✓ 0.2s
+ ② 执行工具            ⟳ 进行中
+     • 读取项目文件     ✓
+     • 读取项目文档     ⟳ 正在读取…
+ ③ 整理结果            · 待
+
+📎 广州岭南…方案.pptx        [下载] [查看]
+```
+
+#### 9.5.5 默认折叠策略
+
+- 进行中（`running`）：默认展开当前步骤；其他步骤折叠为单行摘要。
+- 完成后（`completed`/`failed`）：默认折叠为单行摘要（"✓ 3 步 · 已生成 X.pptx"），用户可点开复盘。
+- 完成后**保留**完整时间线（可折叠），用于后续追溯；不丢弃。
 
 ## 10. 与现有系统的关系
 
@@ -515,12 +586,14 @@ Model Layer（外部推理服务）
 | `ActionPolicy` | Policy Harness | 收敛为副作用边界定义 | 与 ToolAccessPolicy 合并为统一策略 |
 | `ToolAccessPolicy` | Policy Harness + Tool Harness | 工具可见性与权限判断合并 | 注册到 Harness 而非分散在前端 |
 | `IntentRouter` | Routing Harness | 路由结果成为 AI Run 正式字段 | 增加 route decision 的持久化 |
-| `HITAS`（Human-in-the-Loop Tool Approval）| Policy Harness + Persistence Harness | pending action → `confirmation_required` 事件 | 确认后执行冻结参数，不重新生成 tool call |
+| `HITAS` | Policy Harness + Persistence Harness | pending action → `confirmation_required` 事件 | 确认后执行冻结参数，不重新生成 tool call |
 | `Consulting Turn Frame` | Context Harness | 纳入上下文构造逻辑 | 作为 system prompt 的一部分注入 |
 | `Skill Router` | Routing Harness | Skill 触发判断归入路由层 | Skill 执行本身也生成 AI Run |
-| `Task Orchestration` | Run Manager + Tool Harness | 长任务纳入统一 run lifecycle | 保留 durable task 能力 |
+| `Task Orchestration` | Run Manager + Tool Harness | 长任务纳入统一 run lifecycle | 保留 durable task 能力；进度通过 `task_update` 进同一时间线 |
 | `Project Memory` | Persistence Harness | 明确 memory candidate 的产生规则 | 只有显式值得沉淀的信息进入 memory |
 | `Artifact Save` | Persistence Harness + Event Harness | 统一为 `artifact_ready` 事件 | 前端通过事件感知，而非轮询 |
+| `agent_step` 内部事件 | Event Harness | 映射为 `step_completed` | 不再被前端直接消费 |
+| `metadata.skill_progress`（独立聊天页用） | Event Harness | 重构为 Run Activity Timeline 持久化形态 | 项目对话首次获得 Skill 步骤视图 |
 
 ### 10.1 对话系统
 
@@ -550,7 +623,7 @@ Skill 是 Model 的专业能力包，不应该替代 Harness。
 
 - Skill 决定专业工作流和输出标准。
 - Harness 决定上下文、工具权限、执行状态和结果沉淀。
-- Skill 执行也应生成 AI Run。
+- Skill 执行也应生成 AI Run，并在前端通过 Run Activity Timeline 的 Skill 横幅显式露出。
 
 ### 10.4 Project Memory
 
@@ -566,30 +639,33 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 | Phase | 目标 | 预估工时 | 关键里程碑 | 成功标准 |
 |-------|------|---------|-----------|---------|
-| Phase 1 | 轻量 Harness 收口 | 2 人周 | Product Run Event v1 发布 | 异常率 < 1%，用户反馈正向 |
+| Phase 1 | 轻量 Harness 收口 + Run Activity Timeline | 2 人周 | Product Run Event v1 发布 + 项目对话时间线上线 | 异常率 < 1%，普通问答无内部进度；Skill/长任务有真实可读步骤 |
 | Phase 2 | AI Run 数据模型 | 3 人周 | Run 状态可追踪、前端可恢复 | 排查问题不再依赖 message metadata |
 | Phase 3 | Harness 标准化 | 4 人周 | 新工具接入成本降低 50% | 新增工具无需单独写前端展示逻辑 |
 | Phase 4 | 高级 Harness 能力 | 视业务需求 | - | 有明确业务场景后再启动 |
 | **合计** | | **9 人周 + 弹性** | | |
 
-### Phase 1：轻量 Harness 收口
+### Phase 1：轻量 Harness 收口 + Run Activity Timeline
 
-目标：解决当前项目对话体验问题，不做大重构。
+目标：解决当前项目对话体验问题，不做大重构。Phase 1 的可见交付就是 §9.5 的 Run Activity Timeline。
 
-范围：
+范围（按子阶段）：
 
-- 定义 Product Run Event v1。
-- 将普通问答的只读工具进度默认隐藏。
-- 修复 LLM 文本事件后端缓存问题，实现真实 text delta。
-- 前端基于 display mode 展示进度。
-- 明确 streaming 状态与最终 message 替换规则。
+- **1a Event 协议 + 时间线骨架 + Skill 身份**
+  - 后端：定义 Product Run Event v1（§8）；Event Harness 把现有内部事件映射为产品事件；运行时把 `runtime.skill_name` 通过 `run_started.skill` 发出。
+  - 前端：接 `step_started`/`tool_progress`/`step_completed`/`run_started` → `streamingSteps`（接替当前死代码）；新增 `buildActivityTimeline()` 规范化；新增 `ProjectChatActivityTimeline` 组件；流式与持久化都切到新组件。
+- **1b 后台任务进度内联**
+  - 把 `task_update` 灌进同一时间线（kind="durable_task"），复杂任务在对话里直接看 4 步 + 最终文件；面板保留为详情入口。
+- **1c PPT 生成方式可见/可选**
+  - 轻量提示/开关："按我的大纲" / "自动生成项目 PPT"，与已有的 `rule:pptx_from_prior_outline` 路由衔接。
 
 预期收益：
 
 - 用户立即看到稳定反馈。
-- 普通问答不再展示“任务进度”。
-- 文本看起来是真正逐步输出。
-- 前端减少对底层 tool event 的依赖。
+- 普通问答不再展示"任务进度"。
+- 文本看起来是真正逐步输出（本轮 `_consume_stream` 已改为真流式，Phase 1 完成 UI 闭环）。
+- Skill 调用首次在项目对话里有清晰的身份与步骤呈现。
+- 复杂任务无需跳到任务面板看进度。
 
 ### Phase 1 过渡策略
 
@@ -637,15 +713,7 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 
 目标：在业务复杂度增长后继续提升可靠性。
 
-可能能力：
-
-- run replay。
-- evaluation。
-- planner。
-- multi-step durable workflow。
-- 多模型路由。
-- 成本和 token 预算控制。
-- 更完整的 observability dashboard。
+可能能力：run replay；evaluation；planner；multi-step durable workflow；多模型路由；成本和 token 预算控制；更完整的 observability dashboard。
 
 该阶段不建议立即启动，除非已有明确业务场景。
 
@@ -654,36 +722,47 @@ Project Memory 是长期状态，不是普通聊天上下文的副产品。
 | 风险 | 说明 | 应对 |
 |---|---|---|
 | 一次性重构过大 | 容易影响现有对话和 Skill | 按 Phase 1 先收口事件和展示 |
-| 前端与旧事件兼容复杂 | 当前已有多种 stream event | 新旧事件并行一段时间 |
-| 过度展示进度 | 用户会看到系统内部噪音 | 引入 display mode |
-| 过度隐藏过程 | 长任务缺少信任感 | 只在 task/confirmation 场景展示 |
+| 前端与旧事件兼容复杂 | 当前已有多种 stream event | 新旧事件并行一段时间（§11 过渡策略） |
+| 过度展示进度 | 用户会看到系统内部噪音 | 引入 display mode + 时间线默认折叠 |
+| 过度隐藏过程 | 长任务缺少信任感 | 只在 task/contextual/skill/confirmation 场景展示时间线 |
 | 数据模型提前设计过重 | 影响迭代速度 | Phase 2 再持久化 run |
 | 工具结果 schema 不统一 | 后续扩展难 | Phase 3 标准化工具输出 |
 | 高频流式事件压垮连接 | text_delta 在高并发下产生大量 WS 消息 | 引入 50–100ms 合并窗口，批量发送 delta |
 | Trace 存储成本激增 | Internal Trace Event 数据量远大于 Product Event | Trace 保留 7 天，仅采样 10% 长期持久化 |
+| 时间线"步骤"语义不统一 | chat 回合的 step 没有人类标题，与 durable task 的有标题不一致 | 见 §13 决策 5 |
 
 ## 13. 建议的近期决策
 
-建议现在确认以下产品决策：
+### 13.1 产品边界决策
 
 1. 普通项目问答默认不展示底层工具进度。
-2. 只有长任务、交付物生成、明确文件读取和用户确认展示进度。
+2. 只有长任务、交付物生成、明确文件读取、Skill 调用和用户确认展示进度（即 `contextual` / `task` / `skill` / `confirmation` mode）。
 3. 前端展示基于 Product Run Event，不直接依赖 raw tool call。
-4. 模型文本必须尽量真实流式输出。
+4. 模型文本必须尽量真实流式输出（本轮已修复 `_consume_stream` 缓存问题）。
 5. 所有会产生副作用的动作必须通过 Policy Harness 和 HITAS。
 6. Harness 先以 AI Run v1 的方式收口，不立即建设完整 Agent 平台。
 
+### 13.2 Run Activity Timeline UI 决策
+
+7. **默认折叠**：进行中展开当前步骤、其他步骤折叠；完成后整条时间线折叠为单行摘要（保留可点开复盘）。
+8. **chat 回合步骤标题**：用工具名拼（如"读取项目文档、读取项目文件"）作为标题；durable task 用其自带 `step_title`；都不出现"步骤 X/N"的硬编码。
+9. **完成后保留**完整时间线（可折叠）而非只留摘要，便于复盘和审计。
+10. **agent_step 粒度**：当前一轮"LLM→工具"= 一步，通常 1–2 步——Phase 1 先保持此粒度；若用户反馈不够"harness 感"，Phase 2 再考虑细分子阶段。
+11. **范围**：Phase 1 只统一项目对话；独立聊天页（`Chat.tsx`，目前有 `skill_progress`）的迁移放到 Phase 2 与 Run 数据模型一起做。
+
 ## 14. 第一版验收标准
 
-AI Run Harness v1 完成后，至少满足：
+AI Run Harness v1（Phase 1）完成后，至少满足：
 
 - 用户发送消息后，用户消息和 AI 状态立即出现。
-- 普通问答不会展示“步骤 1/4”或只读工具日志。
+- 普通问答不会展示"步骤 1/4"或只读工具日志。
 - 文本回复逐段显示，而不是整段突然出现。
-- 文件读取场景可以展示简短、可理解的读取状态。
+- 文件读取场景可以展示简短、可理解的读取状态（contextual mode 时间线）。
 - 交付物生成有任务进度和 artifact ready 事件。
 - 高风险修改或删除动作进入确认流程。
-- run 完成后 streaming 气泡稳定替换为持久化 assistant message。
+- run 完成后 streaming 气泡稳定替换为持久化 assistant message，**且活动时间线一致**（流式/刷新无差异）。
+- Skill 调用时项目对话顶部显示 Skill 横幅；时间线步骤反映真实工具执行。
+- 复杂/后台任务在对话里直接看到 4 步进度 + 最终文件，不需跳任务面板。
 - 开发者仍可在 trace 中看到底层工具和执行日志。
 
 ## 15. 总结
@@ -691,13 +770,13 @@ AI Run Harness v1 完成后，至少满足：
 AriaAI 当前不需要立刻建设复杂 Agent 平台，但需要从现在开始引入 Harness 边界。正确路径是：
 
 ```text
-先统一 AI Run lifecycle
+先统一 AI Run lifecycle 与 Product Run Event
   ↓
-再统一 Product Run Event
+落地 Run Activity Timeline UI（项目对话首发，§9.5）
   ↓
 再统一 Tool / Context / Persistence Harness
   ↓
 最后根据业务复杂度引入高级 Agent 能力
 ```
 
-这条路径可以在不推倒现有系统的前提下，逐步把 AriaAI 从“能聊天的项目系统”升级为“可控、可沉淀、可审计的项目 AI 工作台”。
+这条路径可以在不推倒现有系统的前提下，逐步把 AriaAI 从"能聊天的项目系统"升级为"可控、可沉淀、可审计的项目 AI 工作台"，并在 Phase 1 就让用户**看见**这套体系的价值——尤其是在 Skill 调用和复杂任务这两个场景下。
