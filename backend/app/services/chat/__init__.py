@@ -42,7 +42,6 @@ from app.services.chat.product_run_events import (
     ErrorCode,
     RunFinalStatus,
     make_run_id,
-    knowledge_retrieval as _knowledge_retrieval_event,
     run_done,
     run_failed,
     run_started,
@@ -205,18 +204,6 @@ async def stream_chat_events(
 
     if runtime.rag_sources:
         yield sse_event({"type": "references", "references": runtime.rag_sources})
-    knowledge_metric = (runtime.prepare_metrics or {}).get("knowledge_retrieval") if runtime.prepare_metrics else None
-    if isinstance(knowledge_metric, dict):
-        yield sse_event(
-            _knowledge_retrieval_event(
-                state.run_id,
-                status=str(knowledge_metric.get("status") or "completed"),
-                query=str(knowledge_metric.get("query") or ""),
-                source_count=int(knowledge_metric.get("source_count") or 0),
-                chunk_count=int(knowledge_metric.get("chunk_count") or 0),
-                low_confidence=bool(knowledge_metric.get("low_confidence")),
-            )
-        )
 
     for metric_key in (
         "conversation_ready_ms",
