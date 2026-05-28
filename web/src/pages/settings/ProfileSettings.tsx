@@ -3,6 +3,7 @@ import { User, Mail, KeyRound, Check, Loader2, AlertCircle, X, Lock, Clock3, Typ
 import { api } from '../../api/client'
 import type { User as UserType } from '../../types/api'
 import { BROWSER_TIMEZONE_VALUE, DEFAULT_APP_TIMEZONE, getBrowserTimeZone, setAppTimeZone } from '../../utils/timezone'
+import { UserMemorySettingsCard } from './UserMemorySettingsCard'
 import {
   APP_FONT_SIZE_SETTING_KEY,
   getStoredAppFontSize,
@@ -317,6 +318,9 @@ export function ProfileSettings() {
           )}
         </div>
       </div>
+
+      {/* User Memory (AI 个人偏好) Card */}
+      <UserMemorySettingsCard />
 
       {/* Password Card */}
       <div className="card space-y-4">

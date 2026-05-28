@@ -31,8 +31,11 @@ import { getProjectChatCopy } from "./projectChatCopy";
 import { MarkdownDiffViewer } from "./MarkdownDiffViewer";
 import { ProjectChatActivityTimeline } from "./ProjectChatActivityTimeline";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
+import { ProjectChatPptPathBadge } from "./ProjectChatPptPathBadge";
+import { ProjectChatRememberPreferenceModal } from "./ProjectChatRememberPreferenceModal";
 import { ProjectChatTracePanel } from "./ProjectChatTracePanel";
 import { ProjectChatToolCallCard } from "./ProjectChatToolCallCard";
+import { detectPreferenceSuggestion } from "../../utils/preferenceHints";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { formatTimeOnly } from "../../utils/timezone";
 import {
@@ -218,7 +221,10 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             }`}
           >
             {isUser ? (
-              <p className="whitespace-pre-wrap">{msg.content}</p>
+              <>
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <UserMessagePreferenceHint content={msg.content} />
+              </>
             ) : (
               <div className="md-root project-chat-answer w-full">
                 <MarkdownRenderer content={msg.content} />
@@ -226,6 +232,12 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
               </div>
             )}
           </div>
+
+          {!isUser && artifacts.length > 0 && (
+            <div className="mt-1.5">
+              <ProjectChatPptPathBadge metadata={metadata} artifacts={artifacts} />
+            </div>
+          )}
 
           {!isUser &&
             (references.length > 0 ||
@@ -477,3 +489,38 @@ function PersistedRunActivityTimelineSection({
   );
 }
 
+/**
+ * "💡 记住为偏好" affordance shown under a user message that looks like a
+ * lasting preference (see ``utils/preferenceHints``). Click → opens a small
+ * modal that writes the suggestion to /user-memory. Renders nothing when no
+ * preference phrase is detected — keeps the chat quiet on normal turns.
+ */
+function UserMessagePreferenceHint({ content }: { content: string }) {
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const suggestion = detectPreferenceSuggestion(content);
+  if (!suggestion) return null;
+  if (savedKey === suggestion.key) {
+    return (
+      <p className="mt-1 text-[11px] text-on-surface-muted">已记住为偏好 ✓</p>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setModalOpen(true)}
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-on-surface-muted hover:text-primary"
+      >
+        💡 记住为偏好：{suggestion.label}
+      </button>
+      {modalOpen && (
+        <ProjectChatRememberPreferenceModal
+          suggestion={suggestion}
+          onClose={() => setModalOpen(false)}
+          onSaved={() => setSavedKey(suggestion.key)}
+        />
+      )}
+    </>
+  );
+}
