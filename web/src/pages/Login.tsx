@@ -4,11 +4,11 @@
  * Fullscreen / ultrawide fix:
  *   1. Outer wrapper now uses bg-elev so the left aside background extends
  *      to viewport edges on ultrawide. Inner container is capped at 1440.
- *   2. Desktop uses a deterministic grid: left minmax(0, 1fr), right 480px.
+ *   2. Desktop uses a deterministic flex shell: left flex 1.4, right 480px.
  *   3. Brand mark + hero + footer are wrapped in a single 520-wide column
  *      so all 3 align to the same vertical axis (no more footer items
  *      flying to opposite corners on wide screens).
- *   4. Right main sits in a fixed 480px grid track — form column never inflates.
+ *   4. Right main is fixed 480px on desktop — form column never inflates.
  *   5. Dot grid + orbs remain pinned to the aside (not the inner column)
  *      so they keep filling the panel space.
  *
@@ -82,36 +82,19 @@ export function Login() {
           on ultrawide screens the left aside background appears to
           extend forever (and the inner 1440 container is invisible).
           ============================================================ */}
-      <div
-        className="theme-codex min-h-screen flex justify-center"
-        style={{ background: "var(--color-codex-bg-elev)" }}
-      >
+      <div className="theme-codex codex-login-outer">
         {/* ----------------------------------------------------------
             INNER — capped at 1440. Above this width, viewport just
             adds equal left/right whitespace that visually merges with
             the left aside background.
             ---------------------------------------------------------- */}
-        <div
-          className="flex w-full lg:grid"
-          style={{
-            maxWidth: 1440,
-            gridTemplateColumns: "minmax(0, 1fr) 480px",
-            minHeight: "100vh",
-            overflow: "hidden",
-          }}
-        >
+        <div className="codex-login-inner">
           {/* --------------------------------------------------------
-              LEFT — quiet hero (hidden on small screens). Desktop grid
+              LEFT — quiet hero (hidden on small screens). Desktop flex
               gives this column all remaining width beside the 480px form.
               -------------------------------------------------------- */}
           <aside
-            className="relative hidden lg:flex flex-col overflow-hidden"
-            style={{
-              minWidth: 0,
-              padding: "44px 56px",
-              background: "var(--color-codex-bg-elev)",
-              borderRight: "1px solid var(--color-codex-line)",
-            }}
+            className="codex-login-aside"
             aria-hidden="false"
           >
             {/* Faint dot grid — drifts on a 22s loop. Stays pinned to
@@ -172,13 +155,7 @@ export function Login() {
                 space-between, so brand mark, hero, and footer all
                 align to the same vertical axis on any screen width. */}
             <div
-              className="relative flex flex-col justify-between"
-              style={{
-                flex: "1 1 auto",
-                width: "100%",
-                maxWidth: 520,
-                minHeight: 0,
-              }}
+              className="codex-login-hero-column"
             >
               {/* Brand mark — pinned top. */}
               <div className="relative">
@@ -237,7 +214,7 @@ export function Login() {
 
               {/* Footer — edition tag + copyright on the same axis. */}
               <div
-                className="relative flex items-center justify-between"
+                className="codex-login-footer"
                 style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
               >
                 <span>{t("login.heroEdition")}</span>
@@ -247,18 +224,11 @@ export function Login() {
           </aside>
 
           {/* --------------------------------------------------------
-              RIGHT — form. Fixed 480px width (not flex-1) so the form
+              RIGHT — form. Fixed 480px width on desktop so the form
               column never inflates on ultrawide screens.
               -------------------------------------------------------- */}
           <main
-            className="flex items-center justify-center"
-            style={{
-              gridColumn: "2",
-              minWidth: 0,
-              width: "100%",
-              padding: "44px 60px",
-              background: "var(--color-codex-bg)",
-            }}
+            className="codex-login-main"
           >
             <div style={{ maxWidth: 340, width: "100%" }}>
               <h2
