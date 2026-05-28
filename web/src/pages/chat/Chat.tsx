@@ -38,6 +38,7 @@ import { exportConversationFile } from '../../api/chatExport'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
+import { CxStatus } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
@@ -2012,15 +2013,56 @@ export function Chat() {
                   <MessageRow key={msg.id} message={msg} />
                 ))}
 
-                {/* Streaming / thinking */}
+                {/* Streaming / thinking — same Codex avatar treatment as
+                    the assistant row in MessageRow, with the ``codex-cursor``
+                    helper class appended to the streaming text. */}
                 {(isThinking || streamingContent) && (
-                  <div className="flex w-full items-start gap-2.5 animate-fade-in sm:gap-3.5">
-                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-primary to-indigo-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm shadow-primary/20">
-                      <Sparkles className="w-3.5 h-3.5 text-white" />
-                    </div>
-                    <div className="w-full flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-300 mb-2">Aria</p>
-                      <div className="w-full text-[15px] text-gray-700 leading-[1.8]">
+                  <div className="flex w-full animate-fade-in items-start gap-3.5">
+                    <span
+                      className="inline-flex flex-shrink-0 items-center justify-center"
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 999,
+                        marginTop: 4,
+                        background: 'var(--color-codex-accent-bg)',
+                        color: 'var(--color-codex-accent)',
+                      }}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
+                    <div
+                      className="flex flex-1 flex-col"
+                      style={{ minWidth: 0, paddingTop: 4 }}
+                    >
+                      <div
+                        className="flex items-center gap-1.5"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--color-codex-ink-mute)',
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: 'var(--color-codex-accent-ink)',
+                            fontWeight: 500,
+                          }}
+                        >
+                          Aria
+                        </span>
+                        <CxStatus tone="accent" pulse>
+                          {t('chat.thinking')}
+                        </CxStatus>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 14.5,
+                          lineHeight: 1.75,
+                          color: 'var(--color-codex-ink)',
+                          maxWidth: 720,
+                        }}
+                      >
                         {streamingContent ? (
                           <>
                             {skillRunActive ? (
@@ -2033,12 +2075,20 @@ export function Chat() {
                             ))}
                             <StreamingAnswerPreview content={streamingContent} compact={skillRunActive} />
                             {toolStatus && (
-                              <div className="flex items-center gap-2 mt-3 text-xs text-primary/70">
-                                <Loader2 className="w-3 h-3 animate-spin" />
+                              <div
+                                className="mt-3 flex items-center gap-2"
+                                style={{
+                                  fontSize: 12,
+                                  color: 'var(--color-codex-accent)',
+                                }}
+                              >
+                                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                                 {toolStatus}
                               </div>
                             )}
-                            <span className="inline-block w-0.5 h-[1.1em] bg-primary/50 ml-0.5 animate-pulse rounded-full align-middle" />
+                            {/* Blinking cursor — uses the codex-cursor::after
+                                helper from codex.css. */}
+                            <span className="codex-cursor inline-block align-middle" aria-hidden="true" />
                           </>
                         ) : toolStatus ? (
                           <>
@@ -2047,9 +2097,12 @@ export function Chat() {
                             ) : (
                               <ChatStatusPill message={liveStatusText || toolStatus} />
                             )}
-                            <div className="flex items-center gap-2 text-gray-400 py-1">
-                              <Loader2 className="w-4 h-4 animate-spin text-primary/60" />
-                              <span className="text-sm text-primary/70">{toolStatus}</span>
+                            <div
+                              className="flex items-center gap-2 py-1"
+                              style={{ color: 'var(--color-codex-accent)' }}
+                            >
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              <span style={{ fontSize: 13 }}>{toolStatus}</span>
                             </div>
                           </>
                         ) : (
@@ -2066,11 +2119,33 @@ export function Chat() {
 
                 {/* Error banner */}
                 {errorMsg && (
-                  <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl bg-red-50 border border-red-100">
-                    <TriangleAlert className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-500 flex-1">{errorMsg}</p>
-                    <button onClick={() => setErrorMsg(null)} className="text-red-300 hover:text-red-500">
-                      <X className="w-4 h-4" />
+                  <div
+                    role="alert"
+                    className="flex items-start gap-3"
+                    style={{
+                      padding: '10px 14px',
+                      background:
+                        'color-mix(in oklch, var(--color-codex-bad) 8%, transparent)',
+                      border:
+                        '1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                      color: 'var(--color-codex-bad)',
+                    }}
+                  >
+                    <TriangleAlert
+                      className="h-4 w-4 flex-shrink-0"
+                      aria-hidden="true"
+                      style={{ marginTop: 2 }}
+                    />
+                    <p className="flex-1" style={{ margin: 0, fontSize: 13 }}>
+                      {errorMsg}
+                    </p>
+                    <button
+                      onClick={() => setErrorMsg(null)}
+                      aria-label="Dismiss"
+                      style={{ color: 'var(--color-codex-bad)', opacity: 0.7 }}
+                    >
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 )}
@@ -2597,12 +2672,19 @@ function ExportDropdown({ conversationId, conversationTitle }: {
   )
 }
 
-// ─── MessageRow ─────────────────────────────────────────────────────────────
+// ─── MessageRow (Codex thread bubble · sub-B) ───────────────────────────────
+//
+// Both user and Aria rows render flat-left per the prototype
+// (direction-codex-part1.jsx:309). No bubble backgrounds — quiet ink on
+// parchment. Avatar style differs: user gets a faint ``bg-tint`` circle with
+// "你" / "You" glyph; Aria gets an ``accent-bg`` circle with the sparkle.
+//
+// The cards inside (ProgressCard, StreamingAnswerPreview, ChatArtifactCard)
+// still render in their legacy palette — sub-C will refactor those.
 function MessageRow({ message }: { message: Message }) {
   const { t } = useTranslation()
   const isUser = message.role === 'user'
 
-  // Parse references from metadata_json
   let references: Array<{ type: string; id: number; title: string }> = []
   let skillProgress: ChatProgressStep[] = []
   let artifacts: GeneratedArtifact[] = []
@@ -2618,78 +2700,149 @@ function MessageRow({ message }: { message: Message }) {
   }
 
   return (
-    <div className={`flex w-full items-start gap-3.5 group ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
-      <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${
-        isUser
-          ? 'bg-slate-200'
-          : 'bg-primary shadow-sm shadow-primary/20'
-      }`}>
-        {isUser ? (
-          <span className="text-xs font-semibold text-slate-500">{t('chat.you')}</span>
-        ) : (
-          <Sparkles className="w-3.5 h-3.5 text-white" />
-        )}
-      </div>
+    <div className="group flex w-full items-start gap-3.5">
+      {/* Avatar — same size for both sides, swatch differs by role. */}
+      <span
+        className="inline-flex flex-shrink-0 items-center justify-center"
+        style={{
+          width: 30,
+          height: 30,
+          borderRadius: 999,
+          marginTop: 4,
+          fontSize: 12,
+          fontWeight: 500,
+          background: isUser
+            ? 'var(--color-codex-bg-tint)'
+            : 'var(--color-codex-accent-bg)',
+          color: isUser
+            ? 'var(--color-codex-ink-soft)'
+            : 'var(--color-codex-accent)',
+        }}
+      >
+        {isUser ? t('chat.you') : <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
+      </span>
 
-      {/* Content + actions */}
-      <div className={`flex-1 min-w-0 flex flex-col ${isUser ? 'items-end' : 'items-stretch'}`}>
-        {/* Role label */}
-        <p className="text-xs font-medium text-slate-400 mb-1.5 px-0.5">
-          {isUser ? t('chat.you') : 'Aria'}
-        </p>
-
-        <div className={`${
-          isUser
-            ? 'max-w-[85%] px-4 py-2.5 bg-slate-900 text-white rounded-xl rounded-tr-sm text-[15px] leading-[1.7] shadow-sm'
-            : 'w-full max-w-none text-[15px] leading-[1.8] text-slate-700'
-        }`}>
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{message.content}</p>
-          ) : (
-            <>
-              <ProgressCard steps={skillProgress} title="Skill 执行清单" />
-              {artifacts.map((artifact) => (
-                <ChatArtifactCard key={`${artifact.id ?? artifact.path}-${artifact.name}`} artifact={artifact} />
-              ))}
-              <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
-            </>
-          )}
+      {/* Content column. No bubble — just markdown text + meta. */}
+      <div className="flex flex-1 flex-col" style={{ minWidth: 0, paddingTop: 4 }}>
+        {/* Role + time label */}
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)', marginBottom: 6 }}
+        >
+          <span
+            style={{
+              color: isUser
+                ? 'var(--color-codex-ink-soft)'
+                : 'var(--color-codex-accent-ink)',
+              fontWeight: 500,
+            }}
+          >
+            {isUser ? t('chat.you') : 'Aria'}
+          </span>
+          <span>·</span>
+          <span className="font-mono">{formatTime(message.created_at)}</span>
         </div>
 
-        {/* References */}
+        {/* Body */}
+        {isUser ? (
+          <p
+            className="whitespace-pre-wrap"
+            style={{
+              margin: 0,
+              fontSize: 14.5,
+              lineHeight: 1.75,
+              color: 'var(--color-codex-ink)',
+              maxWidth: 720,
+            }}
+          >
+            {message.content}
+          </p>
+        ) : (
+          <div
+            style={{
+              fontSize: 14.5,
+              lineHeight: 1.75,
+              color: 'var(--color-codex-ink)',
+              maxWidth: 720,
+            }}
+          >
+            <ProgressCard steps={skillProgress} title="Skill 执行清单" />
+            {artifacts.map((artifact) => (
+              <ChatArtifactCard
+                key={`${artifact.id ?? artifact.path}-${artifact.name}`}
+                artifact={artifact}
+              />
+            ))}
+            <StreamingAnswerPreview content={message.content} compact={skillProgress.length > 0} />
+          </div>
+        )}
+
+        {/* References — codex chip row. */}
         {!isUser && references.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {references.map((ref, i) => (
-              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white text-xs text-slate-500 border border-slate-200">
-                {ref.type === 'skill' && <Wrench className="w-3 h-3" />}
-                {ref.type === 'doc' && <BookOpen className="w-3 h-3" />}
-                {ref.type === 'file' && <FileIcon className="w-3 h-3" />}
+              <span
+                key={i}
+                className="inline-flex items-center gap-1"
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 11.5,
+                  background: 'var(--color-codex-bg-elev)',
+                  color: 'var(--color-codex-ink-soft)',
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
+                {ref.type === 'skill' && <Wrench className="h-3 w-3" aria-hidden="true" />}
+                {ref.type === 'doc' && <BookOpen className="h-3 w-3" aria-hidden="true" />}
+                {ref.type === 'file' && <FileIcon className="h-3 w-3" aria-hidden="true" />}
                 {ref.title}
               </span>
             ))}
           </div>
         )}
 
-        {/* Timestamp + copy — visible on hover */}
+        {/* Stage timings — quiet info chips, mono numbers. */}
         {!isUser && stageTimings.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {stageTimings
-              .filter(item => ['prepare_total_ms', 'model_first_event_ms', 'tools_total_ms', 'follow_up_ms', 'save_ms', 'total_stream_ms'].includes(item.key))
+              .filter((item) =>
+                [
+                  'prepare_total_ms',
+                  'model_first_event_ms',
+                  'tools_total_ms',
+                  'follow_up_ms',
+                  'save_ms',
+                  'total_stream_ms',
+                ].includes(item.key),
+              )
               .slice(0, 6)
               .map((item) => (
                 <span
                   key={item.key}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/10 bg-primary/[0.04] px-2 py-0.5 text-xs text-primary/80"
+                  className="inline-flex items-center gap-1"
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    background: 'var(--color-codex-bg-tint)',
+                    color: 'var(--color-codex-ink-mute)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
                 >
-                  <Clock className="h-3 w-3" />
-                  {item.label} {formatDuration(item.durationMs)}
+                  <Clock className="h-3 w-3" aria-hidden="true" />
+                  {item.label}{' '}
+                  <span className="font-mono">{formatDuration(item.durationMs)}</span>
                 </span>
               ))}
           </div>
         )}
-        <div className={`flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1.5 ${isUser ? 'flex-row-reverse' : ''}`}>
-          <span className="text-xs text-slate-300 px-0.5">{formatTime(message.created_at)}</span>
+
+        {/* Hover-only copy button. Timestamp already lives in the role
+            line, so the row stays quiet at rest. */}
+        <div
+          className="mt-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: 'var(--color-codex-ink-faint)' }}
+        >
           <CopyButton text={message.content} />
         </div>
       </div>
