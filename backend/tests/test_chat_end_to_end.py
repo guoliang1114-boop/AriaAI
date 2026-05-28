@@ -185,6 +185,11 @@ class ChatEndToEndBase(unittest.IsolatedAsyncioTestCase):
             project_id=None,
             content="hello",
             action_confirmations=[],
+            # Mirror the production SendMessageRequest shape so persist paths
+            # that read optional fields (skill_id, force_skill, etc.) do not
+            # AttributeError on the mock.
+            skill_id=None,
+            force_skill=False,
         )
 
     async def asyncTearDown(self) -> None:
@@ -473,6 +478,110 @@ class TruncationTests(ChatEndToEndBase):
         self.assertEqual(len(truncated_events), 1)
         self.assertTrue(truncated_events[0].get("can_continue"))
         self.assertEqual(len(_events_of_type(events, "done")), 1)
+
+
+# ----------------------------------------------------------------------
+# Scenario 6: Skill execution (§5.1 of docs/13 — defensive net)
+# ----------------------------------------------------------------------
+
+
+class SkillExecutionTests(ChatEndToEndBase):
+    """When ``runtime.skill_name`` is set, a turn that calls a skill tool must:
+
+    1. Route the call to the skill tool (here: ``generate_ppt_from_skill``).
+    2. Stream the standard tool_executing / tool_result events.
+    3. Persist an assistant message whose metadata carries the canonical 5-step
+       ``skill_progress`` (built by ``_build_completed_skill_progress``).
+    """
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        # Mark this run as Skill-driven so persist.py populates skill_progress.
+        self.runtime.skill_name = "digital-strategy"
+
+    async def test_skill_turn_persists_skill_progress_and_invokes_skill_tool(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_skill_1",
+                "name": "generate_ppt_from_skill",
+                "input": {
+                    "skill_name": "digital-strategy",
+                    "title": "Demo Deck",
+                    "slides": [
+                        {"type": "content", "title": "Slide A", "content": "- bullet"}
+                    ],
+                },
+            }
+        )
+        # Model emits the skill tool call, then narrates a short closing message.
+        self.set_llm_stream(
+            [
+                [f"Generating the deck now. {tool_block}"],
+                ["Done — the deck is saved."],
+            ]
+        )
+
+        tool_handler = AsyncMock(
+            return_value={
+                "type": "tool_result",
+                "tool_name": "generate_ppt_from_skill",
+                "tool_use_id": "tu_skill_1",
+                "status": "success",
+                "output": {
+                    "success": True,
+                    "file_name": "demo_deck.pptx",
+                    "file_type": "pptx",
+                    "message": "Created demo_deck.pptx",
+                },
+            }
+        )
+        self.set_tool_handler(tool_handler)
+
+        events = await self.drain()
+
+        # 1. Skill tool was invoked.
+        self.assertEqual(tool_handler.call_count, 1)
+        args, _ = tool_handler.call_args
+        self.assertEqual(args[0], "generate_ppt_from_skill")
+        self.assertEqual(args[1].get("skill_name"), "digital-strategy")
+
+        # 2. Standard tool events fired.
+        self.assertGreaterEqual(len(_events_of_type(events, "tool_executing")), 1)
+        self.assertGreaterEqual(len(_events_of_type(events, "tool_result")), 1)
+        self.assertEqual(len(_events_of_type(events, "done")), 1)
+
+        # 3. Persisted assistant message carries the 5-step skill_progress.
+        assistant = [m for m in self.assistant_messages() if m.role == "assistant"]
+        self.assertEqual(len(assistant), 1)
+        metadata = json.loads(assistant[0].metadata_json or "{}")
+        progress = metadata.get("skill_progress")
+        self.assertIsInstance(progress, list, "skill_progress should be a list when skill_name is set")
+        keys = [step.get("key") for step in progress]
+        self.assertEqual(
+            keys,
+            ["prepare", "thinking", "tools", "final", "saving"],
+            f"skill_progress keys do not match canonical 5-step shape: {keys}",
+        )
+        tools_step = next(step for step in progress if step["key"] == "tools")
+        # The tools step should reflect that a real tool ran (not the "no tools"
+        # placeholder used when the model answers without calling anything).
+        self.assertTrue(
+            any("generate_ppt_from_skill" in line or "完成" in line for line in tools_step.get("logs", [])),
+            f"tools step did not record the real tool execution: {tools_step.get('logs')}",
+        )
+
+    async def test_non_skill_turn_does_not_emit_skill_progress(self) -> None:
+        """Regression: ``skill_progress`` must only fire when a skill is active."""
+        self.runtime.skill_name = ""  # override base override
+        self.set_llm_stream([["Just a plain answer."]])
+
+        await self.drain()
+
+        assistant = [m for m in self.assistant_messages() if m.role == "assistant"]
+        self.assertEqual(len(assistant), 1)
+        metadata = json.loads(assistant[0].metadata_json or "{}")
+        self.assertNotIn("skill_progress", metadata)
 
 
 if __name__ == "__main__":  # pragma: no cover
