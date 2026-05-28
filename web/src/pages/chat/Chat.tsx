@@ -1555,8 +1555,14 @@ export function Chat() {
   const conversationGroups = groupConversations(filteredConversations, t, resolvedTimeZone)
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // ``theme-codex`` wraps the page so the sidebar + chrome (refactored in
+  // this PR) pick up the Codex tokens. The inner message stream + composer
+  // still render in their legacy palette — PR-B / PR-C / PR-D refactor those.
   return (
-    <div className="relative h-full overflow-hidden bg-slate-50 md:flex">
+    <div
+      className="theme-codex relative h-full overflow-hidden md:flex"
+      style={{ background: 'var(--color-codex-bg)' }}
+    >
       <PageTitle title={t('chat.title')} />
 
       {/* ── Sidebar ── */}
@@ -1568,123 +1574,282 @@ export function Chat() {
           onClick={() => setSidebarOpen(false)}
           className="fixed inset-0 z-30 bg-slate-900/20 backdrop-blur-[1px] md:hidden"
         />
-        <div className="group/sidebar fixed inset-y-0 left-0 z-40 flex w-[86vw] max-w-80 flex-col border-r border-slate-200 bg-white shadow-2xl shadow-slate-900/15 md:relative md:z-auto md:w-72 md:max-w-none md:flex-shrink-0 md:shadow-none">
+        <div
+          className="group/sidebar fixed inset-y-0 left-0 z-40 flex w-[86vw] max-w-80 flex-col md:relative md:z-auto md:w-[260px] md:max-w-none md:flex-shrink-0"
+          style={{
+            background: 'var(--color-codex-bg-elev)',
+            borderRight: '1px solid var(--color-codex-line)',
+          }}
+        >
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="group/collapse pointer-events-auto absolute -right-3 top-1/2 z-20 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 opacity-100 shadow-lg shadow-slate-200/70 transition-all duration-200 hover:border-primary/30 hover:text-primary md:pointer-events-none md:opacity-0 md:group-hover/sidebar:pointer-events-auto md:group-hover/sidebar:opacity-100"
+            className="group/collapse pointer-events-auto absolute -right-3 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center transition-all duration-150 md:pointer-events-none md:opacity-0 md:group-hover/sidebar:pointer-events-auto md:group-hover/sidebar:opacity-100"
+            style={{
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 999,
+              color: 'var(--color-codex-ink-mute)',
+            }}
             title={t('chat.collapseSidebar')}
             aria-label={t('chat.collapseSidebar')}
           >
-            <ChevronLeft className="w-4 h-4" />
-            <span className="pointer-events-none absolute right-10 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover/collapse:opacity-100">
-              {t('chat.collapseSidebar')}
-            </span>
+            <ChevronLeft className="w-3.5 h-3.5" />
           </button>
-          {/* Sidebar header */}
-          <div className="px-3 pt-3 pb-3 flex flex-col gap-2 border-b border-slate-100">
+          {/* Sidebar header — dark-ink new-chat CTA + Codex search input. */}
+          <div
+            className="flex flex-col gap-2"
+            style={{
+              padding: '14px 14px 12px',
+            }}
+          >
             <button
               onClick={createNewConversation}
-              className="w-full bg-primary text-white rounded-md font-medium flex items-center justify-center gap-1.5 py-2 text-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
+              className="inline-flex w-full items-center gap-2 transition"
+              style={{
+                padding: '9px 12px',
+                background: 'var(--color-codex-ink)',
+                color: 'var(--color-codex-bg-elev)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               {t('chat.newChat')}
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 10.5,
+                  opacity: 0.55,
+                }}
+                className="font-mono"
+              >
+                ⌘N
+              </span>
             </button>
             {/* Search */}
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+              <Search
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none"
+                aria-hidden="true"
+                style={{ color: 'var(--color-codex-ink-faint)' }}
+              />
               <input
                 type="text"
                 value={sidebarSearch}
-                onChange={e => setSidebarSearch(e.target.value)}
+                onChange={(e) => setSidebarSearch(e.target.value)}
                 placeholder={t('chat.searchConversations')}
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 rounded-md text-xs text-slate-700 placeholder:text-slate-400 outline-none border border-slate-200 focus:border-primary/40 focus:bg-white transition-colors"
+                className="codex-input w-full transition-colors"
+                style={{
+                  padding: '7px 28px 7px 32px',
+                  fontSize: 12,
+                  background: 'var(--color-codex-bg)',
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                  color: 'var(--color-codex-ink)',
+                }}
               />
               {sidebarSearch && (
-                <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
-                  <X className="w-3 h-3" />
+                <button
+                  type="button"
+                  onClick={() => setSidebarSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2"
+                  style={{ color: 'var(--color-codex-ink-faint)' }}
+                  aria-label="Clear search"
+                >
+                  <X className="h-3 w-3" />
                 </button>
               )}
             </div>
           </div>
 
           {/* Conversation list */}
-          <div className="flex-1 overflow-auto px-2 py-2">
+          <div className="flex-1 overflow-auto" style={{ padding: '4px 10px 12px' }}>
             {isLoadingConversations ? (
-              <div className="space-y-0.5 pt-1">
+              <div className="pt-1">
                 {[...Array(6)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl animate-pulse">
-                    <div className="w-3.5 h-3.5 rounded bg-gray-100 flex-shrink-0" />
-                    <div className="flex-1 space-y-1.5">
-                      <div className="h-3 rounded bg-gray-100" style={{ width: `${55 + (i % 3) * 18}%` }} />
-                      <div className="h-2 rounded bg-gray-100 w-16" />
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 animate-pulse"
+                    style={{ padding: '8px 10px' }}
+                  >
+                    <div
+                      className="flex-1 space-y-1.5"
+                      style={{ minWidth: 0 }}
+                    >
+                      <div
+                        className="h-3"
+                        style={{
+                          width: `${55 + (i % 3) * 18}%`,
+                          background: 'var(--color-codex-bg-tint)',
+                          borderRadius: 2,
+                        }}
+                      />
+                      <div
+                        className="h-2 w-12"
+                        style={{
+                          background: 'var(--color-codex-bg-tint)',
+                          borderRadius: 2,
+                        }}
+                      />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : !conversationId && !sidebarSearch ? (
-              <div className="pt-1">
-                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-primary/10 mb-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate text-primary font-medium">{t('chat.newConversation')}</p>
-                  </div>
-                </div>
-                {conversationGroups.map(group => (
-                  <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-xs font-semibold text-slate-400">{group.label}</p>
-                    {group.items.map(conv => (
-                      <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
-                        onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
-                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-colors hover:bg-slate-50"
-                      >
-                        <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate text-slate-700">{conv.title || t('chat.newConversation')}</p>
-                          <p className="text-xs text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                ))}
-              </div>
             ) : filteredConversations.length === 0 && sidebarSearch ? (
-              <p className="text-xs text-gray-300 text-center py-8">{t('chat.noResults')}</p>
+              <p
+                className="text-center"
+                style={{
+                  padding: '32px 0',
+                  fontSize: 11.5,
+                  color: 'var(--color-codex-ink-faint)',
+                }}
+              >
+                {t('chat.noResults')}
+              </p>
             ) : (
               <div className="pt-1">
-                {conversationGroups.map(group => (
+                {/* "New conversation" highlight when no conversation is
+                    selected and there's no active search. Renders with the
+                    same active-row treatment so the user sees their next
+                    action sitting at the top. */}
+                {!conversationId && !sidebarSearch && (
+                  <div
+                    className="relative codex-row-hov"
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                      background: 'var(--color-codex-bg-tint)',
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 8,
+                        bottom: 8,
+                        width: 2,
+                        background: 'var(--color-codex-accent)',
+                        borderRadius: 99,
+                      }}
+                    />
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: 'var(--color-codex-ink)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {t('chat.newConversation')}
+                    </div>
+                  </div>
+                )}
+
+                {conversationGroups.map((group) => (
                   <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 text-xs font-semibold text-slate-400">{group.label}</p>
-                    {group.items.map(conv => (
-                      <Link key={conv.id} to={`/chat?conversation=${conv.id}`}
-                        onClick={() => { if (window.innerWidth < 768) setSidebarOpen(false) }}
-                        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-200 overflow-hidden ${
-                          deletingId === conv.id
-                            ? 'opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none'
-                            : conversationId === String(conv.id)
-                            ? 'bg-primary/10'
-                            : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
-                          conversationId === String(conv.id) ? 'bg-primary' : 'bg-gray-200'
-                        }`} />
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm truncate transition-colors ${
-                            conversationId === String(conv.id) ? 'text-primary font-medium' : 'text-slate-700'
-                          }`}>
-                            {conv.title || t('chat.newConversation')}
-                          </p>
-                          <p className="text-xs text-slate-400 mt-0.5">{formatTime(conv.updated_at)}</p>
-                        </div>
-                        <button
-                          onClick={e => deleteConversation(e, conv.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 hover:text-red-400 text-gray-300 transition-all flex-shrink-0"
+                    <div
+                      style={{
+                        padding: '12px 10px 4px',
+                        fontSize: 11,
+                        color: 'var(--color-codex-ink-faint)',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {group.label}
+                    </div>
+                    {group.items.map((conv) => {
+                      const isActive = conversationId === String(conv.id);
+                      const isDeleting = deletingId === conv.id;
+                      return (
+                        <Link
+                          key={conv.id}
+                          to={`/chat?conversation=${conv.id}`}
+                          onClick={() => {
+                            if (window.innerWidth < 768) setSidebarOpen(false);
+                          }}
+                          className={`group relative codex-row-hov block transition-all duration-200 ${
+                            isDeleting
+                              ? 'opacity-0 scale-95 max-h-0 py-0 mb-0 pointer-events-none overflow-hidden'
+                              : ''
+                          }`}
+                          style={
+                            isDeleting
+                              ? undefined
+                              : {
+                                  padding: '8px 10px',
+                                  marginBottom: 2,
+                                  borderRadius: 'var(--codex-r-sm, 3px)',
+                                  background: isActive
+                                    ? 'var(--color-codex-bg-tint)'
+                                    : 'transparent',
+                                }
+                          }
                         >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </Link>
-                    ))}
+                          {isActive && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                top: 8,
+                                bottom: 8,
+                                width: 2,
+                                background: 'var(--color-codex-accent)',
+                                borderRadius: 99,
+                              }}
+                            />
+                          )}
+                          <div
+                            className="flex items-start gap-2"
+                            style={{ minWidth: 0 }}
+                          >
+                            <div className="flex-1" style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  color: isActive
+                                    ? 'var(--color-codex-ink)'
+                                    : 'var(--color-codex-ink-soft)',
+                                  fontWeight: isActive ? 500 : 400,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {conv.title || t('chat.newConversation')}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: 'var(--color-codex-ink-mute)',
+                                  marginTop: 2,
+                                }}
+                              >
+                                {formatTime(conv.updated_at)}
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => deleteConversation(e, conv.id)}
+                              className="opacity-0 group-hover:opacity-100 flex-shrink-0 transition-opacity"
+                              style={{
+                                padding: 4,
+                                color: 'var(--color-codex-ink-faint)',
+                                borderRadius: 'var(--codex-r-sm, 3px)',
+                              }}
+                              aria-label={t('chat.delete') || 'Delete'}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -1697,38 +1862,79 @@ export function Chat() {
       {/* ── Main area ── */}
       <div className="flex h-full min-w-0 flex-1 flex-col">
 
-        {/* Header */}
-        <div className="bg-white border-b border-slate-200 px-3 py-3 flex-shrink-0 sm:px-5">
+        {/* Header — title + project/skill meta + actions. */}
+        <div
+          className="flex-shrink-0"
+          style={{
+            background: 'var(--color-codex-bg-elev)',
+            borderBottom: '1px solid var(--color-codex-line)',
+            padding: '14px 24px',
+          }}
+        >
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)}
-              className={`p-1.5 rounded-md hover:bg-slate-100 text-slate-400 transition-colors ${sidebarOpen ? 'md:hidden' : ''}`}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className={`transition ${sidebarOpen ? 'md:hidden' : ''}`}
+              style={{
+                padding: 6,
+                color: 'var(--color-codex-ink-mute)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
               title={t('chat.openSidebar')}
+              aria-label={t('chat.openSidebar')}
             >
-              <PanelLeftOpen className="w-4 h-4" />
+              <PanelLeftOpen className="h-4 w-4" />
             </button>
-            <div className="flex-1 min-w-0 flex items-center gap-2.5">
-              {(selectedProjectData || selectedSkillData) && (
-                <span className="hidden px-2 py-0.5 rounded-md bg-primary/8 text-xs font-medium text-primary flex-shrink-0 sm:inline-flex">
-                  {selectedProjectData ? selectedProjectData.name : selectedSkillData!.name}
-                </span>
-              )}
-              <div className="min-w-0">
-                <h1 className="text-[15px] font-semibold text-slate-900 truncate">
-                  {conversation?.title || t('chat.newConversation')}
-                </h1>
-                <p className="mt-0.5 hidden truncate text-xs text-slate-400 sm:block">
-                  {selectedProjectData
-                    ? `Project · ${selectedProjectData.name}`
-                    : selectedSkillData
-                    ? `Skill · ${selectedSkillData.name}`
-                    : 'Aria workspace chat'}
-                </p>
+            <div className="flex-1 min-w-0">
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 500,
+                  color: 'var(--color-codex-ink)',
+                  letterSpacing: '-0.01em',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {conversation?.title || t('chat.newConversation')}
+              </h1>
+              <div
+                className="mt-1 hidden items-center gap-1.5 sm:flex"
+                style={{
+                  fontSize: 12,
+                  color: 'var(--color-codex-ink-mute)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {selectedProjectData ? (
+                  <>
+                    <span>{t('chat.project')}</span>
+                    <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                    <span style={{ color: 'var(--color-codex-ink-soft)' }}>
+                      {selectedProjectData.name}
+                    </span>
+                  </>
+                ) : selectedSkillData ? (
+                  <>
+                    <span>{t('chat.skill')}</span>
+                    <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                    <span style={{ color: 'var(--color-codex-ink-soft)' }}>
+                      {selectedSkillData.name}
+                    </span>
+                  </>
+                ) : (
+                  <span>Aria workspace chat</span>
+                )}
               </div>
             </div>
-            
+
             {/* Export dropdown */}
             {activeConversationId && (
-              <ExportDropdown 
+              <ExportDropdown
                 conversationId={activeConversationId}
                 conversationTitle={activeConversationTitle}
               />
