@@ -1,0 +1,283 @@
+/* ============================================================
+   AriaAI · Codex-style design tokens (V0.0.6 frontend redesign)
+   ============================================================
+
+   These tokens are ADDITIVE — they coexist with the existing
+   ``--color-primary`` / ``--color-surface`` system in
+   ``index.css``. Existing pages remain visually unchanged until
+   each is migrated.
+
+   Naming convention:
+   - ``--color-codex-*``           — Tailwind-generated utility colors
+                                     (e.g. ``bg-codex-bg``, ``text-codex-ink``).
+                                     Default values are the LIGHT theme.
+   - ``.theme-codex.dark { ... }`` — overrides for dark mode within the
+                                     codex scope.
+
+   Wrap a page (or the app shell) in ``<div class="theme-codex">`` to
+   opt that subtree into the codex theme. Dark mode is then triggered
+   by adding ``dark`` alongside (``class="theme-codex dark"``).
+
+   See design_handoff_aria_codex_redesign/README.md for the full
+   token catalogue + screen mappings.
+   ============================================================ */
+
+@theme {
+  /* ---- Backgrounds ---- */
+  --color-codex-bg: #fcfbf7;        /* App background, page canvas */
+  --color-codex-bg-elev: #ffffff;   /* Elevated cards, panels, headers, inputs */
+  --color-codex-bg-sunken: #f4f1ea; /* Sunken areas (footers, secondary chrome) */
+  --color-codex-bg-tint: #f3f0e7;   /* Active rows, chip backgrounds */
+
+  /* ---- Ink (text) ---- */
+  --color-codex-ink: #1a1815;       /* Primary text */
+  --color-codex-ink-soft: #514c44;  /* Secondary text */
+  --color-codex-ink-mute: #8b8270;  /* Muted / metadata text */
+  --color-codex-ink-faint: #b8ae99; /* Faintest text, dividers */
+
+  /* ---- Lines (hairline borders) ---- */
+  --color-codex-line: oklch(0.88 0.012 75);
+  --color-codex-line-soft: oklch(0.92 0.008 75);
+  --color-codex-line-strong: oklch(0.78 0.015 75);
+
+  /* ---- Accent (moss; user-switchable to amber / azure / rose later) ---- */
+  --color-codex-accent: oklch(0.5 0.07 150);
+  --color-codex-accent-soft: oklch(0.92 0.04 150);
+  --color-codex-accent-ink: oklch(0.4 0.08 150);
+  --color-codex-accent-bg: oklch(0.96 0.02 150);
+
+  /* ---- Status tones ---- */
+  --color-codex-good: oklch(0.55 0.08 150);
+  --color-codex-warn: oklch(0.6 0.1 65);
+  --color-codex-bad: oklch(0.55 0.14 25);
+  --color-codex-info: oklch(0.5 0.07 235);
+}
+
+/* ----------------------------------------------------------------
+   Dark mode — applied when a ``theme-codex`` subtree also has
+   ``dark`` (e.g. ``<html class="theme-codex dark">``). We keep the
+   override on a class selector rather than ``@media`` so the choice
+   stays driven by app state, not OS pref.
+   ---------------------------------------------------------------- */
+.theme-codex.dark,
+.theme-codex .dark,
+.dark .theme-codex {
+  --color-codex-bg: #15130f;
+  --color-codex-bg-elev: #1c1916;
+  --color-codex-bg-sunken: #100e0b;
+  --color-codex-bg-tint: #211d17;
+
+  --color-codex-ink: #e8e2d1;
+  --color-codex-ink-soft: #b5ac97;
+  --color-codex-ink-mute: #7f7666;
+  --color-codex-ink-faint: #524a3d;
+
+  --color-codex-line: oklch(0.26 0.008 75);
+  --color-codex-line-soft: oklch(0.22 0.005 75);
+  --color-codex-line-strong: oklch(0.32 0.012 75);
+
+  --color-codex-accent: oklch(0.72 0.08 150);
+  --color-codex-accent-soft: oklch(0.28 0.04 150);
+  --color-codex-accent-ink: oklch(0.82 0.08 150);
+  --color-codex-accent-bg: oklch(0.22 0.025 150);
+}
+
+/* ----------------------------------------------------------------
+   Radius variants — controlled by a class on the codex root.
+   ``radius-soft`` is the default; ``radius-sharp`` and
+   ``radius-round`` are user-selectable in the Appearance settings.
+   ---------------------------------------------------------------- */
+.theme-codex.radius-sharp {
+  --codex-r-sm: 0;
+  --codex-r-md: 0;
+  --codex-r-lg: 2px;
+  --codex-r-pill: 0;
+}
+.theme-codex,
+.theme-codex.radius-soft {
+  --codex-r-sm: 3px;
+  --codex-r-md: 6px;
+  --codex-r-lg: 10px;
+  --codex-r-pill: 999px;
+}
+.theme-codex.radius-round {
+  --codex-r-sm: 6px;
+  --codex-r-md: 10px;
+  --codex-r-lg: 16px;
+  --codex-r-pill: 999px;
+}
+
+/* ----------------------------------------------------------------
+   Density variants — for v1 we use the same ``zoom`` shortcut the
+   prototype uses (see README §99). Replace with rem-based scaling
+   when we have time, but ``zoom`` ships the visible effect today.
+   ---------------------------------------------------------------- */
+.theme-codex.density-compact {
+  --codex-row-h: 32px;
+  --codex-space-y: 6px;
+  --codex-pad-section: 24px;
+  --codex-pad-frame: 28px;
+}
+.theme-codex,
+.theme-codex.density-regular {
+  --codex-row-h: 38px;
+  --codex-space-y: 10px;
+  --codex-pad-section: 32px;
+  --codex-pad-frame: 40px;
+}
+.theme-codex.density-comfy {
+  --codex-row-h: 48px;
+  --codex-space-y: 16px;
+  --codex-pad-section: 44px;
+  --codex-pad-frame: 56px;
+}
+.theme-codex.density-compact > .codex-frame {
+  zoom: 0.92;
+}
+.theme-codex.density-comfy > .codex-frame {
+  zoom: 1.1;
+}
+
+/* ----------------------------------------------------------------
+   Animations — globally available (keyframe names are namespaced
+   with ``codex-`` so they don't collide with existing animations).
+   ---------------------------------------------------------------- */
+@keyframes codex-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(8px, -6px);
+  }
+}
+
+@keyframes codex-float-a {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-30px, 18px);
+    opacity: 1;
+  }
+}
+
+@keyframes codex-float-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate(20px, -22px);
+    opacity: 1;
+  }
+}
+
+@keyframes codex-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes codex-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+@keyframes codex-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes codex-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ----------------------------------------------------------------
+   Helper classes — namespaced so they only apply within a
+   ``.theme-codex`` subtree. Existing pages get the same class
+   names treated as no-ops.
+   ---------------------------------------------------------------- */
+.theme-codex .codex-frame {
+  width: 100%;
+  height: 100%;
+  background: var(--color-codex-bg);
+  color: var(--color-codex-ink);
+  font-size: 13.5px;
+  line-height: 1.6;
+  display: flex;
+  overflow: hidden;
+  font-feature-settings: "cv11", "ss03";
+}
+
+.theme-codex .codex-mono {
+  font-family: var(--font-mono);
+  /* JetBrains Mono is preferred but optional — the existing
+     ``--font-mono`` stack already includes SF Mono / Cascadia
+     Code / Roboto Mono, which all render the design correctly. */
+  font-feature-settings: "ss01", "ss02", "calt", "zero";
+}
+
+.theme-codex .codex-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hairline rules — for separators between sections. */
+.theme-codex .codex-rule-h {
+  border-top: 1px solid var(--color-codex-line);
+  height: 1px;
+}
+.theme-codex .codex-rule-soft {
+  border-top: 1px solid var(--color-codex-line-soft);
+  height: 1px;
+}
+
+/* Row hover — subtle tinted background, no shadow. */
+.theme-codex .codex-row-hov:hover {
+  background: var(--color-codex-bg-tint);
+}
+
+/* Status dot pulse — "alive" indicator for in-progress states. */
+.theme-codex .codex-dot-pulse {
+  animation: codex-pulse 2s ease-in-out infinite;
+}
+
+/* Streaming text cursor — appended to streaming AI replies. */
+.theme-codex .codex-cursor::after {
+  content: "▍";
+  color: var(--color-codex-accent);
+  margin-left: 1px;
+  animation: codex-blink 1s steps(2) infinite;
+}
+
+/* Input focus — 1px accent outline, 1px offset (matches prototype). */
+.theme-codex .codex-input:focus {
+  outline: 1px solid var(--color-codex-accent);
+  outline-offset: 1px;
+}
+
+/* Tree connector helper — used by the project chat "空间" left rail. */
+.theme-codex .codex-tree-pre {
+  font-family: var(--font-mono);
+  color: var(--color-codex-ink-faint);
+  letter-spacing: -0.01em;
+  user-select: none;
+  white-space: pre;
+}
