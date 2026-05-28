@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import { parseAppDateTime } from "../../utils/timezone";
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectMemory,
@@ -166,7 +167,7 @@ export function useProjectOverviewData({
       [...milestones]
         .sort(
           (a, b) =>
-            new Date(b.due_date || "").getTime() - new Date(a.due_date || "").getTime(),
+            parseAppDateTime(b.due_date || "").getTime() - parseAppDateTime(a.due_date || "").getTime(),
         )
         .slice(0, 3),
     [milestones],
@@ -177,7 +178,7 @@ export function useProjectOverviewData({
       [...files]
         .sort(
           (a, b) =>
-            new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime(),
+            parseAppDateTime(b.uploaded_at).getTime() - parseAppDateTime(a.uploaded_at).getTime(),
         )
         .slice(0, 5),
     [files],

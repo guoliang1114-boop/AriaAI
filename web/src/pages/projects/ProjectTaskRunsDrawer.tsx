@@ -6,7 +6,7 @@ import { useToast } from "../../contexts/ToastContext";
 import type { GeneratedArtifact, TaskRun, TaskRunEvent, TaskRunStep } from "../../types/api";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { artifactFromTaskRunArtifact } from "./projectChatWorkflow";
-import { formatDateTime } from "../../utils/timezone";
+import { formatDateTime, parseAppDateTime } from "../../utils/timezone";
 
 type ProjectTaskRunsDrawerProps = {
   isOpen: boolean;
@@ -46,7 +46,7 @@ function StatusIcon({ status }: { status: string }) {
 
 function formatTime(value?: string | null) {
   if (!value) return "";
-  const date = new Date(value);
+  const date = parseAppDateTime(value);
   if (Number.isNaN(date.getTime())) return value.slice(0, 19);
   return formatDateTime(date, "zh-CN", {
     month: "2-digit",

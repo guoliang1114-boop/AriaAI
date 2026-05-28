@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronDown, ListFilter, RefreshCw, Sparkles } from 'lucide-react'
 
 import type { MyProjectTodo } from '../types/api'
-import { formatDateOnly, getResolvedAppTimeZone } from '../utils/timezone'
+import { formatDateOnly, getResolvedAppTimeZone, parseAppDateTime } from '../utils/timezone'
 
 export type BriefTone = 'red' | 'amber' | 'green'
 
@@ -47,7 +47,7 @@ export interface BriefClientInput {
 const ONE_DAY = 24 * 60 * 60 * 1000
 
 function formatRelative(updatedAt: string, isZh: boolean): string {
-  const hoursAgo = Math.max(1, Math.floor((Date.now() - new Date(updatedAt).getTime()) / (60 * 60 * 1000)))
+  const hoursAgo = Math.max(1, Math.floor((Date.now() - parseAppDateTime(updatedAt).getTime()) / (60 * 60 * 1000)))
   if (hoursAgo < 24) {
     return isZh ? `${hoursAgo} 小时前` : `${hoursAgo}h ago`
   }
@@ -68,17 +68,17 @@ export function buildDailyBrief({
 }): DailyBrief {
   const now = Date.now()
 
-  const overdueTodos = todos.filter((t) => t.due_date && new Date(t.due_date).getTime() < now)
+  const overdueTodos = todos.filter((t) => t.due_date && parseAppDateTime(t.due_date).getTime() < now)
   const todayTodos = todos.filter((t) => {
     if (!t.due_date) return false
-    const due = new Date(t.due_date).getTime()
+    const due = parseAppDateTime(t.due_date).getTime()
     return due >= now && due <= now + ONE_DAY
   })
 
   const recentlyMovedProjects = [...projects]
     .filter((p) => p.status !== 'archived')
-    .filter((p) => now - new Date(p.updated_at).getTime() <= 3 * ONE_DAY)
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .filter((p) => now - parseAppDateTime(p.updated_at).getTime() <= 3 * ONE_DAY)
+    .sort((a, b) => parseAppDateTime(b.updated_at).getTime() - parseAppDateTime(a.updated_at).getTime())
 
   const staleMemoryClients = clients.filter(
     (c) => c.project_names.length > 0 && (c.client_memory_stale || (c.client_memory_version ?? 0) === 0),
@@ -86,8 +86,8 @@ export function buildDailyBrief({
 
   const longSilentClients = clients
     .filter((c) => c.project_names.length > 0 && c.client_memory_updated_at)
-    .filter((c) => now - new Date(c.client_memory_updated_at!).getTime() >= 14 * ONE_DAY)
-    .sort((a, b) => new Date(a.client_memory_updated_at!).getTime() - new Date(b.client_memory_updated_at!).getTime())
+    .filter((c) => now - parseAppDateTime(c.client_memory_updated_at!).getTime() >= 14 * ONE_DAY)
+    .sort((a, b) => parseAppDateTime(a.client_memory_updated_at!).getTime() - parseAppDateTime(b.client_memory_updated_at!).getTime())
 
   const actionRequired: BriefItem[] = []
 
@@ -151,7 +151,7 @@ export function buildDailyBrief({
   const quietWatch: BriefItem[] = []
 
   longSilentClients.slice(0, 2).forEach((client) => {
-    const daysAgo = Math.floor((now - new Date(client.client_memory_updated_at!).getTime()) / ONE_DAY)
+    const daysAgo = Math.floor((now - parseAppDateTime(client.client_memory_updated_at!).getTime()) / ONE_DAY)
     quietWatch.push({
       key: `silent-${client.id}`,
       tone: 'green',

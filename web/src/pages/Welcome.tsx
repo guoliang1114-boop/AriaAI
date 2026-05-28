@@ -24,7 +24,7 @@ import { PageTitle } from '../components/PageTitle'
 import { ServiceErrorState } from '../components/ServiceErrorState'
 import type { Conversation, MyProjectTodo, Project, SkillSummary, SystemMessage, User } from '../types/api'
 import { resolveProjectStage } from '../types/enums'
-import { formatDateOnly, getResolvedAppTimeZone } from '../utils/timezone'
+import { formatDateOnly, getResolvedAppTimeZone, parseAppDateTime } from '../utils/timezone'
 
 interface ErrorResponsePayload {
   detail?: string
@@ -65,7 +65,7 @@ function readCachedUser() {
 
 function formatRelativeTime(value?: string | null, isZh = true) {
   if (!value) return isZh ? '暂无记录' : 'No recent activity'
-  const diffMinutes = Math.floor((Date.now() - new Date(value).getTime()) / 60000)
+  const diffMinutes = Math.floor((Date.now() - parseAppDateTime(value).getTime()) / 60000)
   if (diffMinutes < 1) return isZh ? '刚刚' : 'Just now'
   if (diffMinutes < 60) return isZh ? `${diffMinutes} 分钟前` : `${diffMinutes} min ago`
   if (diffMinutes < 1440) return isZh ? `${Math.floor(diffMinutes / 60)} 小时前` : `${Math.floor(diffMinutes / 60)} h ago`
@@ -210,29 +210,29 @@ export function Welcome() {
   }, [isZh, t])
 
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== 'archived'), [projects])
-  const recentConversations = useMemo(() => [...conversations].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 4), [conversations])
+  const recentConversations = useMemo(() => [...conversations].sort((a, b) => parseAppDateTime(b.updated_at).getTime() - parseAppDateTime(a.updated_at).getTime()).slice(0, 4), [conversations])
   const memoryHealth = useMemo(() => ({
     clientNeedWork: clients.filter((client) => client.client_memory_stale || (client.client_memory_version || 0) === 0).length,
     projectNeedWork: projects.filter((project) => project.memory_stale || (project.memory_version || 0) === 0).length,
   }), [clients, projects])
   const overdueTodos = useMemo(() => {
     const now = new Date()
-    return myTodos.filter((todo) => todo.due_date && new Date(todo.due_date) < now)
+    return myTodos.filter((todo) => todo.due_date && parseAppDateTime(todo.due_date) < now)
   }, [myTodos])
   const dueSoonTodos = useMemo(() => {
     const now = Date.now()
     const inThreeDays = now + 3 * 24 * 60 * 60 * 1000
     return myTodos.filter((todo) => {
       if (!todo.due_date) return false
-      const due = new Date(todo.due_date).getTime()
+      const due = parseAppDateTime(todo.due_date).getTime()
       return due >= now && due <= inThreeDays
     })
   }, [myTodos])
   const projectQueue = useMemo(() => {
     return [...activeProjects]
       .sort((a, b) => {
-        const aScore = (a.memory_stale || (a.memory_version || 0) === 0 ? 100 : 0) + new Date(a.updated_at).getTime() / 1_000_000_000
-        const bScore = (b.memory_stale || (b.memory_version || 0) === 0 ? 100 : 0) + new Date(b.updated_at).getTime() / 1_000_000_000
+        const aScore = (a.memory_stale || (a.memory_version || 0) === 0 ? 100 : 0) + parseAppDateTime(a.updated_at).getTime() / 1_000_000_000
+        const bScore = (b.memory_stale || (b.memory_version || 0) === 0 ? 100 : 0) + parseAppDateTime(b.updated_at).getTime() / 1_000_000_000
         return bScore - aScore
       })
       .slice(0, 6)
@@ -290,7 +290,7 @@ export function Welcome() {
   const judgementQueue = useMemo(() => {
     const todoItems = [...overdueTodos, ...dueSoonTodos].slice(0, 2).map((todo) => ({
       key: `todo-${todo.id}`,
-      label: todo.due_date && new Date(todo.due_date) < new Date() ? (isZh ? '逾期' : 'Overdue') : (isZh ? '临期' : 'Due soon'),
+      label: todo.due_date && parseAppDateTime(todo.due_date) < new Date() ? (isZh ? '逾期' : 'Overdue') : (isZh ? '临期' : 'Due soon'),
       title: todo.content,
       meta: todo.project_name,
       path: `/projects/${todo.project_id}/todos`,
