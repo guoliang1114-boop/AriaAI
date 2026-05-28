@@ -275,8 +275,22 @@ function buildProgressFromMetadata(meta: any): ChatProgressStep[] {
 
 function ChatStatusPill({ message }: { message?: string | null }) {
   return (
-    <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
-      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+    <div
+      className="mb-3 inline-flex items-center gap-2"
+      style={{
+        padding: '6px 12px',
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        fontSize: 12.5,
+        color: 'var(--color-codex-ink-soft)',
+      }}
+    >
+      <Loader2
+        className="h-3.5 w-3.5 animate-spin"
+        aria-hidden="true"
+        style={{ color: 'var(--color-codex-accent)' }}
+      />
       <span>{message || '正在与模型建立连接...'}</span>
     </div>
   )
@@ -313,80 +327,235 @@ function ProgressCard({
     }
   }
 
+  const progressPct = Math.max(8, (doneCount / steps.length) * 100)
+
   return (
-    <div className="mt-3 mb-3 w-full rounded-lg border border-primary/10 bg-white p-3.5 shadow-sm">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div>
-          <p className="text-xs font-semibold text-gray-700">{title}</p>
-          <p className="text-xs text-gray-400 mt-0.5">
+    <div
+      className="mt-3 mb-3 w-full"
+      style={{
+        padding: '12px 14px',
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+      }}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {title}
+          </p>
+          <p
+            className="font-mono"
+            style={{
+              margin: '4px 0 0',
+              fontSize: 11.5,
+              color: 'var(--color-codex-ink-mute)',
+            }}
+          >
             {doneCount}/{steps.length} {completedLabel}
           </p>
         </div>
-        <div className="h-1.5 flex-1 max-w-[160px] rounded-full bg-gray-100 overflow-hidden">
+        <div
+          className="h-1.5 flex-1 overflow-hidden"
+          style={{
+            maxWidth: 160,
+            background: 'var(--color-codex-bg-tint)',
+            borderRadius: 'var(--codex-r-pill, 999px)',
+          }}
+        >
           <div
-            className="h-full rounded-full bg-primary transition-all duration-500"
-            style={{ width: `${Math.max(8, (doneCount / steps.length) * 100)}%` }}
+            className="h-full transition-all duration-500"
+            style={{
+              width: `${progressPct}%`,
+              background: 'var(--color-codex-accent)',
+              borderRadius: 'var(--codex-r-pill, 999px)',
+            }}
           />
         </div>
         <button
           type="button"
           onClick={copyLogs}
           disabled={!allLogs}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-white px-2 py-1 text-xs text-gray-400 transition-colors hover:border-primary/20 hover:text-primary disabled:opacity-40"
+          className="inline-flex items-center gap-1 disabled:opacity-40"
+          style={{
+            padding: '5px 9px',
+            background: 'var(--color-codex-bg)',
+            color: 'var(--color-codex-ink-soft)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            fontSize: 11.5,
+            fontWeight: 500,
+          }}
         >
-          <Copy className="w-3 h-3" />
+          <Copy className="h-3 w-3" aria-hidden="true" />
           复制日志
         </button>
       </div>
-      <div className="space-y-2.5">
+      <div className="space-y-1.5">
         {steps.map((step, index) => {
           const isActive = step.status === 'active'
           const isDone = step.status === 'done'
           const expanded = expandedKeys.includes(step.key)
+          const rowBg = isActive
+            ? 'var(--color-codex-accent-bg)'
+            : isDone
+              ? 'var(--color-codex-bg-tint)'
+              : 'transparent'
+          const rowBorder = isActive
+            ? '1px solid color-mix(in oklab, var(--color-codex-accent) 28%, transparent)'
+            : '1px solid var(--color-codex-line-soft)'
           return (
-            <div key={step.key} className={`rounded-lg px-2.5 py-2 transition-colors ${
-              isActive ? 'bg-primary/[0.06]' : isDone ? 'bg-emerald-50/60' : 'bg-gray-50/70'
-            }`}>
-              <button type="button" onClick={() => toggleStep(step.key)} className="flex w-full items-start gap-2.5 text-left">
-                <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-primary text-white' : 'bg-white text-gray-300 ring-1 ring-gray-200'
-                }`}>
+            <div
+              key={step.key}
+              className="transition-colors"
+              style={{
+                padding: '8px 10px',
+                background: rowBg,
+                border: rowBorder,
+                borderRadius: 'var(--codex-r-sm, 3px)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => toggleStep(step.key)}
+                className="flex w-full items-start gap-2.5 text-left"
+              >
+                <div
+                  className="mt-0.5 flex flex-shrink-0 items-center justify-center"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 'var(--codex-r-pill, 999px)',
+                    background: isDone
+                      ? 'var(--color-codex-accent)'
+                      : isActive
+                        ? 'var(--color-codex-accent)'
+                        : 'var(--color-codex-bg-elev)',
+                    color: isDone || isActive
+                      ? 'var(--color-codex-bg-elev)'
+                      : 'var(--color-codex-ink-faint)',
+                    border: isDone || isActive
+                      ? 'none'
+                      : '1px solid var(--color-codex-line)',
+                  }}
+                >
                   {isDone ? (
-                    <Check className="w-3 h-3" />
+                    <Check className="h-3 w-3" />
                   ) : isActive ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <span className="text-xs font-semibold">{index + 1}</span>
+                    <span className="font-mono" style={{ fontSize: 10.5, fontWeight: 600 }}>{index + 1}</span>
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className={`text-xs font-semibold ${isActive ? 'text-primary' : isDone ? 'text-emerald-700' : 'text-gray-500'}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        color: isActive
+                          ? 'var(--color-codex-accent-ink)'
+                          : isDone
+                            ? 'var(--color-codex-ink)'
+                            : 'var(--color-codex-ink-soft)',
+                      }}
+                    >
                       {step.label}
                     </p>
                     {index === activeIndex && (
-                      <span className="text-xs text-primary/60 bg-primary/10 rounded-full px-1.5 py-0.5">进行中</span>
+                      <span
+                        style={{
+                          padding: '1px 6px',
+                          background: 'var(--color-codex-accent-bg)',
+                          color: 'var(--color-codex-accent-ink)',
+                          borderRadius: 'var(--codex-r-pill, 999px)',
+                          fontSize: 10.5,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        进行中
+                      </span>
                     )}
                     {step.logs.length > 0 && (
-                      <span className="text-xs text-gray-400 bg-white/80 rounded-full px-1.5 py-0.5">{step.logs.length} 条日志</span>
+                      <span
+                        className="font-mono"
+                        style={{
+                          padding: '1px 6px',
+                          background: 'var(--color-codex-bg-tint)',
+                          color: 'var(--color-codex-ink-mute)',
+                          borderRadius: 'var(--codex-r-pill, 999px)',
+                          fontSize: 10.5,
+                        }}
+                      >
+                        {step.logs.length} 条
+                      </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{step.description}</p>
+                  <p
+                    style={{
+                      margin: '3px 0 0',
+                      fontSize: 11.5,
+                      color: 'var(--color-codex-ink-mute)',
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    {step.description}
+                  </p>
                 </div>
-                <ChevronDown className={`w-3.5 h-3.5 mt-1 text-gray-300 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`mt-1 h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                  style={{ color: 'var(--color-codex-ink-faint)' }}
+                  aria-hidden="true"
+                />
               </button>
               {expanded && (
-                <div className="ml-7 mt-2 rounded-lg border border-white/70 bg-white/70 px-3 py-2">
+                <div
+                  className="ml-7 mt-2"
+                  style={{
+                    padding: '8px 10px',
+                    background: 'var(--color-codex-bg-tint)',
+                    border: '1px solid var(--color-codex-line-soft)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
+                >
                   {step.logs.length ? (
                     <div className="space-y-1.5">
                       {step.logs.map((log, logIndex) => (
-                        <p key={`${step.key}-${logIndex}`} className="font-mono text-xs leading-relaxed text-gray-500">
+                        <p
+                          key={`${step.key}-${logIndex}`}
+                          className="font-mono"
+                          style={{
+                            margin: 0,
+                            fontSize: 11.5,
+                            lineHeight: 1.6,
+                            color: 'var(--color-codex-ink-soft)',
+                          }}
+                        >
                           {log}
                         </p>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-400">暂无明细日志，等待执行事件返回。</p>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 11.5,
+                        color: 'var(--color-codex-ink-mute)',
+                      }}
+                    >
+                      暂无明细日志，等待执行事件返回。
+                    </p>
                   )}
                 </div>
               )}
@@ -411,26 +580,76 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
   }
 
   return (
-    <div className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3.5">
+    <div
+      className="mt-3 w-full"
+      style={{
+        padding: '12px 14px',
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+      }}
+    >
       <button
         type="button"
-        onClick={() => setExpanded(v => !v)}
+        onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center justify-between gap-3 text-left"
       >
         <div>
-          <p className="text-xs font-semibold text-gray-700">AI 正文</p>
-          <p className="mt-0.5 text-xs text-gray-400">
-            执行期间默认隐藏正文，只展示 Skill 清单。已生成约 {content.length.toLocaleString()} 字。
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            AI 正文
+          </p>
+          <p
+            style={{
+              margin: '4px 0 0',
+              fontSize: 11.5,
+              color: 'var(--color-codex-ink-mute)',
+              lineHeight: 1.5,
+            }}
+          >
+            执行期间默认隐藏正文，只展示 Skill 清单。已生成约{' '}
+            <span className="font-mono">{content.length.toLocaleString()}</span> 字。
           </p>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-1 text-xs text-gray-400">
+        <span
+          className="inline-flex items-center gap-1"
+          style={{
+            padding: '3px 8px',
+            background: 'var(--color-codex-bg-tint)',
+            color: 'var(--color-codex-ink-soft)',
+            borderRadius: 'var(--codex-r-pill, 999px)',
+            fontSize: 11,
+          }}
+        >
           {expanded ? '收起正文' : '查看正文'}
-          <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
         </span>
       </button>
       {expanded && (
-        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-          <div className="md-root text-sm text-gray-600">
+        <div
+          className="mt-3"
+          style={{
+            padding: '10px 12px',
+            background: 'var(--color-codex-bg-tint)',
+            border: '1px solid var(--color-codex-line-soft)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+        >
+          <div
+            className="md-root"
+            style={{ fontSize: 13.5, color: 'var(--color-codex-ink-soft)' }}
+          >
             <MarkdownRenderer content={content} />
           </div>
         </div>
@@ -455,15 +674,56 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
   }
 
   return (
-    <div className="mt-3 w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+    <div
+      className="mt-3 w-full"
+      style={{
+        padding: '12px 14px',
+        background: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+      }}
+    >
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-white text-emerald-600 shadow-sm">
+        <span
+          aria-hidden="true"
+          className="inline-flex flex-shrink-0 items-center justify-center"
+          style={{
+            width: 32,
+            height: 32,
+            marginTop: 2,
+            background: 'var(--color-codex-accent-bg)',
+            color: 'var(--color-codex-accent)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+        >
           <FileText className="h-4 w-4" />
-        </div>
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-gray-900">{artifact.name}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-            <span className="rounded-full border border-emerald-100 bg-white px-2 py-0.5">
+          <p
+            className="truncate"
+            style={{
+              margin: 0,
+              fontSize: 13.5,
+              fontWeight: 500,
+              color: 'var(--color-codex-ink)',
+            }}
+          >
+            {artifact.name}
+          </p>
+          <div
+            className="mt-1 flex flex-wrap items-center gap-2"
+            style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+          >
+            <span
+              className="font-mono"
+              style={{
+                padding: '1px 6px',
+                background: 'var(--color-codex-bg-tint)',
+                color: 'var(--color-codex-ink-soft)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                letterSpacing: '0.04em',
+              }}
+            >
               {artifact.file_type.toUpperCase()}
             </span>
             {artifact.description ? <span className="truncate">{artifact.description}</span> : null}
@@ -473,9 +733,22 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
           type="button"
           onClick={handleDownload}
           disabled={downloading}
-          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+          className="inline-flex items-center gap-1 disabled:opacity-50"
+          style={{
+            padding: '6px 10px',
+            background: 'var(--color-codex-bg)',
+            color: 'var(--color-codex-ink-soft)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            fontSize: 12,
+            fontWeight: 500,
+          }}
         >
-          {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {downloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
           下载
         </button>
       </div>
