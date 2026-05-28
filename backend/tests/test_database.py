@@ -29,6 +29,17 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 _PROCESS_SCHEMA: str | None = None
 
 
+def _xdist_schema_name() -> str | None:
+    """Return the stable schema name for the current xdist worker, if any."""
+    if not TEST_DATABASE_URL.startswith("postgresql"):
+        return None
+    worker_id = os.getenv("PYTEST_XDIST_WORKER")
+    if not worker_id:
+        return None
+    safe_worker_id = re.sub(r"[^A-Za-z0-9_]", "_", worker_id)
+    return f"ariaai_test_{safe_worker_id}"
+
+
 def _resolve_schema_name() -> str | None:
     """Return the schema this process should use, or None for non-PostgreSQL URLs.
 
@@ -42,10 +53,9 @@ def _resolve_schema_name() -> str | None:
     if not TEST_DATABASE_URL.startswith("postgresql"):
         return None
 
-    worker_id = os.getenv("PYTEST_XDIST_WORKER")
-    if worker_id:
-        safe_worker_id = re.sub(r"[^A-Za-z0-9_]", "_", worker_id)
-        _PROCESS_SCHEMA = f"ariaai_test_{safe_worker_id}"
+    worker_schema = _xdist_schema_name()
+    if worker_schema:
+        _PROCESS_SCHEMA = worker_schema
     else:
         _PROCESS_SCHEMA = f"ariaai_test_p{os.getpid()}_{uuid.uuid4().hex[:8]}"
         atexit.register(_drop_process_schema)
