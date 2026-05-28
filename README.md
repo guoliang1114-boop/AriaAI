@@ -63,6 +63,8 @@ python scripts/migration_governance.py check
 
 ## 推荐先读
 
+> 本列表是面向新读者的精炼阅读路线，**有意省略**纯内部跟踪类文档（如 `docs/10-代码Review遗留事项.md`）。完整内部文档索引以 [docs/00 — 项目总览](docs/00-项目总览.md) 末尾的"文档目录"为准。
+
 1. [项目总览](docs/00-项目总览.md) — 定位、架构、能力、记忆系统
 2. [产品战略方向](docs/01-产品战略方向.md) — 护城河、北极星场景
 3. [Skill 体系](docs/02-Skill体系.md) — Skill 运行链路与当前能力
@@ -73,10 +75,14 @@ python scripts/migration_governance.py check
 8. [架构与对话逻辑图](docs/07-AriaAI架构与对话逻辑图.md) — 架构图、对话逻辑流程图
 9. [Skill 体系评估与优化路线图](docs/08-Skill体系评估与优化路线图.md) — Skill 质量评估与优化计划
 10. [Skill 编写规范 v1.0](docs/09-Skill编写规范.md) — Skill 编写标准与质量门禁
+11. [Model Harness 设计](docs/11-Model-Harness产品方案设计.md) — Run Harness v1 设计
+12. [记忆系统优化方案](docs/12-记忆系统优化方案.md) — 记忆系统优化设计
+13. [V0.0.4 迭代计划](docs/13-V0.0.4迭代计划.md) — v0.0.4 迭代计划
+14. [V0.0.5 知识库开发方案](docs/14-V0.0.5知识库开发方案.md) — 知识库 v1 设计与 AI 开发约束
 
 ## 当前注意事项
 
 - 每次部署前优先跑 `migration_governance.py report/check`，再执行 `ensure/upgrade`。
 - 线上当前使用 PostgreSQL 数据库。
 - `Memory Operations` 是后续排查记忆任务、预算、失败和重试的首选入口。
-- `docs/` 文档已重新编号为 00-09，后续新增文档请保持连续编号。
+- `docs/` 文档已重新编号为 00-14，后续新增文档请保持连续编号。
