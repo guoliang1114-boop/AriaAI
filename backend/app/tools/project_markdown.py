@@ -136,7 +136,7 @@ def _init_default_folders(session: Session, project_id: int):
                 "description": "Optional target folder id for newly created documents.",
             },
         },
-        "required": ["mode", "content"],
+        "required": [],
     },
 )
 async def update_project_markdown_document(
@@ -266,7 +266,7 @@ _READ_MAX_CHARS = 12000
                 "description": "Maximum characters returned for read. Default 12000.",
             },
         },
-        "required": ["action"],
+        "required": [],
     },
 )
 async def read_project_markdown_document(

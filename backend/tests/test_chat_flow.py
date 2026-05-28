@@ -4715,7 +4715,7 @@ class ChatStreamingServiceTestCase(unittest.TestCase):
         self.assertIn('"conversation_id"', joined)
         self.assertIn('"done"', joined)
         self.assertIn('"stage_timings"', joined)
-        self.assertNotIn('"step_index"', joined)
+        self.assertIn('"step_index"', joined)
 
         with Session(self.engine) as session:
             assistant_messages = session.exec(
