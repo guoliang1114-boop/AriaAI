@@ -542,14 +542,9 @@ export interface ProjectTodo {
   updated_at: string
 }
 
-export interface MyProjectTodo {
-  id: number
-  project_id: number
+export interface MyProjectTodo extends ProjectTodo {
   project_name: string
-  content: string
-  due_date?: string | null
-  created_at: string
-  updated_at: string
+  priority?: 'low' | 'medium' | 'high'
 }
 
 export interface ProjectMember {
