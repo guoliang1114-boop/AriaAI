@@ -153,14 +153,36 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
         </div>
       )}
 
+      {timeline.status && !timeline.final_status && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-sm">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          <span className="truncate">{timeline.status.message}</span>
+          {typeof timeline.status.progress === "number" && (
+            <span className="ml-auto tabular-nums text-slate-400">
+              {Math.round(timeline.status.progress * 100) / 100}%
+            </span>
+          )}
+        </div>
+      )}
+
       {totalSteps > 0 && (
         <details open={timeline.final_status !== "completed"} className="group">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded px-1 py-1 text-xs text-slate-500 hover:bg-slate-50">
             <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
-            <span>
-              活动 · {finishedSteps}/{totalSteps} 步
-              {timeline.final_status === "failed" ? " · 失败" : ""}
-            </span>
+            {timeline.final_status === "completed" ? (
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                <span>已完成 · {totalSteps} 步</span>
+                {timeline.artifacts.length > 0 && (
+                  <span className="text-slate-400">· {timeline.artifacts.length} 个交付物</span>
+                )}
+              </span>
+            ) : (
+              <span>
+                活动 · {finishedSteps}/{totalSteps} 步
+                {timeline.final_status === "failed" ? " · 失败" : ""}
+              </span>
+            )}
           </summary>
           <ul className="mt-1.5 space-y-1.5">
             {timeline.steps.map((step) => (

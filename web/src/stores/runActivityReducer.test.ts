@@ -169,6 +169,37 @@ describe("reduceRunActivity", () => {
     expect(t.text).toBe("ok");
   });
 
+  it("captures live status and clears it on run_done", () => {
+    const before = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      { type: "status", run_id: "r", message: "正在生成回复..." },
+    ]);
+    expect(before.status).toEqual({ message: "正在生成回复...", progress: undefined });
+
+    const after = reduceRunActivity(before, {
+      type: "run_done",
+      run_id: "r",
+      final_status: "completed",
+    });
+    expect(after.status).toBeUndefined();
+    expect(after.final_status).toBe("completed");
+  });
+
+  it("run_failed clears live status alongside setting the error", () => {
+    const t = fold([
+      { type: "run_started", run_id: "r", timestamp: "" },
+      { type: "status", run_id: "r", message: "拉取上下文..." },
+      {
+        type: "run_failed",
+        run_id: "r",
+        error_code: "MODEL_TIMEOUT",
+        error_message: "AI 超时",
+      },
+    ]);
+    expect(t.status).toBeUndefined();
+    expect(t.error?.code).toBe("MODEL_TIMEOUT");
+  });
+
   it("ignores non-start events when no timeline is open", () => {
     const t = reduceRunActivity(null, {
       type: "text_delta",

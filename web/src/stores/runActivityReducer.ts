@@ -54,6 +54,12 @@ export interface ActivityConfirmation {
   deadline?: string;
 }
 
+export interface ActivityStatus {
+  /** Latest user-facing one-liner from a v1 ``status`` event (≤ 50 chars). */
+  message: string;
+  progress?: number;
+}
+
 export interface RunActivityTimeline {
   run_id: string;
   display_mode?: RunDisplayMode;
@@ -62,6 +68,8 @@ export interface RunActivityTimeline {
   artifacts: ActivityArtifact[];
   task?: ActivityTaskState;
   confirmation?: ActivityConfirmation;
+  /** Latest ``status`` event payload. Cleared by ``run_done`` / ``run_failed``. */
+  status?: ActivityStatus;
   message_id?: number | string;
   final_status?: RunFinalStatus;
   error?: { code: string; message: string; retryable?: boolean };
@@ -219,17 +227,26 @@ export function reduceRunActivity(
     case "message_persisted":
       return { ...current, message_id: event.message_id };
 
+    case "status":
+      return {
+        ...current,
+        status: { message: event.message, progress: event.progress },
+      };
+
     case "run_done":
       return {
         ...current,
         final_status: event.final_status,
         message_id: event.message_id ?? current.message_id,
+        // Once the run is done, the live status is stale and would mislead.
+        status: undefined,
       };
 
     case "run_failed":
       return {
         ...current,
         final_status: "failed",
+        status: undefined,
         error: {
           code: event.error_code,
           message: event.error_message,
@@ -237,8 +254,8 @@ export function reduceRunActivity(
         },
       };
 
-    // status / reference_delta intentionally not stored on the timeline yet —
-    // status is consumed by existing UI; reference_delta is a follow-up.
+    // reference_delta intentionally not stored on the timeline yet —
+    // it's a follow-up; legacy ``references`` event still drives that UI.
     default:
       return current;
   }
