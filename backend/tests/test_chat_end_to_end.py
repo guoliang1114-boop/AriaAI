@@ -389,6 +389,25 @@ class DestructiveConfirmationTests(ChatEndToEndBase):
         self.assertEqual(actions[0].tool_name, "manage_project_files")
         self.assertEqual(actions[0].status, "pending")
 
+        # Product Run Event v1: must emit confirmation_required (not a
+        # completed tool_progress) for the destructive tool.
+        confirms = _events_of_type(events, "confirmation_required")
+        self.assertEqual(len(confirms), 1)
+        self.assertTrue(confirms[0]["action"])
+        self.assertTrue(confirms[0]["impact"])
+        # The destructive tool did not actually run, so no completed/failed
+        # tool_progress for it.
+        terminal_statuses = [
+            p["status"]
+            for p in _events_of_type(events, "tool_progress")
+            if p["status"] in ("completed", "failed")
+        ]
+        self.assertEqual(
+            terminal_statuses,
+            [],
+            f"unexpected terminal tool_progress on HITAS path: {terminal_statuses}",
+        )
+
 
 # ----------------------------------------------------------------------
 # Scenario 4: tool returns error → no artifact, error surfaced in text
@@ -635,6 +654,174 @@ class ProductRunEventV1BoundaryTests(ChatEndToEndBase):
         events = await self.drain()
         started = _events_of_type(events, "run_started")[0]
         self.assertNotIn("skill", started)
+
+
+# ----------------------------------------------------------------------
+# Scenario 8: Product Run Event v1 inside events (docs/13 §4.1 A1 wave 3)
+# ----------------------------------------------------------------------
+
+
+class ProductRunEventV1InsideEventsTests(ChatEndToEndBase):
+    """The agent loop must emit step_started / step_completed for each iteration
+    and text_delta alongside every legacy ``text`` chunk, all carrying the run_id
+    that ``run_started`` opened with."""
+
+    async def test_text_only_step_and_text_delta(self) -> None:
+        self.set_llm_stream([["Hi ", "there!"]])
+
+        events = await self.drain()
+        run_id = _events_of_type(events, "run_started")[0]["run_id"]
+
+        # Exactly one step (no tools).
+        starts = _events_of_type(events, "step_started")
+        completes = _events_of_type(events, "step_completed")
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(len(completes), 1)
+        self.assertEqual(starts[0]["step_index"], 1)
+        self.assertEqual(completes[0]["step_index"], 1)
+        self.assertEqual(completes[0]["status"], "completed")
+        self.assertIn("duration_ms", completes[0])
+        self.assertTrue(starts[0]["title"])
+
+        # text_delta mirrors every legacy text chunk for the same run_id.
+        deltas = _events_of_type(events, "text_delta")
+        legacy_texts = _events_of_type(events, "text")
+        self.assertEqual(len(deltas), len(legacy_texts))
+        self.assertTrue(all(d["run_id"] == run_id for d in deltas))
+        # And the delta payloads reconstruct the same string as legacy texts.
+        self.assertEqual(
+            "".join(d["content"] for d in deltas),
+            "".join(t["content"] for t in legacy_texts),
+        )
+
+    async def test_tool_call_step_includes_step_started_completed(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_1",
+                "name": "read_project_markdown_document",
+                "input": {"action": "list"},
+            }
+        )
+        self.set_llm_stream(
+            [
+                [f"checking. {tool_block}"],
+                ["here is the summary."],
+            ]
+        )
+        tool_handler = AsyncMock(
+            return_value={
+                "type": "tool_result",
+                "tool_name": "read_project_markdown_document",
+                "tool_use_id": "tu_1",
+                "status": "success",
+                "output": {"files": []},
+            }
+        )
+        self.set_tool_handler(tool_handler)
+
+        events = await self.drain()
+
+        starts = _events_of_type(events, "step_started")
+        completes = _events_of_type(events, "step_completed")
+
+        # Two iterations of the agent loop: one with the tool call, one with
+        # the final text after the tool result is fed back.
+        self.assertEqual(len(starts), 2, "should open two steps")
+        self.assertEqual(len(completes), 2, "should close two steps")
+        self.assertEqual([s["step_index"] for s in starts], [1, 2])
+        self.assertEqual([c["step_index"] for c in completes], [1, 2])
+        # Each step_completed sits AFTER its matching step_started.
+        for s, c in zip(starts, completes):
+            self.assertLess(events.index(s), events.index(c))
+
+    async def test_run_done_is_last_v1_terminator(self) -> None:
+        self.set_llm_stream([["bye"]])
+        events = await self.drain()
+
+        # run_done must be the very last v1-shaped event.
+        type_seq = [e.get("type") for e in events]
+        last_v1 = next(
+            (t for t in reversed(type_seq) if t and t.startswith("run_")),
+            None,
+        )
+        self.assertEqual(last_v1, "run_done")
+
+    async def test_tool_progress_emits_running_then_completed(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_ok",
+                "name": "read_project_markdown_document",
+                "input": {"action": "list"},
+            }
+        )
+        self.set_llm_stream(
+            [
+                [f"checking. {tool_block}"],
+                ["done."],
+            ]
+        )
+        self.set_tool_handler(
+            AsyncMock(
+                return_value={
+                    "type": "tool_result",
+                    "tool_name": "read_project_markdown_document",
+                    "tool_use_id": "tu_ok",
+                    "status": "success",
+                    "output": {"files": []},
+                }
+            )
+        )
+
+        events = await self.drain()
+        progresses = _events_of_type(events, "tool_progress")
+
+        statuses = [p["status"] for p in progresses]
+        self.assertIn("running", statuses, "should emit a running tool_progress at [TOOL_START]")
+        self.assertIn("completed", statuses, "should emit a completed tool_progress after the tool result")
+        # running precedes completed for the same tool.
+        running_idx = next(i for i, p in enumerate(progresses) if p["status"] == "running")
+        completed_idx = next(i for i, p in enumerate(progresses) if p["status"] == "completed")
+        self.assertLess(running_idx, completed_idx)
+        # All tool_progress events carry the same run_id as run_started.
+        run_id = _events_of_type(events, "run_started")[0]["run_id"]
+        self.assertTrue(all(p["run_id"] == run_id for p in progresses))
+
+    async def test_tool_progress_classifies_failure_from_result_payload(self) -> None:
+        tool_block = json.dumps(
+            {
+                "type": "tool_use",
+                "id": "tu_bad",
+                "name": "read_project_markdown_document",
+                "input": {"action": "list"},
+            }
+        )
+        self.set_llm_stream(
+            [
+                [f"trying. {tool_block}"],
+                ["sorry, no result."],
+            ]
+        )
+        # Tool ran but returned an error payload — v1 must classify it as failed.
+        self.set_tool_handler(
+            AsyncMock(
+                return_value={
+                    "type": "tool_result",
+                    "tool_name": "read_project_markdown_document",
+                    "tool_use_id": "tu_bad",
+                    "status": "error",
+                    "output": {"success": False, "error": "boom"},
+                }
+            )
+        )
+
+        events = await self.drain()
+        progresses = _events_of_type(events, "tool_progress")
+        terminal = [p for p in progresses if p["status"] in ("completed", "failed")]
+        self.assertTrue(terminal, "expected at least one terminal tool_progress")
+        # The terminal entry for this tool must be failed, not completed.
+        self.assertEqual(terminal[-1]["status"], "failed")
 
 
 # ----------------------------------------------------------------------

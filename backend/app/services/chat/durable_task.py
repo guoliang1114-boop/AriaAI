@@ -36,7 +36,64 @@ from app.services.intent_router import classify_chat_intent_async
 from app.services.chat.markdown_followup import save_previous_answer_as_markdown
 from app.services.title_generator import schedule_title_generation
 from app.services.chat.state import ChatSessionState
+from app.services.chat.product_run_events import (
+    ToolProgressStatus,
+    task_update as _task_update_event,
+)
 from app.services.chat.sse import sse_event, task_stream_flush_pause
+
+
+_V1_TASK_STATUS_MAP = {
+    "pending": ToolProgressStatus.PENDING,
+    "paused": ToolProgressStatus.PENDING,
+    "running": ToolProgressStatus.RUNNING,
+    "completed": ToolProgressStatus.COMPLETED,
+    "failed": ToolProgressStatus.FAILED,
+    "canceled": ToolProgressStatus.FAILED,
+}
+
+
+def _v1_task_update_from_payload(run_id: str, task_payload: dict | None) -> str | None:
+    """Build a Product Run Event v1 ``task_update`` SSE frame from a TaskRun payload.
+
+    Returns ``None`` if the run isn't tracked (legacy / no run_id), the payload
+    is unusable, or the TaskRun's status doesn't map to a v1 enum value. Used at
+    every site in this module that emits the legacy ``task_run`` event so v1
+    consumers see a parallel, well-typed progress signal.
+    """
+    if not run_id or not isinstance(task_payload, dict):
+        return None
+    task_id = task_payload.get("id")
+    if task_id is None:
+        return None
+    raw_status = str(task_payload.get("status") or "").lower()
+    v1_status = _V1_TASK_STATUS_MAP.get(raw_status)
+    if v1_status is None:
+        return None
+
+    steps = [s for s in (task_payload.get("steps") or []) if isinstance(s, dict)]
+    total = len(steps)
+    completed = sum(
+        1 for s in steps if str(s.get("status") or "").lower() == "completed"
+    )
+
+    kwargs: dict = {}
+    if total > 0:
+        kwargs["total_steps"] = total
+        kwargs["progress_pct"] = min(100, max(0, round(completed / total * 100)))
+
+    current_key = task_payload.get("current_step_key")
+    if current_key:
+        for idx, step in enumerate(steps, start=1):
+            if step.get("step_key") == current_key:
+                if total > 0:
+                    kwargs["current_step"] = idx
+                title = step.get("title") or step.get("step_title")
+                if title:
+                    kwargs["step_title"] = str(title)
+                break
+
+    return sse_event(_task_update_event(run_id, task_id, v1_status, **kwargs))
 from app.services.chat.trace import persist_chat_trace
 from app.services.chat.workflow import workflow_status_from_task_event, task_payload_tool_calls
 from app.tools.project_markdown import PROJECT_MARKDOWN_TOOL_NAME
@@ -537,6 +594,9 @@ async def run_durable_task(
                     },
                 }
                 yield sse_event({"type": "task_run", "task": task_payload})
+                v1_evt = _v1_task_update_from_payload(state.run_id, task_payload)
+                if v1_evt:
+                    yield v1_evt
                 yield sse_event({"type": "text", "content": full_text})
                 state.durable_task_completed = True
                 state.full_text = full_text
@@ -569,6 +629,9 @@ async def run_durable_task(
                 return
             task_payload = serialize_task_run(task_session, task, include_events=True)
             yield sse_event({"type": "task_run", "task": task_payload})
+            v1_evt = _v1_task_update_from_payload(state.run_id, task_payload)
+            if v1_evt:
+                yield v1_evt
             await task_stream_flush_pause()
             yield sse_event(
                 {
@@ -602,6 +665,9 @@ async def run_durable_task(
                 )
                 await task_stream_flush_pause()
                 yield sse_event({"type": "task_run", "task": task_event.get("task")})
+                v1_evt = _v1_task_update_from_payload(state.run_id, task_event.get("task"))
+                if v1_evt:
+                    yield v1_evt
                 await task_stream_flush_pause()
 
             task_session.refresh(task)
@@ -644,6 +710,9 @@ async def run_durable_task(
 
         yield sse_event({"type": "text", "content": full_text})
         yield sse_event({"type": "task_run", "task": task_payload})
+        v1_evt = _v1_task_update_from_payload(state.run_id, task_payload)
+        if v1_evt:
+            yield v1_evt
         yield sse_event(
             {
                 "type": "timing",

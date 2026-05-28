@@ -238,5 +238,91 @@ class ReferenceDeltaTest(unittest.TestCase):
         self.assertEqual(event["title"], "项目背景.md")
 
 
+class DurableTaskTaskUpdateMappingTest(unittest.TestCase):
+    """Tests for the helper that maps a TaskRun payload to a v1 task_update SSE
+    frame (``app.services.chat.durable_task._v1_task_update_from_payload``)."""
+
+    def _parse_sse(self, frame: str) -> dict:
+        import json as _json
+
+        line = frame.strip()
+        self.assertTrue(line.startswith("data:"), f"unexpected frame: {frame!r}")
+        return _json.loads(line[len("data:"):].strip())
+
+    def test_running_task_with_partial_step_progress(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        payload = {
+            "id": 42,
+            "status": "running",
+            "current_step_key": "step_2",
+            "steps": [
+                {"step_key": "step_1", "title": "收集上下文", "status": "completed"},
+                {"step_key": "step_2", "title": "生成大纲", "status": "running"},
+                {"step_key": "step_3", "title": "保存交付物", "status": "pending"},
+                {"step_key": "step_4", "title": "整理交付", "status": "pending"},
+            ],
+        }
+        frame = _v1_task_update_from_payload("run_xyz", payload)
+        self.assertIsNotNone(frame)
+        event = self._parse_sse(frame)
+        self.assertEqual(event["type"], "task_update")
+        self.assertEqual(event["task_id"], "42")
+        self.assertEqual(event["status"], "running")
+        self.assertEqual(event["total_steps"], 4)
+        self.assertEqual(event["current_step"], 2)
+        self.assertEqual(event["step_title"], "生成大纲")
+        self.assertEqual(event["progress_pct"], 25)  # 1/4 completed
+
+    def test_completed_task_yields_100_progress(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        payload = {
+            "id": 7,
+            "status": "completed",
+            "steps": [
+                {"step_key": "a", "status": "completed"},
+                {"step_key": "b", "status": "completed"},
+            ],
+        }
+        event = self._parse_sse(_v1_task_update_from_payload("run_x", payload))
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["progress_pct"], 100)
+
+    def test_paused_maps_to_pending_and_canceled_maps_to_failed(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        paused = self._parse_sse(
+            _v1_task_update_from_payload("run_x", {"id": 1, "status": "paused"})
+        )
+        self.assertEqual(paused["status"], "pending")
+
+        canceled = self._parse_sse(
+            _v1_task_update_from_payload("run_x", {"id": 2, "status": "canceled"})
+        )
+        self.assertEqual(canceled["status"], "failed")
+
+    def test_unknown_status_returns_none(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        self.assertIsNone(
+            _v1_task_update_from_payload("run_x", {"id": 1, "status": "stalled_unknown"})
+        )
+
+    def test_returns_none_without_run_id(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        self.assertIsNone(
+            _v1_task_update_from_payload("", {"id": 1, "status": "running"})
+        )
+
+    def test_returns_none_without_task_id(self):
+        from app.services.chat.durable_task import _v1_task_update_from_payload
+
+        self.assertIsNone(
+            _v1_task_update_from_payload("run_x", {"status": "running"})
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
