@@ -916,6 +916,8 @@ export interface MessageMetadata {
   }>
   project_id?: number
   truncated?: boolean
+  /** Product Run Event v1: serialized RunActivityTimeline for the persisted view. */
+  activity_timeline?: unknown
   /** V0.0.4 A4: routing decision snapshot (intent_method / intent_reason / chat_mode). */
   route_decision?: {
     method?: string

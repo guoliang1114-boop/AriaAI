@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { MarkdownRenderer } from "../../components/MarkdownRenderer";
+import { useRunActivityStore } from "../../stores/runActivityStore";
 import type {
   ChatPlanResponse,
   GeneratedArtifact,
@@ -18,6 +19,8 @@ import type {
   Reference,
   ToolCallEvent,
 } from "../../types/api";
+import { isRunHarnessV1Enabled } from "../../utils/runHarnessFlag";
+import { ProjectChatActivityTimeline } from "./ProjectChatActivityTimeline";
 import type { ProjectQuickPrompt } from "./projectChatCopy";
 import { ProjectChatArtifactCard } from "./ProjectChatArtifactCard";
 import { ProjectChatEmptyState } from "./ProjectChatEmptyState";
@@ -138,12 +141,29 @@ const ChatStreamingMessage = memo<{
                 )}
               </div>
             )}
+            <RunHarnessV1TimelineSection />
           </div>
         </div>
       </div>
     );
   },
 );
+
+/**
+ * Conditional, additive activity-timeline section for the streaming bubble.
+ * Subscribes to the Product Run Event v1 store. Renders nothing unless the
+ * feature flag is on AND a timeline exists for the current run; in that case
+ * it sits alongside the legacy tool cards so the two views can be compared.
+ */
+function RunHarnessV1TimelineSection() {
+  const timeline = useRunActivityStore((state) => state.timeline);
+  if (!isRunHarnessV1Enabled() || !timeline) return null;
+  return (
+    <div className="mt-2.5 w-full max-w-3xl">
+      <ProjectChatActivityTimeline timeline={timeline} />
+    </div>
+  );
+}
 
 type ProjectChatMessagesProps = {
   messages: ChatMessage[];

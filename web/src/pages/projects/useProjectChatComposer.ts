@@ -13,7 +13,10 @@ import type {
   ToolCallEvent,
 } from "../../types/api";
 import type { StreamEvent } from "../../types/chat";
+import { isProductRunEvent } from "../../types/productRunEvent";
 import { useChatStreamStore } from "../../stores/chatStreamStore";
+import { useRunActivityStore } from "../../stores/runActivityStore";
+import { isRunHarnessV1Enabled } from "../../utils/runHarnessFlag";
 import {
   artifactFromResult,
   artifactFromTaskRunArtifact,
@@ -167,6 +170,10 @@ export function useProjectChatComposer({
   const setStreamArtifacts = useChatStreamStore((state) => state.setStreamingArtifacts);
   const setStreamTruncated = useChatStreamStore((state) => state.setTruncated);
   const resetStream = useChatStreamStore((state) => state.reset);
+  // Product Run Event v1 timeline store (feature-flagged). Apply ingests every
+  // recognised v1 event; reset clears the timeline at send / cleanup time.
+  const applyRunActivity = useRunActivityStore((state) => state.apply);
+  const resetRunActivity = useRunActivityStore((state) => state.reset);
   const abortControllerRef = useRef<AbortController | null>(null);
   const abortControllerAsyncRef = useRef<AbortController | null>(null);
   const activeConvIdRef = useRef<number | null>(activeConvId);
@@ -205,6 +212,7 @@ export function useProjectChatComposer({
       streamRequestSeqRef.current = requestId;
       const optimisticMessageId = Date.now();
       resetStream();
+      resetRunActivity();
       setStreamIsLoading(true);
       setStreamStatus("AI 正在读取项目上下文并准备回复...");
 
@@ -320,6 +328,13 @@ export function useProjectChatComposer({
             } catch (error) {
               console.error("Failed to parse stream event:", error);
               continue;
+            }
+
+            // Product Run Event v1 dispatch (additive, behind a flag). Feeds
+            // the run-activity store without touching the legacy event chain
+            // below — both consumers run while we're in double-send.
+            if (isRunHarnessV1Enabled() && isProductRunEvent(payload)) {
+              applyRunActivity(payload);
             }
 
             if ((payload.type === "text" || payload.type === "chunk") && payload.content) {
