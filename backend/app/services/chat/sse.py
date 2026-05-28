@@ -5,7 +5,12 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-STREAM_HEARTBEAT_SECONDS = 8.0
+# Heartbeat interval for "model is still thinking" status events. 2s is short
+# enough that a 3–5s blank period during cold-connect / first-token latency
+# surfaces ~1–2 visible status pings (so the user doesn't feel "stuck"), and
+# still well below the 60s reverse-proxy timeout this guard was originally
+# added to defend against.
+STREAM_HEARTBEAT_SECONDS = 2.0
 STREAM_TASK_EVENT_PAUSE_SECONDS = 0.18
 
 
