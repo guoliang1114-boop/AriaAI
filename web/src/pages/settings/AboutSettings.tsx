@@ -38,7 +38,7 @@ export function AboutSettings() {
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
-    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.2',
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.3',
     buildDate: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__.slice(0, 10) : '-',
     environment: 'production',
     apiStatus: 'offline',
@@ -48,6 +48,26 @@ export function AboutSettings() {
   const [activeTab, setActiveTab] = useState<'overview' | 'changelog' | 'license'>('overview')
 
   const changelog: ChangelogEntry[] = [
+    {
+      version: '0.0.3',
+      date: '2026-05-28',
+      summary: isZh ? 'V0.0.3 发布：Skill 体系治理、Harness 架构与记忆系统升级。' : 'V0.0.3 release: Skill governance, Harness architecture, and memory system upgrade.',
+      changes: isZh
+        ? [
+            'Skill 体系评估与优化路线图：完成 48 个 Skill 全量评估，制定 6 阶段优化计划与质量分级标准。',
+            'Skill 编写规范 v1.0：建立强制目录结构、YAML 头部标准、9 章节模板和 Linter 检查项。',
+            'Model + Harness 架构设计：引入 AI Run Harness，统一事件协议、状态机和分层职责边界。',
+            '记忆系统优化方案：从两层记忆升级为四层记忆体系，引入用户记忆、候选记忆和证据溯源机制。',
+            '审计与鉴证、税务与法律服务线加入 Skill 能力分类。',
+          ]
+        : [
+            'Skill system evaluation and optimization roadmap for all 48 skills with a 6-phase plan and quality grading.',
+            'Skill writing guideline v1.0 with mandatory directory structure, YAML standards, 9-section template, and linter checks.',
+            'Model + Harness architecture design introducing AI Run lifecycle, unified event protocol, and layered responsibilities.',
+            'Memory system optimization upgrading from 2-layer to 4-layer memory with user memory, candidate memory, and evidence tracing.',
+            'Audit & Assurance and Tax & Legal service lines added to the skill-category allowlist.',
+          ],
+    },
     {
       version: '0.0.2',
       date: '2026-04-23',
@@ -280,12 +300,12 @@ export function AboutSettings() {
           <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-sky-700">
               <Sparkles className="h-4 w-4" />
-              {isZh ? 'V0.0.2 发布版本' : 'V0.0.2 Release'}
+              {isZh ? 'V0.0.3 发布版本' : 'V0.0.3 Release'}
             </div>
             <p className="mt-3 text-sm leading-7 text-slate-700">
               {isZh
-                ? '本版本将 Skill 执行、数字化战略 PPT 生成、能力分类、项目/客户记忆和客户干系人体验整理为一个可发布基线，作为下一阶段迭代的稳定起点。'
-                : 'This release consolidates Skill execution, Digital Strategy PPT generation, capability taxonomy, project/client memory, and client stakeholder workflows into a stable baseline for the next iteration.'}
+                ? '本版本聚焦 Skill 体系治理、Harness 架构设计和记忆系统升级，为 AriaAI 从项目助手向可控、可沉淀、可审计的项目 AI 工作台演进奠定架构基础。'
+                : 'This release focuses on Skill governance, Harness architecture design, and memory system upgrades, laying the architectural foundation for evolving AriaAI from a project assistant to a controllable, traceable, and auditable project AI workbench.'}
             </p>
           </div>
         </div>

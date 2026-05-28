@@ -39,7 +39,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-APP_VERSION = "0.0.2"
+APP_VERSION = "0.0.3"
 
 
 def _backfill_folders():
