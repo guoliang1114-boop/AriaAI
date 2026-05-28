@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 const navigateMock = vi.fn();
@@ -30,7 +30,7 @@ beforeEach(() => {
 async function renderPage() {
   // PreferenceOnboarding is imported dynamically so the mocks above are in
   // place before the module evaluates.
-  const { PreferenceOnboarding, __test__ } = await import("./PreferenceOnboarding");
+  const { PreferenceOnboarding } = await import("./PreferenceOnboarding");
   const utils = render(
     <MemoryRouter>
       <PreferenceOnboarding />
@@ -39,7 +39,14 @@ async function renderPage() {
   await waitFor(() =>
     expect(screen.getByTestId("preference-onboarding-page")).toBeInTheDocument(),
   );
-  return { ...utils, __test__ };
+  return utils;
+}
+
+// Codex chip groups render as ``<div role=radiogroup><button role=radio>…``,
+// not native ``<select>``. Pick a chip by its visible label.
+function selectChip(groupTestId: string, label: string) {
+  const group = screen.getByTestId(groupTestId);
+  fireEvent.click(within(group).getByRole("radio", { name: label }));
 }
 
 describe("PreferenceOnboarding payload helpers", () => {
@@ -99,22 +106,43 @@ describe("PreferenceOnboarding payload helpers", () => {
 });
 
 describe("PreferenceOnboarding rendered behaviour", () => {
-  it("renders both columns once loaded", async () => {
+  it("renders the form column, chip groups, and the preview column", async () => {
     await renderPage();
     expect(screen.getByTestId("onb-preferred-name")).toBeInTheDocument();
     expect(screen.getByTestId("onb-language")).toBeInTheDocument();
+    expect(screen.getByTestId("onb-tone")).toBeInTheDocument();
+    expect(screen.getByTestId("onb-format")).toBeInTheDocument();
+    expect(screen.getByTestId("onb-ask")).toBeInTheDocument();
     expect(screen.getByTestId("preview-aria-reply")).toBeInTheDocument();
   });
 
-  it("preview re-renders as the user changes settings", async () => {
+  it("clicking a chip toggles aria-checked on the radio and re-renders the preview", async () => {
     await renderPage();
     const reply = screen.getByTestId("preview-aria-reply");
     const before = reply.textContent;
 
-    fireEvent.change(screen.getByTestId("onb-tone"), { target: { value: "friendly" } });
+    const toneGroup = screen.getByTestId("onb-tone");
+    const friendly = within(toneGroup).getByRole("radio", { name: "温和" });
+    expect(friendly).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(friendly);
+
+    expect(friendly).toHaveAttribute("aria-checked", "true");
     await waitFor(() => {
       expect(screen.getByTestId("preview-aria-reply").textContent).not.toBe(before);
     });
+  });
+
+  it("clicking the active chip again clears the selection", async () => {
+    await renderPage();
+    const toneGroup = screen.getByTestId("onb-tone");
+    const direct = within(toneGroup).getByRole("radio", { name: "直接" });
+
+    fireEvent.click(direct);
+    expect(direct).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(direct);
+    expect(direct).toHaveAttribute("aria-checked", "false");
   });
 
   it('"完成设置" PUTs the draft + stamps onboarding_seen + navigates to "/"', async () => {
@@ -122,7 +150,7 @@ describe("PreferenceOnboarding rendered behaviour", () => {
     fireEvent.change(screen.getByTestId("onb-preferred-name"), {
       target: { value: "李总" },
     });
-    fireEvent.change(screen.getByTestId("onb-language"), { target: { value: "zh" } });
+    selectChip("onb-language", "中文");
     fireEvent.click(screen.getByTestId("complete-onboarding"));
 
     await waitFor(() => expect(apiPut).toHaveBeenCalled());
@@ -141,7 +169,7 @@ describe("PreferenceOnboarding rendered behaviour", () => {
     fireEvent.change(screen.getByTestId("onb-preferred-name"), {
       target: { value: "Liang" },
     });
-    fireEvent.change(screen.getByTestId("onb-language"), { target: { value: "en" } });
+    selectChip("onb-language", "English");
 
     fireEvent.click(screen.getByTestId("skip-onboarding"));
 
@@ -159,5 +187,18 @@ describe("PreferenceOnboarding rendered behaviour", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("boom");
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("renders a setting → effect chip row once a tone is picked", async () => {
+    await renderPage();
+    // No effect rows visible before any chip is selected.
+    expect(screen.queryByText(/省去客套寒暄/)).not.toBeInTheDocument();
+
+    selectChip("onb-tone", "直接");
+
+    await waitFor(() => {
+      expect(screen.getByText("语气 · 直接")).toBeInTheDocument();
+      expect(screen.getByText(/省去客套寒暄/)).toBeInTheDocument();
+    });
   });
 });
