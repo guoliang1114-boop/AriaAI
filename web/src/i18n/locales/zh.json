@@ -382,6 +382,7 @@
     "title": "设置",
     "description": "管理您的应用偏好和配置",
     "profile": "个人资料",
+    "appearance": "外观",
     "aiModel": "AI 模型",
     "server": "服务器",
     "language": "语言",

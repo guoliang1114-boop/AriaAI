@@ -8,8 +8,13 @@ import App from './App'
 import './index.css'
 import './i18n'
 import { bootstrapAppFontSize } from './utils/fontSize'
+import { bootstrapCodexAppearance } from './utils/codexAppearance'
 
 bootstrapAppFontSize()
+// Read the saved Codex appearance + apply classes on <html> before React
+// mounts, so codex-themed pages render with the right theme / accent /
+// density / radius on the very first paint (no flash of default styling).
+bootstrapCodexAppearance()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
