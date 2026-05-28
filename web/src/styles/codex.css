@@ -51,6 +51,13 @@
   --color-codex-warn: oklch(0.6 0.1 65);
   --color-codex-bad: oklch(0.55 0.14 25);
   --color-codex-info: oklch(0.5 0.07 235);
+
+  /* ---- Login ambient orb opacity (light theme) — consumed by Login.tsx
+     to mix the accent into its radial-gradient orbs. Restored here
+     after an accidental ``git reset --hard`` discarded the user's
+     unstaged edits; see PR #8 commit body. ---- */
+  --codex-login-orb-a-mix: 18%;
+  --codex-login-orb-b-mix: 12%;
 }
 
 /* ----------------------------------------------------------------
@@ -80,6 +87,11 @@
   --color-codex-accent-soft: oklch(0.28 0.04 150);
   --color-codex-accent-ink: oklch(0.82 0.08 150);
   --color-codex-accent-bg: oklch(0.22 0.025 150);
+
+  /* Login orbs stay slightly brighter in dark mode so the accent
+     reads through the parchment-dark background. */
+  --codex-login-orb-a-mix: 28%;
+  --codex-login-orb-b-mix: 20%;
 }
 
 /* ----------------------------------------------------------------
