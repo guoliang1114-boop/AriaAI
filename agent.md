@@ -37,7 +37,12 @@ AP/
 │   ├── 06-Human-in-the-Loop Tool Approval 设计.md
 │   ├── 07-AriaAI架构与对话逻辑图.md
 │   ├── 08-Skill体系评估与优化路线图.md
-│   └── 09-Skill编写规范.md
+│   ├── 09-Skill编写规范.md
+│   ├── 10-代码Review遗留事项.md
+│   ├── 11-Model-Harness产品方案设计.md
+│   ├── 12-记忆系统优化方案.md
+│   ├── 13-V0.0.4迭代计划.md
+│   └── 14-V0.0.5知识库开发方案.md
 ├── backend/                    ← Python backend
 │   ├── main.py                 ← FastAPI entry point
 │   ├── app/
@@ -311,6 +316,11 @@ docs: update architecture diagram for RAG changes
 | Architecture diagrams | `docs/07-AriaAI架构与对话逻辑图.md` |
 | Skill quality & roadmap | `docs/08-Skill体系评估与优化路线图.md` |
 | Skill writing standard | `docs/09-Skill编写规范.md` |
+| Code review items | `docs/10-代码Review遗留事项.md` |
+| Run Harness design | `docs/11-Model-Harness产品方案设计.md` |
+| Memory system design | `docs/12-记忆系统优化方案.md` |
+| V0.0.4 iteration plan | `docs/13-V0.0.4迭代计划.md` |
+| Knowledge base design | `docs/14-V0.0.5知识库开发方案.md` §16 + 附录 A |
 | Backend entry point | `backend/main.py` |
 | All config values | `backend/app/config.py` |
 | All data models | `backend/app/models/db.py` |

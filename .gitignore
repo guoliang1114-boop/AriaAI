@@ -34,6 +34,9 @@ yarn-error.log*
 *.swp
 *.swo
 
+# Claude Code local tooling state (per-user settings, not for version control)
+.claude/
+
 # Environment
 .env
 .env.local
