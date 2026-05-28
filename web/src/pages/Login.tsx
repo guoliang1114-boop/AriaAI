@@ -4,12 +4,11 @@
  * Fullscreen / ultrawide fix:
  *   1. Outer wrapper now uses bg-elev so the left aside background extends
  *      to viewport edges on ultrawide. Inner container is capped at 1440.
- *   2. Left aside grows asymmetrically (1.4 vs 0.9) — narrative side gets
- *      more room than the form column.
+ *   2. Desktop uses a deterministic grid: left minmax(0, 1fr), right 480px.
  *   3. Brand mark + hero + footer are wrapped in a single 520-wide column
  *      so all 3 align to the same vertical axis (no more footer items
  *      flying to opposite corners on wide screens).
- *   4. Right main is fixed 480px — form column never inflates.
+ *   4. Right main sits in a fixed 480px grid track — form column never inflates.
  *   5. Dot grid + orbs remain pinned to the aside (not the inner column)
  *      so they keep filling the panel space.
  *
@@ -92,15 +91,23 @@ export function Login() {
             adds equal left/right whitespace that visually merges with
             the left aside background.
             ---------------------------------------------------------- */}
-        <div className="flex w-full" style={{ maxWidth: 1440 }}>
+        <div
+          className="flex w-full lg:grid"
+          style={{
+            maxWidth: 1440,
+            gridTemplateColumns: "minmax(0, 1fr) 480px",
+            minHeight: "100vh",
+            overflow: "hidden",
+          }}
+        >
           {/* --------------------------------------------------------
-              LEFT — quiet hero (hidden on small screens).
-              Asymmetric flex (1.4) so the narrative gets more room.
+              LEFT — quiet hero (hidden on small screens). Desktop grid
+              gives this column all remaining width beside the 480px form.
               -------------------------------------------------------- */}
           <aside
             className="relative hidden lg:flex flex-col overflow-hidden"
             style={{
-              flex: 1.4,
+              minWidth: 0,
               padding: "44px 56px",
               background: "var(--color-codex-bg-elev)",
               borderRight: "1px solid var(--color-codex-line)",
@@ -138,7 +145,7 @@ export function Login() {
                 height: 240,
                 borderRadius: 9999,
                 background:
-                  "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) 18%, transparent) 0%, transparent 70%)",
+                  "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) var(--codex-login-orb-a-mix, 18%), transparent) 0%, transparent 70%)",
                 animation: "codex-float-a 14s ease-in-out infinite",
                 filter: "blur(2px)",
                 pointerEvents: "none",
@@ -154,7 +161,7 @@ export function Login() {
                 height: 180,
                 borderRadius: 9999,
                 background:
-                  "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) 12%, transparent) 0%, transparent 70%)",
+                  "radial-gradient(circle, color-mix(in oklch, var(--color-codex-accent) var(--codex-login-orb-b-mix, 12%), transparent) 0%, transparent 70%)",
                 animation: "codex-float-b 18s ease-in-out infinite",
                 filter: "blur(2px)",
                 pointerEvents: "none",
@@ -166,7 +173,12 @@ export function Login() {
                 align to the same vertical axis on any screen width. */}
             <div
               className="relative flex flex-col justify-between"
-              style={{ width: "100%", maxWidth: 520, height: "100%" }}
+              style={{
+                flex: "1 1 auto",
+                width: "100%",
+                maxWidth: 520,
+                minHeight: 0,
+              }}
             >
               {/* Brand mark — pinned top. */}
               <div className="relative">
@@ -241,7 +253,9 @@ export function Login() {
           <main
             className="flex items-center justify-center"
             style={{
-              flex: "0 0 480px",
+              gridColumn: "2",
+              minWidth: 0,
+              width: "100%",
               padding: "44px 60px",
               background: "var(--color-codex-bg)",
             }}
