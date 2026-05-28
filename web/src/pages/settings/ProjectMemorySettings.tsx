@@ -427,63 +427,143 @@ export function ProjectMemorySettings() {
     { key: 'missing', label: isZh ? '尚未整理' : 'Not prepared', count: counts.missing },
   ]
 
+  const ghostButtonStyle: React.CSSProperties = {
+    padding: '8px 14px',
+    fontSize: 13,
+    background: 'var(--color-codex-bg)',
+    color: 'var(--color-codex-ink-soft)',
+    border: '1px solid var(--color-codex-line)',
+    borderRadius: 'var(--codex-r-sm, 3px)',
+  }
+  const smallGhostStyle: React.CSSProperties = {
+    padding: '5px 9px',
+    fontSize: 11,
+    background: 'var(--color-codex-bg)',
+    color: 'var(--color-codex-ink-soft)',
+    border: '1px solid var(--color-codex-line)',
+    borderRadius: 'var(--codex-r-sm, 3px)',
+  }
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--color-codex-bg-elev)',
+    border: '1px solid var(--color-codex-line)',
+    borderRadius: 'var(--codex-r-md, 6px)',
+  }
+
   if (loading) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div
+        className="theme-codex flex min-h-[320px] items-center justify-center"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
       </div>
     )
   }
 
+  const statusToneBg = (s: MemoryFilter) =>
+    s === 'missing'
+      ? 'color-mix(in oklch, var(--color-codex-warn) 14%, transparent)'
+      : s === 'stale'
+        ? 'color-mix(in oklch, var(--color-codex-warn) 10%, transparent)'
+        : 'var(--color-codex-accent-bg)'
+  const statusToneInk = (s: MemoryFilter) =>
+    s === 'ready' ? 'var(--color-codex-accent-ink)' : 'var(--color-codex-warn)'
+
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Brain className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-on-surface">
-                {isZh ? '项目记忆管理' : 'Project Memory Manager'}
-              </h2>
-              <p className="mt-1 text-sm text-on-surface-muted">
-                {isZh
-                  ? '集中查看项目记忆状态、后台队列和常用 AI 摘要预热进度。'
-                  : 'Track project memory health, queued jobs, and common AI summary warming in one place.'}
-              </p>
-            </div>
+    <div
+      className="theme-codex"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+        padding: '8px 4px 32px',
+      }}
+    >
+      <header
+        className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
+        style={{ marginBottom: 20 }}
+      >
+        <div className="min-w-0 flex items-start gap-3">
+          <div
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center"
+            style={{
+              background: 'var(--color-codex-accent-bg)',
+              color: 'var(--color-codex-accent)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
+          >
+            <Brain className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 22,
+                fontWeight: 500,
+                color: 'var(--color-codex-ink)',
+                letterSpacing: '-0.015em',
+              }}
+            >
+              {isZh ? '项目记忆管理' : 'Project Memory Manager'}
+            </h1>
+            <p
+              style={{
+                margin: '6px 0 0',
+                fontSize: 13,
+                color: 'var(--color-codex-ink-mute)',
+                lineHeight: 1.6,
+                maxWidth: 640,
+              }}
+            >
+              {isZh
+                ? '集中查看项目记忆状态、后台队列和常用 AI 摘要预热进度。'
+                : 'Track project memory health, queued jobs, and common AI summary warming in one place.'}
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => {
-              void runBatch('stale')
-            }}
+            onClick={() => void runBatch('stale')}
             disabled={isRefreshingStale || counts.stale === 0}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 disabled:opacity-50"
+            style={ghostButtonStyle}
           >
-            {isRefreshingStale ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {isZh ? '批量更新待刷新记忆' : 'Refresh Stale Memories'}
+            {isRefreshingStale ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {isZh ? '刷新待更新' : 'Refresh Stale'}
           </button>
           <button
             type="button"
-            onClick={() => {
-              void runBatch('missing')
-            }}
+            onClick={() => void runBatch('missing')}
             disabled={isGeneratingMissing || counts.missing === 0}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
+            className="inline-flex items-center gap-2 disabled:opacity-50"
+            style={{
+              padding: '8px 14px',
+              fontSize: 13,
+              fontWeight: 500,
+              background: 'var(--color-codex-accent)',
+              color: 'var(--color-codex-bg-elev)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
           >
-            {isGeneratingMissing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isZh ? '补齐未整理记忆' : 'Generate Missing Memories'}
+            {isGeneratingMissing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {isZh ? '补齐缺失记忆' : 'Generate Missing'}
           </button>
         </div>
-      </div>
+      </header>
 
       {isGeneratingMissing && autoGenerateMissingTriggeredRef.current ? (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: 'var(--color-codex-bg-tint)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            color: 'var(--color-codex-ink-soft)',
+            fontSize: 12.5,
+          }}
+        >
           {isZh
             ? '系统正在自动补齐尚未整理的项目记忆。你可以先浏览页面，结果会自动更新。'
             : 'Missing project memories are being prepared automatically. The list will update as results come back.'}
@@ -491,20 +571,31 @@ export function ProjectMemorySettings() {
       ) : null}
 
       {isWarmingSummaries ? (
-        <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: 'var(--color-codex-bg-tint)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+            color: 'var(--color-codex-ink-soft)',
+            fontSize: 12.5,
+          }}
+        >
           {isZh
             ? '系统正在后台预热常用 AI 摘要，并按队列、预算和间隔节奏控制，避免集中触发限流。'
             : 'Common AI summaries are being warmed in the background with queue, budget, and pacing controls to avoid rate-limit spikes.'}
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="mb-4 flex items-center justify-between">
+      {/* Queue card */}
+      <div style={{ ...cardStyle, padding: 18, marginBottom: 16 }}>
+        <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">
+            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--color-codex-ink)' }}>
               {isZh ? '后台任务队列' : 'Background Queue'}
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               {isZh
                 ? '查看当前排队中的记忆重建和摘要预热任务。'
                 : 'See queued memory rebuild and summary warm jobs.'}
@@ -512,100 +603,170 @@ export function ProjectMemorySettings() {
           </div>
           <button
             type="button"
-            onClick={() => {
-              void fetchJobs()
-            }}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            onClick={() => void fetchJobs()}
+            className="inline-flex items-center gap-2"
+            style={ghostButtonStyle}
           >
-            {loadingJobs ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {isZh ? '刷新队列' : 'Refresh Queue'}
+            {loadingJobs ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {isZh ? '刷新队列' : 'Refresh queue'}
           </button>
         </div>
 
         {jobs.length === 0 ? (
-          <div className="rounded-xl bg-gray-50 px-4 py-4 text-sm text-gray-500">
+          <div
+            style={{
+              padding: '14px 16px',
+              background: 'var(--color-codex-bg-tint)',
+              border: '1px dashed var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              fontSize: 13,
+              color: 'var(--color-codex-ink-mute)',
+            }}
+          >
             {isZh ? '当前没有排队中的项目记忆任务。' : 'No queued project memory jobs right now.'}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {jobs.map((job) => (
-              <div key={job.job_id} className="rounded-xl border border-gray-200 px-4 py-3">
+              <div
+                key={job.job_id}
+                style={{
+                  padding: '12px 14px',
+                  background: 'var(--color-codex-bg)',
+                  border: '1px solid var(--color-codex-line-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-900">{job.project_name}</span>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                      <span
+                        style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-codex-ink)' }}
+                      >
+                        {job.project_name}
+                      </span>
+                      <span
+                        className="font-mono"
+                        style={{
+                          padding: '1px 6px',
+                          fontSize: 10.5,
+                          background: 'var(--color-codex-bg-tint)',
+                          color: 'var(--color-codex-ink-soft)',
+                          borderRadius: 'var(--codex-r-pill, 999px)',
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
                         {getJobTypeText(job.job_type, isZh)}
                       </span>
                       {job.language ? (
-                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+                        <span
+                          className="font-mono"
+                          style={{
+                            padding: '1px 6px',
+                            fontSize: 10.5,
+                            background: 'var(--color-codex-accent-bg)',
+                            color: 'var(--color-codex-accent-ink)',
+                            borderRadius: 'var(--codex-r-pill, 999px)',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
                           {job.language}
                         </span>
                       ) : null}
                       {job.status_source === 'project_status' ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                          {isZh ? '状态待校准' : 'Needs reconcile'}
+                        <span
+                          className="font-mono"
+                          style={{
+                            padding: '1px 6px',
+                            fontSize: 10.5,
+                            background: 'color-mix(in oklch, var(--color-codex-warn) 12%, transparent)',
+                            color: 'var(--color-codex-warn)',
+                            borderRadius: 'var(--codex-r-pill, 999px)',
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {isZh ? '待校准' : 'Reconcile'}
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-1 text-sm text-gray-500">{job.client}</div>
-                    <div className={`mt-2 rounded-lg px-3 py-2 text-xs ${
-                      job.status_source === 'project_status'
-                        ? 'bg-amber-50 text-amber-800'
-                        : 'bg-slate-50 text-slate-600'
-                    }`}>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 12,
+                        color: 'var(--color-codex-ink-mute)',
+                      }}
+                    >
+                      {job.client}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: '6px 10px',
+                        fontSize: 11.5,
+                        background:
+                          job.status_source === 'project_status'
+                            ? 'color-mix(in oklch, var(--color-codex-warn) 8%, transparent)'
+                            : 'var(--color-codex-bg-tint)',
+                        color:
+                          job.status_source === 'project_status'
+                            ? 'var(--color-codex-warn)'
+                            : 'var(--color-codex-ink-soft)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                        lineHeight: 1.55,
+                      }}
+                    >
                       {getJobSourceText(job, isZh)}
                     </div>
-                    <div className="mt-2 grid gap-2 text-xs text-gray-600 sm:grid-cols-3">
+                    <div
+                      className="mt-2 grid gap-2 font-mono sm:grid-cols-3"
+                      style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+                    >
                       <div>
-                        <span className="font-medium">{isZh ? '计划执行：' : 'Scheduled: '}</span>
+                        {isZh ? '计划 ' : 'Scheduled '}
                         {formatProjectMemoryUpdatedAt(job.next_run_at ?? null, isZh)}
                       </div>
+                      <div>v{job.memory_version}</div>
                       <div>
-                        <span className="font-medium">{isZh ? '记忆版本：' : 'Memory Version: '}</span>
-                        {job.memory_version}
-                      </div>
-                      <div>
-                        <span className="font-medium">{isZh ? '记忆状态：' : 'Memory State: '}</span>
                         {job.memory_stale ? (isZh ? '待刷新' : 'Stale') : isZh ? '可用' : 'Ready'}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => {
-                        void runJobNow(job.project_id)
-                      }}
+                      onClick={() => void runJobNow(job.project_id)}
                       disabled={jobActionProjectId === job.project_id}
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 disabled:opacity-50"
+                      style={smallGhostStyle}
                     >
                       {jobActionProjectId === job.project_id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        <Play className="h-4 w-4" />
+                        <Play className="h-3 w-3" />
                       )}
-                      {isZh ? '立即执行' : 'Run Now'}
+                      {isZh ? '立即' : 'Run'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        void cancelJob(job.project_id)
-                      }}
+                      onClick={() => void cancelJob(job.project_id)}
                       disabled={jobActionProjectId === job.project_id}
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 disabled:opacity-50"
+                      style={smallGhostStyle}
                     >
-                      <XCircle className="h-4 w-4" />
+                      <XCircle className="h-3 w-3" />
                       {isZh ? '取消' : 'Cancel'}
                     </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/projects/${job.project_id}/memory`)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      className="inline-flex items-center gap-1"
+                      style={smallGhostStyle}
                     >
-                      <ExternalLink className="h-4 w-4" />
-                      {isZh ? '打开项目' : 'Open'}
+                      <ExternalLink className="h-3 w-3" />
+                      {isZh ? '查看' : 'Open'}
                     </button>
                   </div>
                 </div>
@@ -615,36 +776,78 @@ export function ProjectMemorySettings() {
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {filterOptions.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            onClick={() => setFilter(option.key)}
-            className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
-              filter === option.key
-                ? 'border-primary/30 bg-primary/5'
-                : 'border-gray-200 bg-white hover:bg-gray-50'
-            }`}
-          >
-            <div className="text-xs font-medium text-gray-500">{option.label}</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">{option.count}</div>
-          </button>
-        ))}
+      {/* Filter cards */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: 16 }}>
+        {filterOptions.map((option) => {
+          const isActive = filter === option.key
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setFilter(option.key)}
+              className="px-4 py-3 text-left transition-colors"
+              style={{
+                background: isActive
+                  ? 'var(--color-codex-accent-bg)'
+                  : 'var(--color-codex-bg-elev)',
+                border: isActive
+                  ? '1px solid color-mix(in oklch, var(--color-codex-accent) 35%, transparent)'
+                  : '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
+              <div
+                className="font-mono"
+                style={{
+                  fontSize: 10.5,
+                  color: isActive ? 'var(--color-codex-accent-ink)' : 'var(--color-codex-ink-mute)',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {option.label}
+              </div>
+              <div
+                className="font-mono"
+                style={{
+                  marginTop: 4,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  color: isActive ? 'var(--color-codex-accent-ink)' : 'var(--color-codex-ink)',
+                }}
+              >
+                {option.count}
+              </div>
+            </button>
+          )
+        })}
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      {/* Search */}
+      <div className="relative" style={{ marginBottom: 16 }}>
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"
+          style={{ color: 'var(--color-codex-ink-faint)' }}
+        />
         <input
           type="text"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder={isZh ? '搜索项目名称、客户或摘要...' : 'Search by project, client, or summary...'}
-          className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full outline-none"
+          style={{
+            padding: '10px 12px 10px 34px',
+            fontSize: 13.5,
+            background: 'var(--color-codex-bg-elev)',
+            border: '1px solid var(--color-codex-line)',
+            borderRadius: 'var(--codex-r-md, 6px)',
+            color: 'var(--color-codex-ink)',
+          }}
         />
       </div>
 
-      <div className="space-y-3">
+      {/* Project list */}
+      <div className="space-y-2">
         {filteredProjects.map((project) => {
           const status = getMemoryStatus(project)
           const statusText =
@@ -661,45 +864,92 @@ export function ProjectMemorySettings() {
                   : 'Not prepared'
 
           return (
-            <div key={project.id} className="rounded-2xl border border-gray-200 bg-white p-4">
+            <div
+              key={project.id}
+              style={{
+                padding: 16,
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                        status === 'ready'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : status === 'stale'
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-slate-100 text-slate-700'
-                      }`}
+                      className="font-mono"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: 10.5,
+                        background: statusToneBg(status),
+                        color: statusToneInk(status),
+                        borderRadius: 'var(--codex-r-pill, 999px)',
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                      }}
                     >
                       {statusText}
                     </span>
-                    <span className="text-xs text-gray-400">{project.client}</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                    <span
+                      className="font-mono"
+                      style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}
+                    >
+                      {project.client}
+                    </span>
+                    <span
+                      className="font-mono inline-flex items-center gap-1"
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: 10.5,
+                        background: 'var(--color-codex-bg-tint)',
+                        color: 'var(--color-codex-ink-soft)',
+                        borderRadius: 'var(--codex-r-pill, 999px)',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
                       <RebuildStatusIcon status={project.memory_rebuild_status} />
                       {getRebuildStatusText(project.memory_rebuild_status, isZh)}
                     </span>
                   </div>
 
-                  <div className="text-base font-semibold text-gray-900">{project.name}</div>
-                  <div className="mt-1 text-sm text-gray-500">
-                    {isZh ? '最近同步：' : 'Last sync: '}
+                  <div
+                    style={{
+                      fontSize: 14.5,
+                      fontWeight: 600,
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    {project.name}
+                  </div>
+                  <div
+                    className="mt-1 font-mono"
+                    style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+                  >
+                    {isZh ? '最近同步 ' : 'Last sync '}
                     {formatProjectMemoryUpdatedAt(project.memory_updated_at, isZh)}
                   </div>
 
                   {project.memory_rebuild_failed_at ? (
-                    <div className="mt-1 flex items-center gap-1.5 text-xs text-red-600">
-                      <AlertTriangle className="h-3.5 w-3.5" />
+                    <div
+                      className="mt-1 flex items-center gap-1.5 font-mono"
+                      style={{ fontSize: 11, color: 'var(--color-codex-bad)' }}
+                    >
+                      <AlertTriangle className="h-3 w-3" />
                       <span>
-                        {isZh ? '最近失败：' : 'Last failed: '}
+                        {isZh ? '最近失败 ' : 'Last failed '}
                         {formatProjectMemoryUpdatedAt(project.memory_rebuild_failed_at, isZh)}
                       </span>
                     </div>
                   ) : null}
 
-                  <div className="mt-3 text-sm leading-relaxed text-gray-600">
+                  <div
+                    className="mt-3"
+                    style={{
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                      color: 'var(--color-codex-ink-soft)',
+                    }}
+                  >
                     {project.context_summary?.trim()
                       ? project.context_summary
                           .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -713,29 +963,29 @@ export function ProjectMemorySettings() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 lg:justify-end">
+                <div className="flex flex-wrap gap-2 lg:justify-end flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => {
-                      void rebuildSingleProject(project)
-                    }}
+                    onClick={() => void rebuildSingleProject(project)}
                     disabled={refreshingProjectId === project.id}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 disabled:opacity-50"
+                    style={smallGhostStyle}
                   >
                     {refreshingProjectId === project.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      <RefreshCw className="h-4 w-4" />
+                      <RefreshCw className="h-3 w-3" />
                     )}
-                    {isZh ? '更新记忆' : 'Refresh'}
+                    {isZh ? '更新' : 'Refresh'}
                   </button>
                   <button
                     type="button"
                     onClick={() => navigate(`/projects/${project.id}/memory`)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                    className="inline-flex items-center gap-1"
+                    style={smallGhostStyle}
                   >
-                    <ExternalLink className="h-4 w-4" />
-                    {isZh ? '查看详情' : 'Open'}
+                    <ExternalLink className="h-3 w-3" />
+                    {isZh ? '查看' : 'Open'}
                   </button>
                 </div>
               </div>
