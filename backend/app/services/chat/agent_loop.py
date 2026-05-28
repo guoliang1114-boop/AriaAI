@@ -106,7 +106,10 @@ async def _consume_stream(
             temperature=runtime.temperature,
         ),
         stage="thinking",
-        message="模型仍在生成中，请稍候...",
+        # Heartbeat uses the same text the frontend sets on send, so 2s pings
+        # during a slow TTFT don't flicker the status label. See the matching
+        # initial in web/src/pages/projects/useProjectChatComposer.ts.
+        message="Aria 正在思考...",
     ):
         if isinstance(item, dict):
             yield sse_event(item)

@@ -525,7 +525,15 @@ async def run_persist(
     """
     from app.services.chat.tool_repair import extract_tool_use_json_blocks
 
-    stream_started_at = time.perf_counter() - (state.stage_timings.get("total_stream_ms", 0) / 1000)
+    # Prefer the orchestrator-stamped start time (set in stream_chat_events).
+    # The legacy reconstruction below from stage_timings["total_stream_ms"]
+    # only worked for the durable-task early-exit path — for normal chat the
+    # metric isn't set yet at this point, so the legacy fallback yields ~0
+    # and total_stream_ms ends up reflecting only persist's own duration.
+    if state.stream_started_at > 0.0:
+        stream_started_at = state.stream_started_at
+    else:
+        stream_started_at = time.perf_counter() - (state.stage_timings.get("total_stream_ms", 0) / 1000)
 
     # Assemble full text
     full_text = _strip_internal_tool_markers(state.full_text).strip()
