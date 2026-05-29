@@ -11,11 +11,24 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
+        // Conservative chunking: only carve out a small ``react-vendor``
+        // for the React runtime that every page needs. Everything else
+        // is left to Rollup's automatic chunking so heavy deps end up
+        // *inside* the route bundle that actually uses them — e.g.
+        // ``react-markdown`` rides with Chat, not as a preloaded
+        // top-level chunk.
+        //
+        // The earlier setup carved 6 named vendor chunks (react /
+        // markdown / i18n / ui / network / catch-all). Vite emits a
+        // ``<link rel="modulepreload">`` for every chunk in the entry
+        // import graph, so visiting ``/workspace`` raced 7 vendor
+        // files in parallel — each one tiny but each one paying the
+        // same RTT cost. On a slow connection that produced ~12s
+        // DOMContentLoaded for a 250 kB total transfer.
         manualChunks(id) {
           if (!id.includes('node_modules')) {
             return undefined
           }
-
           if (
             id.includes('/react/') ||
             id.includes('/react-dom/') ||
@@ -24,33 +37,7 @@ export default defineConfig({
           ) {
             return 'react-vendor'
           }
-
-          if (
-            id.includes('/react-markdown/') ||
-            id.includes('/remark-gfm/')
-          ) {
-            return 'markdown-vendor'
-          }
-
-          if (
-            id.includes('/i18next/') ||
-            id.includes('/react-i18next/')
-          ) {
-            return 'i18n-vendor'
-          }
-
-          if (
-            id.includes('/@dnd-kit/') ||
-            id.includes('/lucide-react/')
-          ) {
-            return 'ui-vendor'
-          }
-
-          if (id.includes('/axios/')) {
-            return 'network-vendor'
-          }
-
-          return 'vendor'
+          return undefined
         },
       },
     },

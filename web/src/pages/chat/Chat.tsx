@@ -1833,12 +1833,22 @@ export function Chat() {
     : []
   const liveProgressTitle = skillRunActive ? 'Skill 执行清单' : 'Aria 正在处理'
 
-  const filteredConversations = sidebarSearch.trim()
-    ? conversations.filter(c =>
-        (c.title || '').toLowerCase().includes(sidebarSearch.toLowerCase())
-      )
-    : conversations
-  const conversationGroups = groupConversations(filteredConversations, t, resolvedTimeZone)
+  // Memoize the conversation filter + grouping. Without this they
+  // run on every render (62 hooks tick on every state change in this
+  // component), and the grouping walks every conversation parsing
+  // dates with the user's timezone — non-trivial CPU on the main
+  // thread that piles into the "transition pending" window when the
+  // user navigates into /chat. Now they only recompute when the
+  // sources actually change.
+  const filteredConversations = useMemo(() => {
+    const term = sidebarSearch.trim().toLowerCase()
+    if (!term) return conversations
+    return conversations.filter((c) => (c.title || '').toLowerCase().includes(term))
+  }, [conversations, sidebarSearch])
+  const conversationGroups = useMemo(
+    () => groupConversations(filteredConversations, t, resolvedTimeZone),
+    [filteredConversations, t, resolvedTimeZone],
+  )
 
   // ── Render ────────────────────────────────────────────────────────────────
   // ``theme-codex`` wraps the page so the sidebar + chrome (refactored in
