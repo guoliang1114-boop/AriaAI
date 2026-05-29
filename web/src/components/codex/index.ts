@@ -15,3 +15,4 @@ export { CxPanel } from "./CxPanel";
 export { CxFormRow } from "./CxFormRow";
 export { CxSwitch } from "./CxSwitch";
 export { CxSkeleton } from "./CxSkeleton";
+export { CxTopProgress } from "./CxTopProgress";

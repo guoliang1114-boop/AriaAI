@@ -45,7 +45,11 @@ describe('SkillCategoryPage', () => {
         </Routes>
       </MemoryRouter>
     )
-    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
+    // SkillsLoading now renders a structured skeleton (CxSkeleton +
+    // CxTopProgress) per the design's CxLoading pattern. At least one
+    // ``cx-skeleton`` block being present is enough to assert the
+    // loading shell rendered.
+    expect(document.querySelectorAll('[data-testid="cx-skeleton"]').length).toBeGreaterThan(0)
   })
 
   it('renders skills after loading', async () => {
