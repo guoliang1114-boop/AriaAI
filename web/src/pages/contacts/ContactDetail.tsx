@@ -60,6 +60,14 @@ interface ContactRecord {
   stakeholder: ClientStakeholder
 }
 
+interface ContactDetailBundle {
+  client: ClientListItem
+  stakeholder: ClientStakeholder
+  sibling_stakeholders: ClientStakeholder[]
+  projects: ClientProjectSummary[]
+  history: StakeholderHistoryEntry[]
+}
+
 type ContactDetailTab = 'overview' | 'history' | 'projects' | 'notes'
 type ContactLevel = 'decision' | 'influence' | 'execution'
 
@@ -99,35 +107,26 @@ export function ContactDetail() {
     else setLoading(true)
     setError(null)
 
+    // Single round-trip via ``GET /contacts/{id}``. Previously this page
+    // GET'd ``/clients`` and then walked the list calling
+    // ``/clients/{id}/stakeholders`` for each one until it found the
+    // target — N+1 fan-out that took ~6s on prod with ~12 clients.
     try {
-      const clients = await api.get<ClientListItem[]>('/clients')
-      const clientList = Array.isArray(clients) ? clients : []
-
-      for (const client of clientList) {
-        const stakeholdersResponse = await api.get<ClientStakeholder[]>(`/clients/${client.id}/stakeholders`)
-        const stakeholders = Array.isArray(stakeholdersResponse) ? stakeholdersResponse : []
-        const found = stakeholders.find((stakeholder) => stakeholder.id === contactId)
-
-        if (found) {
-          const [clientProjects, stakeholderHistory] = await Promise.all([
-            api.get<ClientProjectSummary[]>(`/clients/${client.id}/projects`).catch(() => []),
-            api.get<StakeholderHistoryEntry[]>(`/clients/${client.id}/stakeholders/${found.id}/history`).catch(() => []),
-          ])
-
-          setRecord({ client, stakeholder: found })
-          setClientContacts(stakeholders)
-          setProjects(Array.isArray(clientProjects) ? clientProjects : [])
-          setHistory(Array.isArray(stakeholderHistory) ? stakeholderHistory : [])
-          setEditDraft(buildEditDraft(found))
-          setLoading(false)
-          return
-        }
+      const bundle = await api.get<ContactDetailBundle>(`/contacts/${contactId}`)
+      setRecord({ client: bundle.client, stakeholder: bundle.stakeholder })
+      setClientContacts(
+        Array.isArray(bundle.sibling_stakeholders) ? bundle.sibling_stakeholders : [],
+      )
+      setProjects(Array.isArray(bundle.projects) ? bundle.projects : [])
+      setHistory(Array.isArray(bundle.history) ? bundle.history : [])
+      setEditDraft(buildEditDraft(bundle.stakeholder))
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        setRecord(null)
+        setError(isZh ? '没有找到这个联系人' : 'Contact not found')
+      } else {
+        setError(isZh ? '联系人详情加载失败' : 'Failed to load contact detail')
       }
-
-      setRecord(null)
-      setError(isZh ? '没有找到这个联系人' : 'Contact not found')
-    } catch {
-      setError(isZh ? '联系人详情加载失败' : 'Failed to load contact detail')
     } finally {
       setLoading(false)
       setRefreshing(false)

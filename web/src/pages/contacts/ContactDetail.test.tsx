@@ -64,6 +64,19 @@ function makeClient(overrides: Partial<any> = {}) {
   }
 }
 
+// Helper for the new single-shot ``GET /contacts/{id}`` bundle that
+// replaced the old per-client stakeholder fan-out.
+function makeBundle(overrides: Partial<any> = {}) {
+  return {
+    client: makeClient(),
+    stakeholder: makeStakeholder(),
+    sibling_stakeholders: [makeStakeholder()],
+    projects: [],
+    history: [],
+    ...overrides,
+  }
+}
+
 describe('ContactDetail', () => {
   beforeEach(() => {
     mockGet.mockClear()
@@ -80,12 +93,7 @@ describe('ContactDetail', () => {
 
   it('renders contact data after loading', async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/clients') {
-        return Promise.resolve([makeClient()])
-      }
-      if (url === '/clients/1/stakeholders') {
-        return Promise.resolve([makeStakeholder()])
-      }
+      if (url === '/contacts/5') return Promise.resolve(makeBundle())
       return Promise.resolve({})
     })
     render(<ContactDetail />)
@@ -96,8 +104,9 @@ describe('ContactDetail', () => {
 
   it('shows not found when contact does not exist', async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/clients') return Promise.resolve([makeClient()])
-      if (url === '/clients/1/stakeholders') return Promise.resolve([makeStakeholder({ id: 2, name: '李四' })])
+      if (url === '/contacts/5') {
+        return Promise.reject({ response: { status: 404 } })
+      }
       return Promise.resolve({})
     })
     render(<ContactDetail />)
@@ -108,12 +117,15 @@ describe('ContactDetail', () => {
 
   it('switches tabs', async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/clients') return Promise.resolve([makeClient()])
-      if (url === '/clients/1/stakeholders') {
-        return Promise.resolve([makeStakeholder({ last_action: '项目例会：讨论续约推进' })])
+      if (url === '/contacts/5') {
+        return Promise.resolve(
+          makeBundle({
+            stakeholder: makeStakeholder({ last_action: '项目例会：讨论续约推进' }),
+            projects: [{ id: 9, name: 'P1', status: 'opportunity' }],
+            history: [],
+          }),
+        )
       }
-      if (url === '/clients/1/projects') return Promise.resolve([{ id: 9, name: 'P1', status: 'opportunity' }])
-      if (url === '/clients/1/stakeholders/5/history') return Promise.resolve([])
       return Promise.resolve({})
     })
     render(<ContactDetail />)
