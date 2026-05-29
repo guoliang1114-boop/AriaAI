@@ -57,7 +57,7 @@ describe('Layout', () => {
   it('renders brand name', async () => {
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByText('Aria AI')).toBeInTheDocument()
+      expect(screen.getByTestId('cx-logo')).toBeInTheDocument()
     })
   })
 
@@ -76,7 +76,7 @@ describe('Layout', () => {
   it('hides primary navigation on project detail routes', async () => {
     renderLayout('/projects/27')
     await waitFor(() => {
-      expect(screen.queryByText('Aria AI')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('cx-logo')).not.toBeInTheDocument()
     })
   })
 
@@ -119,7 +119,7 @@ describe('Layout', () => {
   it('does not redirect to /onboarding when onboarding_seen is true', async () => {
     renderLayout()
     await waitFor(() => {
-      expect(screen.getByText('Aria AI')).toBeInTheDocument()
+      expect(screen.getByTestId('cx-logo')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('onboarding-stub')).not.toBeInTheDocument()
   })
@@ -143,6 +143,6 @@ describe('Layout', () => {
       expect(screen.getByTestId('onboarding-stub')).toBeInTheDocument()
     })
     // The Layout header should NOT render once the redirect lands.
-    expect(screen.queryByText('Aria AI')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cx-logo')).not.toBeInTheDocument()
   })
 })

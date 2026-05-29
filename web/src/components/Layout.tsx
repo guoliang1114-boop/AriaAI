@@ -18,6 +18,7 @@ import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
+import { CxLogo } from './codex/CxLogo'
 
 interface UserMemoryFetchResponse {
   preferences: Record<string, unknown>
@@ -233,18 +234,10 @@ export function Layout() {
         >
           <div className="flex h-14 items-center justify-between px-4 sm:px-6">
             <div className="flex items-center gap-6">
-              <NavLink to="/" className="flex flex-shrink-0 items-center gap-2">
-                <span
-                  className="font-manrope"
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 700,
-                    color: 'var(--color-codex-ink)',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  Aria AI
-                </span>
+              <NavLink to="/" className="flex flex-shrink-0 items-center" aria-label="Aria AI">
+                {/* Matches ``direction-codex-part1.jsx:101`` — small ink
+                    monogram + "Aria" wordmark, no "AI" suffix. */}
+                <CxLogo size={22} />
               </NavLink>
 
               <nav className="hidden items-center gap-0.5 md:flex">
