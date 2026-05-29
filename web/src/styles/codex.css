@@ -470,3 +470,14 @@
   outline: 2px solid color-mix(in oklab, var(--color-codex-accent) 40%, transparent);
   outline-offset: 2px;
 }
+
+/* `row-hov` — the design's quiet hover pattern for nav links, list rows,
+ * and dropdown items (see ``design_handoff_aria_codex_redesign/codex.css``
+ * and the ``.row-hov`` callers throughout the prototype). Hover fills
+ * the element with bg-tint, which matches the active-state background
+ * the design uses on nav links — so hovering an idle link "previews"
+ * what it'll look like when active. Apply this to anchors / divs that
+ * shouldn't get the brightness-1.18 button hover. */
+.theme-codex .row-hov:hover {
+  background: var(--color-codex-bg-tint);
+}
