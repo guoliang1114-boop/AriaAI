@@ -1023,53 +1023,137 @@ export function Skills() {
    * Skill 库 — Codex layout per
    * ``design_handoff_aria_codex_redesign/direction-codex-part2.jsx:6``.
    *
-   * 220px inline sidebar lists every category with its count plus a
-   * tiny stats block; the right column groups every skill by category
-   * and rows link to ``/skills/item/:id`` for the detail page (which
-   * was already on the route table). The practice-line / hero /
-   * framework UI from the V0.0.5 version was dropped — the design
-   * intentionally flattens the navigation to "pick a category, see
-   * skills".
+   * 220px inline sidebar; the right column groups every skill by
+   * category and rows link to ``/skills/item/:id`` for the detail page.
+   *
+   * Sidebar is two-level: practice line (审计鉴证 / 税务 / 咨询 /
+   * 通用能力) is a mono-uppercase group header, sub-categories sit
+   * indented below as the clickable items. Picking a sub-category
+   * filters the right pane to that single category; picking a line
+   * filters to every sub-category under it.
    */
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
 
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  // Selection token. ``all`` shows every line + every sub-category;
+  // ``line:<id>`` filters to one practice line; ``cat:<id>`` filters
+  // to a single sub-category.
+  const [selection, setSelection] = useState<string>("all");
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
 
-  // ``categories`` already contains an "all" entry — pull it out for
-  // the sidebar top spot and treat the rest as the filter list.
-  const allCategory =
-    categories.find((cat) => cat.id === "all") ??
-    ({ id: "all", label: t("skills.categories.all"), count: skills.length } as SkillCategory);
   const filterCategories = categories.filter((cat) => cat.id !== "all");
+  const allCategoryCount =
+    categories.find((cat) => cat.id === "all")?.count ?? skills.length;
+  const allCategoryLabel =
+    categories.find((cat) => cat.id === "all")?.label ?? t("skills.categories.all");
 
-  // Group skills by their normalized category key. When the user picks
-  // a single category from the sidebar we collapse the grouping to a
-  // single section; "all" shows every group.
+  // Group skills by their normalized category key — used for both the
+  // right-pane render and the per-sub-category counts in the sidebar.
   const skillsByCategoryKey = new Map<string, SkillSummary[]>();
   for (const skill of skills) {
     const key = getSkillCategoryKey(skill);
     if (!skillsByCategoryKey.has(key)) skillsByCategoryKey.set(key, []);
     skillsByCategoryKey.get(key)!.push(skill);
   }
-  const visibleGroups =
-    selectedCategory === "all"
-      ? filterCategories.map((cat) => ({
-          cat,
-          items: skillsByCategoryKey.get(cat.id) ?? [],
-        }))
-      : [
-          {
-            cat:
-              filterCategories.find((c) => c.id === selectedCategory) ??
-              ({ id: selectedCategory, label: selectedCategory, count: 0 } as SkillCategory),
-            items: skillsByCategoryKey.get(selectedCategory) ?? [],
-          },
-        ];
+
+  // Materialize the 2-level sidebar tree. For each practice line we
+  // walk ``PRACTICE_LINE_GROUPS`` (the design's grouping table), then
+  // collapse each group's category IDs to ``{ label, count }`` rows
+  // for the sidebar. A group with zero skills is hidden so users
+  // don't stare at empty rows.
+  type SidebarSubGroup = { id: string; label: string; count: number };
+  type SidebarLine = {
+    lineId: PracticeLineId;
+    lineLabel: string;
+    lineTotal: number;
+    subGroups: SidebarSubGroup[];
+  };
+
+  const sidebarLines: SidebarLine[] = PRACTICE_LINE_IDS.map((lineId) => {
+    const meta = getPracticeLineMeta(lineId);
+    const groups = PRACTICE_LINE_GROUPS[lineId] ?? [];
+    const subGroups: SidebarSubGroup[] = [];
+    let lineTotal = 0;
+    for (const group of groups) {
+      let count = 0;
+      for (const catId of group.categoryIds) {
+        count += skillsByCategoryKey.get(catId)?.length ?? 0;
+      }
+      lineTotal += count;
+      if (count > 0) {
+        subGroups.push({
+          // Sub-group id is the first category in the group — that's
+          // what we pass through ``cat:<id>`` selection / right pane
+          // filter. When a group has multiple ``categoryIds`` we treat
+          // the whole group as one filter via the line id.
+          id: group.categoryIds[0] ?? `${lineId}-${group.label.en}`,
+          label: isZh ? group.label.zh : group.label.en,
+          count,
+        });
+      }
+    }
+    return {
+      lineId,
+      lineLabel: isZh ? meta.title.zh : meta.title.en,
+      lineTotal,
+      subGroups,
+    };
+  }).filter((line) => line.lineTotal > 0);
+
+  // Resolve the selection to "which sub-category IDs are visible". For
+  // ``cat:<id>`` it's just that id; for ``line:<id>`` it's every
+  // categoryId across every group under that line; for ``all`` it's
+  // every key present in ``skillsByCategoryKey``.
+  let visibleKeys: string[];
+  let titleOverride: string | null = null;
+  if (selection === "all") {
+    visibleKeys = Array.from(skillsByCategoryKey.keys());
+  } else if (selection.startsWith("line:")) {
+    const lineId = selection.slice("line:".length);
+    const groups = PRACTICE_LINE_GROUPS[lineId] ?? [];
+    visibleKeys = groups.flatMap((g) => g.categoryIds);
+    const meta = isPracticeLineId(lineId) ? getPracticeLineMeta(lineId) : null;
+    titleOverride = meta ? (isZh ? meta.title.zh : meta.title.en) : null;
+  } else if (selection.startsWith("cat:")) {
+    const catId = selection.slice("cat:".length);
+    visibleKeys = [catId];
+  } else {
+    visibleKeys = Array.from(skillsByCategoryKey.keys());
+  }
+
+  // Order the visible groups so they read top-down by practice line —
+  // strategy first, then customer, etc., as defined in
+  // ``PRACTICE_LINE_GROUPS``. This keeps the right pane aligned with
+  // the sidebar order rather than alphabetic.
+  const lineOrderedKeys: string[] = [];
+  for (const lineId of PRACTICE_LINE_IDS) {
+    for (const group of PRACTICE_LINE_GROUPS[lineId] ?? []) {
+      for (const catId of group.categoryIds) {
+        if (visibleKeys.includes(catId) && skillsByCategoryKey.has(catId)) {
+          if (!lineOrderedKeys.includes(catId)) lineOrderedKeys.push(catId);
+        }
+      }
+    }
+  }
+  // Any visible key that wasn't claimed by a practice line group (e.g.
+  // categories without a line mapping) goes after.
+  for (const k of visibleKeys) {
+    if (!lineOrderedKeys.includes(k) && skillsByCategoryKey.has(k)) {
+      lineOrderedKeys.push(k);
+    }
+  }
+
+  const visibleGroups = lineOrderedKeys.map((key) => ({
+    cat: filterCategories.find((c) => c.id === key) ?? {
+      id: key,
+      label: getCategoryLabel(getCategoryKey(key), isZh),
+      count: skillsByCategoryKey.get(key)?.length ?? 0,
+    },
+    items: skillsByCategoryKey.get(key) ?? [],
+  }));
 
   const sidebarLinkStyle = (active: boolean): React.CSSProperties => ({
     display: "flex",
@@ -1112,49 +1196,96 @@ export function Skills() {
           }}
         >
           <div style={sidebarSectionLabelStyle}>{isZh ? "分类" : "Categories"}</div>
+
+          {/* Top-level "全部" — selects everything across every line */}
           <button
             type="button"
             className="row-hov cx-no-hover w-full text-left"
-            style={sidebarLinkStyle(selectedCategory === "all")}
-            onClick={() => setSelectedCategory("all")}
+            style={sidebarLinkStyle(selection === "all")}
+            onClick={() => setSelection("all")}
           >
-            <span>{allCategory.label}</span>
+            <span>{allCategoryLabel}</span>
             <span
               className="font-mono"
               style={{
                 fontSize: 11.5,
                 color:
-                  selectedCategory === "all"
+                  selection === "all"
                     ? "var(--color-codex-accent)"
                     : "var(--color-codex-ink-faint)",
               }}
             >
-              {allCategory.count}
+              {allCategoryCount}
             </span>
           </button>
-          {filterCategories.map((cat) => {
-            const active = selectedCategory === cat.id;
+
+          {/* Practice lines + nested sub-groups. The line label itself
+              is clickable too — clicking it filters to every
+              sub-category under that line. */}
+          {sidebarLines.map((line) => {
+            const lineActive = selection === `line:${line.lineId}`;
             return (
-              <button
-                key={cat.id}
-                type="button"
-                className="row-hov cx-no-hover w-full text-left"
-                style={sidebarLinkStyle(active)}
-                onClick={() => setSelectedCategory(cat.id)}
-              >
-                <span>{cat.label}</span>
-                <span
-                  className="font-mono"
+              <div key={line.lineId} style={{ marginTop: 20 }}>
+                <button
+                  type="button"
+                  className="cx-no-hover flex w-full items-center justify-between"
                   style={{
-                    fontSize: 11.5,
-                    color: active
-                      ? "var(--color-codex-accent)"
+                    padding: "4px 10px 6px",
+                    fontSize: 10.5,
+                    fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                    color: lineActive
+                      ? "var(--color-codex-ink)"
                       : "var(--color-codex-ink-faint)",
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontWeight: lineActive ? 600 : 500,
                   }}
+                  onClick={() => setSelection(`line:${line.lineId}`)}
                 >
-                  {cat.count}
-                </span>
-              </button>
+                  <span>{line.lineLabel}</span>
+                  <span
+                    style={{
+                      color: lineActive
+                        ? "var(--color-codex-accent)"
+                        : "var(--color-codex-ink-faint)",
+                    }}
+                  >
+                    {line.lineTotal}
+                  </span>
+                </button>
+                {line.subGroups.map((sub) => {
+                  const subActive = selection === `cat:${sub.id}`;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      className="row-hov cx-no-hover w-full text-left"
+                      style={{
+                        ...sidebarLinkStyle(subActive),
+                        // Indent the sub-group items so the hierarchy
+                        // reads at a glance.
+                        paddingLeft: 20,
+                      }}
+                      onClick={() => setSelection(`cat:${sub.id}`)}
+                    >
+                      <span>{sub.label}</span>
+                      <span
+                        className="font-mono"
+                        style={{
+                          fontSize: 11.5,
+                          color: subActive
+                            ? "var(--color-codex-accent)"
+                            : "var(--color-codex-ink-faint)",
+                        }}
+                      >
+                        {sub.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
 
@@ -1176,24 +1307,40 @@ export function Skills() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span>{isZh ? "分类数" : "Categories"}</span>
+              <span>{isZh ? "业务线" : "Practice lines"}</span>
               <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
-                {filterCategories.length}
+                {sidebarLines.length}
               </span>
             </div>
           </div>
         </aside>
 
-        {/* Mobile/tablet category pill row */}
+        {/* Mobile/tablet category pill row — flattened: top-level
+            practice lines + ``全部``. The 2-level sidebar drops back
+            to one level on narrow widths because nested pills would
+            crowd the row. */}
         <nav
           className="flex gap-1 overflow-x-auto px-4 py-3 lg:hidden"
           style={{ borderBottom: "1px solid var(--color-codex-line)" }}
         >
-          {[allCategory, ...filterCategories].map((cat) => {
-            const active = selectedCategory === cat.id;
+          {[
+            {
+              id: "all",
+              label: allCategoryLabel,
+              count: allCategoryCount,
+              token: "all",
+            },
+            ...sidebarLines.map((line) => ({
+              id: `line:${line.lineId}`,
+              label: line.lineLabel,
+              count: line.lineTotal,
+              token: `line:${line.lineId}`,
+            })),
+          ].map((entry) => {
+            const active = selection === entry.token;
             return (
               <button
-                key={cat.id}
+                key={entry.id}
                 type="button"
                 className="row-hov cx-no-hover flex-shrink-0"
                 style={{
@@ -1205,14 +1352,14 @@ export function Skills() {
                   borderRadius: "var(--codex-r-sm, 3px)",
                   whiteSpace: "nowrap",
                 }}
-                onClick={() => setSelectedCategory(cat.id)}
+                onClick={() => setSelection(entry.token)}
               >
-                {cat.label}{" "}
+                {entry.label}{" "}
                 <span
                   className="font-mono"
                   style={{ marginLeft: 6, color: "var(--color-codex-ink-faint)" }}
                 >
-                  {cat.count}
+                  {entry.count}
                 </span>
               </button>
             );
@@ -1235,7 +1382,7 @@ export function Skills() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                {isZh ? "Skill 库" : "Skill Library"}
+                {titleOverride ?? (isZh ? "Skill 库" : "Skill Library")}
               </h1>
               <p
                 style={{
@@ -1246,9 +1393,25 @@ export function Skills() {
                   lineHeight: 1.6,
                 }}
               >
-                {isZh
-                  ? `把重复的工作沉淀成可调用的模板。共 ${skills.length} 个 Skill，分 ${filterCategories.length} 个分类。`
-                  : `Recurring work, captured as reusable templates. ${skills.length} skills across ${filterCategories.length} categories.`}
+                {(() => {
+                  const visibleSkillCount = visibleGroups.reduce(
+                    (sum, g) => sum + g.items.length,
+                    0,
+                  );
+                  if (selection === "all") {
+                    return isZh
+                      ? `把重复的工作沉淀成可调用的模板。共 ${skills.length} 个 Skill，分 ${sidebarLines.length} 个业务线。`
+                      : `Recurring work, captured as reusable templates. ${skills.length} skills across ${sidebarLines.length} practice lines.`;
+                  }
+                  if (selection.startsWith("line:")) {
+                    return isZh
+                      ? `该业务线下共 ${visibleSkillCount} 个 Skill，按子分类分组。`
+                      : `${visibleSkillCount} skills in this practice line, grouped by sub-category.`;
+                  }
+                  return isZh
+                    ? `当前分类下 ${visibleSkillCount} 个 Skill。`
+                    : `${visibleSkillCount} skills in this category.`;
+                })()}
               </p>
             </div>
           </header>
