@@ -23,6 +23,7 @@ import {
   loadMessagesPage,
   loadSettingsLayout,
   loadProfileSettings,
+  loadPreferenceSettings,
   loadAppearanceSettings,
   loadAISettings,
   loadUsersSettings,
@@ -59,6 +60,9 @@ const ClientMemoryPage = lazy(() => loadClientMemoryPage().then((module) => ({ d
 const MessagesPage = lazy(() => loadMessagesPage().then((module) => ({ default: module.MessagesPage })))
 const SettingsLayout = lazy(() => loadSettingsLayout().then((module) => ({ default: module.SettingsLayout })))
 const ProfileSettings = lazy(() => loadProfileSettings().then((module) => ({ default: module.ProfileSettings })))
+const PreferenceSettings = lazy(() =>
+  loadPreferenceSettings().then((module) => ({ default: module.PreferenceSettings })),
+)
 const AppearanceSettings = lazy(() => loadAppearanceSettings().then((module) => ({ default: module.AppearanceSettings })))
 const AISettings = lazy(() => loadAISettings().then((module) => ({ default: module.AISettings })))
 const UsersSettings = lazy(() => loadUsersSettings().then((module) => ({ default: module.UsersSettings })))
@@ -307,6 +311,14 @@ function AppRoutes() {
             element={
               <LazyPage>
                 <ProfileSettings />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="preferences"
+            element={
+              <LazyPage>
+                <PreferenceSettings />
               </LazyPage>
             }
           />

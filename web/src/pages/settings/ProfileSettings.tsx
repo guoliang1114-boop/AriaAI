@@ -1,17 +1,14 @@
 /**
- * Settings → 个人资料 — V0.0.6 Codex redesign (PR 6/N).
+ * Settings → 个人资料 — V0.0.6 Codex redesign.
  *
- * Visual layout per
- * ``design_handoff_aria_codex_redesign/direction-codex-settings.jsx:90``,
- * extended to keep the existing app's additional fields (时区, 字体大小,
- * 密码修改, AI 个人偏好). Every CxFormRow renders one field; the per-row
- * save buttons sit in the value column next to the control they save.
+ * Identity-only after the settings reorg: 头像 / 显示名称 / 邮箱 / 时区 /
+ * 密码. 字体大小 moved to 外观 (it's an appearance choice, not an
+ * identity field); AI 偏好 graduated to its own ``PreferenceSettings``
+ * page under the 个人 group.
  *
- * State machine + API surface unchanged: ``/auth/me``, ``/settings/``,
- * ``/auth/users/:id`` (PATCH display_name), ``/settings/timezone``,
- * ``/settings/${APP_FONT_SIZE_SETTING_KEY}``, ``/auth/change-password``.
- * The UserMemorySettingsCard remains a self-contained card embedded
- * below — its own visual refactor will be a later PR.
+ * State machine + API surface for the remaining rows is unchanged:
+ * ``/auth/me``, ``/settings/``, ``/auth/users/:id`` (PATCH
+ * display_name), ``/settings/timezone``, ``/auth/change-password``.
  */
 import { useEffect, useState, type FormEvent } from "react";
 import {
@@ -22,7 +19,6 @@ import {
   Loader2,
   Lock,
   Mail,
-  Type,
   User as UserIcon,
   X,
 } from "lucide-react";
@@ -36,25 +32,11 @@ import {
   getBrowserTimeZone,
   setAppTimeZone,
 } from "../../utils/timezone";
-import { UserMemorySettingsCard } from "./UserMemorySettingsCard";
-import {
-  APP_FONT_SIZE_SETTING_KEY,
-  getStoredAppFontSize,
-  isAppFontSize,
-  setAppFontSize,
-  type AppFontSize,
-} from "../../utils/fontSize";
 
 interface SavedMessage {
   type: "success" | "error";
   text: string;
 }
-
-const FONT_SIZE_OPTIONS: { value: AppFontSize; label: string; previewClass: string }[] = [
-  { value: "small", label: "小", previewClass: "text-[13px]" },
-  { value: "medium", label: "中", previewClass: "text-[15px]" },
-  { value: "large", label: "大", previewClass: "text-[17px]" },
-];
 
 const TIMEZONE_OPTIONS = [
   { value: "Asia/Shanghai", label: "中国标准时间", hint: "UTC+08:00" },
@@ -104,10 +86,6 @@ export function ProfileSettings() {
   const [savingTimeZone, setSavingTimeZone] = useState(false);
   const [timeZoneMsg, setTimeZoneMsg] = useState<SavedMessage | null>(null);
 
-  const [selectedFontSize, setSelectedFontSize] = useState<AppFontSize>(getStoredAppFontSize);
-  const [savingFontSize, setSavingFontSize] = useState(false);
-  const [fontSizeMsg, setFontSizeMsg] = useState<SavedMessage | null>(null);
-
   // Password dialog
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -125,11 +103,6 @@ export function ProfileSettings() {
         setUser(u);
         setDisplayName(u.display_name);
         setSelectedTimeZone(settings.timezone || DEFAULT_APP_TIMEZONE);
-        const remoteFontSize = settings[APP_FONT_SIZE_SETTING_KEY];
-        if (isAppFontSize(remoteFontSize)) {
-          setSelectedFontSize(remoteFontSize);
-          setAppFontSize(remoteFontSize);
-        }
       })
       .catch(() => {});
   }, []);
@@ -165,29 +138,6 @@ export function ProfileSettings() {
       setTimeZoneMsg({ type: "error", text: detail || "保存时区失败" });
     } finally {
       setSavingTimeZone(false);
-    }
-  };
-
-  const handleSelectFontSize = (value: AppFontSize) => {
-    setSelectedFontSize(value);
-    setAppFontSize(value); // live preview + local persistence
-    setFontSizeMsg(null);
-  };
-
-  const handleSaveFontSize = async () => {
-    setSavingFontSize(true);
-    setFontSizeMsg(null);
-    try {
-      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value: selectedFontSize });
-      setAppFontSize(selectedFontSize);
-      setFontSizeMsg({ type: "success", text: "字体大小已保存" });
-      setTimeout(() => setFontSizeMsg(null), 3000);
-    } catch (err) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setFontSizeMsg({ type: "error", text: detail || "保存字体大小失败" });
-    } finally {
-      setSavingFontSize(false);
     }
   };
 
@@ -446,75 +396,6 @@ export function ProfileSettings() {
         <InlineMessage message={timeZoneMsg} />
       </CxFormRow>
 
-      {/* Font size */}
-      <CxFormRow
-        label={
-          <span className="inline-flex items-center gap-1.5">
-            <Type className="h-3.5 w-3.5" aria-hidden="true" />
-            字体大小
-          </span>
-        }
-        hint="调整后整个界面的文字会按比例缩放，点击即可即时预览。保存后在其他设备同步。默认为「中」。"
-      >
-        <div className="flex gap-3">
-          <div
-            className="flex flex-1 gap-2"
-            style={{
-              padding: 4,
-              background: "var(--color-codex-bg)",
-              border: "1px solid var(--color-codex-line)",
-              borderRadius: "var(--codex-r-sm, 3px)",
-            }}
-            role="radiogroup"
-            aria-label="字体大小"
-          >
-            {FONT_SIZE_OPTIONS.map((option) => {
-              const active = selectedFontSize === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  aria-label={option.label}
-                  onClick={() => handleSelectFontSize(option.value)}
-                  className="flex flex-1 items-center justify-center gap-1.5 transition"
-                  style={{
-                    padding: "6px 10px",
-                    background: active
-                      ? "var(--color-codex-accent-bg)"
-                      : "transparent",
-                    color: active
-                      ? "var(--color-codex-accent-ink)"
-                      : "var(--color-codex-ink-soft)",
-                    borderRadius: "calc(var(--codex-r-sm, 3px) - 1px)",
-                    fontWeight: active ? 500 : 400,
-                  }}
-                >
-                  <span className={option.previewClass}>Aa</span>
-                  <span className="text-[13px]">{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleSaveFontSize()}
-            disabled={savingFontSize}
-            className="inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-            style={SAVE_BUTTON_STYLE}
-          >
-            {savingFontSize ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            ) : (
-              <Check className="h-3.5 w-3.5" aria-hidden="true" />
-            )}
-            保存
-          </button>
-        </div>
-        <InlineMessage message={fontSizeMsg} />
-      </CxFormRow>
-
       {/* Password */}
       <CxFormRow
         label={
@@ -536,11 +417,6 @@ export function ProfileSettings() {
           修改密码
         </button>
       </CxFormRow>
-
-      {/* AI 个人偏好 (own card, unchanged) */}
-      <div style={{ marginTop: 28 }}>
-        <UserMemorySettingsCard />
-      </div>
 
       {/* Password dialog */}
       {showPasswordDialog && (

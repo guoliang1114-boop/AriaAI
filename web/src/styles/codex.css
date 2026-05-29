@@ -104,6 +104,9 @@
    Radius variants — controlled by a class on the codex root.
    ``radius-soft`` is the default; ``radius-sharp`` and
    ``radius-round`` are user-selectable in the Appearance settings.
+   Bumped the ``round`` values so the three options actually look
+   visibly different in the picker preview ("not obvious enough"
+   feedback from the user).
    ---------------------------------------------------------------- */
 .theme-codex.radius-sharp {
   --codex-r-sm: 0;
@@ -119,41 +122,24 @@
   --codex-r-pill: 999px;
 }
 .theme-codex.radius-round {
-  --codex-r-sm: 6px;
-  --codex-r-md: 10px;
-  --codex-r-lg: 16px;
+  --codex-r-sm: 8px;
+  --codex-r-md: 14px;
+  --codex-r-lg: 20px;
   --codex-r-pill: 999px;
 }
 
 /* ----------------------------------------------------------------
-   Density variants — for v1 we use the same ``zoom`` shortcut the
-   prototype uses (see README §99). Replace with rem-based scaling
-   when we have time, but ``zoom`` ships the visible effect today.
+   Density variants — applies ``zoom`` to the React mount point so
+   the entire app scales uniformly. The old ``> .codex-frame``
+   selector never fired because no component ever carried that
+   class. Targeting ``#root`` directly makes the picker actually do
+   something.
    ---------------------------------------------------------------- */
-.theme-codex.density-compact {
-  --codex-row-h: 32px;
-  --codex-space-y: 6px;
-  --codex-pad-section: 24px;
-  --codex-pad-frame: 28px;
-}
-.theme-codex,
-.theme-codex.density-regular {
-  --codex-row-h: 38px;
-  --codex-space-y: 10px;
-  --codex-pad-section: 32px;
-  --codex-pad-frame: 40px;
-}
-.theme-codex.density-comfy {
-  --codex-row-h: 48px;
-  --codex-space-y: 16px;
-  --codex-pad-section: 44px;
-  --codex-pad-frame: 56px;
-}
-.theme-codex.density-compact > .codex-frame {
+.theme-codex.density-compact #root {
   zoom: 0.92;
 }
-.theme-codex.density-comfy > .codex-frame {
-  zoom: 1.1;
+.theme-codex.density-comfy #root {
+  zoom: 1.08;
 }
 
 /* ----------------------------------------------------------------
@@ -241,6 +227,34 @@
   --color-codex-bg-elev: #ffffff;
   --color-codex-bg-sunken: #f1efe8;
   --color-codex-bg-tint: #efede7;
+}
+
+/* Dark-mode warmth variants. The base ``.theme-codex.dark`` block
+ * above sets the warm-parchment dark surfaces; here we override bg
+ * tokens when the user picks ``warmth-white`` (true near-black) or
+ * ``warmth-paper`` (cool charcoal middle) in dark mode. ``.dark``
+ * specificity is the same as the light variants, so these rules
+ * have to come after both the dark block and the warmth-light
+ * rules to win. Ink / accent stay on the dark defaults. */
+.theme-codex.dark.warmth-white {
+  --color-codex-bg: #0a0a0a;
+  --color-codex-bg-elev: #141414;
+  --color-codex-bg-sunken: #000000;
+  --color-codex-bg-tint: #1f1f1f;
+}
+
+.theme-codex.dark.warmth-paper {
+  --color-codex-bg: #14140f;
+  --color-codex-bg-elev: #1a1a14;
+  --color-codex-bg-sunken: #0a0a08;
+  --color-codex-bg-tint: #1f1f17;
+}
+
+.theme-codex.dark.warmth-parchment {
+  --color-codex-bg: #15130f;
+  --color-codex-bg-elev: #1c1916;
+  --color-codex-bg-sunken: #100e0b;
+  --color-codex-bg-tint: #211d17;
 }
 
 /* ----------------------------------------------------------------

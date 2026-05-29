@@ -19,7 +19,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { PageTitle } from '../../components/PageTitle'
 
-type SettingsGroupKey = 'personal' | 'ai' | 'admin'
+type SettingsGroupKey = 'personal' | 'ai' | 'admin' | 'system'
 
 interface SettingsNavItem {
   path: string
@@ -35,13 +35,14 @@ export function SettingsLayout() {
     personal: isZh ? '个人' : 'Personal',
     ai: isZh ? 'AI 与记忆' : 'AI & Memory',
     admin: isZh ? '管理员' : 'Admin',
+    system: isZh ? '系统' : 'System',
   }
 
   const settingNavItems: SettingsNavItem[] = [
     { path: '', label: t('settings.profile'), group: 'personal' },
+    { path: 'preferences', label: t('settings.preferences'), group: 'personal' },
     { path: 'appearance', label: t('settings.appearance'), group: 'personal' },
     { path: 'language', label: t('settings.language'), group: 'personal' },
-    { path: 'about', label: t('settings.about'), group: 'personal' },
     { path: 'ai', label: t('settings.aiModel'), group: 'ai' },
     { path: 'memory', label: isZh ? '项目记忆' : 'Project Memory', group: 'ai' },
     { path: 'client-memory', label: isZh ? '客户记忆' : 'Client Memory', group: 'ai' },
@@ -51,9 +52,13 @@ export function SettingsLayout() {
     { path: 'messages', label: isZh ? '消息管理' : 'Message Manager', group: 'admin' },
     { path: 'server', label: t('settings.server.title'), group: 'admin' },
     { path: 'users', label: t('settings.users'), group: 'admin' },
+    // 关于 ships its own one-item 系统 group — it was previously
+    // tucked under 个人 and read as oddly out-of-place ("关于" isn't
+    // a personal choice the user makes, it's a system info pane).
+    { path: 'about', label: t('settings.about'), group: 'system' },
   ]
 
-  const orderedGroups: SettingsGroupKey[] = ['personal', 'ai', 'admin']
+  const orderedGroups: SettingsGroupKey[] = ['personal', 'ai', 'admin', 'system']
   const itemsByGroup = orderedGroups.map((group) => ({
     group,
     label: groupLabels[group],
