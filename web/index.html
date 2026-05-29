@@ -5,6 +5,85 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Aria AI · Consulting Elite</title>
+
+    <!--
+      Pre-React appearance bootstrap. Runs synchronously before the
+      main bundle so the body background is correct on the very first
+      paint instead of flashing browser-default white while the bundle
+      is downloading + ``bootstrapCodexAppearance()`` runs.
+
+      Mirrors the logic in ``utils/codexAppearance.ts`` — read the
+      saved appearance from localStorage, apply ``theme-codex`` /
+      ``dark`` / ``accent-*`` / ``density-*`` / ``radius-*`` /
+      ``warmth-*`` classes to <html>, and set body background to the
+      resolved Codex bg token. Falls back to the parchment default
+      when nothing is saved.
+
+      Hard-coded color values match the @theme defaults in
+      ``styles/codex.css``. They are deliberately inlined here so we
+      don't depend on a stylesheet to have loaded yet.
+    -->
+    <script>
+      (function () {
+        var STORAGE_KEY = "aria-codex-appearance";
+        var defaults = {
+          theme: "light",
+          accent: "moss",
+          density: "regular",
+          radius: "soft",
+          warmth: "parchment",
+        };
+        function safeOneOf(value, allowed, fallback) {
+          return allowed.indexOf(value) >= 0 ? value : fallback;
+        }
+        var saved = defaults;
+        try {
+          var raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw) || {};
+            saved = {
+              theme: safeOneOf(parsed.theme, ["light", "dark", "auto"], defaults.theme),
+              accent: safeOneOf(parsed.accent, ["moss", "amber", "azure", "rose"], defaults.accent),
+              density: safeOneOf(parsed.density, ["compact", "regular", "comfy"], defaults.density),
+              radius: safeOneOf(parsed.radius, ["sharp", "soft", "round"], defaults.radius),
+              warmth: safeOneOf(parsed.warmth, ["white", "paper", "parchment"], defaults.warmth),
+            };
+          }
+        } catch (e) {
+          /* localStorage can throw in private mode — fall through to defaults. */
+        }
+        var resolvedTheme = saved.theme;
+        if (resolvedTheme === "auto") {
+          try {
+            resolvedTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          } catch (e) {
+            resolvedTheme = "light";
+          }
+        }
+        var html = document.documentElement;
+        html.classList.add("theme-codex");
+        if (resolvedTheme === "dark") html.classList.add("dark");
+        html.classList.add("accent-" + saved.accent);
+        html.classList.add("density-" + saved.density);
+        html.classList.add("radius-" + saved.radius);
+        html.classList.add("warmth-" + saved.warmth);
+        // Hard-coded bg values per ``warmth-*`` rules in ``codex.css``.
+        // Dark mode wins regardless of warmth so the bg matches the
+        // post-mount React render.
+        var bg;
+        if (resolvedTheme === "dark") {
+          bg = "#15130f";
+        } else if (saved.warmth === "white") {
+          bg = "#ffffff";
+        } else if (saved.warmth === "paper") {
+          bg = "#fafaf7";
+        } else {
+          bg = "#fcfbf7";
+        }
+        html.style.background = bg;
+        document.documentElement.style.colorScheme = resolvedTheme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
