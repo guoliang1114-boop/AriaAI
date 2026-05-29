@@ -39,7 +39,7 @@ import { exportConversationFile } from '../../api/chatExport'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
-import { CxStatus } from '../../components/codex'
+import { CxSkeleton, CxStatus, CxTopProgress } from '../../components/codex'
 import { downloadArtifact } from '../projects/downloadArtifact'
 import type { Conversation, GeneratedArtifact, Message, Project, Skill } from '../../types/api'
 import { useAppTimeZone } from '../../hooks/useAppTimeZone'
@@ -2218,6 +2218,11 @@ export function Chat() {
           </div>
         </div>
 
+        {/* Top progress bar — only during the initial app data load
+            (conversations + projects + skills). Once those resolve we
+            drop the bar so it doesn't compete with the message stream. */}
+        {isLoadingConversations && <CxTopProgress />}
+
         {/* Messages */}
         <div
           ref={messagesContainerRef}
@@ -2242,33 +2247,53 @@ export function Chat() {
               </button>
             )}
 
-            {/* Loading skeleton */}
+            {/* Loading skeleton — alternating user / AI bubble shapes
+                so the layout feels like a conversation thread before
+                the real messages arrive. */}
             {(loading && conversationId && messages.length === 0) || shouldBootstrapConversation ? (
-              <div className="flex flex-col items-center justify-center py-32">
-                <div
-                  className="relative flex h-10 w-10 items-center justify-center"
-                  style={{
-                    background: 'var(--color-codex-accent)',
-                    color: 'var(--color-codex-bg-elev)',
-                    borderRadius: 'var(--codex-r-md, 10px)',
-                  }}
-                >
-                  <Sparkles className="h-5 w-5" />
-                  <div
-                    className="absolute inset-0 animate-ping"
-                    style={{
-                      background: 'var(--color-codex-accent)',
-                      borderRadius: 'var(--codex-r-md, 10px)',
-                      opacity: 0.15,
-                    }}
-                  />
-                </div>
-                <p
-                  className="mt-4"
-                  style={{ fontSize: 13, color: 'var(--color-codex-ink-mute)' }}
-                >
-                  {t('chat.loading')}
-                </p>
+              <div
+                aria-busy="true"
+                aria-label={t('chat.loading')}
+                className="space-y-7 py-6"
+              >
+                {[
+                  { side: 'right', widths: ['68%', '42%'] },
+                  { side: 'left', widths: ['85%', '95%', '60%'] },
+                  { side: 'right', widths: ['54%'] },
+                  { side: 'left', widths: ['90%', '78%', '45%'] },
+                  { side: 'right', widths: ['72%', '55%'] },
+                ].map((row, i) => {
+                  const isRight = row.side === 'right'
+                  return (
+                    <div
+                      key={i}
+                      className="flex"
+                      style={{ justifyContent: isRight ? 'flex-end' : 'flex-start' }}
+                    >
+                      <div
+                        style={{
+                          maxWidth: '78%',
+                          padding: isRight ? '10px 14px' : '6px 0',
+                          background: isRight
+                            ? 'var(--color-codex-bg-tint)'
+                            : 'transparent',
+                          border: isRight
+                            ? '1px solid var(--color-codex-line-soft)'
+                            : 'none',
+                          borderRadius: 'var(--codex-r-md, 6px)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                          minWidth: 120,
+                        }}
+                      >
+                        {row.widths.map((w, j) => (
+                          <CxSkeleton key={j} w={w} h={13} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
 
             ) : messages.length === 0 && !streamingContent && !isThinking && progressSteps.length === 0 ? (
