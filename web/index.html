@@ -7,6 +7,23 @@
     <title>Aria AI · Consulting Elite</title>
 
     <!--
+      Pre-React body reset. ``src/index.css`` later in the load chain
+      used to set ``body { background-color: #f7f9fb }`` (an MD3
+      light token that doesn't track Codex dark mode), which painted
+      over the ``html.style.background`` the bootstrap script below
+      sets. ``!important`` so the rule wins regardless of when
+      ``index.css`` lands in the cascade — paranoid belt-and-braces
+      on top of the matching fix in ``src/index.css``.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent !important;
+      }
+    </style>
+
+    <!--
       Pre-React appearance bootstrap. Runs synchronously before the
       main bundle so the body background is correct on the very first
       paint instead of flashing browser-default white while the bundle

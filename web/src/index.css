@@ -105,7 +105,15 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #191c1e;
-  background-color: #f7f9fb;
+  /* Body bg used to be hardcoded ``#f7f9fb`` (MD3 light slate). That
+     value didn't track Codex dark mode and showed up as a bright
+     near-white flash when ``index.css`` landed after the inline
+     bootstrap script in ``index.html`` had already set the correct
+     codex bg on ``<html>``. Leaving body transparent lets the
+     ``html`` element's background (set by the bootstrap script + the
+     ``warmth-*`` class) show through on every page until a page
+     wrapper provides its own bg. */
+  background: transparent;
   font-optical-sizing: auto;
   font-kerning: normal;
   font-feature-settings:
