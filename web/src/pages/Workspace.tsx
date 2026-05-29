@@ -608,7 +608,9 @@ export function Workspace() {
                 }
               />
 
-              {/* Column header */}
+              {/* 5-column grid per the prototype (see
+                  ``direction-codex-part1.jsx:191``):
+                  项目 / 阶段 / 金额 / 记忆 / arrow. */}
               <div
                 className="grid items-center"
                 style={{
@@ -616,7 +618,7 @@ export function Workspace() {
                   color: "var(--color-codex-ink-faint)",
                   padding: "6px 4px 8px",
                   borderBottom: "1px solid var(--color-codex-line)",
-                  gridTemplateColumns: "1fr 110px 120px 14px",
+                  gridTemplateColumns: "1fr 110px 100px 110px 14px",
                   columnGap: 14,
                   letterSpacing: "0.04em",
                   textTransform: "uppercase",
@@ -624,6 +626,7 @@ export function Workspace() {
               >
                 <span>{isZh ? "项目" : "Project"}</span>
                 <span>{isZh ? "阶段" : "Stage"}</span>
+                <span>{isZh ? "金额" : "Amount"}</span>
                 <span>{isZh ? "记忆" : "Memory"}</span>
                 <span />
               </div>
@@ -638,7 +641,7 @@ export function Workspace() {
                     style={{
                       padding: "13px 4px",
                       columnGap: 14,
-                      gridTemplateColumns: "1fr 110px 120px 14px",
+                      gridTemplateColumns: "1fr 110px 100px 110px 14px",
                       borderBottom:
                         index === arr.length - 1
                           ? "none"
@@ -674,6 +677,20 @@ export function Workspace() {
                     <CxStatus tone={statusTone(project.status)}>
                       {getStageLabel(project.status, isZh)}
                     </CxStatus>
+                    <span
+                      className="font-mono"
+                      style={{
+                        fontSize: 13,
+                        color: "var(--color-codex-ink-soft)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {project.contract_amount
+                        ? isZh
+                          ? `¥${Math.round(project.contract_amount / 10000)}万`
+                          : `$${(project.contract_amount / 1000).toFixed(0)}k`
+                        : "—"}
+                    </span>
                     {project.memory_stale || (project.memory_version ?? 0) === 0 ? (
                       <CxStatus tone="warn">{isZh ? "记忆过期" : "stale"}</CxStatus>
                     ) : (
@@ -735,12 +752,14 @@ export function Workspace() {
                 }
               />
               {todayTodos.length ? (
+                // Plain ``<div>`` rows per the prototype (see
+                // ``direction-codex-part1.jsx:216``) — no hover, no
+                // navigation. The list is a status read-out, not a
+                // jump-target.
                 todayTodos.slice(0, 5).map((todo) => (
-                  <button
+                  <div
                     key={todo.id}
-                    type="button"
-                    onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
-                    className="codex-row-hov flex w-full items-start text-left"
+                    className="flex items-start"
                     style={{
                       gap: 10,
                       padding: "8px 0",
@@ -801,7 +820,7 @@ export function Workspace() {
                         }}
                       />
                     )}
-                  </button>
+                  </div>
                 ))
               ) : (
                 <p
@@ -834,12 +853,13 @@ export function Workspace() {
                 }
               />
               {upcomingTodos.length ? (
+                // Plain ``<div>`` rows per the prototype (see
+                // ``direction-codex-part1.jsx:231``) — date prefix in
+                // accent + title + project. Static like the todos above.
                 upcomingTodos.slice(0, 4).map((todo) => (
-                  <button
+                  <div
                     key={todo.id}
-                    type="button"
-                    onClick={() => navigate(`/projects/${todo.project_id}/todos`)}
-                    className="codex-row-hov flex w-full items-start text-left"
+                    className="flex items-start"
                     style={{
                       gap: 12,
                       padding: "8px 0",
@@ -880,7 +900,7 @@ export function Workspace() {
                         {todo.project_name || "—"}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))
               ) : (
                 <p
