@@ -28,6 +28,7 @@ from app.models.db import (
     KnowledgeDocument,
     Message,
     Milestone,
+    PendingToolAction,
     Project,
     ProjectFile,
     ProjectFolder,
@@ -341,6 +342,17 @@ class ChatRouterTestCase(unittest.TestCase):
             session.commit()
             session.refresh(conv)
             session.add(Message(conversation_id=conv.id, role="user", content="hello"))
+            session.flush()
+            message_id = session.exec(select(Message.id).where(Message.conversation_id == conv.id)).first()
+            session.add(
+                PendingToolAction(
+                    conversation_id=conv.id,
+                    message_id=message_id,
+                    project_id=project.id,
+                    tool_name="manage_project_files",
+                    tool_input_json="{}",
+                )
+            )
             task = TaskRun(
                 project_id=project.id,
                 conversation_id=conv.id,
@@ -357,6 +369,10 @@ class ChatRouterTestCase(unittest.TestCase):
 
         with Session(self.engine) as session:
             self.assertIsNone(session.get(Conversation, conv_id))
+            pending_actions = session.exec(
+                select(PendingToolAction).where(PendingToolAction.conversation_id == conv_id)
+            ).all()
+            self.assertEqual(pending_actions, [])
             task = session.get(TaskRun, task_id)
             self.assertIsNotNone(task)
             self.assertIsNone(task.conversation_id)
@@ -1977,13 +1993,22 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
                 output_file_id=generated_file.id,
                 status="success",
             )
+            pending_action = PendingToolAction(
+                conversation_id=conv.id,
+                message_id=message.id,
+                project_id=project.id,
+                tool_name="manage_project_files",
+                tool_input_json='{"action":"delete"}',
+            )
             task_step = TaskStep(task_run_id=task.id, key="create", title="Create", step_type="write_project_office_document")
             document_chunk = DocumentChunk(document_id=knowledge_document.id, chunk_index=0, content="chunk")
             session.add(tool_call)
+            session.add(pending_action)
             session.add(task_step)
             session.add(document_chunk)
             session.commit()
             session.refresh(task_step)
+            session.refresh(pending_action)
 
             task_event = TaskEvent(task_run_id=task.id, step_id=task_step.id, event_type="step_completed", message="done")
             task_artifact = TaskArtifact(
@@ -2016,6 +2041,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             file_id = project_file.id
             generated_file_id = generated_file.id
             tool_call_id = tool_call.id
+            pending_action_id = pending_action.id
             task_id = task.id
             task_step_id = task_step.id
             task_event_id = task_event.id
@@ -2042,6 +2068,7 @@ class ProjectConversationArchiveTestCase(unittest.TestCase):
             self.assertIsNone(session.get(ProjectFile, file_id))
             self.assertIsNone(session.get(GeneratedFile, generated_file_id))
             self.assertIsNone(session.get(ToolCall, tool_call_id))
+            self.assertIsNone(session.get(PendingToolAction, pending_action_id))
             self.assertIsNone(session.get(TaskRun, task_id))
             self.assertIsNone(session.get(TaskStep, task_step_id))
             self.assertIsNone(session.get(TaskEvent, task_event_id))

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.config import CHAT_RETENTION_DAYS, CONVERSATION_CACHE_TTL, UPLOADS_DIR
-from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, Message, TaskRun, ToolCall
+from app.models.db import ChatTrace, Conversation, ConversationState, GeneratedFile, Message, PendingToolAction, TaskRun, ToolCall
 from app.services.cache import conversations_cache
 from app.services.time_utils import utc_now_naive
 
@@ -337,6 +337,9 @@ def delete_conversation_with_messages(session: Session, conv_id: int, *, clear_c
         session.delete(trace)
     for state in session.exec(select(ConversationState).where(ConversationState.conversation_id == conv_id)).all():
         session.delete(state)
+    for action in session.exec(select(PendingToolAction).where(PendingToolAction.conversation_id == conv_id)).all():
+        session.delete(action)
+    session.flush()
     for msg in session.exec(select(Message).where(Message.conversation_id == conv_id)).all():
         session.delete(msg)
     session.delete(conv)

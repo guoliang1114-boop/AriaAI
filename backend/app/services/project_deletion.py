@@ -10,6 +10,7 @@ from app.models.db import (
     KnowledgeDocument,
     Message,
     Milestone,
+    PendingToolAction,
     Project,
     ProjectFile,
     ProjectFolder,
@@ -85,6 +86,20 @@ def delete_project_cascade(session: Session, project_id: int) -> None:
         select(ToolCall).where(ToolCall.output_file_id.in_(generated_file_ids))
     ).all() if generated_file_ids else []:
         session.delete(tool_call)
+    session.flush()
+
+    pending_actions = []
+    if conversation_ids:
+        pending_actions.extend(
+            session.exec(
+                select(PendingToolAction).where(PendingToolAction.conversation_id.in_(conversation_ids))
+            ).all()
+        )
+    pending_actions.extend(
+        session.exec(select(PendingToolAction).where(PendingToolAction.project_id == project_id)).all()
+    )
+    for action in {action.id: action for action in pending_actions if action.id is not None}.values():
+        session.delete(action)
     session.flush()
 
     for generated_file in {file.id: file for file in generated_files if file.id is not None}.values():
