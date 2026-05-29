@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import { CxTopProgress } from './components/codex'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -86,9 +86,19 @@ const Forbidden = lazy(() => loadForbidden().then((module) => ({ default: module
 const NotFound = lazy(() => loadNotFound().then((module) => ({ default: module.NotFound })))
 
 function RouteFallback() {
+  // ``bg-surface`` + ``text-primary`` (MD3 light + V0.0.5 blue) used
+  // to paint a white slab with a blue spinner here, which is what
+  // showed up as a "white flash" inside the Codex shell when a lazy
+  // route bundle was still downloading. Transparent now so the
+  // shell's ``html`` background (set by the inline bootstrap script
+  // in ``index.html``) shows through; the codex top progress bar
+  // gives a "loading" cue without committing to a centered spinner.
   return (
-    <div className="flex h-full min-h-[240px] items-center justify-center bg-surface">
-      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    <div
+      className="theme-codex flex h-full min-h-[240px] flex-col"
+      style={{ background: 'var(--color-codex-bg)', color: 'var(--color-codex-ink)' }}
+    >
+      <CxTopProgress />
     </div>
   )
 }
