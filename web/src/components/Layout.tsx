@@ -16,7 +16,7 @@ import {
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 import type { User } from '../types/api'
-import { primaryRouteLoaders, warmPrimaryRoutes } from '../routeLoaders'
+import { primaryRouteLoaders } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
 import { CxLogo } from './codex/CxLogo'
 
@@ -131,19 +131,14 @@ export function Layout() {
       })
   }, [])
 
-  useEffect(() => {
-    const scheduleWarmup = () => {
-      void warmPrimaryRoutes()
-    }
-
-    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      const idleId = window.requestIdleCallback(scheduleWarmup, { timeout: 1200 })
-      return () => window.cancelIdleCallback(idleId)
-    }
-
-    const timer = setTimeout(scheduleWarmup, 400)
-    return () => clearTimeout(timer)
-  }, [])
+  // Per-route bundles are still preloaded on nav-link hover/focus via
+  // ``primaryRouteLoaders[item.path]`` below, so the most-likely-next
+  // route is already warmed up by the time the user clicks. The
+  // previous blanket ``warmPrimaryRoutes()`` (which prefetched all 9
+  // primary routes on every mount) created several seconds of network
+  // contention on slow connections — fast users got faster, slow users
+  // got 10s+ of background traffic competing with the current page's
+  // own data calls. Dropped in favor of the hover-only path.
 
   useEffect(() => {
     const loadUnreadCount = () => {
