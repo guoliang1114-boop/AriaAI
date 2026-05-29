@@ -1018,64 +1018,352 @@ function LineCapabilityFramework({
 }
 
 export function Skills() {
+  /*
+   * Skill 库 — Codex layout per
+   * ``design_handoff_aria_codex_redesign/direction-codex-part2.jsx:6``.
+   *
+   * 220px inline sidebar lists every category with its count plus a
+   * tiny stats block; the right column groups every skill by category
+   * and rows link to ``/skills/item/:id`` for the detail page (which
+   * was already on the route table). The practice-line / hero /
+   * framework UI from the V0.0.5 version was dropped — the design
+   * intentionally flattens the navigation to "pick a category, see
+   * skills".
+   */
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
-  const launchSource = useLaunchSource();
   const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
 
-  const categoryBuckets = useMemo(() => {
-    const withoutAll = categories.filter((category) => category.id !== "all");
-    return Object.fromEntries(
-      PRACTICE_LINE_IDS.map((lineId) => [
-        lineId,
-        withoutAll.filter((category) => {
-          const practiceLineId = getPracticeLineId(category.id);
-          return lineId === "general" ? !practiceLineId || practiceLineId === "general" : practiceLineId === lineId;
-        }),
-      ]),
-    ) as Record<PracticeLineId, SkillCategory[]>;
-  }, [categories]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
+
+  // ``categories`` already contains an "all" entry — pull it out for
+  // the sidebar top spot and treat the rest as the filter list.
+  const allCategory =
+    categories.find((cat) => cat.id === "all") ??
+    ({ id: "all", label: t("skills.categories.all"), count: skills.length } as SkillCategory);
+  const filterCategories = categories.filter((cat) => cat.id !== "all");
+
+  // Group skills by their normalized category key. When the user picks
+  // a single category from the sidebar we collapse the grouping to a
+  // single section; "all" shows every group.
+  const skillsByCategoryKey = new Map<string, SkillSummary[]>();
+  for (const skill of skills) {
+    const key = getSkillCategoryKey(skill);
+    if (!skillsByCategoryKey.has(key)) skillsByCategoryKey.set(key, []);
+    skillsByCategoryKey.get(key)!.push(skill);
+  }
+  const visibleGroups =
+    selectedCategory === "all"
+      ? filterCategories.map((cat) => ({
+          cat,
+          items: skillsByCategoryKey.get(cat.id) ?? [],
+        }))
+      : [
+          {
+            cat:
+              filterCategories.find((c) => c.id === selectedCategory) ??
+              ({ id: selectedCategory, label: selectedCategory, count: 0 } as SkillCategory),
+            items: skillsByCategoryKey.get(selectedCategory) ?? [],
+          },
+        ];
+
+  const sidebarLinkStyle = (active: boolean): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "7px 10px",
+    marginBottom: 1,
+    fontSize: 13,
+    fontWeight: active ? 500 : 400,
+    background: active ? "var(--color-codex-bg-tint)" : "transparent",
+    color: active ? "var(--color-codex-ink)" : "var(--color-codex-ink-soft)",
+    borderRadius: "var(--codex-r-sm, 3px)",
+    cursor: "pointer",
+  });
+
+  const sidebarSectionLabelStyle: React.CSSProperties = {
+    marginBottom: 10,
+    fontSize: 12,
+    color: "var(--color-codex-ink-mute)",
+  };
 
   return (
     <>
       <PageTitle title={t("skills.title")} />
-      <div className="min-h-full bg-slate-50">
-        <div className="w-full px-6 py-5 xl:px-8 2xl:px-10">
-          <section className="relative overflow-hidden rounded-[1.5rem] border border-blue-100 bg-gradient-to-br from-white via-sky-50 to-blue-100/70 px-5 py-4 shadow-[0_14px_36px_rgba(15,23,42,0.055)] md:px-6">
-            <div className="relative max-w-4xl">
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur">
-                <LayoutGrid className="h-4 w-4" />
-                {isZh ? "技能中心" : "Skill Center"}
-              </div>
-              <h1 className="text-2xl font-semibold text-slate-950 md:text-[2rem]">
-                {isZh ? "全域能力，专业纵深" : "Full-spectrum capability, professional depth"}
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                {isZh
-                  ? "按业务线组织，覆盖审计、税务与咨询全栈能力；从客户问题定义到交付产出，快速找到适合当前场景的专业 Skill。"
-                  : "Organized by practice lines, covering audit, tax, and consulting capabilities."}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
-                  {isZh ? "全部能力" : "All skills"}: <span className="font-semibold text-slate-950">{skills.length}</span>
+      <div
+        className="theme-codex flex min-h-full"
+        style={{
+          background: "var(--color-codex-bg)",
+          color: "var(--color-codex-ink)",
+        }}
+      >
+        {/* Sidebar — 220px on desktop, hidden on mobile (the category
+            list moves into a horizontal pill row instead). */}
+        <aside
+          className="hidden flex-shrink-0 lg:block"
+          style={{
+            width: 220,
+            padding: "28px 18px 28px 40px",
+            borderRight: "1px solid var(--color-codex-line)",
+          }}
+        >
+          <div style={sidebarSectionLabelStyle}>{isZh ? "分类" : "Categories"}</div>
+          <button
+            type="button"
+            className="row-hov cx-no-hover w-full text-left"
+            style={sidebarLinkStyle(selectedCategory === "all")}
+            onClick={() => setSelectedCategory("all")}
+          >
+            <span>{allCategory.label}</span>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 11.5,
+                color:
+                  selectedCategory === "all"
+                    ? "var(--color-codex-accent)"
+                    : "var(--color-codex-ink-faint)",
+              }}
+            >
+              {allCategory.count}
+            </span>
+          </button>
+          {filterCategories.map((cat) => {
+            const active = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                className="row-hov cx-no-hover w-full text-left"
+                style={sidebarLinkStyle(active)}
+                onClick={() => setSelectedCategory(cat.id)}
+              >
+                <span>{cat.label}</span>
+                <span
+                  className="font-mono"
+                  style={{
+                    fontSize: 11.5,
+                    color: active
+                      ? "var(--color-codex-accent)"
+                      : "var(--color-codex-ink-faint)",
+                  }}
+                >
+                  {cat.count}
                 </span>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800 shadow-sm">
-                  {isZh ? "3 个核心业务 + 1 个支撑能力" : "3 core practices + 1 support layer"}
-                </span>
-              </div>
+              </button>
+            );
+          })}
+
+          <div style={{ ...sidebarSectionLabelStyle, margin: "26px 0 8px" }}>
+            {isZh ? "统计" : "Stats"}
+          </div>
+          <div
+            style={{
+              padding: "4px 10px",
+              fontSize: 12.5,
+              color: "var(--color-codex-ink-soft)",
+              lineHeight: 1.9,
+            }}
+          >
+            <div className="flex justify-between">
+              <span>{isZh ? "总数" : "Total"}</span>
+              <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
+                {skills.length}
+              </span>
             </div>
-          </section>
+            <div className="flex justify-between">
+              <span>{isZh ? "分类数" : "Categories"}</span>
+              <span className="font-mono" style={{ color: "var(--color-codex-ink)" }}>
+                {filterCategories.length}
+              </span>
+            </div>
+          </div>
+        </aside>
 
-          <LaunchContextBanners launchSource={launchSource} isZh={isZh} />
+        {/* Mobile/tablet category pill row */}
+        <nav
+          className="flex gap-1 overflow-x-auto px-4 py-3 lg:hidden"
+          style={{ borderBottom: "1px solid var(--color-codex-line)" }}
+        >
+          {[allCategory, ...filterCategories].map((cat) => {
+            const active = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                className="row-hov cx-no-hover flex-shrink-0"
+                style={{
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  fontWeight: active ? 500 : 400,
+                  background: active ? "var(--color-codex-bg-tint)" : "transparent",
+                  color: active ? "var(--color-codex-ink)" : "var(--color-codex-ink-soft)",
+                  borderRadius: "var(--codex-r-sm, 3px)",
+                  whiteSpace: "nowrap",
+                }}
+                onClick={() => setSelectedCategory(cat.id)}
+              >
+                {cat.label}{" "}
+                <span
+                  className="font-mono"
+                  style={{ marginLeft: 6, color: "var(--color-codex-ink-faint)" }}
+                >
+                  {cat.count}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
 
-          <CapabilityFramework
-            categoryBuckets={categoryBuckets}
-            isZh={isZh}
-            onLineClick={(lineId) => navigate(buildPracticeLinePath(lineId, launchSource.searchParams))}
-          />
+        {/* Main column */}
+        <div className="min-w-0 flex-1 overflow-auto" style={{ padding: "32px 56px 40px" }}>
+          <header
+            className="flex flex-wrap items-end justify-between"
+            style={{ marginBottom: 28, gap: 24 }}
+          >
+            <div className="min-w-0">
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 28,
+                  fontWeight: 500,
+                  color: "var(--color-codex-ink)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {isZh ? "Skill 库" : "Skill Library"}
+              </h1>
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  maxWidth: 540,
+                  fontSize: 13.5,
+                  color: "var(--color-codex-ink-mute)",
+                  lineHeight: 1.6,
+                }}
+              >
+                {isZh
+                  ? `把重复的工作沉淀成可调用的模板。共 ${skills.length} 个 Skill，分 ${filterCategories.length} 个分类。`
+                  : `Recurring work, captured as reusable templates. ${skills.length} skills across ${filterCategories.length} categories.`}
+              </p>
+            </div>
+          </header>
+
+          {visibleGroups.map(({ cat, items }) => (
+            <section key={cat.id} style={{ marginBottom: 28 }}>
+              <div
+                className="flex items-baseline justify-between"
+                style={{ marginBottom: 14 }}
+              >
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: "var(--color-codex-ink-mute)",
+                    letterSpacing: "0.01em",
+                  }}
+                >
+                  {cat.label}
+                </h3>
+                <span
+                  className="font-mono"
+                  style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
+                >
+                  {items.length} {isZh ? "项" : "items"}
+                </span>
+              </div>
+
+              {items.length === 0 ? (
+                <div
+                  style={{
+                    padding: "16px 8px",
+                    fontSize: 13,
+                    color: "var(--color-codex-ink-mute)",
+                  }}
+                >
+                  {isZh ? "这个分类暂时还没有 Skill。" : "No skills in this category yet."}
+                </div>
+              ) : (
+                items.map((skill, i) => (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    onClick={() => navigate(`/skills/item/${skill.id}`)}
+                    className="codex-row-hov grid w-full items-center text-left"
+                    style={{
+                      gridTemplateColumns: "1fr 90px 80px 14px",
+                      columnGap: 16,
+                      padding: "14px 8px",
+                      borderBottom:
+                        i === items.length - 1
+                          ? "none"
+                          : "1px solid var(--color-codex-line-soft)",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 500,
+                          color: "var(--color-codex-ink)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {skill.name}
+                      </div>
+                      <div
+                        className="line-clamp-2"
+                        style={{
+                          marginTop: 3,
+                          fontSize: 12.5,
+                          lineHeight: 1.55,
+                          color: "var(--color-codex-ink-mute)",
+                        }}
+                      >
+                        {skill.description}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        fontSize: 10.5,
+                        fontFamily:
+                          "var(--font-mono, ui-monospace, monospace)",
+                        background: "var(--color-codex-bg-tint)",
+                        color: "var(--color-codex-ink-soft)",
+                        borderRadius: "var(--codex-r-pill, 999px)",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                        textAlign: "center",
+                      }}
+                    >
+                      {cat.label}
+                    </span>
+                    <span
+                      className="font-mono"
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-codex-ink-mute)",
+                      }}
+                    >
+                      {skill.estimated_time || "—"}
+                    </span>
+                    <ArrowRight
+                      className="h-3 w-3"
+                      aria-hidden="true"
+                      style={{ color: "var(--color-codex-ink-faint)" }}
+                    />
+                  </button>
+                ))
+              )}
+            </section>
+          ))}
         </div>
       </div>
     </>
