@@ -587,12 +587,24 @@
 .theme-codex .md-root .md-table-head {
   background: var(--color-codex-bg-tint);
 }
+.theme-codex .md-root .md-table-body {
+  /* Both rule sets in index.css give ``.md-table-body`` a hardcoded
+     MD3 light background (``--color-surface-container-lowest`` /
+     ``-low``) that doesn't track Codex dark mode — those values stay
+     near-white and produce the bright cream slab visible in dark
+     screenshots of chat tables. Reset to ``bg-elev`` so the table
+     surface adapts to light / dark / warmth. */
+  background: var(--color-codex-bg-elev);
+}
 .theme-codex .md-root .md-table-header {
   color: var(--color-codex-ink);
   border-bottom-color: var(--color-codex-line);
 }
 .theme-codex .md-root .md-table-cell {
   color: var(--color-codex-ink-soft);
+  border-bottom-color: var(--color-codex-line-soft);
+}
+.theme-codex .md-root .md-table-row {
   border-bottom-color: var(--color-codex-line-soft);
 }
 .theme-codex .md-root .md-table-row:hover {
