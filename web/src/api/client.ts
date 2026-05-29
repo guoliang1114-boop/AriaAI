@@ -74,6 +74,15 @@ class ApiClient {
 
     console.error('[API] HTTP Error:', status, data)
 
+    // Handle 503 Service Unavailable — broadcast so the global
+    // listener in ``App.tsx`` can swap the route for ServiceDown.
+    // We don't navigate here directly: the API client is
+    // route-agnostic; the listener lives next to React Router.
+    if (status === 503) {
+      window.dispatchEvent(new CustomEvent('api:service-down'))
+      return
+    }
+
     // Handle 401 Unauthorized
     if (status === 401) {
       const currentPath = window.location.pathname

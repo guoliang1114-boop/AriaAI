@@ -98,7 +98,7 @@ describe('AdminGuard', () => {
     localStorage.setItem('user', JSON.stringify({ name: 'Test', is_admin: false }))
     renderAt('/settings/memory-ops')
     await waitFor(() => {
-      expect(screen.getByText("You don't have access to this area")).toBeInTheDocument()
+      expect(screen.getByText("You can't access this area")).toBeInTheDocument()
     })
   })
 
@@ -107,7 +107,7 @@ describe('AdminGuard', () => {
     localStorage.setItem('user', JSON.stringify({ name: 'Admin', is_admin: true }))
     renderAt('/settings/users')
     await waitFor(() => {
-      expect(screen.queryByText("You don't have access to this area")).not.toBeInTheDocument()
+      expect(screen.queryByText("You can't access this area")).not.toBeInTheDocument()
     })
   })
 })
@@ -122,14 +122,14 @@ describe('Route configuration', () => {
     localStorage.setItem('user', JSON.stringify({ name: 'Test', is_admin: false }))
     renderAt('/this-route-does-not-exist')
     await waitFor(() => {
-      expect(screen.getByText("This page doesn't exist")).toBeInTheDocument()
+      expect(screen.getByText('Nothing here')).toBeInTheDocument()
     })
   })
 
   it('/403 page is accessible without auth', async () => {
     renderAt('/403')
     await waitFor(() => {
-      expect(screen.getByText("You don't have access to this area")).toBeInTheDocument()
+      expect(screen.getByText("You can't access this area")).toBeInTheDocument()
     })
   })
 })

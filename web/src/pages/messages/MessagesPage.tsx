@@ -130,19 +130,35 @@ export function MessagesPage() {
             </div>
           </div>
 
+          {/* Error / loading / empty are mutually exclusive — previously
+              all three could render at once on a failed load (error
+              banner + empty-state card + Refresh button up top), which
+              looked broken. */}
           {error ? (
-            <div className="rounded-2xl border border-error/20 bg-error/5 px-4 py-3 text-sm text-error">
-              {error}
+            <div
+              role="alert"
+              className="rounded-2xl border border-error/20 bg-error/5 px-6 py-10 text-center"
+            >
+              <p className="mb-4 text-sm text-error">{error}</p>
+              <button
+                type="button"
+                onClick={() => void loadMessages()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {isZh ? '重试' : 'Retry'}
+              </button>
             </div>
-          ) : null}
-
-          {loading ? (
+          ) : loading ? (
             <div className="flex items-center justify-center py-24">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : null}
-
-          {!loading && messages.length === 0 ? (
+          ) : messages.length === 0 ? (
             <div className="rounded-3xl border border-outline/10 bg-surface-container-low px-6 py-20 text-center">
               <MailOpen className="mx-auto mb-4 h-10 w-10 text-on-surface-muted" />
               <p className="text-sm text-on-surface-muted">
@@ -151,7 +167,7 @@ export function MessagesPage() {
             </div>
           ) : null}
 
-          {!loading ? (
+          {!loading && !error ? (
             <div className="grid gap-4">
               {messages.map((message) => (
                 <div

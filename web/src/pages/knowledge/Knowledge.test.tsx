@@ -86,7 +86,7 @@ describe('Knowledge', () => {
     })
   })
 
-  it('deletes a document', async () => {
+  it('deletes a document via the confirm dialog', async () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/knowledge/documents') {
         return Promise.resolve([
@@ -97,14 +97,16 @@ describe('Knowledge', () => {
       return Promise.resolve([])
     })
     mockDelete.mockResolvedValue({})
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<Knowledge />)
     await waitFor(() => screen.getAllByText('doc1.pdf'))
     const deleteBtn = screen.getByRole('button', { name: /删除 doc1.pdf/ })
     fireEvent.click(deleteBtn)
+    // CxConfirmDialog opens — find and click "删除" inside it.
+    const dialog = await screen.findByRole('dialog')
+    const confirmBtn = within(dialog).getByRole('button', { name: '删除' })
+    fireEvent.click(confirmBtn)
     await waitFor(() => {
       expect(mockDelete).toHaveBeenCalledWith('/knowledge/documents/1')
     })
-    confirmSpy.mockRestore()
   })
 })

@@ -18,6 +18,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { CxConfirmDialog } from '../../components/codex'
 import { useToast } from '../../contexts/ToastContext'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
@@ -293,6 +294,15 @@ export function MemoryOperationsSettings() {
   const [selectedFailureKeys, setSelectedFailureKeys] = useState<Set<string>>(new Set())
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
   const [isBatchRetrying, setIsBatchRetrying] = useState(false)
+  // Holds the high-risk subset count + carried-over selection so the
+  // confirm dialog can show the warning and then resume the original
+  // batch with the same items. Replaces the inline window.confirm() —
+  // a synchronous prompt looked out of place in the Codex shell and
+  // didn't show the count nicely.
+  const [highRiskConfirm, setHighRiskConfirm] = useState<{
+    highRiskCount: number
+    toRetry: FailureItem[]
+  } | null>(null)
 
   const loadJobs = async (silent = false) => {
     try {
@@ -603,18 +613,23 @@ export function MemoryOperationsSettings() {
     }
   }
 
-  const batchRetryFailures = async () => {
+  // Entry point for the batch-retry button. Splits into "open the
+  // dialog" vs. "run directly" depending on whether high-risk
+  // categories are present.
+  const batchRetryFailures = () => {
     const toRetry = filteredFailures.filter((f) => selectedFailureKeys.has(getFailureKey(f)))
     if (toRetry.length === 0) return
-
-    const highRisk = toRetry.filter((f) => ['database', 'data', 'unknown'].includes(inferFailureCategory(f)))
+    const highRisk = toRetry.filter((f) =>
+      ['database', 'data', 'unknown'].includes(inferFailureCategory(f)),
+    )
     if (highRisk.length > 0) {
-      const confirmMsg = isZh
-        ? `包含 ${highRisk.length} 条高风险失败（database/data/unknown），确认重试？`
-        : `Including ${highRisk.length} high-risk failures (database/data/unknown). Confirm retry?`
-      if (!window.confirm(confirmMsg)) return
+      setHighRiskConfirm({ highRiskCount: highRisk.length, toRetry })
+      return
     }
+    void performBatchRetry(toRetry)
+  }
 
+  const performBatchRetry = async (toRetry: FailureItem[]) => {
     setIsBatchRetrying(true)
     let successCount = 0
     let failCount = 0
@@ -1588,7 +1603,7 @@ export function MemoryOperationsSettings() {
                   </span>
                   <div className="flex-1" />
                   <button
-                    onClick={() => void batchRetryFailures()}
+                    onClick={() => batchRetryFailures()}
                     disabled={isBatchRetrying}
                     className="inline-flex items-center gap-1.5 disabled:opacity-60"
                     style={{
@@ -1943,6 +1958,32 @@ export function MemoryOperationsSettings() {
           </div>
         </div>
       </div>
+      <CxConfirmDialog
+        open={highRiskConfirm != null}
+        onClose={() => {
+          if (!isBatchRetrying) setHighRiskConfirm(null)
+        }}
+        onConfirm={() => {
+          const pending = highRiskConfirm
+          if (!pending) return
+          setHighRiskConfirm(null)
+          void performBatchRetry(pending.toRetry)
+        }}
+        tone="warn"
+        title={
+          isZh ? '包含高风险失败，是否继续重试？' : 'High-risk failures included — continue?'
+        }
+        description={
+          highRiskConfirm
+            ? isZh
+              ? `本批包含 ${highRiskConfirm.highRiskCount} 条高风险失败（database / data / unknown 类别）。继续重试可能再次失败，建议先在排查页核对原因。`
+              : `${highRiskConfirm.highRiskCount} of the selected failures are high-risk (database / data / unknown). Retry may fail again — consider triaging first.`
+            : undefined
+        }
+        confirmLabel={isZh ? '继续重试' : 'Retry anyway'}
+        cancelLabel={isZh ? '取消' : 'Cancel'}
+        busy={isBatchRetrying}
+      />
     </div>
   )
 }

@@ -102,13 +102,26 @@ describe('ToastContext', () => {
     expect(screen.getByText('Error message')).toBeInTheDocument()
   })
 
-  it('useToast throws when used outside ToastProvider', () => {
-    function BadComponent() {
-      useToast()
+  // useToast falls back to a console-only noop when there's no
+  // provider so tests rendering pages in isolation don't have to
+  // mount the full app shell. The fallback should still expose all
+  // four methods so callers don't blow up at the call site.
+  it('useToast returns a console-only fallback outside ToastProvider', () => {
+    function Probe({ onReady }: { onReady: (ctx: ReturnType<typeof useToast>) => void }) {
+      const ctx = useToast()
+      onReady(ctx)
       return null
     }
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<BadComponent />)).toThrow('useToast must be used inside ToastProvider')
+    let captured: ReturnType<typeof useToast> | null = null
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    render(<Probe onReady={(c) => (captured = c)} />)
+    expect(captured).not.toBeNull()
+    expect(typeof captured!.success).toBe('function')
+    expect(typeof captured!.error).toBe('function')
+    expect(typeof captured!.warning).toBe('function')
+    expect(typeof captured!.info).toBe('function')
+    captured!.success('hello')
+    expect(spy).toHaveBeenCalledWith('[toast:success]', 'hello')
     spy.mockRestore()
   })
 })

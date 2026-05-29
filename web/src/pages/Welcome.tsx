@@ -134,6 +134,12 @@ export function Welcome() {
 
   const [loading, setLoading] = useState(true)
   const [secondaryLoading, setSecondaryLoading] = useState(true)
+  // ``secondaryError`` keeps track of whether the nice-to-have sidebar
+  // data (clients/skills/conversations/messages) failed to load.
+  // Previously these failures were swallowed with ``.catch(() => {})``
+  // so the user just saw permanently empty cards with no indication
+  // anything went wrong.
+  const [secondaryError, setSecondaryError] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [user] = useState<User | null>(() => readCachedUser())
@@ -152,6 +158,7 @@ export function Welcome() {
     try {
       setLoading(true)
       setSecondaryLoading(true)
+      setSecondaryError(false)
       setError(null)
       setErrorStatus(null)
 
@@ -174,12 +181,18 @@ export function Welcome() {
           setSkills(allSkills)
           setConversations(allConversations)
         })
-        .catch(() => {})
+        .catch((err) => {
+          console.warn('[Welcome] secondary data load failed', err)
+          setSecondaryError(true)
+        })
         .finally(() => setSecondaryLoading(false))
 
       void api.get<{ items: SystemMessage[]; unread_count: number }>('/messages')
         .then((systemMessages) => setMessages(Array.isArray(systemMessages?.items) ? systemMessages.items : []))
-        .catch(() => {})
+        .catch((err) => {
+          console.warn('[Welcome] system messages load failed', err)
+          setSecondaryError(true)
+        })
     } catch (err) {
       const apiError = err as AxiosError<ErrorResponsePayload>
       if (apiError.response?.status === 401) {
@@ -417,6 +430,31 @@ export function Welcome() {
               }}
               onRead={() => void markAnnouncementRead(homeAnnouncement.id)}
             />
+          ) : null}
+
+          {/* Secondary-load notice: client / skill / conversation / message
+              cards failed to load. The primary projects + todos data
+              still rendered fine, so we surface this as a soft inline
+              banner rather than blanking the page. */}
+          {secondaryError ? (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800"
+            >
+              <span className="truncate">
+                {isZh
+                  ? '部分侧边数据加载失败 — 主要内容已显示，可点击刷新重试。'
+                  : 'Some sidebar data failed to load — primary content is shown, retry with Refresh.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void loadData()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${secondaryLoading ? 'animate-spin' : ''}`} />
+                {isZh ? '重试' : 'Retry'}
+              </button>
+            </div>
           ) : null}
 
           <div className="rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-4 shadow-[0_18px_48px_-42px_rgba(37,99,235,0.35)] backdrop-blur sm:px-5 lg:flex lg:items-center lg:justify-between">

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ArrowRight, Database, FileText, Loader2, Search, Trash2, Upload, X } from 'lucide-react'
 
 import { api } from '../../api/client'
-import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
+import { CxConfirmDialog, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
@@ -112,6 +112,11 @@ export function Knowledge() {
   const [uploadCategory, setUploadCategory] = useState('general')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Pending delete confirmation: the id of the document the user is
+  // about to delete, or null when the dialog is closed. We hold the id
+  // (not the document) so the dialog survives an upstream refresh.
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -196,15 +201,19 @@ export function Knowledge() {
     }
   }
 
-  const handleDelete = async (docId: number) => {
-    if (!confirm(isZh ? '确定要删除这份文档吗？' : 'Are you sure you want to delete this document?')) return
-
+  const confirmDelete = async () => {
+    if (pendingDeleteId == null) return
+    setDeleting(true)
     try {
-      await api.delete(`/knowledge/documents/${docId}`)
+      await api.delete(`/knowledge/documents/${pendingDeleteId}`)
+      setPendingDeleteId(null)
       await fetchData({ silent: true })
     } catch (err) {
       console.error('Failed to delete document:', err)
       setError(isZh ? '文档删除失败' : 'Failed to delete document')
+      setPendingDeleteId(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -387,7 +396,7 @@ export function Knowledge() {
                         key={doc.id}
                         doc={doc}
                         isZh={isZh}
-                        onDelete={() => void handleDelete(doc.id)}
+                        onDelete={() => setPendingDeleteId(doc.id)}
                       />
                     ))
                   )}
@@ -463,6 +472,23 @@ export function Knowledge() {
           </aside>
         </div>
       </main>
+      <CxConfirmDialog
+        open={pendingDeleteId != null}
+        onClose={() => {
+          if (!deleting) setPendingDeleteId(null)
+        }}
+        onConfirm={() => void confirmDelete()}
+        tone="danger"
+        title={isZh ? '删除这份文档？' : 'Delete this document?'}
+        description={
+          isZh
+            ? '删除后此文档不再可被搜索或用于上下文，操作不可撤销。'
+            : 'After deletion this document is no longer searchable or used in context. This cannot be undone.'
+        }
+        confirmLabel={isZh ? '删除' : 'Delete'}
+        cancelLabel={isZh ? '取消' : 'Cancel'}
+        busy={deleting}
+      />
     </>
   )
 }

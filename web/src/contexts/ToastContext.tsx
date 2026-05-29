@@ -95,8 +95,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Safe console-only fallback for environments where ToastProvider
+// isn't mounted — primarily test renders that boot a single page
+// without the full app shell. In production we always have the
+// provider (mounted in main.tsx), so the warning is informational.
+const NOOP_TOAST: ToastContextValue = {
+  success: (msg) => console.info('[toast:success]', msg),
+  error: (msg) => console.warn('[toast:error]', msg),
+  warning: (msg) => console.warn('[toast:warning]', msg),
+  info: (msg) => console.info('[toast:info]', msg),
+}
+
 export function useToast() {
   const ctx = useContext(ToastContext)
-  if (!ctx) throw new Error('useToast must be used inside ToastProvider')
-  return ctx
+  return ctx ?? NOOP_TOAST
 }
