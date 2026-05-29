@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { Knowledge } from './Knowledge'
 
 const mockGet = vi.fn()
@@ -15,7 +15,7 @@ vi.mock('../../api/client', () => ({
 }))
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh' } }),
 }))
 
 describe('Knowledge', () => {
@@ -28,7 +28,7 @@ describe('Knowledge', () => {
   it('renders loading state initially', () => {
     mockGet.mockImplementation(() => new Promise(() => {}))
     render(<Knowledge />)
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.getAllByTestId('cx-skeleton').length).toBeGreaterThan(0)
   })
 
   it('renders documents after loading', async () => {
@@ -46,8 +46,8 @@ describe('Knowledge', () => {
     })
     render(<Knowledge />)
     await waitFor(() => {
-      expect(screen.getByText('doc1.pdf')).toBeInTheDocument()
-      expect(screen.getByText('doc2.docx')).toBeInTheDocument()
+      expect(screen.getAllByText('doc1.pdf').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('doc2.docx').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -59,7 +59,8 @@ describe('Knowledge', () => {
     })
     render(<Knowledge />)
     await waitFor(() => {
-      expect(screen.getByText('knowledge.upload')).toBeInTheDocument()
+      expect(screen.getByText('还没有文档')).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: /上传文档/ }).length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -75,11 +76,13 @@ describe('Knowledge', () => {
       return Promise.resolve([])
     })
     render(<Knowledge />)
-    await waitFor(() => screen.getByText('report.pdf'))
-    const searchInput = screen.getByPlaceholderText(/knowledge.searchDocuments/)
+    await waitFor(() => screen.getAllByText('report.pdf'))
+    const searchInput = screen.getByLabelText('搜索知识库')
     fireEvent.change(searchInput, { target: { value: 'report' } })
     await waitFor(() => {
-      expect(screen.getByText('report.pdf')).toBeInTheDocument()
+      const table = screen.getByRole('region', { name: '知识库文档' })
+      expect(within(table).getByText('report.pdf')).toBeInTheDocument()
+      expect(within(table).queryByText('notes.txt')).not.toBeInTheDocument()
     })
   })
 
@@ -96,9 +99,8 @@ describe('Knowledge', () => {
     mockDelete.mockResolvedValue({})
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<Knowledge />)
-    await waitFor(() => screen.getByText('doc1.pdf'))
-    const buttons = screen.getAllByRole('button')
-    const deleteBtn = buttons[buttons.length - 1]
+    await waitFor(() => screen.getAllByText('doc1.pdf'))
+    const deleteBtn = screen.getByRole('button', { name: /删除 doc1.pdf/ })
     fireEvent.click(deleteBtn)
     await waitFor(() => {
       expect(mockDelete).toHaveBeenCalledWith('/knowledge/documents/1')
