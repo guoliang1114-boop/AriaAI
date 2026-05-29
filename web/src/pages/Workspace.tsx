@@ -44,6 +44,7 @@ interface DashboardProjectSummary {
   name: string
   client: string
   status: string
+  contract_amount?: number
   updated_at: string
   memory_stale?: boolean
   memory_version?: number
