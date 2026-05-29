@@ -23,6 +23,7 @@ import type {
   CodexDensity,
   CodexRadius,
   CodexTheme,
+  CodexWarmth,
 } from "../../utils/codexAppearance";
 
 interface ChipOption<T extends string> {
@@ -65,6 +66,15 @@ const RADIUS_OPTIONS: { value: CodexRadius; label_zh: string; label_en: string; 
   { value: "sharp", label_zh: "锐利", label_en: "Sharp", px: 0 },
   { value: "soft", label_zh: "柔和", label_en: "Soft", px: 6 },
   { value: "round", label_zh: "圆润", label_en: "Round", px: 14 },
+];
+
+// Warmth swatches use the same color the CSS class will set as
+// ``--color-codex-bg`` — keeps the picker honest. See the
+// ``.warmth-*`` rules in ``styles/codex.css``.
+const WARMTH_OPTIONS: { value: CodexWarmth; label_zh: string; label_en: string; bg: string }[] = [
+  { value: "white", label_zh: "纯白", label_en: "White", bg: "#ffffff" },
+  { value: "paper", label_zh: "中性", label_en: "Paper", bg: "#fafaf7" },
+  { value: "parchment", label_zh: "暖羊皮", label_en: "Parchment", bg: "#fcfbf7" },
 ];
 
 export function AppearanceSettings() {
@@ -136,6 +146,66 @@ export function AppearanceSettings() {
             </>
           )}
         />
+      </CxFormRow>
+
+      {/* Background warmth — page color from pure white to warm
+          parchment. Only affects the light theme; dark mode ignores it. */}
+      <CxFormRow
+        label={isZh ? "页面背景" : "Page background"}
+        hint={
+          isZh
+            ? "羊皮偏暖、纯白偏冷 — 选你看着最舒服的那一档。深色主题不受影响。"
+            : "Parchment is warm, white is cool — pick whatever's easiest on your eyes. Dark theme is unaffected."
+        }
+      >
+        <div className="flex flex-wrap gap-2.5" data-testid="appearance-warmth">
+          {WARMTH_OPTIONS.map((opt) => {
+            const active = appearance.warmth === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                aria-label={isZh ? opt.label_zh : opt.label_en}
+                onClick={() => patchAppearance({ warmth: opt.value })}
+                className="flex flex-col items-center gap-1.5 transition"
+                style={{ padding: 4, cursor: "pointer" }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 56,
+                    height: 36,
+                    borderRadius: 6,
+                    background: opt.bg,
+                    border: `1px solid ${
+                      active
+                        ? "var(--color-codex-accent)"
+                        : "var(--color-codex-line-strong)"
+                    }`,
+                    boxShadow: active
+                      ? "0 0 0 2px var(--color-codex-bg), 0 0 0 4px var(--color-codex-accent)"
+                      : "none",
+                    transition: "box-shadow 0.15s",
+                    display: "inline-block",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: active
+                      ? "var(--color-codex-ink)"
+                      : "var(--color-codex-ink-mute)",
+                    fontWeight: active ? 500 : 400,
+                  }}
+                >
+                  {isZh ? opt.label_zh : opt.label_en}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </CxFormRow>
 
       {/* Accent */}

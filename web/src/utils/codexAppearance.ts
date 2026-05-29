@@ -26,12 +26,22 @@ export type CodexTheme = "light" | "dark" | "auto";
 export type CodexAccent = "moss" | "amber" | "azure" | "rose";
 export type CodexDensity = "compact" | "regular" | "comfy";
 export type CodexRadius = "sharp" | "soft" | "round";
+/**
+ * Page background warmth. The default ``parchment`` (#FCFBF7) reads as
+ * slightly yellow; users who find it too warm can dial it back to
+ * ``paper`` (cool off-white) or ``white`` (pure). Affects
+ * ``--color-codex-bg`` plus the matched bg-sunken / bg-tint values so
+ * the related surfaces shift together. Dark theme ignores this — the
+ * dark bg is already nearly black.
+ */
+export type CodexWarmth = "white" | "paper" | "parchment";
 
 export interface CodexAppearance {
   theme: CodexTheme;
   accent: CodexAccent;
   density: CodexDensity;
   radius: CodexRadius;
+  warmth: CodexWarmth;
 }
 
 export const CODEX_APPEARANCE_DEFAULT: CodexAppearance = {
@@ -39,12 +49,14 @@ export const CODEX_APPEARANCE_DEFAULT: CodexAppearance = {
   accent: "moss",
   density: "regular",
   radius: "soft",
+  warmth: "parchment",
 };
 
 const THEME_VALUES: readonly CodexTheme[] = ["light", "dark", "auto"];
 const ACCENT_VALUES: readonly CodexAccent[] = ["moss", "amber", "azure", "rose"];
 const DENSITY_VALUES: readonly CodexDensity[] = ["compact", "regular", "comfy"];
 const RADIUS_VALUES: readonly CodexRadius[] = ["sharp", "soft", "round"];
+const WARMTH_VALUES: readonly CodexWarmth[] = ["white", "paper", "parchment"];
 
 function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
   return typeof value === "string" && (allowed as readonly string[]).includes(value);
@@ -67,6 +79,9 @@ export function normalizeAppearance(input: unknown): CodexAppearance {
     radius: isOneOf(raw.radius, RADIUS_VALUES)
       ? raw.radius
       : CODEX_APPEARANCE_DEFAULT.radius,
+    warmth: isOneOf(raw.warmth, WARMTH_VALUES)
+      ? raw.warmth
+      : CODEX_APPEARANCE_DEFAULT.warmth,
   };
 }
 
@@ -106,7 +121,12 @@ export function resolveTheme(theme: CodexTheme): "light" | "dark" {
   }
 }
 
-const APPEARANCE_CLASS_PREFIXES = ["accent-", "density-", "radius-"] as const;
+const APPEARANCE_CLASS_PREFIXES = [
+  "accent-",
+  "density-",
+  "radius-",
+  "warmth-",
+] as const;
 
 /**
  * Toggle the appearance classes on ``<html>``:
@@ -140,6 +160,7 @@ export function applyAppearance(
   root.classList.add(`accent-${appearance.accent}`);
   root.classList.add(`density-${appearance.density}`);
   root.classList.add(`radius-${appearance.radius}`);
+  root.classList.add(`warmth-${appearance.warmth}`);
 }
 
 /**

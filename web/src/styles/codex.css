@@ -23,11 +23,17 @@
    ============================================================ */
 
 @theme {
-  /* ---- Backgrounds ---- */
+  /* ---- Backgrounds ----
+     The bg-tint shade is what shows up on row hover / active nav and
+     was originally tuned warm (#f3f0e7) to match the parchment vibe.
+     Users found that too yellow against the also-warm bg, so the tint
+     and sunken values now keep most of the parchment character with a
+     little less amber — a smaller R/B gap. Users who want a cooler
+     page can opt into ``warmth-paper`` or ``warmth-white`` below. */
   --color-codex-bg: #fcfbf7;        /* App background, page canvas */
   --color-codex-bg-elev: #ffffff;   /* Elevated cards, panels, headers, inputs */
-  --color-codex-bg-sunken: #f4f1ea; /* Sunken areas (footers, secondary chrome) */
-  --color-codex-bg-tint: #f3f0e7;   /* Active rows, chip backgrounds */
+  --color-codex-bg-sunken: #f1efe8; /* Sunken areas (footers, secondary chrome) */
+  --color-codex-bg-tint: #efede7;   /* Active rows, chip backgrounds */
 
   /* ---- Ink (text) ---- */
   --color-codex-ink: #1a1815;       /* Primary text */
@@ -200,6 +206,41 @@
   --color-codex-accent-soft: oklch(0.28 0.06 15);
   --color-codex-accent-ink: oklch(0.82 0.13 15);
   --color-codex-accent-bg: oklch(0.22 0.04 15);
+}
+
+/* ----------------------------------------------------------------
+   Warmth variants — let the user dial the page background between
+   pure white and warm parchment. ``parchment`` is the @theme default
+   (kept explicit here so the class is meaningful when applied). The
+   bg-sunken / bg-tint / line tokens shift together so any cards or
+   chips rendered against the new background still feel coherent.
+
+   Only the light theme is affected — the dark theme bg is already
+   nearly black and warmth doesn't read meaningfully against it.
+   ---------------------------------------------------------------- */
+.theme-codex.warmth-white {
+  --color-codex-bg: #ffffff;
+  --color-codex-bg-elev: #ffffff;
+  --color-codex-bg-sunken: #f4f4f4;
+  --color-codex-bg-tint: #f0f0f0;
+  --color-codex-line: oklch(0.9 0.001 0);
+  --color-codex-line-soft: oklch(0.94 0.001 0);
+  --color-codex-line-strong: oklch(0.82 0.001 0);
+}
+
+.theme-codex.warmth-paper {
+  --color-codex-bg: #fafaf7;
+  --color-codex-bg-elev: #ffffff;
+  --color-codex-bg-sunken: #efeeea;
+  --color-codex-bg-tint: #ededea;
+  /* Lines stay the same as default — they're already warmth-neutral. */
+}
+
+.theme-codex.warmth-parchment {
+  --color-codex-bg: #fcfbf7;
+  --color-codex-bg-elev: #ffffff;
+  --color-codex-bg-sunken: #f1efe8;
+  --color-codex-bg-tint: #efede7;
 }
 
 /* ----------------------------------------------------------------
