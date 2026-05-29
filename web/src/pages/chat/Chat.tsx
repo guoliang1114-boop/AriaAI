@@ -1816,7 +1816,17 @@ export function Chat() {
     conversation?.id ??
     (conversationIdFromQuery !== null && !Number.isNaN(conversationIdFromQuery) ? conversationIdFromQuery : null)
   const activeConversationTitle = conversation?.title || t('chat.newConversation')
-  const shouldBootstrapConversation = isLoadingConversations
+  // The main area was previously gated on ``isLoadingConversations``
+  // (= waiting for conversations + projects + skills to all resolve),
+  // which made /chat feel noticeably slower than /workspace and
+  // /skills because the prompt-card empty state couldn't render until
+  // every initial fetch finished. We now only wait for the conversation
+  // list when there's actually a conversation to fetch. Without
+  // ``conversationId``, the empty state is fine to show immediately —
+  // the sidebar conversation list keeps its own skeleton until the
+  // fetch finishes, so the user still sees something is loading on
+  // the left rail.
+  const shouldBootstrapConversation = isLoadingConversations && conversationId !== null
   const shouldShowLiveProgress = skillRunActive || progressSteps.length > 0
   const liveProgressSteps = shouldShowLiveProgress
     ? (progressSteps.length ? progressSteps : (skillRunActive ? createProgressSteps() : createChatLoadingSteps()))
