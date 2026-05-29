@@ -56,18 +56,63 @@ export function SettingsLayout() {
   return (
     <>
       <PageTitle title={t('settings.title')} />
-      <div className="settings-ui min-h-full bg-surface">
-        <div className="w-full px-4 py-4 sm:px-6 lg:px-8">
-          <div className="mb-4 flex flex-col gap-2 border-b border-outline/60 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        className="settings-ui theme-codex min-h-full"
+        style={{
+          background: 'var(--color-codex-bg)',
+          color: 'var(--color-codex-ink)',
+        }}
+      >
+        <div className="w-full px-4 py-5 sm:px-6 lg:px-8">
+          <div
+            className="mb-5 flex flex-col gap-2 pb-4 sm:flex-row sm:items-center sm:justify-between"
+            style={{ borderBottom: '1px solid var(--color-codex-line)' }}
+          >
             <div className="min-w-0">
-              <h1 className="text-xl font-semibold text-on-surface">{t('settings.title')}</h1>
-              <p className="mt-0.5 hidden max-w-3xl truncate text-sm text-on-surface-muted lg:block">{t('settings.description')}</p>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  color: 'var(--color-codex-ink)',
+                  letterSpacing: '-0.015em',
+                }}
+              >
+                {t('settings.title')}
+              </h1>
+              <p
+                className="mt-1 hidden max-w-3xl truncate lg:block"
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: 13,
+                  color: 'var(--color-codex-ink-mute)',
+                  lineHeight: 1.6,
+                }}
+              >
+                {t('settings.description')}
+              </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="hidden w-fit items-center rounded-full bg-surface-container-low px-3 py-1 text-xs font-medium text-on-surface-muted sm:inline-flex">
+              <span
+                className="font-mono hidden w-fit items-center sm:inline-flex"
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 10.5,
+                  background: 'var(--color-codex-bg-tint)',
+                  color: 'var(--color-codex-ink-soft)',
+                  borderRadius: 'var(--codex-r-pill, 999px)',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                }}
+              >
                 {isZh ? '系统配置' : 'System settings'}
               </span>
-              <span className="text-xs text-on-surface-muted lg:hidden">{t('settings.description')}</span>
+              <span
+                className="lg:hidden"
+                style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}
+              >
+                {t('settings.description')}
+              </span>
             </div>
           </div>
 
@@ -78,28 +123,63 @@ export function SettingsLayout() {
               }`}
             >
               <nav
-                className={`rounded-2xl bg-surface-container-low p-2 ${navCollapsed ? 'lg:px-2' : ''}`}
+                style={{
+                  padding: 8,
+                  background: 'var(--color-codex-bg-elev)',
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-md, 6px)',
+                }}
               >
                 <div
-                  className={`mb-2 hidden items-center gap-2 rounded-xl bg-surface/70 p-2 lg:flex ${
+                  className={`mb-2 hidden items-center gap-2 p-2 lg:flex ${
                     navCollapsed ? 'justify-center' : 'justify-between'
                   }`}
+                  style={{
+                    background: 'var(--color-codex-bg-tint)',
+                    borderRadius: 'var(--codex-r-sm, 3px)',
+                  }}
                 >
                   <div className={`min-w-0 ${navCollapsed ? 'hidden' : ''}`}>
-                    <div className="text-sm font-semibold text-on-surface">{isZh ? '设置导航' : 'Settings nav'}</div>
-                    <div className="truncate text-xs text-on-surface-muted">{isZh ? '可随时收起左栏' : 'Collapse when you need space'}</div>
+                    <div
+                      className="font-mono"
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: 'var(--color-codex-ink-soft)',
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {isZh ? '设置导航' : 'Settings nav'}
+                    </div>
+                    <div
+                      className="truncate"
+                      style={{
+                        marginTop: 2,
+                        fontSize: 11,
+                        color: 'var(--color-codex-ink-mute)',
+                      }}
+                    >
+                      {isZh ? '可随时收起左栏' : 'Collapse when you need space'}
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={toggleNavCollapsed}
-                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border border-outline/80 bg-surface text-on-surface-muted transition hover:bg-surface-container-high hover:text-on-surface"
+                    className="grid h-7 w-7 flex-shrink-0 place-items-center transition-colors"
+                    style={{
+                      background: 'var(--color-codex-bg-elev)',
+                      color: 'var(--color-codex-ink-soft)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
                     aria-label={navCollapsed ? (isZh ? '展开设置菜单' : 'Expand settings menu') : isZh ? '收起设置菜单' : 'Collapse settings menu'}
                   >
-                    {navCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                    {navCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
                   </button>
                 </div>
 
-                <div className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                <div className="flex gap-1 overflow-x-auto lg:block lg:space-y-0.5 lg:overflow-visible">
                   {settingNavItems.map((item) => (
                     <NavLink
                       key={item.path}
@@ -107,18 +187,32 @@ export function SettingsLayout() {
                       end={item.path === ''}
                       title={navCollapsed ? item.label : undefined}
                       className={({ isActive }) =>
-                        `group flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all lg:w-full ${
-                          navCollapsed ? 'lg:justify-center lg:px-3' : ''
-                        } ${
-                          isActive
-                            ? 'bg-secondary-container/50 text-primary shadow-sm'
-                            : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                        }`
+                        `group flex shrink-0 items-center gap-3 px-3 py-2.5 transition-all lg:w-full ${
+                          navCollapsed ? 'lg:justify-center lg:px-2' : ''
+                        } ${isActive ? 'cx-setting-nav-active' : 'cx-setting-nav'}`
                       }
+                      style={({ isActive }) => ({
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        background: isActive
+                          ? 'var(--color-codex-accent-bg)'
+                          : 'transparent',
+                        color: isActive
+                          ? 'var(--color-codex-accent-ink)'
+                          : 'var(--color-codex-ink-soft)',
+                        borderRadius: 'var(--codex-r-sm, 3px)',
+                      })}
                     >
                       {({ isActive }) => (
                         <>
-                          <item.icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-primary' : ''}`} />
+                          <item.icon
+                            className="h-3.5 w-3.5 flex-shrink-0"
+                            style={{
+                              color: isActive
+                                ? 'var(--color-codex-accent)'
+                                : 'var(--color-codex-ink-faint)',
+                            }}
+                          />
                           <span className={`${navCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
                         </>
                       )}
@@ -128,7 +222,7 @@ export function SettingsLayout() {
               </nav>
             </aside>
 
-            <div className="card min-w-0 flex-1 overflow-hidden">
+            <div className="min-w-0 flex-1 overflow-hidden" style={{ padding: '8px 16px' }}>
               <Outlet />
             </div>
           </div>

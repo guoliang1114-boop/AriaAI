@@ -177,55 +177,110 @@ export function Layout() {
     return <Navigate to="/onboarding" replace />
   }
 
+  const renderNavLink = (
+    item: { path: string; label: string; icon: typeof LayoutDashboard },
+    options?: { mobile?: boolean },
+  ) => {
+    const isActive =
+      location.pathname === item.path ||
+      (item.path !== '/' && location.pathname.startsWith(item.path))
+    const preloadRoute = () => {
+      const loader = primaryRouteLoaders[item.path]
+      if (loader) void loader()
+    }
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        onMouseEnter={preloadRoute}
+        onFocus={preloadRoute}
+        className={`flex items-center gap-1.5 px-3 py-2 transition-all ${options?.mobile ? 'min-w-fit' : ''}`}
+        style={{
+          fontSize: 12.5,
+          fontWeight: 500,
+          background: isActive ? 'var(--color-codex-accent-bg)' : 'transparent',
+          color: isActive
+            ? 'var(--color-codex-accent-ink)'
+            : 'var(--color-codex-ink-soft)',
+          borderRadius: 'var(--codex-r-sm, 3px)',
+        }}
+      >
+        <item.icon className="h-3.5 w-3.5" />
+        <span>{item.label}</span>
+      </NavLink>
+    )
+  }
+
   return (
-    <div className="flex h-full flex-col bg-surface">
+    <div
+      className="theme-codex flex h-full flex-col"
+      style={{
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+      }}
+    >
       {isProjectDetailRoute ? null : (
-        <header className="glass sticky top-0 z-50 border-b border-outline/10">
+        <header
+          className="sticky top-0 z-50"
+          style={{
+            background: 'var(--color-codex-bg)',
+            borderBottom: '1px solid var(--color-codex-line)',
+          }}
+        >
           <div className="flex h-14 items-center justify-between px-4 sm:px-6">
             <div className="flex items-center gap-6">
               <NavLink to="/" className="flex flex-shrink-0 items-center gap-2">
-                <span className="font-manrope text-lg font-bold text-primary">Aria AI</span>
+                <span
+                  className="font-manrope"
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: 'var(--color-codex-ink)',
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  Aria AI
+                </span>
               </NavLink>
 
               <nav className="hidden items-center gap-0.5 md:flex">
-                {navItems.map((item) => {
-                  const isActive =
-                    location.pathname === item.path ||
-                    (item.path !== '/' && location.pathname.startsWith(item.path))
-                  const preloadRoute = () => {
-                    const loader = primaryRouteLoaders[item.path]
-                    if (loader) void loader()
-                  }
-
-                  return (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      onMouseEnter={preloadRoute}
-                      onFocus={preloadRoute}
-                      className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                        isActive
-                          ? 'bg-secondary-container/50 text-primary'
-                          : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-                      }`}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {item.label}
-                    </NavLink>
-                  )
-                })}
+                {navItems.map((item) => renderNavLink(item))}
               </nav>
             </div>
 
             <div className="flex items-center gap-1">
               <button
                 onClick={() => navigate('/messages')}
-                className="relative flex h-7 w-7 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-low hover:text-on-surface"
+                className="relative flex h-7 w-7 items-center justify-center transition-colors"
+                style={{
+                  color: 'var(--color-codex-ink-soft)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                  e.currentTarget.style.color = 'var(--color-codex-ink)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
+                }}
                 title="Messages"
               >
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-error px-1.5 py-0.5 text-xs font-semibold leading-none text-white">
+                  <span
+                    className="absolute -right-0.5 -top-0.5 font-mono"
+                    style={{
+                      minWidth: 18,
+                      padding: '2px 5px',
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      lineHeight: 1,
+                      background: 'var(--color-codex-bad)',
+                      color: 'var(--color-codex-bg-elev)',
+                      borderRadius: 'var(--codex-r-pill, 999px)',
+                    }}
+                  >
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 ) : null}
@@ -234,7 +289,12 @@ export function Layout() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-gradient-primary text-white"
+                  className="flex h-7 w-7 items-center justify-center overflow-hidden"
+                  style={{
+                    background: 'var(--color-codex-accent-bg)',
+                    color: 'var(--color-codex-accent-ink)',
+                    borderRadius: 'var(--codex-r-pill, 999px)',
+                  }}
                   aria-label="User menu"
                   title={user?.display_name || 'User'}
                 >
@@ -243,7 +303,7 @@ export function Layout() {
                       className="block text-center font-semibold leading-none"
                       data-testid="user-initials"
                       style={{
-                        fontSize: '11px',
+                        fontSize: 11,
                         lineHeight: 1,
                         transform: `scale(${initialsScale})`,
                         transformOrigin: 'center',
@@ -257,30 +317,83 @@ export function Layout() {
                 </button>
 
                 {showUserMenu && (
-                  <div className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-outline/10 bg-surface-container-lowest py-1.5 shadow-lg">
-                    <div className="border-b border-outline/10 px-4 py-2.5">
-                      <p className="text-sm font-medium text-on-surface">{user?.display_name || 'User'}</p>
-                      <p className="truncate text-xs text-on-surface-muted">{user?.email || ''}</p>
+                  <div
+                    className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-52 py-1.5"
+                    style={{
+                      background: 'var(--color-codex-bg-elev)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-md, 6px)',
+                      boxShadow: '0 4px 16px -4px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    <div
+                      className="px-4 py-2.5"
+                      style={{ borderBottom: '1px solid var(--color-codex-line-soft)' }}
+                    >
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: 'var(--color-codex-ink)',
+                        }}
+                      >
+                        {user?.display_name || 'User'}
+                      </p>
+                      <p
+                        className="truncate font-mono"
+                        style={{
+                          margin: '2px 0 0',
+                          fontSize: 11,
+                          color: 'var(--color-codex-ink-mute)',
+                        }}
+                      >
+                        {user?.email || ''}
+                      </p>
                     </div>
-                    <NavLink
-                      to="/messages"
-                      onClick={() => setShowUserMenu(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
-                    >
-                      <Bell className="h-4 w-4 flex-shrink-0" />
-                      Messages
-                    </NavLink>
-                    <NavLink
-                      to="/settings"
-                      onClick={() => setShowUserMenu(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
-                    >
-                      <Settings className="h-4 w-4 flex-shrink-0" />
-                      {t('settings.title')}
-                    </NavLink>
+                    {[
+                      { to: '/messages', icon: Bell, label: 'Messages' },
+                      { to: '/settings', icon: Settings, label: t('settings.title') },
+                    ].map((entry) => (
+                      <NavLink
+                        key={entry.to}
+                        to={entry.to}
+                        onClick={() => setShowUserMenu(false)}
+                        className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
+                        style={{
+                          fontSize: 12.5,
+                          lineHeight: '20px',
+                          color: 'var(--color-codex-ink-soft)',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                          e.currentTarget.style.color = 'var(--color-codex-ink)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent'
+                          e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
+                        }}
+                      >
+                        <entry.icon className="h-4 w-4 flex-shrink-0" />
+                        {entry.label}
+                      </NavLink>
+                    ))}
                     <button
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-[13px] leading-5 text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                      className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
+                      style={{
+                        fontSize: 12.5,
+                        lineHeight: '20px',
+                        color: 'var(--color-codex-ink-soft)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
+                        e.currentTarget.style.color = 'var(--color-codex-ink)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
+                      }}
                     >
                       <LogOut className="h-4 w-4 flex-shrink-0" />
                       {t('settings.signOut')}
@@ -290,38 +403,19 @@ export function Layout() {
               </div>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto border-t border-outline/10 px-3 py-2 md:hidden">
-            {navItems.map((item) => {
-              const isActive =
-                location.pathname === item.path ||
-                (item.path !== '/' && location.pathname.startsWith(item.path))
-              const preloadRoute = () => {
-                const loader = primaryRouteLoaders[item.path]
-                if (loader) void loader()
-              }
-
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  onMouseEnter={preloadRoute}
-                  onFocus={preloadRoute}
-                  className={`flex min-w-fit items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-secondary-container/60 text-primary'
-                      : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-                  }`}
-                >
-                  <item.icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </NavLink>
-              )
-            })}
+          <nav
+            className="flex gap-1 overflow-x-auto px-3 py-2 md:hidden"
+            style={{ borderTop: '1px solid var(--color-codex-line-soft)' }}
+          >
+            {navItems.map((item) => renderNavLink(item, { mobile: true }))}
           </nav>
         </header>
       )}
 
-      <main className="app-ui flex-1 overflow-auto">
+      <main
+        className="app-ui flex-1 overflow-auto"
+        style={{ background: 'var(--color-codex-bg)' }}
+      >
         <Outlet />
       </main>
     </div>
