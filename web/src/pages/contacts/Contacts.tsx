@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Check, Loader2, Mail, Phone, Plus, RefreshCw, Search, UserRound, X } from 'lucide-react'
+import { ArrowRight, Check, Loader2, Mail, Phone, Plus, Search, UserRound, X } from 'lucide-react'
 
 import { api } from '../../api/client'
 import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
@@ -158,7 +158,6 @@ export function Contacts() {
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -172,9 +171,8 @@ export function Contacts() {
     note: '',
   })
 
-  const loadDirectory = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (silent) setRefreshing(true)
-    else setLoading(true)
+  const loadDirectory = async () => {
+    setLoading(true)
     setError(null)
     try {
       const clientList = await api.get<ClientListItem[]>('/clients')
@@ -199,7 +197,6 @@ export function Contacts() {
       setError(isZh ? '联系人目录加载失败' : 'Failed to load contact directory')
     } finally {
       setLoading(false)
-      setRefreshing(false)
     }
   }
 
@@ -207,22 +204,13 @@ export function Contacts() {
     void loadDirectory()
   }, [])
 
-  const counts = useMemo(() => {
-    const decision = contacts.filter((record) => getContactLevel(record.stakeholder) === 'decision').length
-    const influence = contacts.filter((record) => getContactLevel(record.stakeholder) === 'influence').length
-    const execution = contacts.filter((record) => getContactLevel(record.stakeholder) === 'execution').length
-    const recent = contacts.filter((record) => isRecentContact(record.stakeholder)).length
-    const unreached = contacts.filter((record) => !hasDirectContact(record.stakeholder)).length
-    return { all: contacts.length, decision, influence, execution, recent, unreached }
-  }, [contacts])
-
-  const filterOptions: Array<{ key: FilterKey; label: string; count: number }> = [
-    { key: 'all', label: isZh ? '全部' : 'All', count: counts.all },
-    { key: 'decision', label: isZh ? '决策' : 'Decision', count: counts.decision },
-    { key: 'influence', label: isZh ? '影响' : 'Influence', count: counts.influence },
-    { key: 'execution', label: isZh ? '执行' : 'Execution', count: counts.execution },
-    { key: 'recent', label: isZh ? '本周联系' : 'This week', count: counts.recent },
-    { key: 'unreached', label: isZh ? '未直接接触' : 'No direct contact', count: counts.unreached },
+  const filterOptions: Array<{ key: FilterKey; label: string }> = [
+    { key: 'all', label: isZh ? '全部' : 'All' },
+    { key: 'decision', label: isZh ? '决策' : 'Decision' },
+    { key: 'influence', label: isZh ? '影响' : 'Influence' },
+    { key: 'execution', label: isZh ? '执行' : 'Execution' },
+    { key: 'recent', label: isZh ? '本周联系' : 'This week' },
+    { key: 'unreached', label: isZh ? '未直接接触' : 'No direct contact' },
   ]
 
   const filteredContacts = useMemo(
@@ -319,16 +307,18 @@ export function Contacts() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col sm:flex-row sm:items-center" style={{ gap: 10 }}>
               <div
                 className="flex items-center gap-2"
                 style={{
-                  width: 'min(100%, 260px)',
-                  padding: '7px 12px',
+                  width: 'min(100%, 220px)',
+                  height: 39,
+                  padding: '0 12px',
                   border: '1px solid var(--color-codex-line)',
                   borderRadius: 'var(--codex-r-sm, 3px)',
                   background: 'var(--color-codex-bg-elev)',
                   color: 'var(--color-codex-ink-mute)',
+                  boxSizing: 'border-box',
                 }}
               >
                 <Search size={13} strokeWidth={1.5} aria-hidden="true" />
@@ -353,27 +343,7 @@ export function Contacts() {
                 ) : null}
               </div>
 
-              <button
-                type="button"
-                onClick={() => void loadDirectory({ silent: true })}
-                disabled={refreshing}
-                className="inline-flex items-center justify-center gap-1.5 cx-no-hover"
-                style={{
-                  minHeight: 36,
-                  padding: '0 12px',
-                  border: '1px solid var(--color-codex-line)',
-                  borderRadius: 'var(--codex-r-sm, 3px)',
-                  color: 'var(--color-codex-ink-soft)',
-                  background: 'transparent',
-                  fontSize: 12.5,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <RefreshCw size={13} strokeWidth={1.5} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" />
-                {isZh ? '刷新' : 'Refresh'}
-              </button>
-
-              <button type="button" onClick={() => setShowCreateModal(true)} className="cx-primary-action cx-no-hover">
+              <button type="button" onClick={() => setShowCreateModal(true)} className="cx-primary-action cx-no-hover" style={{ height: 39, padding: '0 14px' }}>
                 <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
                 {isZh ? '新建联系人' : 'New contact'}
               </button>
@@ -385,7 +355,6 @@ export function Contacts() {
               <FilterPill
                 key={filter.key}
                 active={activeFilter === filter.key}
-                count={filter.count}
                 label={filter.label}
                 onClick={() => setActiveFilter(filter.key)}
               />
@@ -468,12 +437,10 @@ export function Contacts() {
 
 function FilterPill({
   active,
-  count,
   label,
   onClick,
 }: {
   active: boolean
-  count: number
   label: string
   onClick: () => void
 }) {
@@ -493,9 +460,6 @@ function FilterPill({
       }}
     >
       <span>{label}</span>
-      <span className="codex-mono" style={{ opacity: active ? 0.72 : 0.6 }}>
-        {count}
-      </span>
     </button>
   )
 }
