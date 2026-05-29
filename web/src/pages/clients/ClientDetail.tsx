@@ -8,12 +8,14 @@ import {
   Brain,
   Edit2,
   ExternalLink,
+  FileText,
   FolderKanban,
   Loader2,
   MessageSquare,
   Plus,
   RefreshCw,
   Save,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -24,7 +26,6 @@ import { CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
-import { ClientStakeholdersStructuredCard } from '../projects/ClientStakeholdersStructuredCard'
 
 interface Client {
   id: number
@@ -45,6 +46,18 @@ interface Project {
   name: string
   status: string
   contract_amount: number | null
+}
+
+interface DisplayContact {
+  contact: string
+  influence: string
+  lastAction: string
+  level: string
+  name: string
+  note: string
+  recorded: boolean
+  relationship: string
+  role: string
 }
 
 type ClientDetailTab = 'overview' | 'memory' | 'contacts' | 'projects' | 'history'
@@ -141,18 +154,6 @@ export function ClientDetail() {
     } finally {
       setRebuildingMemory(false)
     }
-  }
-
-  const handleStakeholdersChanged = (nextStakeholders: ClientStakeholder[]) => {
-    setStakeholders(nextStakeholders)
-    setMemoryStatus((current) =>
-      current
-        ? {
-            ...current,
-            memory_stale: true,
-          }
-        : current,
-    )
   }
 
   const handleStartClientSkill = (intent: 'strategy' | 'opportunity' | 'retrospective') => {
@@ -301,16 +302,27 @@ export function ClientDetail() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-1.5">
-                <ButtonLike onClick={() => setIsEditing((current) => !current)} icon={isEditing ? <X size={13} /> : <Edit2 size={13} />}>
+              <div
+                className="flex flex-wrap items-center gap-1"
+                style={{
+                  padding: 4,
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-md, 6px)',
+                  background: 'color-mix(in oklab, var(--color-codex-bg-elev) 84%, var(--color-codex-bg-tint))',
+                }}
+              >
+                <HeaderActionButton
+                  onClick={() => setIsEditing((current) => !current)}
+                  icon={isEditing ? <X size={13} strokeWidth={1.5} /> : <Edit2 size={13} strokeWidth={1.5} />}
+                >
                   {isEditing ? (isZh ? '取消编辑' : 'Cancel') : isZh ? '编辑客户档案' : 'Edit client'}
-                </ButtonLike>
-                <ButtonLike onClick={() => navigate('/projects/new')} icon={<Plus size={13} />} primary>
+                </HeaderActionButton>
+                <HeaderActionButton onClick={() => navigate('/projects/new')} icon={<Plus size={13} strokeWidth={1.5} />} primary>
                   {isZh ? '新建项目' : 'New project'}
-                </ButtonLike>
-                <ButtonLike onClick={handleDelete} icon={<Trash2 size={13} />} danger>
+                </HeaderActionButton>
+                <HeaderActionButton onClick={handleDelete} icon={<Trash2 size={13} strokeWidth={1.5} />} danger>
                   {isZh ? '删除' : 'Delete'}
-                </ButtonLike>
+                </HeaderActionButton>
               </div>
             </div>
           </section>
@@ -398,14 +410,7 @@ export function ClientDetail() {
                   />
                 ) : null}
 
-                {activeTab === 'contacts' ? (
-                  <ClientStakeholdersStructuredCard
-                    clientId={client.id}
-                    isZh={isZh}
-                    onChanged={handleStakeholdersChanged}
-                    stakeholders={stakeholders}
-                  />
-                ) : null}
+                {activeTab === 'contacts' ? <ContactsReadOnlyPanel contacts={keyContacts} isZh={isZh} /> : null}
 
                 {activeTab === 'projects' ? (
                   <ProjectsPanel isZh={isZh} projects={projects} onOpenProject={(projectId) => navigate(`/projects/${projectId}`)} expanded />
@@ -564,7 +569,7 @@ function KeyContactsPanel({
   contacts,
   isZh,
 }: {
-  contacts: Array<{ name: string; role: string; note: string; recorded: boolean }>
+  contacts: DisplayContact[]
   isZh: boolean
 }) {
   return (
@@ -610,6 +615,102 @@ function KeyContactsPanel({
   )
 }
 
+function ContactsReadOnlyPanel({
+  contacts,
+  isZh,
+}: {
+  contacts: DisplayContact[]
+  isZh: boolean
+}) {
+  return (
+    <CxPanel
+      title={isZh ? '联系人' : 'Contacts'}
+      subtitle={isZh ? '只读展示客户侧关键联系人和沟通线索。' : 'Read-only view of client-side contacts and communication signals.'}
+      action={<span style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>{isZh ? `${contacts.length} 人` : `${contacts.length} contacts`}</span>}
+    >
+      {contacts.length === 0 ? (
+        <EmptyBlock icon={<User size={20} />} title={isZh ? '暂无联系人' : 'No contacts'} />
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <div
+            className="grid"
+            style={{
+              minWidth: 820,
+              gridTemplateColumns: 'minmax(190px,1.4fr) minmax(120px,.9fr) minmax(100px,.75fr) minmax(100px,.75fr) minmax(120px,.85fr) minmax(150px,1fr)',
+              gap: 14,
+              padding: '8px 0 10px',
+              fontSize: 11.5,
+              color: 'var(--color-codex-ink-faint)',
+              borderBottom: '1px solid var(--color-codex-line-soft)',
+            }}
+          >
+            <span>{isZh ? '姓名 / 角色' : 'Name / role'}</span>
+            <span>{isZh ? '组织层级' : 'Level'}</span>
+            <span>{isZh ? '影响类型' : 'Influence'}</span>
+            <span>{isZh ? '关系状态' : 'Relationship'}</span>
+            <span>{isZh ? '联系方式' : 'Contact'}</span>
+            <span>{isZh ? '最近动作' : 'Last action'}</span>
+          </div>
+
+          {contacts.map((contact, index) => (
+            <div
+              key={`${contact.name}-${index}`}
+              className="grid"
+              style={{
+                minWidth: 820,
+                gridTemplateColumns: 'minmax(190px,1.4fr) minmax(120px,.9fr) minmax(100px,.75fr) minmax(100px,.75fr) minmax(120px,.85fr) minmax(150px,1fr)',
+                gap: 14,
+                alignItems: 'center',
+                padding: '13px 0',
+                borderBottom: index === contacts.length - 1 ? 'none' : '1px solid var(--color-codex-line-soft)',
+              }}
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="inline-flex shrink-0 items-center justify-center"
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 'var(--codex-r-pill, 999px)',
+                    background: 'var(--color-codex-accent-bg)',
+                    color: 'var(--color-codex-accent-ink)',
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                  aria-hidden="true"
+                >
+                  {getClientInitial(contact.name)}
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--color-codex-ink)' }}>
+                    {contact.name}
+                  </div>
+                  <div className="truncate" style={{ marginTop: 2, fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+                    {contact.role || contact.note}
+                  </div>
+                </div>
+              </div>
+              <CellText>{contact.level}</CellText>
+              <CellText>{contact.influence}</CellText>
+              <CellText>{contact.relationship}</CellText>
+              <CellText muted={!contact.recorded}>{contact.contact}</CellText>
+              <CellText>{contact.lastAction}</CellText>
+            </div>
+          ))}
+        </div>
+      )}
+    </CxPanel>
+  )
+}
+
+function CellText({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
+  return (
+    <div className="truncate" style={{ fontSize: 12.5, color: muted ? 'var(--color-codex-ink-faint)' : 'var(--color-codex-ink-soft)' }}>
+      {children}
+    </div>
+  )
+}
+
 function ClientSkillPanel({
   isZh,
   onStart,
@@ -617,19 +718,27 @@ function ClientSkillPanel({
   isZh: boolean
   onStart: (intent: 'strategy' | 'opportunity' | 'retrospective') => void
 }) {
-  const items: Array<{ intent: 'strategy' | 'opportunity' | 'retrospective'; title: string; description: string }> = [
+  const items: Array<{
+    description: string
+    icon: ReactNode
+    intent: 'strategy' | 'opportunity' | 'retrospective'
+    title: string
+  }> = [
     {
       intent: 'strategy',
+      icon: <MessageSquare size={15} strokeWidth={1.6} />,
       title: isZh ? '关系策略' : 'Relationship strategy',
       description: isZh ? '整理关键干系人、沟通节奏和下一次拜访重点。' : 'Map stakeholders, cadence, and the next meeting focus.',
     },
     {
       intent: 'opportunity',
+      icon: <Sparkles size={15} strokeWidth={1.6} />,
       title: isZh ? '机会分析' : 'Opportunity analysis',
       description: isZh ? '基于客户背景和历史项目找潜在增购机会。' : 'Surface expansion opportunities from client history.',
     },
     {
       intent: 'retrospective',
+      icon: <FileText size={15} strokeWidth={1.6} />,
       title: isZh ? '项目复盘' : 'Project retrospective',
       description: isZh ? '把项目经验整理成可复用的客户洞察。' : 'Turn project experience into reusable client insight.',
     },
@@ -649,19 +758,7 @@ function ClientSkillPanel({
               borderBottom: item.intent === 'retrospective' ? 'none' : '1px solid var(--color-codex-line-soft)',
             }}
           >
-            <span
-              className="mt-0.5 inline-flex shrink-0 items-center justify-center"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 'var(--codex-r-sm, 3px)',
-                background: 'var(--color-codex-ink)',
-                color: 'var(--color-codex-bg-elev)',
-              }}
-              aria-hidden="true"
-            >
-              <MessageSquare size={13} strokeWidth={1.5} />
-            </span>
+            <CodexIconTile className="mt-0.5">{item.icon}</CodexIconTile>
             <span className="min-w-0 flex-1">
               <span className="block" style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--color-codex-ink)' }}>
                 {item.title}
@@ -827,9 +924,38 @@ function EmptyBlock({
 }) {
   return (
     <div className="text-center" style={{ padding: compact ? '18px 8px' : '36px 16px', color: 'var(--color-codex-ink-mute)' }}>
-      <div className="mb-2 flex justify-center" style={{ color: 'var(--color-codex-ink-faint)' }}>{icon}</div>
+      <div className="mb-2 flex justify-center">
+        <CodexIconTile size={compact ? 32 : 40}>{icon}</CodexIconTile>
+      </div>
       <div style={{ fontSize: 13 }}>{title}</div>
     </div>
+  )
+}
+
+function CodexIconTile({
+  children,
+  className,
+  size = 36,
+}: {
+  children: ReactNode
+  className?: string
+  size?: number
+}) {
+  return (
+    <span
+      className={['inline-flex shrink-0 items-center justify-center', className ?? ''].join(' ').trim()}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        background: 'var(--color-codex-accent-bg)',
+        color: 'var(--color-codex-accent-ink)',
+        border: '1px solid color-mix(in oklab, var(--color-codex-accent) 10%, transparent)',
+      }}
+      aria-hidden="true"
+    >
+      {children}
+    </span>
   )
 }
 
@@ -856,6 +982,65 @@ function CodexInput({
   value: string
 }) {
   return <input className="codex-input w-full" style={inputStyle} type="text" value={value} onChange={(event) => onChange(event.target.value)} />
+}
+
+function HeaderActionButton({
+  children,
+  danger = false,
+  icon,
+  onClick,
+  primary = false,
+}: {
+  children: ReactNode
+  danger?: boolean
+  icon?: ReactNode
+  onClick: () => void
+  primary?: boolean
+}) {
+  const style = primary
+    ? {
+        background: 'var(--color-codex-ink)',
+        color: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-ink)',
+        fontWeight: 500,
+      }
+    : danger
+      ? {
+          background: 'color-mix(in oklab, var(--color-codex-bad) 6%, transparent)',
+          color: 'color-mix(in oklab, var(--color-codex-bad) 76%, var(--color-codex-ink-soft))',
+          border: '1px solid transparent',
+          fontWeight: 400,
+        }
+      : {
+          background: 'transparent',
+          color: 'var(--color-codex-ink-soft)',
+          border: '1px solid transparent',
+          fontWeight: 400,
+        }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center justify-center gap-1.5"
+      style={{
+        ...style,
+        minHeight: 32,
+        padding: primary ? '0 13px' : '0 11px',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        fontSize: 12.5,
+        lineHeight: 1,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {icon ? (
+        <span className="inline-flex shrink-0 items-center justify-center" aria-hidden="true" style={{ width: 16 }}>
+          {icon}
+        </span>
+      ) : null}
+      <span>{children}</span>
+    </button>
+  )
 }
 
 function ButtonLike({
@@ -1066,22 +1251,32 @@ function isSignedProject(status: string) {
   return ['signed', 'won', 'completed', 'delivered', 'closed'].includes(status.toLowerCase())
 }
 
-function getKeyContacts(client: Client | null, stakeholders: ClientStakeholder[], isZh: boolean) {
+function getKeyContacts(client: Client | null, stakeholders: ClientStakeholder[], isZh: boolean): DisplayContact[] {
   if (stakeholders.length > 0) {
     return stakeholders.map((stakeholder) => ({
-      name: stakeholder.name,
-      role: stakeholder.role || stakeholder.organization_level,
-      note: stakeholder.contact || stakeholder.last_action || stakeholder.note,
+      contact: stakeholder.contact || (isZh ? '未记录' : 'Not recorded'),
+      influence: stakeholder.influence_type || (isZh ? '未记录' : 'Unknown'),
+      lastAction: stakeholder.last_action || stakeholder.note || (isZh ? '暂无记录' : 'No record'),
+      level: stakeholder.organization_level || (isZh ? '未记录' : 'Unknown'),
+      name: stakeholder.name || (isZh ? '未命名联系人' : 'Unnamed contact'),
+      note: stakeholder.contact || stakeholder.last_action || stakeholder.note || '',
       recorded: Boolean(stakeholder.contact || stakeholder.note),
+      relationship: stakeholder.relationship_status || (isZh ? '未记录' : 'Unknown'),
+      role: stakeholder.role || stakeholder.organization_level || (isZh ? '未记录角色' : 'Unknown role'),
     }))
   }
   if (client?.contact) {
     return [
       {
+        contact: client.contact,
+        influence: isZh ? '未记录' : 'Unknown',
+        lastAction: isZh ? '来自客户基础档案' : 'From client profile',
+        level: isZh ? '未记录' : 'Unknown',
         name: client.contact.split(/[、,，/]/)[0]?.trim() || client.contact,
-        role: isZh ? '主要联系人' : 'Primary contact',
         note: client.contact,
         recorded: true,
+        relationship: isZh ? '未记录' : 'Unknown',
+        role: isZh ? '主要联系人' : 'Primary contact',
       },
     ]
   }
