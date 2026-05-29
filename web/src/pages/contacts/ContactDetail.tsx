@@ -1,27 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
-  Brain,
+  ArrowRight,
   BriefcaseBusiness,
   Building2,
-  CheckCircle2,
+  Check,
+  Clock3,
+  Edit2,
   FileText,
-  FolderKanban,
-  Link as LinkIcon,
   Loader2,
+  Mail,
+  MessageCircle,
   MessageSquareText,
+  Phone,
+  Plus,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
   UserRound,
   Users,
+  X,
 } from 'lucide-react'
+
 import { api } from '../../api/client'
+import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientStakeholder } from '../../types/api'
+import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
 
 interface ClientListItem {
   id: number
@@ -37,12 +44,40 @@ interface ClientListItem {
   client_memory_updated_at?: string | null
 }
 
+interface ClientProjectSummary {
+  id: number
+  name: string
+  status: string
+  contract_amount?: number
+  memory_version?: number
+  memory_stale?: boolean
+}
+
+interface StakeholderHistoryEntry {
+  id: number
+  field_name: string
+  old_value: string
+  new_value: string
+  trigger: string
+  changed_at: string | null
+}
+
 interface ContactRecord {
   client: ClientListItem
   stakeholder: ClientStakeholder
 }
 
-type ContactDetailTab = 'basic' | 'analysis' | 'onepager'
+type ContactDetailTab = 'overview' | 'history' | 'projects' | 'notes'
+type ContactLevel = 'decision' | 'influence' | 'execution'
+
+const TABS: Array<{ key: ContactDetailTab; zh: string; en: string }> = [
+  { key: 'overview', zh: '概览', en: 'Overview' },
+  { key: 'history', zh: '接触历史', en: 'Touchpoints' },
+  { key: 'projects', zh: '相关项目', en: 'Projects' },
+  { key: 'notes', zh: '备注', en: 'Notes' },
+]
+
+const TOUCHPOINT_LIMIT = 6
 
 export function ContactDetail() {
   const { id } = useParams()
@@ -50,36 +85,59 @@ export function ContactDetail() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const contactId = Number(id)
+
   const [record, setRecord] = useState<ContactRecord | null>(null)
   const [clientContacts, setClientContacts] = useState<ClientStakeholder[]>([])
-  const [linkedinInfo, setLinkedinInfo] = useState('')
-  const [focus, setFocus] = useState('')
+  const [projects, setProjects] = useState<ClientProjectSummary[]>([])
+  const [history, setHistory] = useState<StakeholderHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<ContactDetailTab>('basic')
+  const [activeTab, setActiveTab] = useState<ContactDetailTab>('overview')
+  const [editing, setEditing] = useState(false)
+  const [touchpointOpen, setTouchpointOpen] = useState(false)
+  const [editDraft, setEditDraft] = useState<ContactEditDraft | null>(null)
+  const [touchpointDraft, setTouchpointDraft] = useState({ title: '', summary: '' })
 
-  const loadContact = async () => {
-    setLoading(true)
+  const loadContact = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
     setError(null)
+
     try {
       const clients = await api.get<ClientListItem[]>('/clients')
-      for (const client of clients) {
-        const stakeholders = await api.get<ClientStakeholder[]>(`/clients/${client.id}/stakeholders`)
+      const clientList = Array.isArray(clients) ? clients : []
+
+      for (const client of clientList) {
+        const stakeholdersResponse = await api.get<ClientStakeholder[]>(`/clients/${client.id}/stakeholders`)
+        const stakeholders = Array.isArray(stakeholdersResponse) ? stakeholdersResponse : []
         const found = stakeholders.find((stakeholder) => stakeholder.id === contactId)
+
         if (found) {
+          const [clientProjects, stakeholderHistory] = await Promise.all([
+            api.get<ClientProjectSummary[]>(`/clients/${client.id}/projects`).catch(() => []),
+            api.get<StakeholderHistoryEntry[]>(`/clients/${client.id}/stakeholders/${found.id}/history`).catch(() => []),
+          ])
+
           setRecord({ client, stakeholder: found })
           setClientContacts(stakeholders)
-          setLinkedinInfo((current) => current || found.note || '')
+          setProjects(Array.isArray(clientProjects) ? clientProjects : [])
+          setHistory(Array.isArray(stakeholderHistory) ? stakeholderHistory : [])
+          setEditDraft(buildEditDraft(found))
           setLoading(false)
           return
         }
       }
+
+      setRecord(null)
       setError(isZh ? '没有找到这个联系人' : 'Contact not found')
     } catch {
       setError(isZh ? '联系人详情加载失败' : 'Failed to load contact detail')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -97,6 +155,17 @@ export function ContactDetail() {
     [clientContacts, record],
   )
 
+  const relatedProjects = useMemo(() => normalizeProjects(record?.client, projects), [projects, record?.client])
+
+  const updateStakeholder = async (payload: Partial<ClientStakeholder>) => {
+    if (!record) return null
+    const updated = await api.put<ClientStakeholder>(`/clients/${record.client.id}/stakeholders/${record.stakeholder.id}`, payload)
+    setRecord({ ...record, stakeholder: updated })
+    setClientContacts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setEditDraft(buildEditDraft(updated))
+    return updated
+  }
+
   const analyze = async () => {
     if (!record) return
     setAnalyzing(true)
@@ -105,12 +174,13 @@ export function ContactDetail() {
       const updated = await api.post<ClientStakeholder>(
         `/clients/${record.client.id}/stakeholders/${record.stakeholder.id}/analyze`,
         {
-          linkedin_info: linkedinInfo,
-          focus,
+          linkedin_info: record.stakeholder.note || record.stakeholder.contact || '',
+          focus: isZh ? '请按联系人详情页画像字段重新生成角色影响、沟通偏好、关注重点和敏感点。' : 'Regenerate role influence, communication preference, concerns, and sensitivities for the contact detail page.',
         },
       )
       setRecord({ ...record, stakeholder: updated })
       setClientContacts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setEditDraft(buildEditDraft(updated))
     } catch {
       setError(isZh ? 'AI 分析失败，请稍后重试' : 'AI analysis failed. Please try again.')
     } finally {
@@ -118,622 +188,1046 @@ export function ContactDetail() {
     }
   }
 
+  const saveEdit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!editDraft) return
+    setSaving(true)
+    setError(null)
+    try {
+      await updateStakeholder(editDraft)
+      setEditing(false)
+      await loadContact({ silent: true })
+    } catch {
+      setError(isZh ? '联系人保存失败' : 'Failed to save contact')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveTouchpoint = async (event: FormEvent) => {
+    event.preventDefault()
+    const summary = touchpointDraft.summary.trim()
+    if (!summary) return
+    setSaving(true)
+    setError(null)
+    try {
+      const title = touchpointDraft.title.trim()
+      const value = title ? `${title}：${summary}` : summary
+      await updateStakeholder({ last_action: value })
+      setTouchpointOpen(false)
+      setTouchpointDraft({ title: '', summary: '' })
+      await loadContact({ silent: true })
+    } catch {
+      setError(isZh ? '接触记录保存失败' : 'Failed to save touchpoint')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
-    return (
-      <>
-        <PageTitle title={isZh ? '联系人详情' : 'Contact Detail'} />
-        <div className="flex min-h-full items-center justify-center bg-slate-50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </>
-    )
+    return <ContactDetailLoading isZh={isZh} />
   }
 
   if (!record) {
-    return (
-      <>
-        <PageTitle title={isZh ? '联系人详情' : 'Contact Detail'} />
-        <div className="min-h-full bg-slate-50 px-6 py-8">
-          <button
-            type="button"
-            onClick={() => navigate('/contacts')}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {isZh ? '返回联系人' : 'Back to contacts'}
-          </button>
-          <div className="mt-6 rounded-[1.5rem] border border-rose-100 bg-rose-50 p-6 text-rose-700">
-            {error || (isZh ? '联系人不存在' : 'Contact does not exist')}
-          </div>
-        </div>
-      </>
-    )
+    return <ContactNotFound error={error} isZh={isZh} onBack={() => navigate('/contacts')} />
   }
 
   const { client, stakeholder } = record
+  const level = getContactLevel(stakeholder)
+  const levelInfo = levelMeta(level, isZh)
+  const methods = parseContactMethods(stakeholder.contact)
+  const profileRows = buildProfileRows(stakeholder, isZh, levelInfo.label)
+  const activities = buildActivities(stakeholder, history, isZh)
 
   return (
     <>
       <PageTitle title={`${stakeholder.name} · ${isZh ? '联系人详情' : 'Contact Detail'}`} />
-      <div className="min-h-full bg-[linear-gradient(180deg,#f6f9fc_0%,#eef4fb_36%,#ffffff_100%)]">
-        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <main
+        className="theme-codex min-h-full"
+        style={{
+          background: 'var(--color-codex-bg)',
+          color: 'var(--color-codex-ink)',
+          fontSize: 13.5,
+          lineHeight: 1.6,
+        }}
+      >
+        {refreshing ? <CxTopProgress /> : null}
+        <div style={{ padding: '32px clamp(24px, 4vw, 56px) 40px', minWidth: 0 }}>
+          <div className="mb-4 flex items-center justify-between gap-4">
             <RouterLink
               to="/contacts"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              className="cx-no-hover inline-flex items-center gap-1.5"
+              style={{ color: 'var(--color-codex-ink-mute)', fontSize: 12.5 }}
             >
-              <ArrowLeft className="h-4 w-4" />
-              {isZh ? '联系人目录' : 'Contact directory'}
+              <ArrowLeft size={13} strokeWidth={1.5} aria-hidden="true" />
+              {isZh ? '联系人' : 'Contacts'}
+              <span style={{ color: 'var(--color-codex-ink-faint)' }}>/</span>
+              <span style={{ color: 'var(--color-codex-ink-soft)' }}>{stakeholder.name}</span>
             </RouterLink>
             <button
               type="button"
-              onClick={() => void loadContact()}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              onClick={() => void loadContact({ silent: true })}
+              disabled={refreshing}
+              className="cx-no-hover inline-flex items-center gap-1.5"
+              style={{ color: 'var(--color-codex-ink-mute)', fontSize: 12.5 }}
             >
-              <RefreshCw className="h-4 w-4" />
-              {isZh ? '刷新' : 'Refresh'}
+              <RefreshCw size={13} strokeWidth={1.5} className={refreshing ? 'animate-spin' : undefined} aria-hidden="true" />
+              {isZh ? '同步' : 'Sync'}
             </button>
           </div>
 
-          <section className="relative overflow-hidden rounded-[2rem] border border-sky-100 bg-[radial-gradient(circle_at_top_right,#dff3ff_0%,#f0f8ff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
-            <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
-            <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-              <div className="max-w-3xl">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-sky-700 shadow-sm backdrop-blur">
-                  <UserRound className="h-3.5 w-3.5" />
-                  <span>{isZh ? '联系人详情' : 'Contact detail'}</span>
+          <header
+            className="flex flex-col gap-6 border-b lg:flex-row lg:items-end lg:justify-between"
+            style={{ borderColor: 'var(--color-codex-line)', paddingBottom: 28 }}
+          >
+            <div className="flex min-w-0 items-start gap-4">
+              <Avatar name={stakeholder.name} size={56} />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1
+                    className="truncate"
+                    style={{
+                      margin: 0,
+                      fontSize: 28,
+                      fontWeight: 500,
+                      letterSpacing: '-0.02em',
+                      color: 'var(--color-codex-ink)',
+                    }}
+                  >
+                    {stakeholder.name || (isZh ? '未命名联系人' : 'Unnamed contact')}
+                  </h1>
+                  <CxStatus tone={levelInfo.tone}>{levelInfo.label}</CxStatus>
                 </div>
-                <h1 className="text-2xl font-semibold text-slate-900">{stakeholder.name}</h1>
-                <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                  {[stakeholder.role, stakeholder.organization_level, client.name].filter(Boolean).join(' · ') ||
-                    (isZh ? '补充 TA 的角色、公司与沟通背景，形成可复用的人际关系洞察。' : 'Add role, company, and communication context to build reusable relationship insight.')}
+                <p style={{ margin: '8px 0 0', fontSize: 13.5, color: 'var(--color-codex-ink-mute)' }}>
+                  {[stakeholder.role, client.name, formatRecentTouch(stakeholder, isZh)].filter(Boolean).join(' · ')}
                 </p>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <SignalPill label={isZh ? '当前客户' : 'Client'} value={client.name} />
-                  <SignalPill label={isZh ? '关系状态' : 'Status'} value={stakeholder.relationship_status || 'unknown'} tone="emerald" />
-                  <SignalPill label={isZh ? '项目数' : 'Projects'} value={String(client.project_names.length)} tone="amber" />
-                </div>
               </div>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => navigate(`/clients/${client.id}`)}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.18)] transition hover:bg-primary"
-              >
-                <Building2 className="h-4 w-4" />
-                {isZh ? '打开客户' : 'Open client'}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setEditing(true)} className="cx-no-hover inline-flex items-center gap-1.5" style={ghostButtonStyle}>
+                <Edit2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                {isZh ? '编辑' : 'Edit'}
+              </button>
+              <button type="button" onClick={() => setTouchpointOpen(true)} className="cx-primary-action cx-no-hover" style={{ height: 38, padding: '0 14px' }}>
+                <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
+                {isZh ? '记一次接触' : 'Log touchpoint'}
               </button>
             </div>
-          </section>
+          </header>
+
+          <nav className="flex gap-6 border-b" style={{ borderColor: 'var(--color-codex-line)', marginBottom: 24 }}>
+            {TABS.map((tab) => {
+              const active = activeTab === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className="cx-no-hover"
+                  style={{
+                    padding: '16px 0 14px',
+                    borderBottom: active ? '1px solid var(--color-codex-accent)' : '1px solid transparent',
+                    color: active ? 'var(--color-codex-ink)' : 'var(--color-codex-ink-mute)',
+                    fontWeight: active ? 500 : 400,
+                    fontSize: 13,
+                  }}
+                >
+                  {isZh ? tab.zh : tab.en}
+                </button>
+              )
+            })}
+          </nav>
 
           {error ? (
-            <div className="mt-6 rounded-[1.25rem] border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div
+              style={{
+                marginBottom: 18,
+                padding: '10px 12px',
+                border: '1px solid color-mix(in oklab, var(--color-codex-bad) 24%, var(--color-codex-line))',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                color: 'var(--color-codex-bad)',
+                background: 'color-mix(in oklab, var(--color-codex-bad) 7%, var(--color-codex-bg-elev))',
+              }}
+            >
               {error}
             </div>
           ) : null}
 
-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white/90 p-2 shadow-sm">
-            <div className="grid gap-2 md:grid-cols-3">
-              <TabButton
-                active={activeTab === 'basic'}
-                icon={<UserRound className="h-4 w-4" />}
-                label={isZh ? '基本信息' : 'Basic info'}
-                onClick={() => setActiveTab('basic')}
-              />
-              <TabButton
-                active={activeTab === 'analysis'}
-                icon={<Brain className="h-4 w-4" />}
-                label={isZh ? '深度分析' : 'Deep analysis'}
-                onClick={() => setActiveTab('analysis')}
-              />
-              <TabButton
-                active={activeTab === 'onepager'}
-                icon={<CheckCircle2 className="h-4 w-4" />}
-                label={isZh ? '合伙人一页纸' : 'Partner one-pager'}
-                onClick={() => setActiveTab('onepager')}
-              />
-            </div>
-          </div>
-
-          {activeTab === 'analysis' ? (
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-            <div className="space-y-6">
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-sky-600" />
-                  <h2 className="text-lg font-semibold text-slate-900">{isZh ? 'LinkedIn / 公开资料分析' : 'LinkedIn / public profile analysis'}</h2>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  {isZh
-                    ? '把你掌握的 LinkedIn 简介、经历、动态、教育背景或你对 TA 的观察粘贴进来，AI 会结合客户记忆和项目上下文做完整分析。'
-                    : 'Paste profile text, career history, posts, education, or your own observations. AI will combine it with client memory and project context.'}
-                </p>
-                <textarea
-                  value={linkedinInfo}
-                  onChange={(event) => setLinkedinInfo(event.target.value)}
-                  rows={8}
-                  placeholder={isZh ? '粘贴 LinkedIn 信息、个人简介、职业经历、近期动态、你观察到的沟通风格...' : 'Paste LinkedIn info, summary, work history, recent posts, observed communication style...'}
-                  className="mt-4 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0">
+              {activeTab === 'overview' ? (
+                <OverviewTab
+                  activities={activities}
+                  analyzing={analyzing}
+                  isZh={isZh}
+                  methods={methods}
+                  onAnalyze={() => void analyze()}
+                  onShowHistory={() => setActiveTab('history')}
+                  profileRows={profileRows}
                 />
-                <input
-                  value={focus}
-                  onChange={(event) => setFocus(event.target.value)}
-                  placeholder={isZh ? '可选：这次重点分析什么？例如如何推进合同、如何建立信任、TA 是否可能换公司' : 'Optional focus: e.g. trust building, contract push, company-change risk'}
-                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/15"
-                />
-                <button
-                  type="button"
-                  onClick={() => void analyze()}
-                  disabled={analyzing}
-                  className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.12)] transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-                  {isZh ? 'AI 全面分析并写回联系人' : 'Analyze and update contact'}
-                </button>
-              </section>
+              ) : null}
 
-              <section className="grid gap-4 lg:grid-cols-2">
-                <InsightCard icon={<Brain className="h-4 w-4" />} title={isZh ? '性格画像' : 'Personality'} value={stakeholder.personality_profile} />
-                <InsightCard icon={<BriefcaseBusiness className="h-4 w-4" />} title={isZh ? '决策风格' : 'Decision style'} value={stakeholder.decision_style} />
-                <InsightCard icon={<MessageSquareText className="h-4 w-4" />} title={isZh ? '沟通策略' : 'Communication strategy'} value={stakeholder.communication_strategy} />
-                <InsightCard icon={<ShieldAlert className="h-4 w-4" />} title={isZh ? '信任/风险信号' : 'Trust / risk signals'} value={stakeholder.trust_signals} />
-              </section>
+              {activeTab === 'history' ? <HistoryTab activities={activities} isZh={isZh} /> : null}
 
-              <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
-                <ContactAnalysisCanvas isZh={isZh} stakeholder={stakeholder} />
-                <FiveDimensionAnalysis isZh={isZh} stakeholder={stakeholder} />
-              </div>
+              {activeTab === 'projects' ? <ProjectsTab isZh={isZh} projects={relatedProjects} /> : null}
 
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">{isZh ? '基础资料' : 'Profile fields'}</h2>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <DetailRow icon={<BriefcaseBusiness className="h-4 w-4" />} label={isZh ? '角色' : 'Role'} value={stakeholder.role} />
-                  <DetailRow icon={<Users className="h-4 w-4" />} label={isZh ? '影响类型' : 'Influence type'} value={stakeholder.influence_type} />
-                  <DetailRow icon={<LinkIcon className="h-4 w-4" />} label={isZh ? '联系方式' : 'Contact'} value={stakeholder.contact} />
-                  <DetailRow icon={<MessageSquareText className="h-4 w-4" />} label={isZh ? '沟通偏好' : 'Communication preference'} value={stakeholder.communication_preference} />
-                  <DetailRow icon={<ShieldAlert className="h-4 w-4" />} label={isZh ? '关注点' : 'Concerns'} value={stakeholder.concerns} />
-                  <DetailRow icon={<FileText className="h-4 w-4" />} label={isZh ? '备注' : 'Notes'} value={stakeholder.note} />
-                </div>
-              </section>
+              {activeTab === 'notes' ? <NotesTab isZh={isZh} stakeholder={stakeholder} /> : null}
             </div>
 
-            <aside className="space-y-6">
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">{isZh ? '当前关联' : 'Current affiliation'}</h2>
-                <div className="mt-4 space-y-3">
-                  <DetailRow icon={<Building2 className="h-4 w-4" />} label={isZh ? '客户' : 'Client'} value={client.name} />
-                  <DetailRow icon={<FolderKanban className="h-4 w-4" />} label={isZh ? '项目' : 'Projects'} value={client.project_names.join('\n')} />
-                </div>
-              </section>
-
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">{isZh ? '同客户其他联系人' : 'Other contacts at this client'}</h2>
-                <div className="mt-4 space-y-3">
-                  {relatedContacts.length ? (
-                    relatedContacts.map((contact) => (
-                      <RouterLink
-                        key={contact.id}
-                        to={`/contacts/${contact.id}`}
-                        className="block rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:border-sky-200 hover:bg-white"
-                      >
-                        <div className="font-medium text-slate-900">{contact.name}</div>
-                        <div className="mt-1 text-sm text-slate-500">{contact.role || (isZh ? '未填写角色' : 'No role')}</div>
-                      </RouterLink>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                      {isZh ? '暂无其他联系人' : 'No other contacts yet'}
-                    </div>
-                  )}
-                </div>
-              </section>
-            </aside>
+            <ContactSideRail
+              client={client}
+              isZh={isZh}
+              levelInfo={levelInfo}
+              onOpenClient={() => navigate(`/clients/${client.id}`)}
+              projects={relatedProjects}
+              relatedContacts={relatedContacts}
+              stakeholder={stakeholder}
+            />
           </div>
-          ) : null}
-
-          {activeTab === 'basic' ? (
-            <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">{isZh ? '基础信息' : 'Basic information'}</h2>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <DetailRow icon={<BriefcaseBusiness className="h-4 w-4" />} label={isZh ? '角色' : 'Role'} value={stakeholder.role} />
-                  <DetailRow icon={<Users className="h-4 w-4" />} label={isZh ? '影响类型' : 'Influence type'} value={stakeholder.influence_type} />
-                  <DetailRow icon={<LinkIcon className="h-4 w-4" />} label={isZh ? '联系方式' : 'Contact'} value={stakeholder.contact} />
-                  <DetailRow icon={<MessageSquareText className="h-4 w-4" />} label={isZh ? '沟通偏好' : 'Communication preference'} value={stakeholder.communication_preference} />
-                  <DetailRow icon={<ShieldAlert className="h-4 w-4" />} label={isZh ? '关注点' : 'Concerns'} value={stakeholder.concerns} />
-                  <DetailRow icon={<FileText className="h-4 w-4" />} label={isZh ? '备注' : 'Notes'} value={stakeholder.note} />
-                </div>
-              </section>
-
-              <aside className="space-y-6">
-                <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-slate-900">{isZh ? '当前关联' : 'Current affiliation'}</h2>
-                  <div className="mt-4 space-y-3">
-                    <DetailRow icon={<Building2 className="h-4 w-4" />} label={isZh ? '客户' : 'Client'} value={client.name} />
-                    <DetailRow icon={<FolderKanban className="h-4 w-4" />} label={isZh ? '项目' : 'Projects'} value={client.project_names.join('\n')} />
-                  </div>
-                </section>
-
-                <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-slate-900">{isZh ? '同客户其他联系人' : 'Other contacts at this client'}</h2>
-                  <div className="mt-4 space-y-3">
-                    {relatedContacts.length ? (
-                      relatedContacts.map((contact) => (
-                        <RouterLink
-                          key={contact.id}
-                          to={`/contacts/${contact.id}`}
-                          className="block rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:border-sky-200 hover:bg-white"
-                        >
-                          <div className="font-medium text-slate-900">{contact.name}</div>
-                          <div className="mt-1 text-sm text-slate-500">{contact.role || (isZh ? '未填写角色' : 'No role')}</div>
-                        </RouterLink>
-                      ))
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                        {isZh ? '暂无其他联系人' : 'No other contacts yet'}
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </aside>
-            </div>
-          ) : null}
-
-          {activeTab === 'onepager' ? (
-            <div className="mt-6">
-              <PartnerOnePager client={client} isZh={isZh} stakeholder={stakeholder} />
-            </div>
-          ) : null}
         </div>
-      </div>
+      </main>
+
+      {editing && editDraft ? (
+        <EditContactDialog
+          draft={editDraft}
+          isZh={isZh}
+          onChange={setEditDraft}
+          onClose={() => setEditing(false)}
+          onSubmit={saveEdit}
+          saving={saving}
+        />
+      ) : null}
+
+      {touchpointOpen ? (
+        <TouchpointDialog
+          draft={touchpointDraft}
+          isZh={isZh}
+          onChange={setTouchpointDraft}
+          onClose={() => setTouchpointOpen(false)}
+          onSubmit={saveTouchpoint}
+          saving={saving}
+        />
+      ) : null}
     </>
   )
 }
 
-function TabButton({
-  active,
-  icon,
-  label,
-  onClick,
+function OverviewTab({
+  activities,
+  analyzing,
+  isZh,
+  methods,
+  onAnalyze,
+  onShowHistory,
+  profileRows,
 }: {
-  active: boolean
-  icon: ReactNode
-  label: string
-  onClick: () => void
+  activities: ActivityItem[]
+  analyzing: boolean
+  isZh: boolean
+  methods: ContactMethods
+  onAnalyze: () => void
+  onShowHistory: () => void
+  profileRows: Array<{ label: string; value: string }>
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-[1.1rem] px-4 py-3 text-sm font-semibold transition ${
-        active
-          ? 'bg-slate-900 text-white shadow-sm'
-          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-      }`}
+    <div className="grid gap-5">
+      <Panel title={isZh ? '联系方式' : 'Contact methods'}>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <ContactMethod icon={<Phone size={14} strokeWidth={1.5} />} label={isZh ? '手机' : 'Mobile'} value={methods.mobile} />
+          <ContactMethod icon={<Mail size={14} strokeWidth={1.5} />} label={isZh ? '邮箱' : 'Email'} value={methods.email} />
+          <ContactMethod icon={<MessageCircle size={14} strokeWidth={1.5} />} label={isZh ? '微信' : 'WeChat'} value={methods.wechat} />
+          <ContactMethod icon={<Phone size={14} strokeWidth={1.5} />} label={isZh ? '办公电话' : 'Office'} value={methods.office} />
+        </div>
+      </Panel>
+
+      <Panel
+        title={isZh ? '干系人画像' : 'Stakeholder profile'}
+        subtitle={isZh ? '基于客户记忆 + 接触历史自动汇总' : 'Generated from client memory and touchpoints'}
+        action={
+          <button type="button" onClick={onAnalyze} disabled={analyzing} className="cx-no-hover inline-flex items-center gap-1.5" style={ghostButtonStyle}>
+            {analyzing ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Sparkles size={13} strokeWidth={1.5} aria-hidden="true" />}
+            {isZh ? '重新生成' : 'Regenerate'}
+          </button>
+        }
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          {profileRows.map((row) => (
+            <ProfileBlock key={row.label} label={row.label} value={row.value} />
+          ))}
+        </div>
+      </Panel>
+
+      <Panel
+        title={isZh ? '最近接触' : 'Recent touchpoints'}
+        action={
+          <button type="button" onClick={onShowHistory} className="cx-no-hover inline-flex items-center gap-1.5" style={{ color: 'var(--color-codex-accent)', fontSize: 12.5 }}>
+            {isZh ? '全部' : 'All'}
+            <ArrowRight size={12} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        }
+      >
+        <ActivityTimeline activities={activities.slice(0, 3)} emptyText={isZh ? '暂无接触记录。先记录一次客户接触。' : 'No touchpoints yet. Log the first one.'} />
+      </Panel>
+    </div>
+  )
+}
+
+function HistoryTab({ activities, isZh }: { activities: ActivityItem[]; isZh: boolean }) {
+  return (
+    <Panel
+      title={isZh ? '接触历史' : 'Touchpoint history'}
+      subtitle={isZh ? '当前版本先合并展示最近接触与联系人档案变更。' : 'This version combines recent touchpoints with contact profile updates.'}
     >
-      {icon}
-      {label}
-    </button>
+      <ActivityTimeline activities={activities} emptyText={isZh ? '暂无接触历史。' : 'No touchpoint history yet.'} />
+    </Panel>
   )
 }
 
-function getDimensionData(stakeholder: ClientStakeholder, isZh: boolean) {
-  const dimensions = [
-    {
-      key: 'power',
-      label: isZh ? '权力与影响力' : 'Power mapping',
-      score: scoreDimension([stakeholder.influence_type, stakeholder.decision_style, stakeholder.relationship_status]),
-      summary: stakeholder.decision_style || stakeholder.influence_type,
-      evidence: [stakeholder.influence_type, stakeholder.relationship_status].filter(Boolean).join(' / '),
-    },
-    {
-      key: 'profile',
-      label: isZh ? '个人动机与风格' : 'Personal profile',
-      score: scoreDimension([stakeholder.personality_profile, stakeholder.communication_preference, stakeholder.sensitivities]),
-      summary: stakeholder.personality_profile,
-      evidence: stakeholder.communication_preference,
-    },
-    {
-      key: 'relationship',
-      label: isZh ? '关系网络' : 'Relationship web',
-      score: scoreDimension([stakeholder.trust_signals, stakeholder.note, stakeholder.concerns]),
-      summary: stakeholder.trust_signals,
-      evidence: stakeholder.note,
-    },
-    {
-      key: 'context',
-      label: isZh ? '项目情境与 stakes' : 'Context and stakes',
-      score: scoreDimension([stakeholder.concerns, stakeholder.sensitivities, stakeholder.last_action]),
-      summary: stakeholder.concerns,
-      evidence: stakeholder.sensitivities,
-    },
-    {
-      key: 'tracking',
-      label: isZh ? '动态追踪' : 'Ongoing intelligence',
-      score: scoreDimension([stakeholder.last_action, stakeholder.note, stakeholder.relationship_status]),
-      summary: stakeholder.last_action,
-      evidence: stakeholder.relationship_status,
-    },
+function ProjectsTab({ isZh, projects }: { isZh: boolean; projects: ClientProjectSummary[] }) {
+  return (
+    <Panel title={isZh ? '相关项目' : 'Related projects'}>
+      <div className="grid gap-2">
+        {projects.length ? (
+          projects.map((project) => <ProjectRow key={project.id} isZh={isZh} project={project} />)
+        ) : (
+          <EmptyState text={isZh ? '暂无相关项目。' : 'No related projects yet.'} />
+        )}
+      </div>
+    </Panel>
+  )
+}
+
+function NotesTab({ isZh, stakeholder }: { isZh: boolean; stakeholder: ClientStakeholder }) {
+  const notes = [
+    { label: isZh ? '备注' : 'Notes', value: stakeholder.note },
+    { label: isZh ? '沟通策略' : 'Communication strategy', value: stakeholder.communication_strategy },
+    { label: isZh ? '信任 / 风险信号' : 'Trust / risk signals', value: stakeholder.trust_signals },
+    { label: isZh ? '下一步动作' : 'Next action', value: stakeholder.last_action },
   ]
-  return dimensions
-}
-
-function scoreDimension(values: Array<string | undefined>) {
-  const text = values.filter(Boolean).join(' ')
-  if (!text.trim()) return 1
-  if (text.length > 700) return 5
-  if (text.length > 360) return 4
-  if (text.length > 160) return 3
-  return 2
-}
-
-function ContactAnalysisCanvas({ isZh, stakeholder }: { isZh: boolean; stakeholder: ClientStakeholder }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const dimensions = useMemo(() => getDimensionData(stakeholder, isZh), [isZh, stakeholder])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.max(1, Math.floor(rect.width * dpr))
-    canvas.height = Math.max(1, Math.floor(rect.height * dpr))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, rect.width, rect.height)
-
-    const cx = rect.width / 2
-    const cy = rect.height / 2 + 8
-    const radius = Math.min(rect.width, rect.height) * 0.31
-    const count = dimensions.length
-
-    ctx.lineWidth = 1
-    for (let level = 1; level <= 5; level += 1) {
-      ctx.beginPath()
-      for (let index = 0; index < count; index += 1) {
-        const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
-        const r = (radius * level) / 5
-        const x = cx + Math.cos(angle) * r
-        const y = cy + Math.sin(angle) * r
-        if (index === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
-      ctx.closePath()
-      ctx.strokeStyle = level === 5 ? '#bae6fd' : '#e2e8f0'
-      ctx.stroke()
-    }
-
-    dimensions.forEach((dimension, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
-      ctx.beginPath()
-      ctx.moveTo(cx, cy)
-      ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius)
-      ctx.strokeStyle = '#e2e8f0'
-      ctx.stroke()
-      const labelRadius = radius + 34
-      const lx = cx + Math.cos(angle) * labelRadius
-      const ly = cy + Math.sin(angle) * labelRadius
-      ctx.fillStyle = '#334155'
-      ctx.font = '12px sans-serif'
-      ctx.textAlign = lx < cx - 4 ? 'right' : lx > cx + 4 ? 'left' : 'center'
-      ctx.fillText(dimension.label, lx, ly)
-    })
-
-    ctx.beginPath()
-    dimensions.forEach((dimension, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
-      const r = (radius * dimension.score) / 5
-      const x = cx + Math.cos(angle) * r
-      const y = cy + Math.sin(angle) * r
-      if (index === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
-    ctx.closePath()
-    ctx.fillStyle = 'rgba(14, 165, 233, 0.18)'
-    ctx.strokeStyle = '#0284c7'
-    ctx.lineWidth = 2
-    ctx.fill()
-    ctx.stroke()
-
-    dimensions.forEach((dimension, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / count
-      const r = (radius * dimension.score) / 5
-      const x = cx + Math.cos(angle) * r
-      const y = cy + Math.sin(angle) * r
-      ctx.beginPath()
-      ctx.arc(x, y, 4, 0, Math.PI * 2)
-      ctx.fillStyle = '#0369a1'
-      ctx.fill()
-    })
-  }, [dimensions])
 
   return (
-    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Brain className="h-4 w-4 text-sky-600" />
-        <h2 className="text-lg font-semibold text-slate-900">{isZh ? '五维分析雷达图' : 'Five-dimension radar'}</h2>
-      </div>
-      <p className="mt-2 text-sm leading-6 text-slate-500">
-        {isZh ? '分数代表当前档案在该维度的信息充分度，不等于好坏判断。' : 'Scores reflect evidence completeness in each dimension, not a positive or negative judgment.'}
-      </p>
-      <canvas ref={canvasRef} className="mt-4 h-[320px] w-full rounded-2xl bg-slate-50" />
-    </section>
-  )
-}
-
-function FiveDimensionAnalysis({ isZh, stakeholder }: { isZh: boolean; stakeholder: ClientStakeholder }) {
-  const dimensions = useMemo(() => getDimensionData(stakeholder, isZh), [isZh, stakeholder])
-  return (
-    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-sky-600" />
-        <h2 className="text-lg font-semibold text-slate-900">{isZh ? '深度分析五维度' : 'Deep analysis dimensions'}</h2>
-      </div>
-      <div className="mt-4 grid gap-3">
-        {dimensions.map((dimension) => (
-          <div key={dimension.key} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-900">{dimension.label}</h3>
-              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-sky-700">
-                {dimension.score}/5
-              </span>
-            </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-              {dimension.summary?.trim() || (isZh ? '暂无足够证据，需要继续补充情报。' : 'Not enough evidence yet. Add more intelligence.')}
-            </p>
-            {dimension.evidence ? (
-              <p className="mt-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-500">{dimension.evidence}</p>
-            ) : null}
-          </div>
+    <Panel title={isZh ? '备注' : 'Notes'}>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {notes.map((item) => (
+          <ProfileBlock key={item.label} label={item.label} value={item.value || (isZh ? '未记录' : 'Not recorded')} />
         ))}
       </div>
-    </section>
+    </Panel>
   )
 }
 
-function SignalPill({
-  label,
-  tone = 'sky',
-  value,
-}: {
-  label: string
-  tone?: 'sky' | 'emerald' | 'amber'
-  value: string
-}) {
-  const toneClass =
-    tone === 'emerald'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-      : tone === 'amber'
-        ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : 'border-white/80 bg-white/75 text-slate-600'
-  return (
-    <div className={`rounded-full border px-3 py-1.5 text-xs shadow-sm ${toneClass}`}>
-      {label}: <span className="font-semibold text-slate-900">{value}</span>
-    </div>
-  )
-}
-
-function InsightCard({ icon, title, value }: { icon: ReactNode; title: string; value?: string }) {
-  return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <span className="text-sky-600">{icon}</span>
-        {title}
-      </div>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">{value?.trim() || '—'}</p>
-    </div>
-  )
-}
-
-function PartnerOnePager({
+function ContactSideRail({
   client,
   isZh,
+  levelInfo,
+  onOpenClient,
+  projects,
+  relatedContacts,
   stakeholder,
 }: {
   client: ClientListItem
   isZh: boolean
+  levelInfo: { label: string; tone: CxStatusTone }
+  onOpenClient: () => void
+  projects: ClientProjectSummary[]
+  relatedContacts: ClientStakeholder[]
   stakeholder: ClientStakeholder
 }) {
+  const influence = influenceScore(stakeholder)
   return (
-    <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-5 shadow-sm">
-      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            {isZh ? '合伙人一页纸' : 'Partner one-pager'}
+    <aside className="grid gap-5 content-start">
+      <Panel title={isZh ? '所属客户' : 'Client'}>
+        <button type="button" onClick={onOpenClient} className="row-hov w-full text-left" style={{ padding: 0, color: 'inherit' }}>
+          <div className="flex items-center gap-3">
+            <Avatar name={client.name} size={38} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate" style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+                {client.name}
+              </div>
+              <div className="truncate" style={{ marginTop: 3, fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
+                {[client.industry || (isZh ? '行业未记录' : 'Industry missing'), isZh ? '地区未记录' : 'Region missing', `${projects.length || client.project_names?.length || 0} ${isZh ? '个项目' : 'projects'}`].join(' · ')}
+              </div>
+            </div>
+            <ArrowRight size={12} strokeWidth={1.5} style={{ color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" />
           </div>
-          <h2 className="mt-3 text-lg font-semibold text-slate-900">
-            {isZh ? '五维动态画像' : 'Five-dimensional dynamic profile'}
-          </h2>
-        </div>
-        <p className="max-w-xl text-sm leading-6 text-slate-500">
-          {isZh
-            ? '用于判断权力、动机、关系网络、项目 stakes 和下一步情报动作。'
-            : 'Use this to judge power, motivation, relationship web, project stakes, and next intelligence moves.'}
-        </p>
-      </div>
+        </button>
+      </Panel>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <OnePagerBlock
-          title={isZh ? '基本信息' : 'Basic info'}
-          items={[
-            [isZh ? '姓名/职位' : 'Name / title', [stakeholder.name, stakeholder.role].filter(Boolean).join(' / ')],
-            [isZh ? '汇报线/层级' : 'Reporting line / level', stakeholder.organization_level],
-            [isZh ? '当前公司' : 'Current company', client.name],
-          ]}
-        />
-        <OnePagerBlock
-          title={isZh ? '权力评估' : 'Power mapping'}
-          items={[
-            [isZh ? '正式权力' : 'Formal authority', stakeholder.influence_type],
-            [isZh ? '实际影响力' : 'Informal influence', stakeholder.decision_style],
-            [isZh ? '可控预算/流程' : 'Budget / process control', stakeholder.relationship_status],
-          ]}
-        />
-        <OnePagerBlock
-          title={isZh ? '动机与风格' : 'Motivation and style'}
-          items={[
-            [isZh ? '动机标签' : 'Motivation tag', stakeholder.personality_profile],
-            [isZh ? '沟通偏好' : 'Communication preference', stakeholder.communication_preference],
-            [isZh ? '风险容忍度' : 'Risk tolerance', stakeholder.sensitivities],
-          ]}
-        />
-        <OnePagerBlock
-          title={isZh ? '关系状态' : 'Relationship state'}
-          items={[
-            [isZh ? '与我们的信任度' : 'Trust with us', stakeholder.trust_signals],
-            [isZh ? '信息开放度' : 'Information openness', stakeholder.concerns],
-            [isZh ? '内部盟友/对手' : 'Internal allies / blockers', stakeholder.note],
-          ]}
-        />
-        <OnePagerBlock
-          title={isZh ? '当前项目 stakes' : 'Current project stakes'}
-          items={[
-            [isZh ? '个人影响' : 'Personal impact', stakeholder.concerns],
-            [isZh ? '时间压力' : 'Time pressure', stakeholder.last_action],
-            [isZh ? '政治敏感度' : 'Political sensitivity', stakeholder.sensitivities],
-          ]}
-        />
-        <OnePagerBlock
-          title={isZh ? '下一步行动' : 'Next actions'}
-          items={[
-            [isZh ? '需强化关系' : 'Relationship to strengthen', stakeholder.communication_strategy],
-            [isZh ? '需获取信息' : 'Intelligence to collect', stakeholder.trust_signals],
-            [isZh ? '需防范风险' : 'Risks to watch', stakeholder.sensitivities || stakeholder.concerns],
-          ]}
-        />
+      <Panel title={isZh ? '相关项目' : 'Related projects'}>
+        <div className="grid gap-2">
+          {projects.slice(0, 3).map((project) => (
+            <ProjectRow key={project.id} compact isZh={isZh} project={project} />
+          ))}
+          {!projects.length ? <EmptyState text={isZh ? '暂无相关项目。' : 'No related projects yet.'} /> : null}
+        </div>
+      </Panel>
+
+      <Panel title={isZh ? '决策角色' : 'Decision role'}>
+        <div className="grid gap-4">
+          <MetricRow label={isZh ? '层级' : 'Level'} value={<CxStatus tone={levelInfo.tone}>{levelInfo.label}</CxStatus>} />
+          <MetricRow label={isZh ? '影响力' : 'Influence'} value={`${influence}%`} mono />
+          <MetricRow label={isZh ? '关系' : 'Relationship'} value={relationLabel(stakeholder.relationship_status, isZh)} />
+        </div>
+        <div style={{ marginTop: 10, height: 4, background: 'var(--color-codex-bg-sunken)', borderRadius: 999 }}>
+          <div style={{ width: `${influence}%`, height: '100%', background: 'var(--color-codex-accent)', borderRadius: 999 }} />
+        </div>
+      </Panel>
+
+      <Panel title={isZh ? '同客户联系人' : 'Same-client contacts'}>
+        <div className="grid gap-2">
+          {relatedContacts.length ? (
+            relatedContacts.map((contact) => (
+              <RouterLink key={contact.id} to={`/contacts/${contact.id}`} className="row-hov flex items-center gap-3" style={{ padding: '8px 0', color: 'inherit' }}>
+                <Avatar name={contact.name} size={28} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate" style={{ fontSize: 13, color: 'var(--color-codex-ink)' }}>
+                    {contact.name}
+                  </div>
+                  <div className="truncate" style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+                    {contact.role || (isZh ? '角色未记录' : 'Role missing')}
+                  </div>
+                </div>
+              </RouterLink>
+            ))
+          ) : (
+            <EmptyState text={isZh ? '暂无其他联系人。' : 'No other contacts yet.'} />
+          )}
+        </div>
+      </Panel>
+    </aside>
+  )
+}
+
+function ActivityTimeline({ activities, emptyText }: { activities: ActivityItem[]; emptyText: string }) {
+  if (!activities.length) return <EmptyState text={emptyText} />
+  return (
+    <div className="grid gap-0">
+      {activities.map((activity, index) => (
+        <div
+          key={`${activity.title}-${activity.time}-${index}`}
+          className="grid gap-4 sm:grid-cols-[86px_minmax(0,1fr)]"
+          style={{
+            padding: '13px 0',
+            borderTop: index === 0 ? 'none' : '1px solid var(--color-codex-line-soft)',
+          }}
+        >
+          <div className="codex-mono" style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+            {activity.time}
+          </div>
+          <div className="min-w-0">
+            <div style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', fontWeight: 500 }}>{activity.title}</div>
+            <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--color-codex-ink-soft)', lineHeight: 1.7 }}>
+              {activity.body}
+            </p>
+            <div style={{ marginTop: 7, fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+              {activity.actorLabel}
+              <span style={{ marginLeft: 8, color: 'var(--color-codex-ink-soft)' }}>{activity.actor}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ProjectRow({
+  compact = false,
+  isZh,
+  project,
+}: {
+  compact?: boolean
+  isZh: boolean
+  project: ClientProjectSummary
+}) {
+  const status = projectStatus(project.status, isZh)
+  return (
+    <RouterLink
+      to={`/projects/${project.id}`}
+      className="row-hov grid items-center gap-3"
+      style={{
+        gridTemplateColumns: compact ? 'minmax(0,1fr) auto' : 'minmax(0,1fr) auto 14px',
+        padding: compact ? '8px 0' : '12px 0',
+        borderTop: compact ? 'none' : '1px solid var(--color-codex-line-soft)',
+        color: 'inherit',
+      }}
+    >
+      <div className="min-w-0">
+        <div className="truncate" style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+          {project.name}
+        </div>
+        {!compact && project.contract_amount != null ? (
+          <div className="codex-mono" style={{ marginTop: 3, fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+            CNY {Math.round(project.contract_amount).toLocaleString('en-US')}
+          </div>
+        ) : null}
       </div>
+      <CxStatus tone={status.tone}>{status.label}</CxStatus>
+      {!compact ? <ArrowRight size={12} strokeWidth={1.5} style={{ color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" /> : null}
+    </RouterLink>
+  )
+}
+
+function Panel({
+  action,
+  children,
+  subtitle,
+  title,
+}: {
+  action?: ReactNode
+  children: ReactNode
+  subtitle?: string
+  title: string
+}) {
+  return (
+    <section
+      style={{
+        border: '1px solid var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-md, 6px)',
+        background: 'var(--color-codex-bg-elev)',
+        padding: 20,
+      }}
+    >
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 500, color: 'var(--color-codex-ink)', letterSpacing: '-0.01em' }}>{title}</h2>
+          {subtitle ? <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>{subtitle}</p> : null}
+        </div>
+        {action}
+      </div>
+      {children}
     </section>
   )
 }
 
-function OnePagerBlock({ items, title }: { items: Array<[string, string | undefined]>; title: string }) {
+function ContactMethod({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  const empty = value === '未记录' || value === 'Not recorded'
   return (
-    <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50/70 p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-      <div className="mt-3 space-y-3">
-        {items.map(([label, value]) => (
-          <div key={label}>
-            <div className="text-xs font-semibold text-slate-500">{label}</div>
-            <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-              {value?.trim() || '—'}
-            </div>
-          </div>
-        ))}
+    <div>
+      <div className="flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>
+        {icon}
+        {label}
+      </div>
+      <div className="mt-1 truncate" style={{ fontSize: 13, color: empty ? 'var(--color-codex-ink-faint)' : 'var(--color-codex-ink)', fontWeight: empty ? 400 : 500 }}>
+        {value}
       </div>
     </div>
   )
 }
 
-function DetailRow({ icon, label, value }: { icon: ReactNode; label: string; value?: string }) {
+function ProfileBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-      <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-        {icon}
-        {label}
-      </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{value?.trim() || '—'}</p>
+    <div>
+      <div style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)', marginBottom: 6 }}>{label}</div>
+      <p style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-codex-ink-soft)', fontSize: 13, lineHeight: 1.75 }}>
+        {value}
+      </p>
     </div>
   )
+}
+
+function MetricRow({ label, mono = false, value }: { label: string; mono?: boolean; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>{label}</span>
+      <span className={mono ? 'codex-mono' : undefined} style={{ fontSize: 13, color: 'var(--color-codex-ink)', fontWeight: mono ? 500 : 400 }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function Avatar({ name, size }: { name: string; size: number }) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size > 40 ? 'var(--codex-r-md, 6px)' : 999,
+        background: 'var(--color-codex-accent-bg)',
+        color: 'var(--color-codex-accent-ink)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: size > 40 ? 24 : 12,
+        fontWeight: 500,
+        flexShrink: 0,
+      }}
+      aria-hidden="true"
+    >
+      {getInitial(name)}
+    </span>
+  )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        padding: '22px 12px',
+        border: '1px dashed var(--color-codex-line)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        color: 'var(--color-codex-ink-mute)',
+        textAlign: 'center',
+        fontSize: 12.5,
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+
+interface ContactEditDraft {
+  name: string
+  role: string
+  organization_level: string
+  influence_type: string
+  relationship_status: string
+  communication_preference: string
+  contact: string
+  concerns: string
+  sensitivities: string
+  note: string
+}
+
+function EditContactDialog({
+  draft,
+  isZh,
+  onChange,
+  onClose,
+  onSubmit,
+  saving,
+}: {
+  draft: ContactEditDraft
+  isZh: boolean
+  onChange: (next: ContactEditDraft) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent) => void
+  saving: boolean
+}) {
+  return (
+    <DialogFrame onClose={onClose} title={isZh ? '编辑联系人' : 'Edit contact'}>
+      <form onSubmit={onSubmit}>
+        <div className="grid gap-3 sm:grid-cols-2" style={{ padding: 20 }}>
+          <TextField label={isZh ? '姓名' : 'Name'} value={draft.name} onChange={(name) => onChange({ ...draft, name })} />
+          <TextField label={isZh ? '角色' : 'Role'} value={draft.role} onChange={(role) => onChange({ ...draft, role })} />
+          <TextField label={isZh ? '层级' : 'Level'} value={draft.organization_level} onChange={(organization_level) => onChange({ ...draft, organization_level })} />
+          <TextField label={isZh ? '影响类型' : 'Influence type'} value={draft.influence_type} onChange={(influence_type) => onChange({ ...draft, influence_type })} />
+          <TextField label={isZh ? '关系状态' : 'Relationship'} value={draft.relationship_status} onChange={(relationship_status) => onChange({ ...draft, relationship_status })} />
+          <TextField label={isZh ? '联系方式' : 'Contact'} value={draft.contact} onChange={(contact) => onChange({ ...draft, contact })} />
+          <TextField label={isZh ? '沟通偏好' : 'Communication preference'} value={draft.communication_preference} onChange={(communication_preference) => onChange({ ...draft, communication_preference })} multiline />
+          <TextField label={isZh ? '关注重点' : 'Concerns'} value={draft.concerns} onChange={(concerns) => onChange({ ...draft, concerns })} multiline />
+          <TextField label={isZh ? '敏感点' : 'Sensitivities'} value={draft.sensitivities} onChange={(sensitivities) => onChange({ ...draft, sensitivities })} multiline />
+          <TextField label={isZh ? '备注' : 'Notes'} value={draft.note} onChange={(note) => onChange({ ...draft, note })} multiline />
+        </div>
+        <DialogActions isZh={isZh} onClose={onClose} saving={saving} submitLabel={isZh ? '保存' : 'Save'} />
+      </form>
+    </DialogFrame>
+  )
+}
+
+function TouchpointDialog({
+  draft,
+  isZh,
+  onChange,
+  onClose,
+  onSubmit,
+  saving,
+}: {
+  draft: { title: string; summary: string }
+  isZh: boolean
+  onChange: (next: { title: string; summary: string }) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent) => void
+  saving: boolean
+}) {
+  return (
+    <DialogFrame onClose={onClose} title={isZh ? '记一次接触' : 'Log touchpoint'}>
+      <form onSubmit={onSubmit}>
+        <div className="grid gap-3" style={{ padding: 20 }}>
+          <TextField label={isZh ? '标题' : 'Title'} value={draft.title} onChange={(title) => onChange({ ...draft, title })} placeholder={isZh ? '例如：项目例会' : 'e.g. Project meeting'} />
+          <TextField label={isZh ? '接触摘要' : 'Summary'} value={draft.summary} onChange={(summary) => onChange({ ...draft, summary })} placeholder={isZh ? '记录沟通内容、对方态度和下一步动作。' : 'Capture discussion, attitude, and next action.'} multiline required />
+        </div>
+        <DialogActions isZh={isZh} onClose={onClose} saving={saving} submitLabel={isZh ? '记录' : 'Log'} />
+      </form>
+    </DialogFrame>
+  )
+}
+
+function DialogFrame({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
+  return (
+    <div className="theme-codex fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(16,14,11,.46)' }}>
+      <div
+        className="w-full"
+        style={{
+          maxWidth: 620,
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+          boxShadow: '0 18px 50px -18px rgba(0,0,0,0.45), 0 0 0 1px var(--color-codex-line)',
+          overflow: 'hidden',
+        }}
+      >
+        <div className="flex items-center justify-between gap-4" style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-codex-line-soft)' }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 500, color: 'var(--color-codex-ink)' }}>{title}</h2>
+          <button type="button" onClick={onClose} className="cx-no-hover inline-flex items-center justify-center" style={{ width: 28, height: 28, color: 'var(--color-codex-ink-mute)' }} aria-label="Close">
+            <X size={15} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function DialogActions({
+  isZh,
+  onClose,
+  saving,
+  submitLabel,
+}: {
+  isZh: boolean
+  onClose: () => void
+  saving: boolean
+  submitLabel: string
+}) {
+  return (
+    <div className="flex justify-end gap-2" style={{ padding: '14px 20px', borderTop: '1px solid var(--color-codex-line-soft)', background: 'var(--color-codex-bg-tint)' }}>
+      <button type="button" onClick={onClose} disabled={saving} style={ghostButtonStyle}>
+        {isZh ? '取消' : 'Cancel'}
+      </button>
+      <button type="submit" disabled={saving} className="cx-primary-action cx-no-hover" style={{ height: 36, padding: '0 14px' }}>
+        {saving ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Check size={13} strokeWidth={1.5} aria-hidden="true" />}
+        {submitLabel}
+      </button>
+    </div>
+  )
+}
+
+function TextField({
+  label,
+  multiline = false,
+  onChange,
+  placeholder,
+  required = false,
+  value,
+}: {
+  label: string
+  multiline?: boolean
+  onChange: (next: string) => void
+  placeholder?: string
+  required?: boolean
+  value: string
+}) {
+  const common = {
+    value,
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(event.target.value),
+    placeholder,
+    required,
+    className: 'codex-input w-full',
+    style: {
+      marginTop: 6,
+      padding: '8px 10px',
+      border: '1px solid var(--color-codex-line)',
+      borderRadius: 'var(--codex-r-sm, 3px)',
+      background: 'var(--color-codex-bg-elev)',
+      color: 'var(--color-codex-ink)',
+      fontSize: 13,
+    },
+  }
+
+  return (
+    <label className={multiline ? 'sm:col-span-2' : undefined}>
+      <span style={{ fontSize: 12, color: 'var(--color-codex-ink-soft)' }}>{label}</span>
+      {multiline ? <textarea {...common} rows={3} style={{ ...common.style, resize: 'vertical' }} /> : <input {...common} />}
+    </label>
+  )
+}
+
+function ContactDetailLoading({ isZh }: { isZh: boolean }) {
+  return (
+    <>
+      <PageTitle title={isZh ? '联系人详情' : 'Contact Detail'} />
+      <main className="theme-codex min-h-full" style={{ background: 'var(--color-codex-bg)', color: 'var(--color-codex-ink)' }}>
+        <CxTopProgress />
+        <div style={{ padding: '32px clamp(24px, 4vw, 56px) 40px' }}>
+          <CxSkeleton w={180} h={14} />
+          <div className="mt-6 flex items-end justify-between gap-6 border-b" style={{ borderColor: 'var(--color-codex-line)', paddingBottom: 28 }}>
+            <div className="flex items-start gap-4">
+              <CxSkeleton w={56} h={56} />
+              <div>
+                <CxSkeleton w={180} h={32} />
+                <CxSkeleton w={360} h={14} style={{ marginTop: 12 }} />
+              </div>
+            </div>
+            <CxSkeleton w={220} h={38} />
+          </div>
+          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid gap-5">
+              <CxSkeleton h={118} />
+              <CxSkeleton h={230} />
+              <CxSkeleton h={180} />
+            </div>
+            <div className="grid gap-5">
+              <CxSkeleton h={112} />
+              <CxSkeleton h={160} />
+              <CxSkeleton h={140} />
+            </div>
+          </div>
+        </div>
+      </main>
+    </>
+  )
+}
+
+function ContactNotFound({ error, isZh, onBack }: { error: string | null; isZh: boolean; onBack: () => void }) {
+  return (
+    <>
+      <PageTitle title={isZh ? '联系人详情' : 'Contact Detail'} />
+      <main className="theme-codex min-h-full" style={{ background: 'var(--color-codex-bg)', color: 'var(--color-codex-ink)', padding: '32px clamp(24px, 4vw, 56px)' }}>
+        <button type="button" onClick={onBack} className="cx-no-hover inline-flex items-center gap-1.5" style={ghostButtonStyle}>
+          <ArrowLeft size={13} strokeWidth={1.5} aria-hidden="true" />
+          {isZh ? '返回联系人' : 'Back to contacts'}
+        </button>
+        <div style={{ marginTop: 20, padding: 18, border: '1px solid var(--color-codex-line)', borderRadius: 'var(--codex-r-md, 6px)', background: 'var(--color-codex-bg-elev)', color: 'var(--color-codex-bad)' }}>
+          {error || (isZh ? '联系人不存在' : 'Contact does not exist')}
+        </div>
+      </main>
+    </>
+  )
+}
+
+function buildEditDraft(stakeholder: ClientStakeholder): ContactEditDraft {
+  return {
+    name: stakeholder.name || '',
+    role: stakeholder.role || '',
+    organization_level: stakeholder.organization_level || '',
+    influence_type: stakeholder.influence_type || '',
+    relationship_status: stakeholder.relationship_status || '',
+    communication_preference: stakeholder.communication_preference || '',
+    contact: stakeholder.contact || '',
+    concerns: stakeholder.concerns || '',
+    sensitivities: stakeholder.sensitivities || '',
+    note: stakeholder.note || '',
+  }
+}
+
+function buildProfileRows(stakeholder: ClientStakeholder, isZh: boolean, levelLabel: string) {
+  return [
+    {
+      label: isZh ? '角色影响' : 'Role influence',
+      value:
+        safeText(stakeholder.decision_style) ||
+        safeText(stakeholder.influence_type) ||
+        (isZh ? `${levelLabel}角色，影响力需要继续通过接触记录补充。` : `${levelLabel} role. Add touchpoints to refine influence.`),
+    },
+    {
+      label: isZh ? '沟通偏好' : 'Communication preference',
+      value: safeText(stakeholder.communication_preference) || (isZh ? '沟通偏好未记录。' : 'No communication preference recorded.'),
+    },
+    {
+      label: isZh ? '关注重点' : 'Concerns',
+      value: safeText(stakeholder.concerns) || (isZh ? '关注重点未记录。' : 'No concerns recorded.'),
+    },
+    {
+      label: isZh ? '敏感点' : 'Sensitivities',
+      value: safeText(stakeholder.sensitivities) || (isZh ? '敏感点未记录。' : 'No sensitivities recorded.'),
+    },
+  ]
+}
+
+interface ActivityItem {
+  actor: string
+  actorLabel: string
+  body: string
+  time: string
+  title: string
+}
+
+function buildActivities(stakeholder: ClientStakeholder, history: StakeholderHistoryEntry[], isZh: boolean): ActivityItem[] {
+  const activities: ActivityItem[] = []
+  if (safeText(stakeholder.last_action)) {
+    const parsed = splitLastAction(stakeholder.last_action)
+    activities.push({
+      title: parsed.title || (isZh ? '最近接触' : 'Recent touchpoint'),
+      body: parsed.body,
+      time: formatRelativeTime(stakeholder.updated_at, isZh),
+      actorLabel: isZh ? '记录人' : 'Recorder',
+      actor: 'Aria',
+    })
+  }
+
+  history.slice(0, TOUCHPOINT_LIMIT).forEach((entry) => {
+    const label = fieldLabel(entry.field_name, isZh)
+    activities.push({
+      title: entry.trigger === 'ai_analyze' ? (isZh ? 'AI 画像更新' : 'AI profile update') : `${label}${isZh ? '更新' : ' updated'}`,
+      body: safeText(entry.new_value) || (isZh ? '字段被更新。' : 'Field updated.'),
+      time: entry.changed_at ? formatRelativeTime(entry.changed_at, isZh) : (isZh ? '刚刚' : 'Just now'),
+      actorLabel: isZh ? '记录人' : 'Recorder',
+      actor: entry.trigger === 'ai_analyze' ? 'Aria AI' : 'Aria',
+    })
+  })
+
+  return activities
+}
+
+function splitLastAction(value: string) {
+  const text = safeText(value)
+  const parts = text.split(/[:：]/)
+  if (parts.length > 1 && parts[0].length <= 24) {
+    return { title: parts[0].trim(), body: parts.slice(1).join('：').trim() || text }
+  }
+  return { title: '', body: text }
+}
+
+interface ContactMethods {
+  email: string
+  mobile: string
+  office: string
+  wechat: string
+}
+
+function parseContactMethods(value?: string): ContactMethods {
+  const text = safeText(value)
+  const missing = '未记录'
+  const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+  const mobile = text.match(/(?:\+?86[-\s]?)?(1[3-9]\d{9})/)?.[1]
+  const office = text.match(/(?:0\d{2,3}[-\s]?\d{7,8})/)?.[0]
+  const wechat = text.match(/(?:微信|wechat|wx)[:：\s]*([A-Za-z0-9_-]{4,})/i)?.[1]
+  return {
+    email: email || missing,
+    mobile: mobile ? maskPhone(mobile) : missing,
+    office: office ? maskOfficePhone(office) : missing,
+    wechat: wechat ? '已记录' : missing,
+  }
+}
+
+function maskPhone(value: string) {
+  if (value.length < 7) return value
+  return `${value.slice(0, 3)}-****-${value.slice(-4)}`
+}
+
+function maskOfficePhone(value: string) {
+  return value.replace(/\d(?=\d{4})/g, '*')
+}
+
+function getContactLevel(stakeholder: ClientStakeholder): ContactLevel {
+  const text = [
+    stakeholder.organization_level,
+    stakeholder.influence_type,
+    stakeholder.role,
+    stakeholder.decision_style,
+    stakeholder.note,
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  if (/(决策|拍板|decision|approver|ceo|cto|coo|cfo|vp|总裁|总经理|董事|负责人|总监)/i.test(text)) return 'decision'
+  if (/(影响|influence|champion|财务|采购|法务|业务|安全|it|信息化|数据|运营)/i.test(text)) return 'influence'
+  return 'execution'
+}
+
+function levelMeta(level: ContactLevel, isZh: boolean): { label: string; tone: CxStatusTone } {
+  if (level === 'decision') return { label: isZh ? '决策' : 'Decision', tone: 'accent' }
+  if (level === 'influence') return { label: isZh ? '影响' : 'Influence', tone: 'neutral' }
+  return { label: isZh ? '执行' : 'Execution', tone: 'mute' }
+}
+
+function influenceScore(stakeholder: ClientStakeholder) {
+  const explicit = safeText(stakeholder.influence_type).match(/(\d{1,3})\s*%/)
+  if (explicit) return Math.min(100, Math.max(0, Number(explicit[1])))
+  const level = getContactLevel(stakeholder)
+  if (level === 'decision') return 90
+  if (level === 'influence') return 65
+  return 35
+}
+
+function relationLabel(value: string, isZh: boolean) {
+  const text = safeText(value).toLowerCase()
+  if (!text || text === 'unknown') return isZh ? '未记录' : 'Unknown'
+  if (/支持|support|良好|active|champion/.test(text)) return isZh ? '支持' : 'Supportive'
+  if (/风险|阻力|block|risk|cold/.test(text)) return isZh ? '风险' : 'Risk'
+  return value
+}
+
+function projectStatus(status: string, isZh: boolean): { label: string; tone: CxStatusTone } {
+  const normalized = safeText(status).toLowerCase()
+  const map: Record<string, { zh: string; en: string; tone: CxStatusTone }> = {
+    lead: { zh: '线索', en: 'Lead', tone: 'neutral' },
+    opportunity: { zh: '机会期', en: 'Opportunity', tone: 'warn' },
+    won: { zh: '已签约', en: 'Won', tone: 'good' },
+    delivering: { zh: '交付中', en: 'Delivering', tone: 'accent' },
+    archived: { zh: '已归档', en: 'Archived', tone: 'mute' },
+    evaluating: { zh: '评估中', en: 'Evaluating', tone: 'info' },
+  }
+  const found = map[normalized] || map.lead
+  return { label: isZh ? found.zh : found.en, tone: found.tone }
+}
+
+function normalizeProjects(client: ClientListItem | null | undefined, projects: ClientProjectSummary[]) {
+  if (projects.length) return projects
+  return (client?.project_names || []).map((name, index) => ({
+    id: -(index + 1),
+    name,
+    status: index === 0 ? 'opportunity' : 'lead',
+  }))
+}
+
+function formatRecentTouch(stakeholder: ClientStakeholder, isZh: boolean) {
+  if (!safeText(stakeholder.last_action)) return isZh ? '未直接接触' : 'No direct touchpoint'
+  return `${formatRelativeTime(stakeholder.updated_at, isZh)}${isZh ? '接触' : ' touchpoint'}`
+}
+
+function formatRelativeTime(value: string, isZh: boolean) {
+  const date = parseAppDateTime(value)
+  const diffHours = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60))
+  if (Number.isFinite(diffHours)) {
+    if (diffHours < 1) return isZh ? '刚刚' : 'Just now'
+    if (diffHours < 24) return isZh ? '今天' : 'Today'
+    if (diffHours < 48) return isZh ? '昨天' : 'Yesterday'
+    if (diffHours < 24 * 7) return isZh ? `${Math.max(1, Math.floor(diffHours / 24))} 天前` : `${Math.max(1, Math.floor(diffHours / 24))}d ago`
+    if (diffHours < 24 * 35) return isZh ? `${Math.max(1, Math.floor(diffHours / (24 * 7)))} 周前` : `${Math.max(1, Math.floor(diffHours / (24 * 7)))}w ago`
+  }
+  return formatDateOnly(value, { month: 'short', day: 'numeric' })
+}
+
+function fieldLabel(field: string, isZh: boolean) {
+  const labels: Record<string, { zh: string; en: string }> = {
+    role: { zh: '角色', en: 'Role' },
+    organization_level: { zh: '层级', en: 'Level' },
+    influence_type: { zh: '影响类型', en: 'Influence type' },
+    relationship_status: { zh: '关系状态', en: 'Relationship' },
+    concerns: { zh: '关注重点', en: 'Concerns' },
+    sensitivities: { zh: '敏感点', en: 'Sensitivities' },
+    communication_preference: { zh: '沟通偏好', en: 'Communication preference' },
+    contact: { zh: '联系方式', en: 'Contact' },
+    last_action: { zh: '最近接触', en: 'Last action' },
+    personality_profile: { zh: '性格画像', en: 'Personality' },
+    decision_style: { zh: '角色影响', en: 'Decision style' },
+    communication_strategy: { zh: '沟通策略', en: 'Communication strategy' },
+    trust_signals: { zh: '信任信号', en: 'Trust signals' },
+    note: { zh: '备注', en: 'Notes' },
+  }
+  const found = labels[field]
+  return found ? (isZh ? found.zh : found.en) : field
+}
+
+function getInitial(name: string) {
+  const clean = safeText(name)
+  return Array.from(clean)[0]?.toUpperCase() || '-'
+}
+
+function safeText(value: string | null | undefined) {
+  return value?.trim() ?? ''
+}
+
+const ghostButtonStyle = {
+  minHeight: 36,
+  padding: '0 12px',
+  border: '1px solid var(--color-codex-line)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+  color: 'var(--color-codex-ink-soft)',
+  background: 'transparent',
+  fontSize: 12.5,
+  whiteSpace: 'nowrap',
 }

@@ -4,12 +4,14 @@ import { ContactDetail } from './ContactDetail'
 
 const mockGet = vi.fn()
 const mockPost = vi.fn()
+const mockPut = vi.fn()
 const mockNavigate = vi.fn()
 
 vi.mock('../../api/client', () => ({
   api: {
     get: (...args: any[]) => mockGet(...args),
     post: (...args: any[]) => mockPost(...args),
+    put: (...args: any[]) => mockPut(...args),
   },
 }))
 
@@ -66,13 +68,14 @@ describe('ContactDetail', () => {
   beforeEach(() => {
     mockGet.mockClear()
     mockPost.mockClear()
+    mockPut.mockClear()
     mockNavigate.mockClear()
   })
 
   it('renders loading state initially', () => {
     mockGet.mockImplementation(() => new Promise(() => {}))
     render(<ContactDetail />)
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.getAllByTestId('cx-skeleton').length).toBeGreaterThan(0)
   })
 
   it('renders contact data after loading', async () => {
@@ -107,16 +110,17 @@ describe('ContactDetail', () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/clients') return Promise.resolve([makeClient()])
       if (url === '/clients/1/stakeholders') {
-        return Promise.resolve([makeStakeholder()])
+        return Promise.resolve([makeStakeholder({ last_action: '项目例会：讨论续约推进' })])
       }
+      if (url === '/clients/1/projects') return Promise.resolve([{ id: 9, name: 'P1', status: 'opportunity' }])
+      if (url === '/clients/1/stakeholders/5/history') return Promise.resolve([])
       return Promise.resolve({})
     })
     render(<ContactDetail />)
     await waitFor(() => screen.getByRole('heading', { name: '王五' }))
-    const analysisTab = screen.getAllByRole('button').find((b) => b.textContent?.includes('分析')) as HTMLButtonElement
-    if (analysisTab) {
-      fireEvent.click(analysisTab)
-      expect(screen.getByPlaceholderText(/LinkedIn/)).toBeInTheDocument()
-    }
+    fireEvent.click(screen.getByRole('button', { name: '接触历史' }))
+    expect(screen.getByText('项目例会')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '相关项目' }))
+    expect(screen.getAllByText('P1').length).toBeGreaterThanOrEqual(1)
   })
 })
