@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronUp,
   ArrowDown,
+  ArrowRight,
   Trash2,
   Send,
   Square,
@@ -95,13 +96,14 @@ function groupConversations(conversations: Conversation[], t: any, timeZone?: st
   ]
 }
 
-// Prompt cards shown on the empty state
+// Prompt cards shown on the empty state.
+// All cards share the same Codex chrome (bg-elev + line, accent-tinted
+// icon tile, ink title, ink-mute description), so we no longer carry
+// per-card palette fields — only the icon and copy vary.
 interface PromptCard {
   icon: React.ElementType
   label: string
   prompt: string
-  color: string
-  bg: string
 }
 
 type ProgressStatus = 'pending' | 'active' | 'done'
@@ -798,43 +800,31 @@ const getPromptCards = (): PromptCard[] => [
     icon: TrendingUp,
     label: '项目进展速报',
     prompt: '帮我总结一下当前所有进行中项目的最新进展和关键风险点',
-    color: 'text-indigo-600',
-    bg: 'bg-indigo-50 hover:bg-indigo-100 border-indigo-100',
   },
   {
     icon: Target,
     label: '里程碑检查',
     prompt: '检查一下近期有哪些里程碑即将到期或已经逾期，给出优先级建议',
-    color: 'text-emerald-600',
-    bg: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-100',
   },
   {
     icon: FileText,
     label: '起草项目方案',
     prompt: '我需要为客户起草一份项目实施方案，帮我梳理结构和关键内容',
-    color: 'text-violet-600',
-    bg: 'bg-violet-50 hover:bg-violet-100 border-violet-100',
   },
   {
     icon: Mail,
     label: '撰写客户邮件',
     prompt: '帮我写一封向客户汇报本阶段项目进展的邮件，语气专业且简洁',
-    color: 'text-sky-600',
-    bg: 'bg-sky-50 hover:bg-sky-100 border-sky-100',
   },
   {
     icon: Users,
     label: '商务谈判准备',
     prompt: '我们即将和客户进行合同续签谈判，帮我梳理谈判要点和注意事项',
-    color: 'text-amber-600',
-    bg: 'bg-amber-50 hover:bg-amber-100 border-amber-100',
   },
   {
     icon: Zap,
     label: '风险识别分析',
     prompt: '基于项目现状，帮我识别当前最主要的交付风险，并给出应对策略',
-    color: 'text-rose-600',
-    bg: 'bg-rose-50 hover:bg-rose-100 border-rose-100',
   },
 ]
 
@@ -2247,33 +2237,114 @@ export function Chat() {
               </div>
 
             ) : messages.length === 0 && !streamingContent && !isThinking && progressSteps.length === 0 ? (
-              /* ── Empty state ── */
-              <div className="flex flex-col items-center py-10 animate-fade-in sm:py-16">
-                <div className="relative mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-indigo-500 shadow-lg shadow-primary/20">
-                  <div className="absolute inset-0 rounded-2xl ring-1 ring-white/30" />
-                  <div className="absolute -inset-3 rounded-full bg-primary/10 blur-xl" />
-                  <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl">
-                    <Sparkles className="w-6 h-6 text-white" />
-                  </div>
+              /* ── Empty state ──
+                 Centered hero + 2-column prompt grid per the design HTML
+                 the user handed over (`_ _ _.html`, the "对话页空载 ·
+                 启发" mock). All cards now share the same Codex chrome:
+                 bg-elev shell with a hairline border, a bg-tint icon
+                 tile that swaps to accent-bg on hover, and a quiet
+                 arrow that only fades in when you mouse the row. */
+              <div className="animate-fade-in flex flex-col items-center justify-center py-12 sm:py-16">
+                <div
+                  aria-hidden="true"
+                  className="mb-5 inline-flex items-center justify-center"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    background: 'var(--color-codex-accent)',
+                    color: 'var(--color-codex-bg-elev)',
+                    borderRadius: 'var(--codex-r-md, 10px)',
+                  }}
+                >
+                  <Sparkles className="h-5 w-5" strokeWidth={1.5} />
                 </div>
-                <h2 className="text-xl font-semibold text-slate-900 mb-1.5">你好，我是 Aria</h2>
-                <p className="max-w-sm text-center text-sm leading-6 text-slate-500 mb-6 sm:mb-9">
-                  你的咨询项目 AI 助手，随时帮你推进项目、准备材料、分析风险
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 24,
+                    fontWeight: 500,
+                    color: 'var(--color-codex-ink)',
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  你好，我是 Aria
+                </h2>
+                <p
+                  className="text-center"
+                  style={{
+                    maxWidth: 460,
+                    margin: '10px 0 36px',
+                    fontSize: 14,
+                    color: 'var(--color-codex-ink-mute)',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  你的咨询项目 AI 助手 —— 帮你推进项目、准备材料、分析风险。从下面挑一个开始，或直接输入你的问题。
                 </p>
-                <div className="w-full max-w-2xl grid gap-2.5 sm:grid-cols-2 sm:gap-3">
-                  {getPromptCards().map(card => {
+                <div
+                  className="grid w-full sm:grid-cols-2"
+                  style={{ maxWidth: 720, gap: 10 }}
+                >
+                  {getPromptCards().map((card) => {
                     const Icon = card.icon
                     return (
-                      <button key={card.label} onClick={() => fillSuggestion(card.prompt)}
-                        className={`group flex items-start gap-3 rounded-xl border p-3.5 text-left shadow-sm shadow-slate-200/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-200/60 active:scale-[0.98] sm:p-4 ${card.bg}`}
+                      <button
+                        key={card.label}
+                        onClick={() => fillSuggestion(card.prompt)}
+                        className="cx-prompt-card cx-no-hover group flex items-start text-left transition-colors"
+                        style={{
+                          gap: 12,
+                          padding: '14px 16px',
+                          background: 'var(--color-codex-bg-elev)',
+                          border: '1px solid var(--color-codex-line)',
+                          borderRadius: 'var(--codex-r-md, 6px)',
+                        }}
                       >
-                        <div className="w-8 h-8 rounded-lg bg-white/85 flex items-center justify-center flex-shrink-0 shadow-sm transition-transform group-hover:scale-105">
-                          <Icon className={`w-3.5 h-3.5 ${card.color}`} />
-                        </div>
-                        <div>
-                          <p className={`text-sm font-semibold ${card.color} mb-0.5`}>{card.label}</p>
-                          <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{card.prompt}</p>
-                        </div>
+                        <span
+                          aria-hidden="true"
+                          className="cx-prompt-icon inline-flex flex-shrink-0 items-center justify-center"
+                          style={{
+                            width: 28,
+                            height: 28,
+                            background: 'var(--color-codex-bg-tint)',
+                            color: 'var(--color-codex-accent)',
+                            borderRadius: 'var(--codex-r-sm, 3px)',
+                          }}
+                        >
+                          <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className="block"
+                            style={{
+                              fontSize: 13.5,
+                              fontWeight: 500,
+                              color: 'var(--color-codex-ink)',
+                            }}
+                          >
+                            {card.label}
+                          </span>
+                          <span
+                            className="mt-0.5 block line-clamp-2"
+                            style={{
+                              fontSize: 12,
+                              lineHeight: 1.5,
+                              color: 'var(--color-codex-ink-mute)',
+                            }}
+                          >
+                            {card.prompt}
+                          </span>
+                        </span>
+                        <ArrowRight
+                          aria-hidden="true"
+                          className="cx-prompt-arrow mt-0.5 h-3.5 w-3.5 flex-shrink-0"
+                          style={{
+                            color: 'var(--color-codex-ink-faint)',
+                            opacity: 0,
+                            transition: 'opacity 0.15s',
+                          }}
+                          strokeWidth={1.5}
+                        />
                       </button>
                     )
                   })}

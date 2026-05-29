@@ -521,6 +521,22 @@
   outline-offset: 2px;
 }
 
+/* `cx-prompt-card` — the chat empty-state suggestion cards. Idle is
+ * bg-elev with a hairline border; hover swaps the surface to bg-tint
+ * and darkens the border to ``line-strong``, the icon tile lifts from
+ * bg-tint to ``accent-bg``, and the trailing arrow fades in.
+ * Mirrors the design HTML the user handed over for the chat page. */
+.theme-codex .cx-prompt-card:hover {
+  background: var(--color-codex-bg-tint) !important;
+  border-color: var(--color-codex-line-strong) !important;
+}
+.theme-codex .cx-prompt-card:hover .cx-prompt-icon {
+  background: var(--color-codex-accent-bg) !important;
+}
+.theme-codex .cx-prompt-card:hover .cx-prompt-arrow {
+  opacity: 1 !important;
+}
+
 /* `row-hov` — the design's quiet hover pattern for nav links, list rows,
  * and dropdown items (see ``design_handoff_aria_codex_redesign/codex.css``
  * and the ``.row-hov`` callers throughout the prototype). Hover fills
