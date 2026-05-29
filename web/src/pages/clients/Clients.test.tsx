@@ -32,7 +32,7 @@ describe('Clients', () => {
   it('renders loading state initially', () => {
     mockGet.mockImplementation(() => new Promise(() => {}))
     render(<Clients />)
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
   })
 
   it('renders clients after loading', async () => {
@@ -51,7 +51,7 @@ describe('Clients', () => {
     mockGet.mockResolvedValue([])
     render(<Clients />)
     await waitFor(() => {
-      expect(screen.getByText('新建客户')).toBeInTheDocument()
+      expect(screen.getByText('还没有客户')).toBeInTheDocument()
     })
   })
 
@@ -72,8 +72,8 @@ describe('Clients', () => {
   it('opens create client modal', async () => {
     mockGet.mockResolvedValue([])
     render(<Clients />)
-    await waitFor(() => screen.getByText('新建客户'))
-    fireEvent.click(screen.getByText('新建客户'))
+    const createButtons = await screen.findAllByRole('button', { name: /新建客户/ })
+    fireEvent.click(createButtons[0])
     expect(screen.getByPlaceholderText(/客户名称/)).toBeInTheDocument()
   })
 
@@ -81,8 +81,8 @@ describe('Clients', () => {
     mockGet.mockResolvedValue([])
     mockPost.mockResolvedValue({ id: 1, name: '新客户', industry: 'IT', contact: '张三', notes: '' })
     render(<Clients />)
-    await waitFor(() => screen.getByText('新建客户'))
-    fireEvent.click(screen.getByText('新建客户'))
+    const createButtons = await screen.findAllByRole('button', { name: /新建客户/ })
+    fireEvent.click(createButtons[0])
     const nameInput = screen.getByPlaceholderText('请输入客户名称')
     fireEvent.change(nameInput, { target: { value: '新客户' } })
     const submitBtn = screen.getByRole('button', { name: /确认创建/ })
