@@ -116,10 +116,6 @@ body {
   letter-spacing: 0;
 }
 
-::selection {
-  background: rgba(0, 63, 177, 0.14);
-}
-
 /* Element reset kept in @layer base so Tailwind utilities (e.g. text-[13px] on a
    <button>) still win — an unlayered rule here would override all layered
    utilities regardless of specificity (Tailwind v4 cascade layers). */
@@ -407,12 +403,6 @@ samp {
 
 .animate-slide-in {
   animation: slideInRight 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* === Selection === */
-::selection {
-  background-color: #d5e0f8;
-  color: #003fb1;
 }
 
 /* === Gradient Backgrounds === */
