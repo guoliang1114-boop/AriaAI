@@ -306,15 +306,7 @@ export function Clients() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(true)}
-                  className="inline-flex items-center justify-center gap-1.5"
-                  style={{
-                    padding: "7px 14px",
-                    fontSize: 12.5,
-                    whiteSpace: "nowrap",
-                    color: "var(--color-codex-bg-elev)",
-                    background: "var(--color-codex-ink)",
-                    borderRadius: "var(--codex-r-sm, 3px)",
-                  }}
+                  className="cx-primary-action cx-no-hover"
                 >
                   <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
                   {isZh ? "新建客户" : "New client"}
@@ -587,14 +579,7 @@ function EmptyClientsState({
         <button
           type="button"
           onClick={onCreate}
-          className="inline-flex items-center gap-1.5"
-          style={{
-            padding: "7px 12px",
-            whiteSpace: "nowrap",
-            borderRadius: "var(--codex-r-sm, 3px)",
-            background: "var(--color-codex-ink)",
-            color: "var(--color-codex-bg-elev)",
-          }}
+          className="cx-primary-action cx-no-hover"
         >
           <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
           {isZh ? "新建客户" : "New client"}
@@ -707,14 +692,14 @@ function CreateClientModal({
   onSuggestionSelect: (suggestion: ClientSuggestion) => void;
 }) {
   return (
-    <div className="theme-codex fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(26,24,21,.36)" }}>
+    <div className="theme-codex fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(16,14,11,.46)" }}>
       <div
         className="w-full max-w-xl"
         style={{
           background: "var(--color-codex-bg-elev)",
           border: "1px solid var(--color-codex-line)",
           borderRadius: "var(--codex-r-md, 6px)",
-          boxShadow: "0 12px 36px -8px rgba(0,0,0,0.18), 0 0 0 1px var(--color-codex-line)",
+          boxShadow: "0 18px 50px -18px rgba(0,0,0,0.45), 0 0 0 1px var(--color-codex-line)",
         }}
       >
         <div
@@ -754,9 +739,9 @@ function CreateClientModal({
           <div
             style={{
               padding: 14,
-              border: "1px solid var(--color-codex-line)",
+              border: "1px solid var(--color-codex-line-soft)",
               borderRadius: "var(--codex-r-sm, 3px)",
-              background: "var(--color-codex-bg)",
+              background: "color-mix(in oklab, var(--color-codex-bg-elev) 72%, var(--color-codex-bg-tint))",
             }}
           >
             <label style={{ marginBottom: 7, display: "block", fontSize: 12, color: "var(--color-codex-ink-soft)" }}>
@@ -783,14 +768,7 @@ function CreateClientModal({
                 type="button"
                 onClick={onAiSuggest}
                 disabled={aiLoading || !aiQuery.trim()}
-                className="inline-flex items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-45"
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: "var(--codex-r-sm, 3px)",
-                  background: "var(--color-codex-ink)",
-                  color: "var(--color-codex-bg-elev)",
-                  fontSize: 12.5,
-                }}
+                className="cx-primary-action cx-no-hover"
               >
                 {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                 {isZh ? "生成建议" : "Generate"}
@@ -868,7 +846,11 @@ function CreateClientModal({
 
         <div
           className="flex justify-end gap-2"
-          style={{ padding: "14px 20px", borderTop: "1px solid var(--color-codex-line-soft)", background: "var(--color-codex-bg)" }}
+          style={{
+            padding: "14px 20px",
+            borderTop: "1px solid var(--color-codex-line-soft)",
+            background: "color-mix(in oklab, var(--color-codex-bg-elev) 82%, var(--color-codex-bg-tint))",
+          }}
         >
           <button
             type="button"
@@ -889,14 +871,7 @@ function CreateClientModal({
             type="button"
             onClick={onSubmit}
             disabled={creating}
-            className="inline-flex items-center gap-1.5 disabled:opacity-50"
-            style={{
-              padding: "7px 12px",
-              borderRadius: "var(--codex-r-sm, 3px)",
-              background: "var(--color-codex-ink)",
-              color: "var(--color-codex-bg-elev)",
-              fontSize: 12.5,
-            }}
+            className="cx-primary-action cx-no-hover"
           >
             {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             {isZh ? "确认创建" : "Create"}

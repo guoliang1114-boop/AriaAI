@@ -521,6 +521,48 @@
   outline-offset: 2px;
 }
 
+.theme-codex .cx-primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 9px 20px;
+  border: 0;
+  border-radius: var(--codex-r-sm, 3px);
+  background: var(--color-codex-ink);
+  color: var(--color-codex-bg-elev);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-codex-bg-elev) 16%, transparent),
+    0 1px 2px color-mix(in oklab, var(--color-codex-bg-sunken) 35%, transparent);
+  transition:
+    filter 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.theme-codex .cx-primary-action:not(:disabled):hover {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-codex-bg-elev) 22%, transparent),
+    0 3px 10px color-mix(in oklab, var(--color-codex-bg-sunken) 45%, transparent);
+}
+
+.theme-codex .cx-primary-action:not(:disabled):active {
+  transform: translateY(1px);
+  filter: brightness(0.96);
+}
+
+.theme-codex .cx-primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* `cx-prompt-card` — the chat empty-state suggestion cards. Idle is
  * bg-elev with a hairline border; hover swaps the surface to bg-tint
  * and darkens the border to ``line-strong``, the icon tile lifts from
