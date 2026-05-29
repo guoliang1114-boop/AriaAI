@@ -549,3 +549,52 @@
 .theme-codex .row-hov:hover {
   background: var(--color-codex-bg-tint) !important;
 }
+
+/* ----------------------------------------------------------------
+   Markdown content inside Codex pages — the base ``.md-root`` rules
+   in ``index.css`` use MD3 tokens (``--color-on-surface``,
+   ``--color-on-surface-variant``, ``--color-outline``, etc.) that
+   don't track the Codex dark theme. Inside a ``theme-codex``
+   subtree we remap them to Codex tokens so chat replies, tool-call
+   summary text, citations, etc. stay readable in dark mode and
+   adapt to the warmth picker. Specificity bumped with a chained
+   selector so it wins over the index.css base rules without
+   ``!important``.
+   ---------------------------------------------------------------- */
+.theme-codex .md-root {
+  color: var(--color-codex-ink);
+}
+.theme-codex .md-root .md-heading {
+  color: var(--color-codex-ink);
+}
+.theme-codex .md-root .md-link {
+  color: var(--color-codex-accent-ink);
+}
+.theme-codex .md-root .md-blockquote {
+  border-left-color: var(--color-codex-accent);
+  color: var(--color-codex-ink-soft);
+}
+.theme-codex .md-root .inline-code {
+  background: var(--color-codex-bg-tint);
+  color: var(--color-codex-ink);
+}
+.theme-codex .md-root .md-hr {
+  border-top-color: var(--color-codex-line);
+}
+.theme-codex .md-root .md-table-wrapper {
+  border-color: var(--color-codex-line);
+}
+.theme-codex .md-root .md-table-head {
+  background: var(--color-codex-bg-tint);
+}
+.theme-codex .md-root .md-table-header {
+  color: var(--color-codex-ink);
+  border-bottom-color: var(--color-codex-line);
+}
+.theme-codex .md-root .md-table-cell {
+  color: var(--color-codex-ink-soft);
+  border-bottom-color: var(--color-codex-line-soft);
+}
+.theme-codex .md-root .md-table-row:hover {
+  background: var(--color-codex-bg-tint);
+}

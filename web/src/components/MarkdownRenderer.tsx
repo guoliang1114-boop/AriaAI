@@ -63,8 +63,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
         </button>
       </div>
       <pre
-        className="overflow-x-auto rounded-b-lg bg-slate-50 px-4 py-3 text-[0.8125rem] leading-6 text-slate-800"
-        style={{ margin: 0 }}
+        className="overflow-x-auto rounded-b-lg px-4 py-3 text-[0.8125rem] leading-6"
+        style={{
+          margin: 0,
+          background: 'var(--color-codex-bg-tint)',
+          color: 'var(--color-codex-ink)',
+        }}
       >
         <code>{children}</code>
       </pre>
