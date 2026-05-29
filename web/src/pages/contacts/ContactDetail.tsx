@@ -5,22 +5,15 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
   ArrowRight,
-  BriefcaseBusiness,
-  Building2,
   Check,
-  Clock3,
   Edit2,
-  FileText,
   Loader2,
   Mail,
   MessageCircle,
-  MessageSquareText,
   Phone,
   Plus,
   RefreshCw,
   Sparkles,
-  UserRound,
-  Users,
   X,
 } from 'lucide-react'
 
