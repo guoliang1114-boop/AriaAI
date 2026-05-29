@@ -310,6 +310,7 @@ export function Clients() {
                   style={{
                     padding: "7px 14px",
                     fontSize: 12.5,
+                    whiteSpace: "nowrap",
                     color: "var(--color-codex-bg-elev)",
                     background: "var(--color-codex-ink)",
                     borderRadius: "var(--codex-r-sm, 3px)",
@@ -589,6 +590,7 @@ function EmptyClientsState({
           className="inline-flex items-center gap-1.5"
           style={{
             padding: "7px 12px",
+            whiteSpace: "nowrap",
             borderRadius: "var(--codex-r-sm, 3px)",
             background: "var(--color-codex-ink)",
             color: "var(--color-codex-bg-elev)",
