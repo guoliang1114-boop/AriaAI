@@ -435,13 +435,23 @@
     color 150ms ease, border-color 150ms ease;
 }
 
-/* Use ``box-shadow inset`` rather than ``background-color`` so the wash
- * works across all four button surface variants (solid accent, bg-elev,
- * bg-tint, fully transparent) without clobbering the inline style the
- * caller already set on the element. */
+/* Hover combines two effects so feedback is visible regardless of how
+ * the caller styled the button background:
+ *
+ * - ``filter: brightness(0.93)`` darkens any solid background. This is
+ *   what makes the moss accent button (which reads almost-black) and
+ *   the codex-bad destructive button feel responsive — a 7% ink wash
+ *   alone was too subtle on dark surfaces.
+ * - ``box-shadow inset`` adds a 6% ink wash on top. This is what keeps
+ *   transparent / icon-only buttons (chevrons, dropdown rows) visible,
+ *   because brightness on transparent pixels has no effect.
+ *
+ * Together they cover all four button surface variants without
+ * clobbering the inline ``background`` the caller set. */
 .theme-codex button:not(:disabled):not(.cx-no-hover):hover,
 .theme-codex [role="button"]:not(:disabled):not(.cx-no-hover):hover {
-  box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 7%, transparent);
+  filter: brightness(0.93);
+  box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 6%, transparent);
 }
 
 .theme-codex button:focus-visible:not(:disabled),
