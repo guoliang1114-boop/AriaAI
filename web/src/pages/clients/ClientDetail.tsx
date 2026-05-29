@@ -4,28 +4,27 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
+  ArrowRight,
   Brain,
-  Building2,
   Edit2,
   ExternalLink,
-  FileText,
   FolderKanban,
   Loader2,
   MessageSquare,
-  Phone,
+  Plus,
   RefreshCw,
   Save,
-  Sparkles,
   Trash2,
   User,
   X,
 } from 'lucide-react'
 
 import { api } from '../../api/client'
+import { CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
-import { ClientStakeholdersStructuredCard } from '../projects/ClientStakeholdersStructuredCard'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
+import { ClientStakeholdersStructuredCard } from '../projects/ClientStakeholdersStructuredCard'
 
 interface Client {
   id: number
@@ -48,6 +47,8 @@ interface Project {
   contract_amount: number | null
 }
 
+type ClientDetailTab = 'overview' | 'memory' | 'contacts' | 'projects' | 'history'
+
 export function ClientDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -62,6 +63,7 @@ export function ClientDetail() {
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
+  const [activeTab, setActiveTab] = useState<ClientDetailTab>('overview')
 
   useEffect(() => {
     if (id) {
@@ -183,18 +185,16 @@ export function ClientDetail() {
     return isZh ? '客户记忆已同步，可直接用于跨项目洞察与复用。' : 'Client memory is up to date and ready for cross-project insights and reuse.'
   }, [isZh, memoryStatus])
 
-  const memoryStateLabel = useMemo(() => {
-    if (!memoryStatus?.has_memory) return isZh ? '尚未生成' : 'Not prepared'
-    if (memoryStatus.memory_stale) return isZh ? '建议刷新' : 'Needs refresh'
-    return isZh ? '可直接使用' : 'Ready'
-  }, [isZh, memoryStatus])
+  const memoryState = useMemo(() => getMemoryState(memoryStatus, isZh), [isZh, memoryStatus])
+  const keyContacts = useMemo(() => getKeyContacts(client, stakeholders, isZh), [client, isZh, stakeholders])
+  const stats = useMemo(() => getClientStats(projects, client, stakeholders, keyContacts, isZh), [client, isZh, keyContacts, projects, stakeholders])
 
   if (loading) {
     return (
       <>
         <PageTitle title={isZh ? '客户详情' : 'Client Detail'} />
-        <div className="flex min-h-full items-center justify-center bg-slate-50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="theme-codex flex min-h-full items-center justify-center" style={{ background: 'var(--color-codex-bg)' }}>
+          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--color-codex-accent)' }} />
         </div>
       </>
     )
@@ -204,10 +204,17 @@ export function ClientDetail() {
     return (
       <>
         <PageTitle title={isZh ? '客户详情' : 'Client Detail'} />
-        <div className="flex min-h-full items-center justify-center bg-slate-50">
+        <div
+          className="theme-codex flex min-h-full items-center justify-center"
+          style={{ background: 'var(--color-codex-bg)', color: 'var(--color-codex-ink)' }}
+        >
           <div className="text-center">
-            <p className="text-slate-500">{isZh ? '未找到该客户' : 'Client not found'}</p>
-            <button onClick={() => navigate('/clients')} className="mt-4 text-primary hover:underline">
+            <p style={{ color: 'var(--color-codex-ink-mute)' }}>{isZh ? '未找到该客户' : 'Client not found'}</p>
+            <button
+              type="button"
+              onClick={() => navigate('/clients')}
+              style={{ marginTop: 16, color: 'var(--color-codex-accent)' }}
+            >
               {isZh ? '返回客户列表' : 'Back to clients'}
             </button>
           </div>
@@ -216,367 +223,612 @@ export function ClientDetail() {
     )
   }
 
+  const tabs: Array<{ key: ClientDetailTab; label: string }> = [
+    { key: 'overview', label: isZh ? '概览' : 'Overview' },
+    { key: 'memory', label: isZh ? '客户记忆' : 'Memory' },
+    { key: 'contacts', label: isZh ? '联系人' : 'Contacts' },
+    { key: 'projects', label: isZh ? '项目' : 'Projects' },
+    { key: 'history', label: isZh ? '互动历史' : 'History' },
+  ]
+
   return (
     <>
       <PageTitle title={client.name} />
-      <div className="min-h-full bg-[linear-gradient(180deg,#f6f9fc_0%,#eef4fb_36%,#ffffff_100%)]">
-        <div className="w-full px-6 py-8 xl:px-8 2xl:px-10">
-          <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_right,#dfefff_0%,#f8fbff_42%,#ffffff_100%)] p-8 shadow-[0_30px_70px_rgba(15,23,42,0.08)]">
-            <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
-            <div className="relative">
+      <main
+        className="theme-codex min-h-full"
+        style={{
+          background: 'var(--color-codex-bg)',
+          color: 'var(--color-codex-ink)',
+          fontSize: 13.5,
+          lineHeight: 1.6,
+        }}
+      >
+        <div className="flex min-h-full flex-col overflow-hidden">
+          <section style={{ padding: '22px clamp(24px, 4vw, 40px) 0', flexShrink: 0 }}>
+            <div className="mb-2.5 flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
               <button
+                type="button"
                 onClick={() => navigate('/clients')}
-                className="mb-5 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/85 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                className="cx-no-hover inline-flex items-center gap-1"
+                style={{ color: 'var(--color-codex-ink-faint)' }}
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft size={12} strokeWidth={1.5} aria-hidden="true" />
                 {isZh ? '返回客户列表' : 'Back to clients'}
               </button>
+              <span style={{ color: 'var(--color-codex-ink-faint)' }}>/</span>
+              <span className="truncate">{getClientShortName(client.name)}</span>
+            </div>
 
-              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex min-w-0 items-start gap-4">
-                  <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-sky-100 to-sky-50 text-2xl font-bold text-sky-700">
-                    {client.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-sky-700 shadow-sm backdrop-blur">
-                      <Building2 className="h-3.5 w-3.5" />
-                      <span>{isZh ? '客户档案' : 'Client Record'}</span>
-                    </div>
-                    <h1 className="truncate text-2xl font-semibold text-slate-900">{client.name}</h1>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-sm text-slate-600">
-                        {client.industry || (isZh ? '未填写行业' : 'No industry yet')}
-                      </span>
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-sm text-slate-600">
-                        {isZh ? `${projects.length} 个项目` : `${projects.length} projects`}
-                      </span>
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-sm text-slate-600">
-                        {isZh ? `${client.document_count} 份文档` : `${client.document_count} docs`}
-                      </span>
-                    </div>
-                    <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                      {client.notes || (isZh ? '这位客户的背景、合作方向和关键联系人信息还可以继续补充。' : 'This client record can be enriched with more background, collaboration context, and stakeholder notes.')}
-                    </p>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 gap-4">
+                <span
+                  className="inline-flex shrink-0 items-center justify-center"
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 'var(--codex-r-md, 6px)',
+                    background: 'var(--color-codex-accent-bg)',
+                    color: 'var(--color-codex-accent-ink)',
+                    fontSize: 22,
+                    fontWeight: 500,
+                  }}
+                  aria-hidden="true"
+                >
+                  {getClientInitial(client.name)}
+                </span>
+                <div className="min-w-0">
+                  <h1
+                    className="truncate"
+                    style={{
+                      margin: 0,
+                      fontSize: 24,
+                      fontWeight: 500,
+                      color: 'var(--color-codex-ink)',
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {client.name}
+                  </h1>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2.5" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
+                    <span>{client.industry || (isZh ? '未填写行业' : 'No industry')}</span>
+                    <MetaDot />
+                    <span>{inferRegion(client, isZh)}</span>
+                    <MetaDot />
+                    <span>{isZh ? `${client.document_count} 份文档` : `${client.document_count} docs`}</span>
+                    <MetaDot />
+                    <CxStatus tone={stats.healthTone}>{stats.healthLabel}</CxStatus>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setIsEditing((current) => !current)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white"
-                  >
-                    {isEditing ? <X className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-                    {isEditing ? (isZh ? '取消编辑' : 'Cancel') : (isZh ? '编辑资料' : 'Edit')}
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white/90 px-4 py-3 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {isZh ? '删除客户' : 'Delete'}
-                  </button>
-                </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ButtonLike onClick={() => setIsEditing((current) => !current)} icon={isEditing ? <X size={13} /> : <Edit2 size={13} />}>
+                  {isEditing ? (isZh ? '取消编辑' : 'Cancel') : isZh ? '编辑客户档案' : 'Edit client'}
+                </ButtonLike>
+                <ButtonLike onClick={() => navigate('/projects/new')} icon={<Plus size={13} />} primary>
+                  {isZh ? '新建项目' : 'New project'}
+                </ButtonLike>
+                <ButtonLike onClick={handleDelete} icon={<Trash2 size={13} />} danger>
+                  {isZh ? '删除' : 'Delete'}
+                </ButtonLike>
               </div>
             </div>
           </section>
 
-          <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard label={isZh ? '关联项目' : 'Projects'} value={projects.length} tone="sky" />
-            <SummaryCard label={isZh ? '客户文档' : 'Documents'} value={client.document_count} tone="amber" />
-            <SummaryCard label={isZh ? '记忆状态' : 'Memory'} value={memoryStateLabel} tone="emerald" />
-            <SummaryCard
-              label={isZh ? '创建日期' : 'Created'}
-              value={formatDateOnly(client.created_at, undefined, getResolvedAppTimeZone())}
-              tone="slate"
-            />
-          </section>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.8fr)]">
-            <div className="space-y-6">
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-6 shadow-sm">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">{isZh ? '客户资料' : 'Client Information'}</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {isZh ? '维护客户背景、联系人和合作上下文。' : 'Maintain company background, contacts, and collaboration context.'}
-                    </p>
-                  </div>
-                  {isEditing ? (
-                    <button
-                      onClick={handleUpdate}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary"
-                    >
-                      <Save className="h-4 w-4" />
-                      {isZh ? '保存修改' : 'Save'}
-                    </button>
-                  ) : null}
-                </div>
-
-                {isEditing ? (
-                  <div className="mt-5 grid gap-4">
-                    <FormField label={isZh ? '客户名称' : 'Client Name'}>
-                      <input
-                        type="text"
-                        value={editForm.name || ''}
-                        onChange={(event) => setEditForm({ ...editForm, name: event.target.value })}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/15"
-                      />
-                    </FormField>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <FormField label={isZh ? '行业' : 'Industry'}>
-                        <input
-                          type="text"
-                          value={editForm.industry || ''}
-                          onChange={(event) => setEditForm({ ...editForm, industry: event.target.value })}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/15"
-                        />
-                      </FormField>
-                      <FormField label={isZh ? '联系人' : 'Contact'}>
-                        <input
-                          type="text"
-                          value={editForm.contact || ''}
-                          onChange={(event) => setEditForm({ ...editForm, contact: event.target.value })}
-                          placeholder={isZh ? '姓名、电话、邮箱等' : 'Name, phone, email, etc.'}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/15"
-                        />
-                      </FormField>
-                    </div>
-                    <FormField label={isZh ? '备注' : 'Notes'}>
-                      <textarea
-                        value={editForm.notes || ''}
-                        onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })}
-                        rows={6}
-                        className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/15"
-                      />
-                    </FormField>
-                  </div>
-                ) : (
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    <InfoPanel
-                      icon={<Building2 className="h-4 w-4" />}
-                      label={isZh ? '行业' : 'Industry'}
-                      value={client.industry || (isZh ? '未填写' : 'Not provided')}
-                    />
-                    <InfoPanel
-                      icon={<User className="h-4 w-4" />}
-                      label={isZh ? '联系人' : 'Contact'}
-                      value={client.contact || (isZh ? '未填写' : 'Not provided')}
-                    />
-                    <div className="md:col-span-2">
-                      <InfoPanel
-                        icon={<Phone className="h-4 w-4" />}
-                        label={isZh ? '备注与上下文' : 'Notes & Context'}
-                        value={client.notes || (isZh ? '暂无备注，可继续补充客户背景、合作目标和关键风险。' : 'No notes yet. Add company background, collaboration goals, and key risks here.')}
-                        multiline
-                      />
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-6 shadow-sm">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">{isZh ? '关联项目' : 'Related Projects'}</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {isZh ? '查看当前客户下的项目与执行进展。' : 'Review projects and execution status linked to this client.'}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-500">
-                    {projects.length}
-                  </span>
-                </div>
-
-                {projects.length === 0 ? (
-                  <div className="py-14 text-center text-slate-500">
-                    <FolderKanban className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-                    <h3 className="text-lg font-semibold text-slate-700">{isZh ? '暂无关联项目' : 'No projects yet'}</h3>
-                    <p className="mt-2 text-sm">
-                      {isZh ? '等项目与这个客户关联后，这里会自动展示。' : 'Projects linked to this client will appear here automatically.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-5 grid gap-4 md:grid-cols-2">
-                    {projects.map((project) => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        onClick={() => navigate(`/projects/${project.id}`)}
-                        className="group flex h-full flex-col rounded-[1.35rem] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-5 text-left transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-                              <FolderKanban className="h-3.5 w-3.5" />
-                              {isZh ? '项目' : 'Project'}
-                            </div>
-                            <h3 className="mt-3 truncate text-base font-semibold text-slate-900">{project.name}</h3>
-                          </div>
-                          <ExternalLink className="h-4 w-4 flex-shrink-0 text-slate-300 transition group-hover:text-slate-500" />
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <span className={`rounded-full px-3 py-1 text-xs font-medium ${getProjectStatusTone(project.status)}`}>
-                            {project.status || (isZh ? '未标记状态' : 'No status')}
-                          </span>
-                          {project.contract_amount != null ? (
-                            <span className="rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                              {formatCurrency(project.contract_amount)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            <div className="space-y-6">
-              <ClientStakeholdersStructuredCard
-                clientId={client.id}
-                isZh={isZh}
-                onChanged={handleStakeholdersChanged}
-                stakeholders={stakeholders}
-              />
-
-              <section className="overflow-hidden rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(160deg,#ecfdf5_0%,#f8fafc_48%,#ffffff_100%)] p-6 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-                    <Sparkles className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">{isZh ? '客户 Skill 工作流' : 'Client Skill Workflows'}</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {isZh
-                        ? '从客户空间直接启动 Skill，自动带入客户档案、客户记忆状态和关联项目线索。'
-                        : 'Launch a Skill from the client workspace with client profile, memory status, and related project context prefilled.'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <ClientSkillLaunchCard
-                    title={isZh ? '关系策略' : 'Relationship strategy'}
-                    description={isZh ? '整理关键干系人、沟通节奏和下一次拜访重点。' : 'Map stakeholders, communication cadence, and the next meeting focus.'}
-                    onClick={() => handleStartClientSkill('strategy')}
-                  />
-                  <ClientSkillLaunchCard
-                    title={isZh ? '机会分析' : 'Opportunity analysis'}
-                    description={isZh ? '基于客户背景和历史项目找潜在增购与交叉销售机会。' : 'Use client context and project history to surface expansion opportunities.'}
-                    onClick={() => handleStartClientSkill('opportunity')}
-                  />
-                  <ClientSkillLaunchCard
-                    title={isZh ? '项目复盘' : 'Project retrospective'}
-                    description={isZh ? '把关联项目经验整理成可复用的客户洞察。' : 'Turn related project experience into reusable client insight.'}
-                    onClick={() => handleStartClientSkill('retrospective')}
-                  />
-                </div>
-              </section>
-
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white/92 p-6 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Brain className="h-4 w-4 text-primary" />
-                      <h2 className="text-lg font-semibold text-slate-900">{isZh ? '客户记忆' : 'Client Memory'}</h2>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">{memorySummary}</p>
-                  </div>
-                  <button
-                    onClick={handleRebuildMemory}
-                    disabled={rebuildingMemory}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-                  >
-                    {rebuildingMemory ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                    {isZh ? '刷新记忆' : 'Refresh'}
-                  </button>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <InfoPanel
-                    icon={<Brain className="h-4 w-4" />}
-                    label={isZh ? '状态' : 'Status'}
-                    value={memoryStateLabel}
-                  />
-                  <InfoPanel
-                    icon={<RefreshCw className="h-4 w-4" />}
-                    label={isZh ? '最近同步' : 'Last sync'}
-                    value={
-                      memoryStatus?.memory_updated_at
-                        ? formatDateTime(memoryStatus.memory_updated_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())
-                        : isZh
-                          ? '暂无记录'
-                          : 'Not yet'
-                    }
-                  />
-                  <InfoPanel
-                    icon={<FileText className="h-4 w-4" />}
-                    label={isZh ? '记忆版本' : 'Memory version'}
-                    value={memoryStatus?.memory_version != null ? String(memoryStatus.memory_version) : (isZh ? '暂无' : 'N/A')}
-                  />
-                </div>
-
+          <nav
+            className="flex overflow-x-auto"
+            style={{
+              padding: '0 clamp(24px, 4vw, 40px)',
+              marginTop: 16,
+              borderBottom: '1px solid var(--color-codex-line)',
+              flexShrink: 0,
+            }}
+            aria-label={isZh ? '客户详情标签' : 'Client detail tabs'}
+          >
+            {tabs.map((tab) => {
+              const active = activeTab === tab.key
+              return (
                 <button
-                  onClick={() => navigate(`/clients/${client.id}/memory`)}
-                  className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary"
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    padding: '10px 12px',
+                    fontSize: 13,
+                    color: active ? 'var(--color-codex-ink)' : 'var(--color-codex-ink-mute)',
+                    fontWeight: active ? 500 : 400,
+                    borderBottom: active ? '2px solid var(--color-codex-accent)' : '2px solid transparent',
+                    marginBottom: -1,
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  <Brain className="h-4 w-4" />
-                  {isZh ? '打开客户记忆' : 'Open Client Memory'}
+                  {tab.label}
                 </button>
-              </section>
+              )
+            })}
+          </nav>
+
+          <div
+            style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: '22px clamp(24px, 4vw, 40px) 32px',
+              minWidth: 0,
+            }}
+          >
+            {isEditing ? (
+              <EditClientPanel
+                editForm={editForm}
+                isZh={isZh}
+                onCancel={() => {
+                  setEditForm(client)
+                  setIsEditing(false)
+                }}
+                onChange={setEditForm}
+                onSave={handleUpdate}
+              />
+            ) : null}
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0 space-y-4">
+                {activeTab === 'overview' ? (
+                  <>
+                    <StatsStrip stats={stats.items} />
+                    <ClientMemorySummaryPanel
+                      client={client}
+                      isZh={isZh}
+                      memoryState={memoryState}
+                      memorySummary={memorySummary}
+                      projects={projects}
+                      onOpenMemory={() => navigate(`/clients/${client.id}/memory`)}
+                    />
+                    <ProjectsPanel isZh={isZh} projects={projects} onOpenProject={(projectId) => navigate(`/projects/${projectId}`)} />
+                  </>
+                ) : null}
+
+                {activeTab === 'memory' ? (
+                  <ClientMemoryPanel
+                    isZh={isZh}
+                    memoryState={memoryState}
+                    memoryStatus={memoryStatus}
+                    memorySummary={memorySummary}
+                    rebuildingMemory={rebuildingMemory}
+                    onOpenMemory={() => navigate(`/clients/${client.id}/memory`)}
+                    onRefresh={handleRebuildMemory}
+                  />
+                ) : null}
+
+                {activeTab === 'contacts' ? (
+                  <ClientStakeholdersStructuredCard
+                    clientId={client.id}
+                    isZh={isZh}
+                    onChanged={handleStakeholdersChanged}
+                    stakeholders={stakeholders}
+                  />
+                ) : null}
+
+                {activeTab === 'projects' ? (
+                  <ProjectsPanel isZh={isZh} projects={projects} onOpenProject={(projectId) => navigate(`/projects/${projectId}`)} expanded />
+                ) : null}
+
+                {activeTab === 'history' ? <RecentHistoryPanel client={client} isZh={isZh} projects={projects} /> : null}
+              </div>
+
+              <aside className="space-y-4">
+                <KeyContactsPanel contacts={keyContacts} isZh={isZh} />
+                <ClientSkillPanel isZh={isZh} onStart={handleStartClientSkill} />
+                <RecentHistoryPanel client={client} compact isZh={isZh} projects={projects} />
+              </aside>
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </>
   )
 }
 
-function SummaryCard({
-  label,
-  tone,
-  value,
-}: {
-  label: string
-  tone: 'sky' | 'emerald' | 'amber' | 'slate'
-  value: string | number
-}) {
-  const toneClass =
-    tone === 'emerald'
-      ? 'border-emerald-100 bg-emerald-50/80'
-      : tone === 'amber'
-        ? 'border-amber-100 bg-amber-50/80'
-        : tone === 'slate'
-          ? 'border-slate-200 bg-slate-50/80'
-          : 'border-sky-100 bg-sky-50/80'
-
+function StatsStrip({ stats }: { stats: Array<{ label: string; value: ReactNode }> }) {
   return (
-    <div className={`rounded-[1.5rem] border p-5 shadow-sm ${toneClass}`}>
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className="mt-3 text-2xl font-semibold text-slate-900">{value}</p>
+    <div
+      className="grid grid-cols-2 lg:grid-cols-4"
+      style={{
+        padding: '16px 0',
+        borderTop: '1px solid var(--color-codex-line)',
+        borderBottom: '1px solid var(--color-codex-line)',
+      }}
+    >
+      {stats.map((item, index) => (
+        <div
+          key={item.label}
+          style={{
+            padding: '0 20px',
+            borderLeft: index > 0 ? '1px solid var(--color-codex-line-soft)' : 'none',
+          }}
+        >
+          <div style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)', marginBottom: 5 }}>{item.label}</div>
+          <span className="codex-mono codex-num" style={{ fontSize: 22, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+            {item.value}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
 
-function InfoPanel({
-  icon,
-  label,
-  multiline = false,
-  value,
+function ClientMemorySummaryPanel({
+  client,
+  isZh,
+  memoryState,
+  memorySummary,
+  onOpenMemory,
+  projects,
 }: {
-  icon: ReactNode
-  label: string
-  multiline?: boolean
-  value: string
+  client: Client
+  isZh: boolean
+  memoryState: { label: string; tone: CxStatusTone; versionLabel: string }
+  memorySummary: string
+  onOpenMemory: () => void
+  projects: Project[]
+}) {
+  const rows = [
+    [isZh ? '客户背景' : 'Background', client.notes || (isZh ? '暂无备注，可补充客户背景、合作目标和关键风险。' : 'No notes yet. Add background, goals, and key risks.')],
+    [isZh ? '行业与联系人' : 'Industry & contact', [client.industry || (isZh ? '未填写行业' : 'No industry'), client.contact || (isZh ? '未填写联系人' : 'No contact')].join(' · ')],
+    [isZh ? '合作历史' : 'Project history', projects.length ? projects.slice(0, 3).map((project) => project.name).join(' · ') : isZh ? '暂无关联项目' : 'No related projects'],
+    [isZh ? '记忆状态' : 'Memory state', memorySummary],
+    [isZh ? '关注议题' : 'Focus topics', getFocusTopics(client, projects, isZh)],
+  ]
+
+  return (
+    <CxPanel
+      title={isZh ? '客户记忆摘要' : 'Client memory summary'}
+      subtitle={memoryState.versionLabel}
+      action={
+        <button type="button" onClick={onOpenMemory} style={{ fontSize: 11.5, color: 'var(--color-codex-accent)' }}>
+          {isZh ? '查看完整' : 'Open'} →
+        </button>
+      }
+    >
+      {rows.map(([label, value], index) => (
+        <div
+          key={label}
+          className="grid gap-5"
+          style={{
+            gridTemplateColumns: '90px 1fr',
+            padding: '10px 0',
+            borderBottom: index === rows.length - 1 ? 'none' : '1px solid var(--color-codex-line-soft)',
+            alignItems: 'flex-start',
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>{label}</div>
+          <div style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', lineHeight: 1.65 }}>{value}</div>
+        </div>
+      ))}
+    </CxPanel>
+  )
+}
+
+function ProjectsPanel({
+  expanded = false,
+  isZh,
+  onOpenProject,
+  projects,
+}: {
+  expanded?: boolean
+  isZh: boolean
+  onOpenProject: (projectId: number) => void
+  projects: Project[]
+}) {
+  const shownProjects = expanded ? projects : projects.slice(0, 5)
+
+  return (
+    <CxPanel
+      title={isZh ? '进行中项目' : 'Related projects'}
+      action={<span style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>{projects.length}</span>}
+    >
+      {shownProjects.length === 0 ? (
+        <EmptyBlock icon={<FolderKanban size={22} />} title={isZh ? '暂无关联项目' : 'No projects yet'} />
+      ) : (
+        shownProjects.map((project, index) => {
+          const status = getProjectStatus(project.status, isZh)
+          return (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => onOpenProject(project.id)}
+              className="row-hov cx-no-hover grid w-full text-left"
+              style={{
+                gridTemplateColumns: 'minmax(0,1fr) 90px 100px 14px',
+                gap: 14,
+                alignItems: 'center',
+                padding: '12px 0',
+                borderBottom: index === shownProjects.length - 1 ? 'none' : '1px solid var(--color-codex-line-soft)',
+              }}
+            >
+              <div className="truncate" style={{ fontSize: 13.5, color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+                {project.name}
+              </div>
+              <CxStatus tone={status.tone}>{status.label}</CxStatus>
+              <span className="codex-mono codex-num" style={{ fontSize: 12.5, color: 'var(--color-codex-ink-soft)' }}>
+                {project.contract_amount != null ? formatCurrency(project.contract_amount) : '—'}
+              </span>
+              <ArrowRight size={12} strokeWidth={1.5} style={{ color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" />
+            </button>
+          )
+        })
+      )}
+    </CxPanel>
+  )
+}
+
+function KeyContactsPanel({
+  contacts,
+  isZh,
+}: {
+  contacts: Array<{ name: string; role: string; note: string; recorded: boolean }>
+  isZh: boolean
 }) {
   return (
-    <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50/70 p-4">
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <span className="text-slate-400">{icon}</span>
-        <span>{label}</span>
+    <CxPanel title={isZh ? '关键联系人' : 'Key contacts'}>
+      {contacts.length === 0 ? (
+        <EmptyBlock icon={<User size={20} />} title={isZh ? '暂无联系人' : 'No contacts'} compact />
+      ) : (
+        contacts.slice(0, 5).map((contact, index) => (
+          <div
+            key={`${contact.name}-${index}`}
+            className="flex items-center gap-2.5"
+            style={{
+              padding: '8px 0',
+              borderBottom: index === Math.min(contacts.length, 5) - 1 ? 'none' : '1px solid var(--color-codex-line-soft)',
+            }}
+          >
+            <span
+              className="inline-flex shrink-0 items-center justify-center"
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 'var(--codex-r-pill, 999px)',
+                background: 'var(--color-codex-bg-tint)',
+                color: 'var(--color-codex-ink-soft)',
+                fontSize: 11.5,
+                fontWeight: 500,
+              }}
+              aria-hidden="true"
+            >
+              {getClientInitial(contact.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate" style={{ fontSize: 12.5, color: 'var(--color-codex-ink)' }}>{contact.name}</div>
+              <div className="truncate" style={{ fontSize: 11, color: 'var(--color-codex-ink-mute)' }}>{contact.role || contact.note}</div>
+            </div>
+            <span style={{ fontSize: 10.5, color: contact.recorded ? 'var(--color-codex-good)' : 'var(--color-codex-ink-faint)' }}>
+              {contact.recorded ? (isZh ? '已记录' : 'Saved') : isZh ? '待补充' : 'Missing'}
+            </span>
+          </div>
+        ))
+      )}
+    </CxPanel>
+  )
+}
+
+function ClientSkillPanel({
+  isZh,
+  onStart,
+}: {
+  isZh: boolean
+  onStart: (intent: 'strategy' | 'opportunity' | 'retrospective') => void
+}) {
+  const items: Array<{ intent: 'strategy' | 'opportunity' | 'retrospective'; title: string; description: string }> = [
+    {
+      intent: 'strategy',
+      title: isZh ? '关系策略' : 'Relationship strategy',
+      description: isZh ? '整理关键干系人、沟通节奏和下一次拜访重点。' : 'Map stakeholders, cadence, and the next meeting focus.',
+    },
+    {
+      intent: 'opportunity',
+      title: isZh ? '机会分析' : 'Opportunity analysis',
+      description: isZh ? '基于客户背景和历史项目找潜在增购机会。' : 'Surface expansion opportunities from client history.',
+    },
+    {
+      intent: 'retrospective',
+      title: isZh ? '项目复盘' : 'Project retrospective',
+      description: isZh ? '把项目经验整理成可复用的客户洞察。' : 'Turn project experience into reusable client insight.',
+    },
+  ]
+
+  return (
+    <CxPanel title={isZh ? '客户 Skill 工作流' : 'Client Skill workflows'}>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <button
+            key={item.intent}
+            type="button"
+            onClick={() => onStart(item.intent)}
+            className="row-hov cx-no-hover flex w-full items-start gap-2.5 text-left"
+            style={{
+              padding: '10px 0',
+              borderBottom: item.intent === 'retrospective' ? 'none' : '1px solid var(--color-codex-line-soft)',
+            }}
+          >
+            <span
+              className="mt-0.5 inline-flex shrink-0 items-center justify-center"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                background: 'var(--color-codex-ink)',
+                color: 'var(--color-codex-bg-elev)',
+              }}
+              aria-hidden="true"
+            >
+              <MessageSquare size={13} strokeWidth={1.5} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block" style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--color-codex-ink)' }}>
+                {item.title}
+              </span>
+              <span className="mt-0.5 block" style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--color-codex-ink-mute)' }}>
+                {item.description}
+              </span>
+            </span>
+            <ExternalLink size={12} strokeWidth={1.5} style={{ color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" />
+          </button>
+        ))}
       </div>
-      <p className={`mt-2 text-sm text-slate-900 ${multiline ? 'whitespace-pre-wrap leading-6' : ''}`}>{value}</p>
+    </CxPanel>
+  )
+}
+
+function ClientMemoryPanel({
+  isZh,
+  memoryState,
+  memoryStatus,
+  memorySummary,
+  onOpenMemory,
+  onRefresh,
+  rebuildingMemory,
+}: {
+  isZh: boolean
+  memoryState: { label: string; tone: CxStatusTone; versionLabel: string }
+  memoryStatus: ClientMemoryStatusResponse | null
+  memorySummary: string
+  onOpenMemory: () => void
+  onRefresh: () => void
+  rebuildingMemory: boolean
+}) {
+  return (
+    <CxPanel
+      title={isZh ? '客户记忆' : 'Client memory'}
+      subtitle={memorySummary}
+      action={<CxStatus tone={memoryState.tone}>{memoryState.label}</CxStatus>}
+    >
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricCell label={isZh ? '状态' : 'Status'} value={memoryState.label} />
+        <MetricCell label={isZh ? '版本' : 'Version'} value={memoryStatus?.memory_version != null ? `v${memoryStatus.memory_version}` : '—'} />
+        <MetricCell
+          label={isZh ? '最近同步' : 'Last sync'}
+          value={
+            memoryStatus?.memory_updated_at
+              ? formatDateTime(memoryStatus.memory_updated_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())
+              : isZh
+                ? '暂无记录'
+                : 'Not yet'
+          }
+        />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <ButtonLike onClick={onRefresh} icon={rebuildingMemory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw size={13} />}>
+          {isZh ? '刷新记忆' : 'Refresh'}
+        </ButtonLike>
+        <ButtonLike onClick={onOpenMemory} icon={<Brain size={13} />} primary>
+          {isZh ? '打开客户记忆' : 'Open memory'}
+        </ButtonLike>
+      </div>
+    </CxPanel>
+  )
+}
+
+function RecentHistoryPanel({
+  client,
+  compact = false,
+  isZh,
+  projects,
+}: {
+  client: Client
+  compact?: boolean
+  isZh: boolean
+  projects: Project[]
+}) {
+  const events = buildHistoryEvents(client, projects, isZh)
+  return (
+    <CxPanel title={isZh ? '最近互动' : 'Recent activity'}>
+      <div style={{ fontSize: 12, color: 'var(--color-codex-ink-soft)', lineHeight: 1.85 }}>
+        {events.slice(0, compact ? 4 : events.length).map((event, index) => (
+          <div key={`${event.time}-${index}`} className="truncate">
+            <span style={{ color: 'var(--color-codex-ink-mute)', marginRight: 6 }}>{event.time}</span>
+            {event.label}
+          </div>
+        ))}
+      </div>
+    </CxPanel>
+  )
+}
+
+function EditClientPanel({
+  editForm,
+  isZh,
+  onCancel,
+  onChange,
+  onSave,
+}: {
+  editForm: Partial<Client>
+  isZh: boolean
+  onCancel: () => void
+  onChange: (value: Partial<Client>) => void
+  onSave: () => void
+}) {
+  return (
+    <CxPanel
+      title={isZh ? '编辑客户档案' : 'Edit client profile'}
+      action={
+        <div className="flex gap-1.5">
+          <ButtonLike onClick={onCancel} icon={<X size={13} />}>
+            {isZh ? '取消' : 'Cancel'}
+          </ButtonLike>
+          <ButtonLike onClick={onSave} icon={<Save size={13} />} primary>
+            {isZh ? '保存' : 'Save'}
+          </ButtonLike>
+        </div>
+      }
+      className="mb-4"
+    >
+      <div className="grid gap-4">
+        <FormField label={isZh ? '客户名称' : 'Client name'}>
+          <CodexInput value={editForm.name || ''} onChange={(value) => onChange({ ...editForm, name: value })} />
+        </FormField>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField label={isZh ? '行业' : 'Industry'}>
+            <CodexInput value={editForm.industry || ''} onChange={(value) => onChange({ ...editForm, industry: value })} />
+          </FormField>
+          <FormField label={isZh ? '联系人' : 'Contact'}>
+            <CodexInput value={editForm.contact || ''} onChange={(value) => onChange({ ...editForm, contact: value })} />
+          </FormField>
+        </div>
+        <FormField label={isZh ? '备注' : 'Notes'}>
+          <textarea
+            value={editForm.notes || ''}
+            onChange={(event) => onChange({ ...editForm, notes: event.target.value })}
+            rows={5}
+            className="codex-input w-full resize-none"
+            style={inputStyle}
+          />
+        </FormField>
+      </div>
+    </CxPanel>
+  )
+}
+
+function MetricCell({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={{ padding: 12, border: '1px solid var(--color-codex-line-soft)', borderRadius: 'var(--codex-r-sm, 3px)' }}>
+      <div style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)' }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 13.5, color: 'var(--color-codex-ink)' }}>{value}</div>
+    </div>
+  )
+}
+
+function EmptyBlock({
+  compact = false,
+  icon,
+  title,
+}: {
+  compact?: boolean
+  icon: ReactNode
+  title: string
+}) {
+  return (
+    <div className="text-center" style={{ padding: compact ? '18px 8px' : '36px 16px', color: 'var(--color-codex-ink-mute)' }}>
+      <div className="mb-2 flex justify-center" style={{ color: 'var(--color-codex-ink-faint)' }}>{icon}</div>
+      <div style={{ fontSize: 13 }}>{title}</div>
     </div>
   )
 }
@@ -590,38 +842,84 @@ function FormField({
 }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-sm font-medium text-slate-700">{label}</div>
+      <div style={{ marginBottom: 6, fontSize: 12.5, color: 'var(--color-codex-ink-soft)' }}>{label}</div>
       {children}
     </label>
   )
 }
 
-function ClientSkillLaunchCard({
-  description,
-  onClick,
-  title,
+function CodexInput({
+  onChange,
+  value,
 }: {
-  description: string
-  onClick: () => void
-  title: string
+  onChange: (value: string) => void
+  value: string
 }) {
+  return <input className="codex-input w-full" style={inputStyle} type="text" value={value} onChange={(event) => onChange(event.target.value)} />
+}
+
+function ButtonLike({
+  children,
+  danger = false,
+  icon,
+  onClick,
+  primary = false,
+}: {
+  children: ReactNode
+  danger?: boolean
+  icon?: ReactNode
+  onClick: () => void
+  primary?: boolean
+}) {
+  const style = primary
+    ? {
+        background: 'var(--color-codex-ink)',
+        color: 'var(--color-codex-bg-elev)',
+        border: '1px solid var(--color-codex-ink)',
+      }
+    : danger
+      ? {
+          background: 'var(--color-codex-bg-elev)',
+          color: 'var(--color-codex-bad)',
+          border: '1px solid color-mix(in oklab, var(--color-codex-bad) 24%, var(--color-codex-line))',
+        }
+      : {
+          background: 'var(--color-codex-bg-elev)',
+          color: 'var(--color-codex-ink-soft)',
+          border: '1px solid var(--color-codex-line)',
+        }
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-start gap-3 rounded-[1.15rem] border border-white/80 bg-white/85 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-white hover:shadow-md"
+      className="inline-flex items-center justify-center gap-1.5"
+      style={{
+        ...style,
+        padding: '7px 12px',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+        fontSize: 12.5,
+        whiteSpace: 'nowrap',
+      }}
     >
-      <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition group-hover:bg-emerald-700">
-        <MessageSquare className="h-4 w-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-slate-900">{title}</span>
-        <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
-      </span>
-      <ExternalLink className="mt-1 h-4 w-4 flex-shrink-0 text-slate-300 transition group-hover:text-emerald-600" />
+      {icon ? <span className="inline-flex shrink-0" aria-hidden="true">{icon}</span> : null}
+      {children}
     </button>
   )
 }
+
+function MetaDot() {
+  return <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+}
+
+const inputStyle = {
+  padding: '8px 10px',
+  border: '1px solid var(--color-codex-line)',
+  borderRadius: 'var(--codex-r-sm, 3px)',
+  background: 'var(--color-codex-bg-elev)',
+  color: 'var(--color-codex-ink)',
+  fontSize: 13,
+} as const
 
 function buildClientSkillPromptV2({
   client,
@@ -696,15 +994,162 @@ ${projectLines}
 请优先使用客户上下文。如果信息不足，请明确你的假设，并指出下一步应该补充哪些客户信息。`
 }
 
-function getProjectStatusTone(status: string) {
-  if (status === 'active') return 'bg-emerald-50 text-emerald-700'
-  if (status === 'lead') return 'bg-amber-50 text-amber-700'
-  return 'bg-slate-100 text-slate-600'
+function getClientStats(projects: Project[], client: Client | null, stakeholders: ClientStakeholder[], keyContacts: Array<{ name: string }>, isZh: boolean) {
+  const signedProjectCount = projects.filter((project) => isSignedProject(project.status)).length
+  const totalAmount = projects.reduce((sum, project) => sum + (project.contract_amount ?? 0), 0)
+  const hasActiveProjects = projects.some((project) => getProjectStatus(project.status, isZh).tone === 'good')
+  const healthTone: CxStatusTone = hasActiveProjects ? 'good' : projects.length ? 'warn' : 'mute'
+  const healthLabel = hasActiveProjects
+    ? isZh
+      ? '活跃'
+      : 'Active'
+    : projects.length
+      ? isZh
+        ? '关注'
+        : 'Watch'
+      : isZh
+        ? '沉睡'
+        : 'Dormant'
+
+  return {
+    healthLabel,
+    healthTone,
+    items: [
+      { label: isZh ? '进行中项目' : 'Active projects', value: projects.length },
+      { label: isZh ? '签约项目' : 'Signed projects', value: signedProjectCount },
+      { label: isZh ? '累计金额' : 'Total value', value: totalAmount ? formatCurrency(totalAmount) : '—' },
+      { label: isZh ? '关联联系人' : 'Contacts', value: Math.max(stakeholders.length, keyContacts.length, client?.contact ? 1 : 0) },
+    ],
+  }
+}
+
+function getMemoryState(memoryStatus: ClientMemoryStatusResponse | null, isZh: boolean) {
+  if (!memoryStatus?.has_memory) {
+    return {
+      label: isZh ? '尚未生成' : 'Not prepared',
+      tone: 'mute' as CxStatusTone,
+      versionLabel: isZh ? '尚未生成客户记忆' : 'No client memory yet',
+    }
+  }
+  if (memoryStatus.memory_stale) {
+    return {
+      label: isZh ? '建议刷新' : 'Needs refresh',
+      tone: 'warn' as CxStatusTone,
+      versionLabel: `v${memoryStatus.memory_version ?? '—'} · ${isZh ? '建议刷新' : 'Needs refresh'}`,
+    }
+  }
+  return {
+    label: isZh ? '可直接使用' : 'Ready',
+    tone: 'good' as CxStatusTone,
+    versionLabel: `v${memoryStatus.memory_version ?? '—'} · ${isZh ? '已同步' : 'Synced'}`,
+  }
+}
+
+function getProjectStatus(status: string, isZh: boolean): { label: string; tone: CxStatusTone } {
+  const normalized = status.toLowerCase()
+  if (['active', 'in_progress', 'delivery', 'ongoing'].includes(normalized)) {
+    return { label: isZh ? '推进中' : 'Active', tone: 'good' }
+  }
+  if (['lead', 'lead_discovery', 'opportunity', 'proposal'].includes(normalized)) {
+    return { label: isZh ? '机会期' : 'Lead', tone: 'warn' }
+  }
+  if (isSignedProject(status)) {
+    return { label: isZh ? '已签约' : 'Signed', tone: 'accent' }
+  }
+  if (['cancelled', 'lost', 'archived'].includes(normalized)) {
+    return { label: isZh ? '已归档' : 'Archived', tone: 'mute' }
+  }
+  return { label: status || (isZh ? '未标记' : 'Unknown'), tone: 'neutral' }
+}
+
+function isSignedProject(status: string) {
+  return ['signed', 'won', 'completed', 'delivered', 'closed'].includes(status.toLowerCase())
+}
+
+function getKeyContacts(client: Client | null, stakeholders: ClientStakeholder[], isZh: boolean) {
+  if (stakeholders.length > 0) {
+    return stakeholders.map((stakeholder) => ({
+      name: stakeholder.name,
+      role: stakeholder.role || stakeholder.organization_level,
+      note: stakeholder.contact || stakeholder.last_action || stakeholder.note,
+      recorded: Boolean(stakeholder.contact || stakeholder.note),
+    }))
+  }
+  if (client?.contact) {
+    return [
+      {
+        name: client.contact.split(/[、,，/]/)[0]?.trim() || client.contact,
+        role: isZh ? '主要联系人' : 'Primary contact',
+        note: client.contact,
+        recorded: true,
+      },
+    ]
+  }
+  return []
+}
+
+function getFocusTopics(client: Client, projects: Project[], isZh: boolean) {
+  const projectNames = projects.map((project) => project.name).filter(Boolean)
+  if (projectNames.length > 0) return projectNames.slice(0, 4).join(' · ')
+  if (client.notes) return client.notes.slice(0, 80)
+  return isZh ? '待补充客户关注议题' : 'Focus topics to be captured'
+}
+
+function buildHistoryEvents(client: Client, projects: Project[], isZh: boolean) {
+  const events = []
+  if (client.client_memory_updated_at) {
+    events.push({
+      time: formatDateOnly(client.client_memory_updated_at, { month: 'short', day: 'numeric' }, getResolvedAppTimeZone()),
+      label: isZh ? '客户记忆刷新' : 'Client memory refreshed',
+    })
+  }
+  projects.slice(0, 3).forEach((project) => {
+    events.push({
+      time: getProjectStatus(project.status, isZh).label,
+      label: project.name,
+    })
+  })
+  events.push({
+    time: formatDateOnly(client.created_at, { month: 'short', day: 'numeric' }, getResolvedAppTimeZone()),
+    label: isZh ? '创建客户档案' : 'Client record created',
+  })
+  return events
+}
+
+function inferRegion(client: Client, isZh: boolean) {
+  const text = `${client.name} ${client.notes}`.toLowerCase()
+  const regionHints: Array<[RegExp, string, string]> = [
+    [/北京|beijing/, '北京', 'Beijing'],
+    [/上海|shanghai/, '上海', 'Shanghai'],
+    [/广州|guangzhou/, '广州', 'Guangzhou'],
+    [/深圳|shenzhen/, '深圳', 'Shenzhen'],
+    [/杭州|hangzhou/, '杭州', 'Hangzhou'],
+    [/成都|chengdu/, '成都', 'Chengdu'],
+    [/香港|hong kong|hk/, '香港', 'Hong Kong'],
+  ]
+  const match = regionHints.find(([pattern]) => pattern.test(text))
+  if (match) return isZh ? match[1] : match[2]
+  return isZh ? '未记录' : 'Unknown'
+}
+
+function getClientShortName(name: string) {
+  const clean = name.replace(/\s+/g, ' ').trim()
+  if (!clean) return '-'
+  const firstPart = clean.split(/[·|｜\-—]/)[0]?.trim() || clean
+  if (/[\u4e00-\u9fff]/.test(firstPart)) return Array.from(firstPart).slice(0, 6).join('')
+  return firstPart.split(' ').slice(0, 2).join(' ')
+}
+
+function getClientInitial(name: string) {
+  const short = getClientShortName(name)
+  const length = /[\u4e00-\u9fff]/.test(short) ? 1 : 2
+  return Array.from(short).slice(0, length).join('').toUpperCase()
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    currency: 'USD',
+  return new Intl.NumberFormat('zh-CN', {
+    currency: 'CNY',
+    currencyDisplay: 'code',
     maximumFractionDigits: 0,
     style: 'currency',
   }).format(value)

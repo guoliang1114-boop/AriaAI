@@ -84,7 +84,7 @@ describe('ClientDetail', () => {
       return Promise.resolve({})
     })
     render(<ClientDetail />)
-    await waitFor(() => screen.getByText('客户A'))
+    await waitFor(() => screen.getByRole('heading', { name: '客户A' }))
     const backBtn = screen.getAllByRole('button').find((b) => b.textContent?.includes('返回')) as HTMLButtonElement
     if (backBtn) {
       fireEvent.click(backBtn)
