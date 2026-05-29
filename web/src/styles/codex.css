@@ -435,23 +435,34 @@
     color 150ms ease, border-color 150ms ease;
 }
 
-/* Hover combines two effects so feedback is visible regardless of how
- * the caller styled the button background:
+/* Hover combines two effects so feedback is visible on every button
+ * surface variant (dark ink / accent / bg-elev / transparent) without
+ * clobbering the inline ``background`` the caller set.
  *
- * - ``filter: brightness(0.93)`` darkens any solid background. This is
- *   what makes the moss accent button (which reads almost-black) and
- *   the codex-bad destructive button feel responsive — a 7% ink wash
- *   alone was too subtle on dark surfaces.
- * - ``box-shadow inset`` adds a 6% ink wash on top. This is what keeps
- *   transparent / icon-only buttons (chevrons, dropdown rows) visible,
- *   because brightness on transparent pixels has no effect.
+ * The trick: the two effects pull in opposite directions, so whichever
+ * one is invisible against a given surface, the other carries the
+ * feedback.
  *
- * Together they cover all four button surface variants without
- * clobbering the inline ``background`` the caller set. */
+ * - ``filter: brightness(1.18)`` LIGHTENS the button. This is what
+ *   makes the dark ``var(--ink)`` primary button and the moss
+ *   ``var(--accent)`` button respond — both read as near-black, and
+ *   darkening further was invisible (PR #45's bug). Lightening lifts
+ *   them visibly toward grey/lighter-moss. On already-near-white
+ *   surfaces (bg-elev) brightness >1 clips at white and the change is
+ *   imperceptible — that's fine, because the second effect handles it.
+ * - ``box-shadow inset`` overlays a 7% ink wash. This is what gives
+ *   light buttons (bg-elev, bg-tint) and fully transparent
+ *   icon-only buttons their feedback — a grey wash on the surface.
+ *   On dark buttons it's almost invisible (dark + dark = still dark),
+ *   which is also fine because brightness already covered them.
+ *
+ * Net: every surface variant moves visibly. The direction differs
+ * (dark surfaces brighten, light surfaces darken), but both register
+ * as "you're hovering me" without per-call-site styling. */
 .theme-codex button:not(:disabled):not(.cx-no-hover):hover,
 .theme-codex [role="button"]:not(:disabled):not(.cx-no-hover):hover {
-  filter: brightness(0.93);
-  box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 6%, transparent);
+  filter: brightness(1.18);
+  box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 7%, transparent);
 }
 
 .theme-codex button:focus-visible:not(:disabled),
