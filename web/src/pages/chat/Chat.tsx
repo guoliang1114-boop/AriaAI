@@ -841,9 +841,21 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handle}
       title="Copy message"
-      className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+      className="p-1.5 transition-colors"
+      style={{
+        background: 'var(--color-codex-bg-tint)',
+        color: 'var(--color-codex-ink-mute)',
+        borderRadius: 'var(--codex-r-sm, 3px)',
+      }}
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? (
+        <Check
+          className="h-3.5 w-3.5"
+          style={{ color: 'var(--color-codex-accent)' }}
+        />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
     </button>
   )
 }
@@ -2207,7 +2219,11 @@ export function Chat() {
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-auto py-4 relative bg-slate-50 sm:py-8">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 overflow-auto py-4 relative sm:py-8"
+          style={{ background: 'var(--color-codex-bg)' }}
+        >
           <div className={`mx-auto px-3 sm:px-6 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
 
             {/* Load more */}
@@ -2229,11 +2245,30 @@ export function Chat() {
             {/* Loading skeleton */}
             {(loading && conversationId && messages.length === 0) || shouldBootstrapConversation ? (
               <div className="flex flex-col items-center justify-center py-32">
-                <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
-                  <Sparkles className="w-5 h-5 text-white" />
-                  <div className="absolute inset-0 rounded-2xl bg-primary animate-ping opacity-15" />
+                <div
+                  className="relative flex h-10 w-10 items-center justify-center"
+                  style={{
+                    background: 'var(--color-codex-accent)',
+                    color: 'var(--color-codex-bg-elev)',
+                    borderRadius: 'var(--codex-r-md, 10px)',
+                  }}
+                >
+                  <Sparkles className="h-5 w-5" />
+                  <div
+                    className="absolute inset-0 animate-ping"
+                    style={{
+                      background: 'var(--color-codex-accent)',
+                      borderRadius: 'var(--codex-r-md, 10px)',
+                      opacity: 0.15,
+                    }}
+                  />
                 </div>
-                <p className="mt-4 text-sm text-gray-400">{t('chat.loading')}</p>
+                <p
+                  className="mt-4"
+                  style={{ fontSize: 13, color: 'var(--color-codex-ink-mute)' }}
+                >
+                  {t('chat.loading')}
+                </p>
               </div>
 
             ) : messages.length === 0 && !streamingContent && !isThinking && progressSteps.length === 0 ? (
