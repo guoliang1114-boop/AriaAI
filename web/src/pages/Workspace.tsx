@@ -20,7 +20,6 @@ import {
   ArrowRight,
   Calendar,
   FileText,
-  Loader2,
   MessageSquare,
   RefreshCw,
   Sparkles,
@@ -29,7 +28,7 @@ import {
 import type { AxiosError } from "axios";
 
 import { api } from "../api/client";
-import { CxLogo, CxStatus, type CxStatusTone } from "../components/codex";
+import { CxLogo, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from "../components/codex";
 import { PageTitle } from "../components/PageTitle";
 import { parseAppDateTime } from "../utils/timezone";
 import type {
@@ -351,15 +350,7 @@ export function Workspace() {
     return (
       <>
         <PageTitle title={isZh ? "今日工作台" : "Workspace"} />
-        <div
-          className="theme-codex flex h-full items-center justify-center"
-          style={{
-            background: "var(--color-codex-bg)",
-            color: "var(--color-codex-ink-mute)",
-          }}
-        >
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </div>
+        <WorkspaceSkeleton />
       </>
     );
   }
@@ -1011,6 +1002,142 @@ export function Workspace() {
 }
 
 // ----------------------------------------------------------------------------
+
+/**
+ * Workspace skeleton — structured placeholder that mirrors the real
+ * Workspace layout per the design's CxLoading in
+ * ``design_handoff_aria_codex_redesign/direction-codex-states.jsx:23``.
+ *
+ * Shows greeting block + Skill cards row + projects table on the left,
+ * todos + recent chats on the right, plus a 2px accent slider at the
+ * very top so the page reads as "fetching" not "broken".
+ */
+function WorkspaceSkeleton() {
+  return (
+    <div
+      className="theme-codex flex h-full flex-col overflow-hidden"
+      style={{ background: "var(--color-codex-bg)", color: "var(--color-codex-ink)" }}
+    >
+      <CxTopProgress />
+      <div
+        className="grid min-w-0 flex-1 overflow-hidden"
+        style={{
+          padding: "36px 36px 40px",
+          gap: 48,
+          gridTemplateColumns: "minmax(0,1fr) 300px",
+        }}
+      >
+        {/* Left column */}
+        <div className="flex flex-col" style={{ gap: 40, minWidth: 0 }}>
+          {/* Greeting */}
+          <div>
+            <CxSkeleton w={140} h={11} style={{ marginBottom: 12 }} />
+            <CxSkeleton w={320} h={28} />
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+              <CxSkeleton w="80%" h={14} />
+              <CxSkeleton w="55%" h={14} />
+            </div>
+          </div>
+
+          {/* Skill cards */}
+          <section>
+            <div style={{ marginBottom: 14 }}>
+              <CxSkeleton w={100} h={13} />
+            </div>
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}
+            >
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="flex flex-col"
+                  style={{
+                    padding: 18,
+                    gap: 10,
+                    minHeight: 140,
+                    background: "var(--color-codex-bg-elev)",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-md, 6px)",
+                  }}
+                >
+                  <CxSkeleton w={30} h={30} radius="var(--codex-r-sm, 3px)" />
+                  <CxSkeleton w="70%" h={16} />
+                  <CxSkeleton w="90%" h={12} />
+                  <CxSkeleton w="50%" h={11} style={{ marginTop: "auto" }} />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Projects table */}
+          <section>
+            <div style={{ marginBottom: 12 }}>
+              <CxSkeleton w={120} h={13} />
+            </div>
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="grid items-center"
+                style={{
+                  gridTemplateColumns: "1fr 110px 100px 110px 14px",
+                  padding: "13px 4px",
+                  gap: 14,
+                  borderBottom: "1px solid var(--color-codex-line-soft)",
+                }}
+              >
+                <div>
+                  <CxSkeleton w="60%" h={14} />
+                  <div style={{ marginTop: 5 }}>
+                    <CxSkeleton w="40%" h={11} />
+                  </div>
+                </div>
+                <CxSkeleton w={70} h={14} radius={999} />
+                <CxSkeleton w={50} h={13} />
+                <CxSkeleton w={80} h={13} radius={999} />
+                <CxSkeleton w={10} h={10} />
+              </div>
+            ))}
+          </section>
+        </div>
+
+        {/* Right rail */}
+        <aside
+          className="flex flex-col"
+          style={{
+            gap: 28,
+            minWidth: 0,
+            borderLeft: "1px solid var(--color-codex-line)",
+            paddingLeft: 36,
+          }}
+        >
+          {[0, 1].map((s) => (
+            <div key={s}>
+              <div style={{ marginBottom: 12 }}>
+                <CxSkeleton w={90} h={13} />
+              </div>
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-start"
+                  style={{ gap: 10, padding: "8px 0" }}
+                >
+                  <CxSkeleton w={14} h={14} radius={3} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <CxSkeleton w="85%" h={13} />
+                    <div style={{ marginTop: 5 }}>
+                      <CxSkeleton w="50%" h={11} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </aside>
+      </div>
+    </div>
+  );
+}
 
 function SectionHeader({
   title,

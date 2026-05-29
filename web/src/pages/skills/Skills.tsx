@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { api } from "../../api/client";
+import { CxSkeleton, CxTopProgress } from "../../components/codex";
 import { PageTitle } from "../../components/PageTitle";
 import type { Skill, SkillSummary } from "../../types/api";
 
@@ -1729,12 +1730,115 @@ export function SkillDetailPage() {
   );
 }
 
+/**
+ * Skills 库 skeleton — mirrors the real page layout (220px sidebar +
+ * grouped list) per the design's CxLoading approach in
+ * ``design_handoff_aria_codex_redesign/direction-codex-states.jsx:23``.
+ *
+ * Top progress bar gives a "fetching" cue without committing to a
+ * spinner that hides the fact that the page is structured.
+ */
 function SkillsLoading({ title }: { title: string }) {
   return (
     <>
       <PageTitle title={title} />
-      <div className="flex min-h-full items-center justify-center bg-slate-50">
-        <Zap className="h-8 w-8 animate-pulse text-primary" />
+      <div
+        className="theme-codex flex h-full flex-col"
+        style={{
+          background: "var(--color-codex-bg)",
+          color: "var(--color-codex-ink)",
+        }}
+      >
+        <CxTopProgress />
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar skeleton — matches the 220px panel with categories
+              and stats from the real page. */}
+          <aside
+            className="hidden flex-shrink-0 lg:block"
+            style={{
+              width: 220,
+              padding: "28px 18px 28px 40px",
+              borderRight: "1px solid var(--color-codex-line)",
+            }}
+          >
+            <div style={{ marginBottom: 10 }}>
+              <CxSkeleton w={48} h={11} />
+            </div>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between"
+                style={{ padding: "7px 10px", marginBottom: 1 }}
+              >
+                <CxSkeleton w="55%" h={12} />
+                <CxSkeleton w={18} h={11} />
+              </div>
+            ))}
+            <div style={{ margin: "26px 0 8px" }}>
+              <CxSkeleton w={48} h={11} />
+            </div>
+            <div style={{ padding: "4px 10px" }}>
+              {[0, 1].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between"
+                  style={{ padding: "6px 0" }}
+                >
+                  <CxSkeleton w="40%" h={11} />
+                  <CxSkeleton w={24} h={11} />
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          {/* Main column skeleton — heading + 2 grouped sections of
+              skill rows. */}
+          <div className="min-w-0 flex-1 overflow-auto" style={{ padding: "32px 56px 40px" }}>
+            <div style={{ marginBottom: 28 }}>
+              <CxSkeleton w={160} h={28} />
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                <CxSkeleton w="60%" h={14} />
+                <CxSkeleton w="40%" h={14} />
+              </div>
+            </div>
+            {[0, 1].map((group) => (
+              <section key={group} style={{ marginBottom: 28 }}>
+                <div
+                  className="flex items-baseline justify-between"
+                  style={{ marginBottom: 14 }}
+                >
+                  <CxSkeleton w={80} h={13} />
+                  <CxSkeleton w={48} h={11} />
+                </div>
+                {[0, 1, 2].map((i, _, arr) => (
+                  <div
+                    key={i}
+                    className="grid items-center"
+                    style={{
+                      gridTemplateColumns: "1fr 90px 80px 14px",
+                      columnGap: 16,
+                      padding: "14px 8px",
+                      borderBottom:
+                        i === arr.length - 1
+                          ? "none"
+                          : "1px solid var(--color-codex-line-soft)",
+                    }}
+                  >
+                    <div>
+                      <CxSkeleton w="50%" h={15} />
+                      <div style={{ marginTop: 5 }}>
+                        <CxSkeleton w="80%" h={12} />
+                      </div>
+                    </div>
+                    <CxSkeleton w={70} h={14} radius={999} />
+                    <CxSkeleton w={50} h={12} />
+                    <CxSkeleton w={10} h={10} />
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        </div>
       </div>
     </>
   );
