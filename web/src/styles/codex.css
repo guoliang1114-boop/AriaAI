@@ -363,7 +363,7 @@
   display: none;
   flex: 1.4 1 0;
   min-width: 0;
-  padding: 44px 56px;
+  padding: 64px clamp(56px, 8vw, 140px);
   background: var(--color-codex-bg-elev);
   border-right: 1px solid var(--color-codex-line);
   flex-direction: column;
@@ -399,9 +399,9 @@
     display: flex;
   }
   .theme-codex .codex-login-main {
-    flex: 0 0 480px;
-    width: 480px;
-    padding: 44px 60px;
+    flex: 0 0 420px;
+    width: 420px;
+    padding: 44px 40px;
   }
 }
 

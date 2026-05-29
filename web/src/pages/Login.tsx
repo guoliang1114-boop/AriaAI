@@ -4,11 +4,11 @@
  * Fullscreen / ultrawide fix:
  *   1. Outer wrapper now uses bg-elev so the left aside background extends
  *      to viewport edges on ultrawide. Inner container is capped at 1440.
- *   2. Desktop uses a deterministic flex shell: left flex 1.4, right 480px.
+ *   2. Desktop uses a deterministic flex shell: left flex 1.4, right 420px.
  *   3. Brand mark + hero + footer are wrapped in a single 520-wide column
  *      so all 3 align to the same vertical axis (no more footer items
  *      flying to opposite corners on wide screens).
- *   4. Right main is fixed 480px on desktop — form column never inflates.
+ *   4. Right main is fixed 420px on desktop — form column never inflates.
  *   5. Dot grid + orbs remain pinned to the aside (not the inner column)
  *      so they keep filling the panel space.
  *
@@ -91,7 +91,7 @@ export function Login() {
         <div className="codex-login-inner">
           {/* --------------------------------------------------------
               LEFT — quiet hero (hidden on small screens). Desktop flex
-              gives this column all remaining width beside the 480px form.
+              gives this column all remaining width beside the 420px form.
               -------------------------------------------------------- */}
           <aside
             className="codex-login-aside"
@@ -224,7 +224,7 @@ export function Login() {
           </aside>
 
           {/* --------------------------------------------------------
-              RIGHT — form. Fixed 480px width on desktop so the form
+              RIGHT — form. Fixed 420px width on desktop so the form
               column never inflates on ultrawide screens.
               -------------------------------------------------------- */}
           <main
