@@ -21,15 +21,21 @@ describe("normalizeAppearance", () => {
   it("falls back per-field for invalid values", () => {
     expect(
       normalizeAppearance({ theme: "neon", accent: "moss", density: "regular", radius: "soft" }),
-    ).toEqual({ theme: "light", accent: "moss", density: "regular", radius: "soft" });
+    ).toEqual({ theme: "light", accent: "moss", density: "regular", radius: "soft", warmth: "parchment" });
     expect(
       normalizeAppearance({ accent: "lime", density: "compact" }),
-    ).toEqual({ theme: "light", accent: "moss", density: "compact", radius: "soft" });
+    ).toEqual({ theme: "light", accent: "moss", density: "compact", radius: "soft", warmth: "parchment" });
   });
 
   it("preserves a fully valid payload unchanged", () => {
-    const value = { theme: "dark", accent: "azure", density: "comfy", radius: "round" } as const;
+    const value = { theme: "dark", accent: "azure", density: "comfy", radius: "round", warmth: "white" } as const;
     expect(normalizeAppearance(value)).toEqual(value);
+  });
+
+  it("falls back to the default warmth when missing or invalid", () => {
+    expect(
+      normalizeAppearance({ theme: "light", accent: "moss", density: "regular", radius: "soft", warmth: "neon" }),
+    ).toEqual({ theme: "light", accent: "moss", density: "regular", radius: "soft", warmth: "parchment" });
   });
 });
 
@@ -43,13 +49,14 @@ describe("readSavedAppearance / writeSavedAppearance", () => {
   });
 
   it("round-trips a written value", () => {
-    writeSavedAppearance({ theme: "dark", accent: "amber", density: "comfy", radius: "round" });
+    writeSavedAppearance({ theme: "dark", accent: "amber", density: "comfy", radius: "round", warmth: "paper" });
     expect(window.localStorage.getItem(CODEX_APPEARANCE_STORAGE_KEY)).toContain('"theme":"dark"');
     expect(readSavedAppearance()).toEqual({
       theme: "dark",
       accent: "amber",
       density: "comfy",
       radius: "round",
+      warmth: "paper",
     });
   });
 
@@ -128,6 +135,7 @@ describe("bootstrapCodexAppearance", () => {
       accent: "amber",
       density: "comfy",
       radius: "round",
+      warmth: "paper",
     });
     const result = bootstrapCodexAppearance();
     expect(result).toEqual({
@@ -135,9 +143,11 @@ describe("bootstrapCodexAppearance", () => {
       accent: "amber",
       density: "comfy",
       radius: "round",
+      warmth: "paper",
     });
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("accent-amber")).toBe(true);
+    expect(document.documentElement.classList.contains("warmth-paper")).toBe(true);
   });
 
   it("applies the default when nothing has been saved", () => {

@@ -22,6 +22,7 @@ function Probe() {
             accent: "azure",
             density: "comfy",
             radius: "round",
+            warmth: "paper",
           })
         }
       />
@@ -45,6 +46,7 @@ describe("useCodexAppearance", () => {
       accent: "amber",
       density: "comfy",
       radius: "round",
+      warmth: "paper",
     });
     render(<Probe />);
     expect(screen.getByTestId("theme").textContent).toBe("dark");
