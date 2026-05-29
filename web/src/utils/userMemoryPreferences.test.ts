@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { __test__ } from "./UserMemorySettingsCard";
+import { compactPreferences, readShape } from "./userMemoryPreferences";
 
-const { compactPreferences, readShape } = __test__;
-
-describe("UserMemorySettingsCard helpers", () => {
+describe("userMemoryPreferences helpers", () => {
   describe("compactPreferences always stamps personal_info.onboarding_seen", () => {
     it("preserves onboarding_seen even when the form is otherwise empty", () => {
-      // Reaching the settings card implies the user has been through the
+      // Reaching the preferences page implies the user has been through the
       // onboarding flow at least once. Whole-object PUT semantics on the
       // backend (user_memory router) mean any field absent from the payload
       // is dropped — so the save must restamp the flag every time.

@@ -13,9 +13,11 @@
  * — minus the "open Tweaks panel" callout because we don't ship a
  * Tweaks panel in production; this page IS the Tweaks panel.
  */
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Loader2, Sparkles } from "lucide-react";
 
+import { api } from "../../api/client";
 import { CxFormRow, CxStatus } from "../../components/codex";
 import { useCodexAppearance } from "../../hooks/useCodexAppearance";
 import type {
@@ -25,6 +27,40 @@ import type {
   CodexTheme,
   CodexWarmth,
 } from "../../utils/codexAppearance";
+import {
+  APP_FONT_SIZE_SETTING_KEY,
+  getStoredAppFontSize,
+  isAppFontSize,
+  setAppFontSize,
+  type AppFontSize,
+} from "../../utils/fontSize";
+
+interface FontSizeOption {
+  value: AppFontSize;
+  label_zh: string;
+  label_en: string;
+  previewClass: string;
+}
+
+const FONT_SIZE_OPTIONS: FontSizeOption[] = [
+  { value: "small", label_zh: "小", label_en: "Small", previewClass: "text-[13px]" },
+  { value: "medium", label_zh: "中", label_en: "Medium", previewClass: "text-[15px]" },
+  { value: "large", label_zh: "大", label_en: "Large", previewClass: "text-[17px]" },
+];
+
+interface SavedMessage {
+  type: "success" | "error";
+  text: string;
+}
+
+const SAVE_BUTTON_STYLE: React.CSSProperties = {
+  padding: "8px 16px",
+  background: "var(--color-codex-ink)",
+  color: "var(--color-codex-bg-elev)",
+  borderRadius: "var(--codex-r-sm, 3px)",
+  fontSize: 13,
+  fontWeight: 500,
+};
 
 interface ChipOption<T extends string> {
   value: T;
@@ -62,10 +98,14 @@ const DENSITY_OPTIONS_EN: ChipOption<CodexDensity>[] = [
   { value: "comfy", label: "Comfy" },
 ];
 
+// Radius previews now use a bigger tile + an inset button-and-pill
+// silhouette so the difference between sharp / soft / round is
+// obvious at a glance — the earlier version was a 56×36 outline only
+// and the user couldn't tell the choices apart.
 const RADIUS_OPTIONS: { value: CodexRadius; label_zh: string; label_en: string; px: number }[] = [
   { value: "sharp", label_zh: "锐利", label_en: "Sharp", px: 0 },
-  { value: "soft", label_zh: "柔和", label_en: "Soft", px: 6 },
-  { value: "round", label_zh: "圆润", label_en: "Round", px: 14 },
+  { value: "soft", label_zh: "柔和", label_en: "Soft", px: 8 },
+  { value: "round", label_zh: "圆润", label_en: "Round", px: 18 },
 ];
 
 // Warmth swatches use the same color the CSS class will set as
@@ -84,6 +124,56 @@ export function AppearanceSettings() {
 
   const themeOptions = isZh ? THEME_OPTIONS_ZH : THEME_OPTIONS_EN;
   const densityOptions = isZh ? DENSITY_OPTIONS_ZH : DENSITY_OPTIONS_EN;
+
+  // Font size — backend round-trip (not localStorage-only like the
+  // other appearance controls) because it has to follow the user
+  // across devices. The picker is live-preview, the save button
+  // syncs to ``/settings/font_size``.
+  const [fontSize, setFontSize] = useState<AppFontSize>(getStoredAppFontSize);
+  const [savingFontSize, setSavingFontSize] = useState(false);
+  const [fontSizeMsg, setFontSizeMsg] = useState<SavedMessage | null>(null);
+
+  useEffect(() => {
+    api
+      .get<Record<string, string>>("/settings/")
+      .then((settings) => {
+        const remote = settings[APP_FONT_SIZE_SETTING_KEY];
+        if (isAppFontSize(remote)) {
+          setFontSize(remote);
+          setAppFontSize(remote);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSelectFontSize = (value: AppFontSize) => {
+    setFontSize(value);
+    setAppFontSize(value);
+    setFontSizeMsg(null);
+  };
+
+  const handleSaveFontSize = async () => {
+    setSavingFontSize(true);
+    setFontSizeMsg(null);
+    try {
+      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value: fontSize });
+      setAppFontSize(fontSize);
+      setFontSizeMsg({
+        type: "success",
+        text: isZh ? "字体大小已保存" : "Font size saved",
+      });
+      setTimeout(() => setFontSizeMsg(null), 3000);
+    } catch (err) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFontSizeMsg({
+        type: "error",
+        text: detail || (isZh ? "保存字体大小失败" : "Failed to save font size"),
+      });
+    } finally {
+      setSavingFontSize(false);
+    }
+  };
 
   // All copy on this page is in the Codex theme scope, so use codex tokens
   // directly. The outer wrapper opts the subtree into the codex theme even
@@ -148,14 +238,107 @@ export function AppearanceSettings() {
         />
       </CxFormRow>
 
+      {/* Font size — backend-persisted (per-user, follows across
+          devices) unlike the other appearance choices which are local
+          to the browser. Lives here because it's a visual choice, not
+          an identity field — moved out of 个人资料 in the Codex
+          settings reorg. */}
+      <CxFormRow
+        label={isZh ? "字体大小" : "Font size"}
+        hint={
+          isZh
+            ? "整个界面的文字会按比例缩放，点击即可即时预览。保存后在其他设备同步。"
+            : "Scales every text size in the app. Click to preview live; saving syncs across your devices."
+        }
+      >
+        <div className="flex flex-wrap items-stretch gap-3" data-testid="appearance-font-size">
+          <div
+            className="flex gap-2"
+            style={{
+              padding: 4,
+              background: "var(--color-codex-bg)",
+              border: "1px solid var(--color-codex-line)",
+              borderRadius: "var(--codex-r-sm, 3px)",
+              flex: "1 1 auto",
+            }}
+            role="radiogroup"
+            aria-label={isZh ? "字体大小" : "Font size"}
+          >
+            {FONT_SIZE_OPTIONS.map((option) => {
+              const active = fontSize === option.value;
+              const label = isZh ? option.label_zh : option.label_en;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={label}
+                  onClick={() => handleSelectFontSize(option.value)}
+                  className="flex flex-1 items-center justify-center gap-1.5 transition"
+                  style={{
+                    padding: "6px 10px",
+                    background: active
+                      ? "var(--color-codex-accent-bg)"
+                      : "transparent",
+                    color: active
+                      ? "var(--color-codex-accent-ink)"
+                      : "var(--color-codex-ink-soft)",
+                    borderRadius: "calc(var(--codex-r-sm, 3px) - 1px)",
+                    fontWeight: active ? 500 : 400,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span className={option.previewClass}>Aa</span>
+                  <span className="text-[13px]">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleSaveFontSize()}
+            disabled={savingFontSize}
+            className="inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+            style={SAVE_BUTTON_STYLE}
+          >
+            {savingFontSize ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {isZh ? "保存" : "Save"}
+          </button>
+        </div>
+        {fontSizeMsg && (
+          <p
+            role={fontSizeMsg.type === "error" ? "alert" : undefined}
+            className="mt-1.5 inline-flex items-center gap-1"
+            style={{
+              fontSize: 11.5,
+              color:
+                fontSizeMsg.type === "success"
+                  ? "var(--color-codex-good)"
+                  : "var(--color-codex-bad)",
+            }}
+          >
+            {fontSizeMsg.type === "error" && (
+              <AlertCircle className="h-3 w-3" aria-hidden="true" />
+            )}
+            {fontSizeMsg.text}
+          </p>
+        )}
+      </CxFormRow>
+
       {/* Background warmth — page color from pure white to warm
-          parchment. Only affects the light theme; dark mode ignores it. */}
+          parchment. Light AND dark themes both honor it now;
+          previously only light theme listened. */}
       <CxFormRow
         label={isZh ? "页面背景" : "Page background"}
         hint={
           isZh
-            ? "羊皮偏暖、纯白偏冷 — 选你看着最舒服的那一档。深色主题不受影响。"
-            : "Parchment is warm, white is cool — pick whatever's easiest on your eyes. Dark theme is unaffected."
+            ? "羊皮偏暖、纯白偏冷 — 选你看着最舒服的那一档。浅色和深色主题都会跟着变。"
+            : "Parchment is warm, white is cool — pick whatever's easiest on your eyes. Applies to both light and dark themes."
         }
       >
         <div className="flex flex-wrap gap-2.5" data-testid="appearance-warmth">
@@ -278,7 +461,9 @@ export function AppearanceSettings() {
         />
       </CxFormRow>
 
-      {/* Radius */}
+      {/* Radius — bigger tile with an inset button + pill so the
+          radius difference is visible without having to scroll down
+          to the live preview card. */}
       <CxFormRow
         label={isZh ? "圆角" : "Corner radius"}
         hint={
@@ -288,7 +473,7 @@ export function AppearanceSettings() {
         }
         divider={false}
       >
-        <div className="flex gap-2.5" data-testid="appearance-radius">
+        <div className="flex flex-wrap gap-3" data-testid="appearance-radius">
           {RADIUS_OPTIONS.map((opt) => {
             const active = appearance.radius === opt.value;
             return (
@@ -299,14 +484,16 @@ export function AppearanceSettings() {
                 aria-checked={active}
                 aria-label={isZh ? opt.label_zh : opt.label_en}
                 onClick={() => patchAppearance({ radius: opt.value })}
-                className="flex flex-col items-center gap-1.5 transition"
-                style={{ padding: 4, cursor: "pointer" }}
+                className="flex flex-col items-center gap-2 transition"
+                style={{ padding: 0, cursor: "pointer" }}
               >
                 <span
                   aria-hidden="true"
+                  className="flex items-center justify-center gap-2"
                   style={{
-                    width: 56,
-                    height: 36,
+                    width: 132,
+                    height: 80,
+                    padding: "0 14px",
                     borderRadius: opt.px,
                     background: active
                       ? "var(--color-codex-accent-bg)"
@@ -316,9 +503,38 @@ export function AppearanceSettings() {
                         ? "var(--color-codex-accent)"
                         : "var(--color-codex-line)"
                     }`,
-                    display: "inline-block",
+                    boxShadow: active
+                      ? "0 0 0 2px var(--color-codex-bg), 0 0 0 3px var(--color-codex-accent)"
+                      : "none",
+                    transition: "box-shadow 0.15s, border-color 0.15s",
                   }}
-                />
+                >
+                  {/* Mini button — uses the same radius value as the
+                      tile (proportionally smaller) so the picker
+                      reads as a stack of nested radii, not a single
+                      outline. */}
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 48,
+                      height: 26,
+                      borderRadius: Math.max(0, opt.px - 4),
+                      background: "var(--color-codex-ink)",
+                    }}
+                  />
+                  {/* Mini pill — always fully rounded, just to give a
+                      second visual anchor and hint that real UI lives
+                      inside these surfaces. */}
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 36,
+                      height: 14,
+                      borderRadius: 999,
+                      background: "var(--color-codex-line-strong)",
+                    }}
+                  />
+                </span>
                 <span
                   style={{
                     fontSize: 12,
