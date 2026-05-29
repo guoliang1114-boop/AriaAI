@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Brain, Check, Eraser, Loader2 } from "lucide-react";
 
 import { api } from "../../api/client";
-import { CxFormRow } from "../../components/codex";
+import { CxConfirmDialog, CxFormRow } from "../../components/codex";
 import {
   FORMAT_OPTIONS,
   LANGUAGE_OPTIONS,
@@ -94,6 +94,7 @@ export function PreferenceSettings() {
   const [version, setVersion] = useState(0);
   const [prefs, setPrefs] = useState<PreferencesShape>({});
   const [msg, setMsg] = useState<SavedMessage | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -147,16 +148,17 @@ export function PreferenceSettings() {
   };
 
   const handleClear = async () => {
-    if (!confirm("将清除所有 AI 偏好，AI 将不再读取这些个人化设置。继续？")) return;
     setClearing(true);
     setMsg(null);
     try {
       await api.delete("/user-memory");
       setPrefs({});
+      setClearConfirmOpen(false);
       setMsg({ type: "success", text: "偏好已清除。" });
       setTimeout(() => setMsg(null), 3000);
     } catch (err: any) {
       setMsg({ type: "error", text: err.response?.data?.detail || "清除失败" });
+      setClearConfirmOpen(false);
     } finally {
       setClearing(false);
     }
@@ -322,7 +324,7 @@ export function PreferenceSettings() {
           >
             <button
               type="button"
-              onClick={handleClear}
+              onClick={() => setClearConfirmOpen(true)}
               disabled={clearing}
               className="inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
               style={GHOST_BUTTON_STYLE}
@@ -352,6 +354,19 @@ export function PreferenceSettings() {
           <InlineMessage message={msg} />
         </>
       )}
+      <CxConfirmDialog
+        open={clearConfirmOpen}
+        onClose={() => {
+          if (!clearing) setClearConfirmOpen(false);
+        }}
+        onConfirm={() => void handleClear()}
+        tone="danger"
+        title="清除所有 AI 偏好？"
+        description="清除后 AI 将不再读取这些个人化设置。该操作不可撤销。"
+        confirmLabel="清除"
+        cancelLabel="取消"
+        busy={clearing}
+      />
     </div>
   );
 }

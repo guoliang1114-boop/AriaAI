@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { exportConversationFile } from '../../api/chatExport'
+import { useToast } from '../../contexts/ToastContext'
 import { getApiBaseUrl } from '../../config/api'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import { PageTitle } from '../../components/PageTitle'
@@ -661,6 +662,9 @@ function StreamingAnswerPreview({ content, compact }: { content: string; compact
 }
 
 function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
+  const { i18n } = useTranslation()
+  const isZh = i18n.language.startsWith('zh')
+  const toast = useToast()
   const [downloading, setDownloading] = useState(false)
 
   const handleDownload = async () => {
@@ -669,7 +673,7 @@ function ChatArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
       await downloadArtifact({ artifact })
     } catch (err) {
       console.error('Failed to download artifact:', err)
-      alert('生成物下载失败，请稍后重试。')
+      toast.error(isZh ? '生成物下载失败，请稍后重试。' : 'Download failed — please try again.')
     } finally {
       setDownloading(false)
     }
@@ -3402,11 +3406,12 @@ function SkillTemplateModal({ skill, variables, onApply, onCancel }: SkillTempla
 }
 
 // ─── Export Dropdown Component ──────────────────────────────────────────────
-function ExportDropdown({ conversationId, conversationTitle }: { 
+function ExportDropdown({ conversationId, conversationTitle }: {
   conversationId: number
-  conversationTitle?: string 
+  conversationTitle?: string
 }) {
   const { t } = useTranslation()
+  const toast = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -3429,7 +3434,7 @@ function ExportDropdown({ conversationId, conversationTitle }: {
       setIsOpen(false)
     } catch (err) {
       console.error('Export failed:', err)
-      alert(t('chat.exportFailed'))
+      toast.error(t('chat.exportFailed'))
     } finally {
       setIsExporting(false)
     }

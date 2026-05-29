@@ -30,6 +30,7 @@ export const loadMigrationSettings = () => import('./pages/settings/MigrationSet
 export const loadMessageSettings = () => import('./pages/settings/MessageSettings')
 export const loadForbidden = () => import('./pages/Forbidden')
 export const loadNotFound = () => import('./pages/NotFound')
+export const loadServiceDown = () => import('./pages/ServiceDown')
 
 export const primaryRouteLoaders: Record<string, () => Promise<unknown>> = {
   '/': loadWorkspace,

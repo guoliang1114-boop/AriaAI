@@ -7,6 +7,7 @@ import { ArrowRight, Building2, Loader2, Plus, Search, Sparkles, X } from "lucid
 import { api } from "../../api/client";
 import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from "../../components/codex";
 import { PageTitle } from "../../components/PageTitle";
+import { useToast } from "../../contexts/ToastContext";
 import { formatDateOnly, getResolvedAppTimeZone, parseAppDateTime } from "../../utils/timezone";
 
 interface Client {
@@ -137,6 +138,7 @@ function sortClients(left: Client, right: Client) {
 
 export function Clients() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -386,7 +388,7 @@ export function Clients() {
           }}
           onSubmit={async () => {
             if (!form.name.trim()) {
-              alert(isZh ? "客户名称不能为空。" : "Client name is required.");
+              toast.warning(isZh ? "客户名称不能为空。" : "Client name is required.");
               return;
             }
             setCreating(true);
@@ -399,10 +401,11 @@ export function Clients() {
               });
               setForm({ name: "", industry: "", contact: "", notes: "" });
               closeCreateModal();
+              toast.success(isZh ? "客户已创建" : "Client created");
               await fetchClients();
             } catch (error) {
               console.error("Failed to create client:", error);
-              alert(isZh ? "创建失败，请稍后重试。" : "Failed to create client.");
+              toast.error(isZh ? "创建失败，请稍后重试。" : "Failed to create client.");
             } finally {
               setCreating(false);
             }

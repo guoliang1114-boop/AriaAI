@@ -1,5 +1,5 @@
-import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { CxTopProgress } from './components/codex'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Layout } from './components/Layout'
@@ -38,6 +38,7 @@ import {
   loadMessageSettings,
   loadForbidden,
   loadNotFound,
+  loadServiceDown,
 } from './routeLoaders'
 
 const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
@@ -87,6 +88,7 @@ const MigrationSettings = lazy(() =>
 const MessageSettings = lazy(() => loadMessageSettings().then((module) => ({ default: module.MessageSettings })))
 const Forbidden = lazy(() => loadForbidden().then((module) => ({ default: module.Forbidden })))
 const NotFound = lazy(() => loadNotFound().then((module) => ({ default: module.NotFound })))
+const ServiceDown = lazy(() => loadServiceDown().then((module) => ({ default: module.ServiceDown })))
 
 function RouteFallback() {
   // ``bg-surface`` + ``text-primary`` (MD3 light + V0.0.5 blue) used
@@ -140,8 +142,31 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Listens for ``api:service-down`` events fired by the API client
+// when it sees a 503 response, and redirects the user to the
+// ServiceDown page. Sits inside ``<BrowserRouter>`` (via AppRoutes)
+// so it can use the navigation hooks; sits OUTSIDE any Auth guard so
+// even unauthenticated users get bounced off a broken backend.
+function ServiceDownRedirect() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  useEffect(() => {
+    const onServiceDown = () => {
+      // Don't bounce off /503 onto itself — also leaves /login and /403
+      // alone since those don't depend on the API actually being up.
+      if (location.pathname === '/503') return
+      navigate('/503', { replace: true, state: { from: location.pathname } })
+    }
+    window.addEventListener('api:service-down', onServiceDown)
+    return () => window.removeEventListener('api:service-down', onServiceDown)
+  }, [navigate, location.pathname])
+  return null
+}
+
 function AppRoutes() {
   return (
+    <>
+    <ServiceDownRedirect />
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route
@@ -149,6 +174,14 @@ function AppRoutes() {
         element={
           <LazyPage>
             <Forbidden />
+          </LazyPage>
+        }
+      />
+      <Route
+        path="/503"
+        element={
+          <LazyPage>
+            <ServiceDown />
           </LazyPage>
         }
       />
@@ -449,6 +482,7 @@ function AppRoutes() {
         }
       />
     </Routes>
+    </>
   )
 }
 

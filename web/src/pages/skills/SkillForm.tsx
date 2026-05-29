@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { api } from '../../api/client'
+import { useToast } from '../../contexts/ToastContext'
 import type { Skill } from '../../types'
 
 const getCategories = (t: any) => [
@@ -15,6 +16,7 @@ export function SkillForm() {
   const { t } = useTranslation()
   const categories = getCategories(t)
   const navigate = useNavigate()
+  const toast = useToast()
   const { id } = useParams()
   const isEditing = Boolean(id)
 
@@ -54,7 +56,7 @@ export function SkillForm() {
       })
     } catch (error) {
       console.error('Failed to fetch skill:', error)
-      alert(t('skills.form.loadError'))
+      toast.error(t('skills.form.loadError'))
       navigate('/skills')
     } finally {
       setIsLoading(false)
@@ -74,7 +76,7 @@ export function SkillForm() {
       navigate('/skills')
     } catch (error) {
       console.error('Failed to save skill:', error)
-      alert(t('skills.form.saveError'))
+      toast.error(t('skills.form.saveError'))
     } finally {
       setIsSaving(false)
     }

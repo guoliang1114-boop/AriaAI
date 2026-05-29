@@ -1,127 +1,159 @@
-import { Compass, ArrowLeft, Home, MessageSquare, Search } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+/**
+ * 404 — V0.0.6 Codex redesign.
+ *
+ * Layout follows
+ * ``design_handoff_aria_codex_redesign/direction-codex-more-2.jsx:290``
+ * (CxNotFound). Centered: oversized 404 numeral → headline → one-line
+ * explanation → two CTAs → faint search hint with ⌘K shortcut.
+ *
+ * The previous MD3 version (rounded card with gradient backdrop +
+ * three "quick routes" tiles) didn't match the Codex direction's
+ * quieter-empty-state mood and stuck out against the rest of the
+ * redesigned app. The new layout keeps the same three escape hatches
+ * but treats them as the search hint instead of three big buttons.
+ */
+import { ArrowLeft, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 export function NotFound() {
-  const navigate = useNavigate()
-  const { i18n } = useTranslation()
-  const isZh = i18n.language.startsWith('zh')
+  const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const copy = isZh
     ? {
-        title: '这个页面不存在',
+        title: "这里什么也没有",
         description:
-          '这个链接可能已过期，页面位置可能已变更，也可能是地址不完整。您可以直接返回下方的主工作区，不用从头开始。',
-        dashboard: '首页',
-        goBack: '返回上一页',
-        keepMoving: '继续工作',
-        keepMovingLine1: '可以使用下面的快捷路径，快速回到项目、对话或知识工作区。',
-        keepMovingLine2: '如果这条链接来自收藏或历史记录，可能需要更新一下。',
-        quickRoutes: '常用路径',
-        projects: '项目',
-        projectsHint: '返回您的项目交付与商机看板。',
-        chat: '对话',
-        chatHint: '打开最近对话，继续当前工作。',
-        knowledge: '知识库',
-        knowledgeHint: '搜索文档、笔记和客户上下文。',
+          "你访问的页面不存在，或已被移除。可能是链接陈旧 — 不用紧张，回到工作台继续。",
+        goBack: "返回上一页",
+        dashboard: "回到工作台",
+        searchHint: "或者搜索你要找的内容",
+        searchPlaceholder: "搜索项目、对话、Skill",
       }
     : {
-        title: "This page doesn't exist",
+        title: "Nothing here",
         description:
-          'The link may be outdated, the page may have moved, or the address may be incomplete. You can jump back to your main workspaces below instead of starting over.',
-        dashboard: 'Dashboard',
-        goBack: 'Go back',
-        keepMoving: 'Keep moving',
-        keepMovingLine1: 'Use the shortcuts below to get back to a project, chat, or client workspace quickly.',
-        keepMovingLine2: 'If this came from a saved link, it may need to be updated.',
-        quickRoutes: 'Quick routes',
-        projects: 'Projects',
-        projectsHint: 'Return to your delivery and pipeline view.',
-        chat: 'Chat',
-        chatHint: 'Open recent conversations and continue working.',
-        knowledge: 'Knowledge',
-        knowledgeHint: 'Search files, notes, and client context.',
-      }
+          "The page you tried to reach doesn't exist, or has been moved. The link may be stale — just head back to the workspace.",
+        goBack: "Go back",
+        dashboard: "Back to workspace",
+        searchHint: "Or search for what you wanted",
+        searchPlaceholder: "Search projects, chats, skills",
+      };
 
   return (
-    <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(0,63,177,0.14),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(17,130,245,0.12),transparent_28%)] bg-surface">
-      <div className="mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl items-center px-6 py-12">
-        <div className="grid w-full gap-10 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-[28px] border border-outline/20 bg-surface-container-lowest/90 p-8 shadow-[0_20px_60px_rgba(0,63,177,0.08)] backdrop-blur">
-            <div className="inline-flex items-center gap-2 rounded-full bg-secondary-container/60 px-3 py-1 text-xs font-semibold text-primary">
-              404
-            </div>
-            <h1 className="mt-6 font-manrope text-2xl font-semibold text-on-surface">
-              {copy.title}
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-on-surface-muted">{copy.description}</p>
+    <div
+      className="theme-codex flex min-h-[calc(100vh-56px)] flex-col items-center justify-center"
+      data-testid="not-found"
+      style={{
+        background: "var(--color-codex-bg)",
+        color: "var(--color-codex-ink)",
+        padding: "60px 24px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        className="font-mono"
+        style={{
+          fontSize: 110,
+          color: "var(--color-codex-accent-bg)",
+          fontWeight: 500,
+          letterSpacing: "-0.05em",
+          lineHeight: 1,
+        }}
+      >
+        404
+      </div>
+      <h1
+        style={{
+          margin: "-12px 0 0",
+          fontSize: 24,
+          fontWeight: 500,
+          color: "var(--color-codex-ink)",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        {copy.title}
+      </h1>
+      <p
+        style={{
+          margin: "12px 0 0",
+          fontSize: 13.5,
+          color: "var(--color-codex-ink-mute)",
+          maxWidth: 420,
+          lineHeight: 1.65,
+        }}
+      >
+        {copy.description}
+      </p>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                onClick={() => navigate('/')}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:opacity-95"
-              >
-                <Home className="h-4 w-4" />
-                {copy.dashboard}
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="inline-flex items-center gap-2 rounded-xl border border-outline px-4 py-2.5 text-sm font-medium text-on-surface transition hover:bg-surface-container-low"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                {copy.goBack}
-              </button>
-            </div>
-          </div>
+      <div className="flex gap-2.5" style={{ marginTop: 28 }}>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1.5"
+          style={{
+            padding: "9px 16px",
+            fontSize: 13,
+            color: "var(--color-codex-ink-soft)",
+            border: "1px solid var(--color-codex-line)",
+            borderRadius: "var(--codex-r-sm, 3px)",
+            background: "var(--color-codex-bg-elev)",
+          }}
+        >
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          {copy.goBack}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          style={{
+            padding: "9px 18px",
+            fontSize: 13,
+            color: "var(--color-codex-bg-elev)",
+            background: "var(--color-codex-ink)",
+            borderRadius: "var(--codex-r-sm, 3px)",
+            fontWeight: 500,
+          }}
+        >
+          {copy.dashboard}
+        </button>
+      </div>
 
-          <div className="space-y-4">
-            <div className="rounded-[28px] border border-outline/20 bg-surface-container-low p-6 shadow-sm">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary-container text-primary">
-                <Compass className="h-6 w-6" />
-              </div>
-              <h2 className="text-lg font-semibold text-on-surface">{copy.keepMoving}</h2>
-              <div className="mt-4 space-y-3 text-sm text-on-surface-muted">
-                <p>{copy.keepMovingLine1}</p>
-                <p>{copy.keepMovingLine2}</p>
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-outline/20 bg-surface-container-low p-6 shadow-sm">
-              <h3 className="text-sm font-semibold text-on-surface-muted">
-                {copy.quickRoutes}
-              </h3>
-              <div className="mt-4 grid gap-3">
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="rounded-2xl border border-outline/20 bg-surface px-4 py-4 text-left transition hover:bg-surface-container-lowest"
-                >
-                  <div className="text-sm font-medium text-on-surface">{copy.projects}</div>
-                  <div className="mt-1 text-xs text-on-surface-muted">{copy.projectsHint}</div>
-                </button>
-                <button
-                  onClick={() => navigate('/chat')}
-                  className="rounded-2xl border border-outline/20 bg-surface px-4 py-4 text-left transition hover:bg-surface-container-lowest"
-                >
-                  <div className="flex items-center gap-2 text-sm font-medium text-on-surface">
-                    <MessageSquare className="h-4 w-4" />
-                    {copy.chat}
-                  </div>
-                  <div className="mt-1 text-xs text-on-surface-muted">{copy.chatHint}</div>
-                </button>
-                <button
-                  onClick={() => navigate('/knowledge')}
-                  className="rounded-2xl border border-outline/20 bg-surface px-4 py-4 text-left transition hover:bg-surface-container-lowest"
-                >
-                  <div className="flex items-center gap-2 text-sm font-medium text-on-surface">
-                    <Search className="h-4 w-4" />
-                    {copy.knowledge}
-                  </div>
-                  <div className="mt-1 text-xs text-on-surface-muted">{copy.knowledgeHint}</div>
-                </button>
-              </div>
-            </div>
-          </div>
+      <div
+        className="flex flex-col items-center gap-2.5"
+        style={{ marginTop: 56 }}
+      >
+        <div style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}>
+          {copy.searchHint}
         </div>
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="flex items-center gap-2"
+          style={{
+            padding: "8px 14px",
+            fontSize: 13,
+            border: "1px solid var(--color-codex-line)",
+            borderRadius: 99,
+            color: "var(--color-codex-ink-mute)",
+            width: 300,
+            background: "var(--color-codex-bg-elev)",
+          }}
+        >
+          <Search className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>{copy.searchPlaceholder}</span>
+          <span
+            className="font-mono"
+            style={{
+              marginLeft: "auto",
+              fontSize: 10.5,
+              color: "var(--color-codex-ink-faint)",
+            }}
+          >
+            ⌘K
+          </span>
+        </button>
       </div>
     </div>
-  )
+  );
 }

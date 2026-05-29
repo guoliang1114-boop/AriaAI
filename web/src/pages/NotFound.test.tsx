@@ -17,34 +17,33 @@ describe('NotFound', () => {
     mockNavigate.mockClear()
   })
 
-  it('renders 404 badge', () => {
+  it('renders 404 numeral', () => {
     render(<NotFound />)
     expect(screen.getByText('404')).toBeInTheDocument()
   })
 
   it('renders Chinese title when language is zh', () => {
     render(<NotFound />)
-    expect(screen.getByText('这个页面不存在')).toBeInTheDocument()
+    expect(screen.getByText('这里什么也没有')).toBeInTheDocument()
   })
 
-  it('navigates to dashboard when dashboard button clicked', () => {
+  it('navigates to workspace when the workspace CTA is clicked', () => {
     render(<NotFound />)
-    const btn = screen.getByText('首页')
+    const btn = screen.getByText('回到工作台')
     fireEvent.click(btn)
     expect(mockNavigate).toHaveBeenCalledWith('/')
   })
 
-  it('navigates back when go back button clicked', () => {
+  it('navigates back when go-back is clicked', () => {
     render(<NotFound />)
     const btn = screen.getByText('返回上一页')
     fireEvent.click(btn)
     expect(mockNavigate).toHaveBeenCalledWith(-1)
   })
 
-  it('renders quick route buttons', () => {
+  it('renders the search hint with ⌘K shortcut', () => {
     render(<NotFound />)
-    expect(screen.getByText('项目')).toBeInTheDocument()
-    expect(screen.getByText('对话')).toBeInTheDocument()
-    expect(screen.getByText('知识库')).toBeInTheDocument()
+    expect(screen.getByText('搜索项目、对话、Skill')).toBeInTheDocument()
+    expect(screen.getByText('⌘K')).toBeInTheDocument()
   })
 })
