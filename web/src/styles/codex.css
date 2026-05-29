@@ -413,3 +413,39 @@
   user-select: none;
   white-space: pre;
 }
+
+/* Universal interactive feedback inside the Codex theme.
+ *
+ * Codex pages style their controls with inline styles (no shared button
+ * class), so adding a global hover state through tokens is the cheapest
+ * way to give every button a "you moved over me" affordance without
+ * sweeping every call site. The rules:
+ *
+ * - cursor: pointer for any enabled interactive element
+ * - hover: a small brightness shift plus a subtle bg-tint wash that
+ *   shows up even on transparent buttons
+ * - opt-out via .cx-no-hover for cases that need to look pinned (the
+ *   currently-selected nav pill already has its own visible bg, etc.)
+ */
+.theme-codex button:not(:disabled):not(.cx-no-hover),
+.theme-codex [role="button"]:not(:disabled):not(.cx-no-hover),
+.theme-codex a:not(.cx-no-hover) {
+  cursor: pointer;
+  transition: filter 150ms ease, background-color 150ms ease,
+    color 150ms ease, border-color 150ms ease;
+}
+
+/* Use ``box-shadow inset`` rather than ``background-color`` so the wash
+ * works across all four button surface variants (solid accent, bg-elev,
+ * bg-tint, fully transparent) without clobbering the inline style the
+ * caller already set on the element. */
+.theme-codex button:not(:disabled):not(.cx-no-hover):hover,
+.theme-codex [role="button"]:not(:disabled):not(.cx-no-hover):hover {
+  box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 7%, transparent);
+}
+
+.theme-codex button:focus-visible:not(:disabled),
+.theme-codex [role="button"]:focus-visible:not(:disabled) {
+  outline: 2px solid color-mix(in oklab, var(--color-codex-accent) 40%, transparent);
+  outline-offset: 2px;
+}
