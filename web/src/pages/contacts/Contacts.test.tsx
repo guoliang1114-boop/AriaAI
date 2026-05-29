@@ -32,7 +32,7 @@ describe('Contacts', () => {
   it('renders loading state initially', () => {
     mockGet.mockImplementation(() => new Promise(() => {}))
     render(<Contacts />)
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.getAllByTestId('cx-skeleton').length).toBeGreaterThan(0)
   })
 
   it('renders contacts after loading', async () => {
@@ -63,7 +63,7 @@ describe('Contacts', () => {
     })
   })
 
-  it('filters contacts by status', async () => {
+  it('filters contacts by level', async () => {
     mockGet.mockImplementation((url: string) => {
       if (url === '/clients') {
         return Promise.resolve([
@@ -79,7 +79,7 @@ describe('Contacts', () => {
     })
     render(<Contacts />)
     await waitFor(() => screen.getAllByText('王五'))
-    const filterButtons = screen.getAllByRole('button', { name: /当前在职/ })
+    const filterButtons = screen.getAllByRole('button', { name: /执行/ })
     fireEvent.click(filterButtons[0])
     await waitFor(() => {
       expect(screen.getAllByText('王五').length).toBeGreaterThanOrEqual(1)
