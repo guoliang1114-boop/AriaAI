@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { SettingsLayout } from './SettingsLayout'
 
 vi.mock('react-router-dom', () => ({
-  NavLink: ({ children, to }: { children: any; to: string }) => {
-    const childContent = typeof children === 'function' ? children({ isActive: false }) : children
-    return <a href={to}>{childContent}</a>
+  NavLink: ({ children, to, style }: { children: any; to: string; style?: any }) => {
+    const props = { isActive: false }
+    const childContent = typeof children === 'function' ? children(props) : children
+    const resolvedStyle = typeof style === 'function' ? style(props) : style
+    return <a href={to} style={resolvedStyle}>{childContent}</a>
   },
   Outlet: () => <div data-testid="outlet">Outlet Content</div>,
 }))
@@ -22,18 +24,18 @@ describe('SettingsLayout', () => {
 
   it('renders navigation items', () => {
     render(<SettingsLayout />)
-    expect(screen.getByText('settings.profile')).toBeInTheDocument()
-    expect(screen.getByText('settings.aiModel')).toBeInTheDocument()
-    expect(screen.getByText('项目记忆')).toBeInTheDocument()
+    // Desktop sidebar + mobile/tablet pill row both render the items,
+    // so use getAllByText. As long as at least one match per item is
+    // there, the routes are wired.
+    expect(screen.getAllByText('settings.profile').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('settings.aiModel').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('项目记忆').length).toBeGreaterThan(0)
   })
 
-  it('toggles nav collapse and persists to localStorage', () => {
-    localStorage.clear()
+  it('groups items under the three section labels', () => {
     render(<SettingsLayout />)
-    const toggleBtn = screen.getByRole('button')
-    fireEvent.click(toggleBtn)
-    expect(localStorage.getItem('aria-settings-nav-collapsed')).toBe('true')
-    fireEvent.click(toggleBtn)
-    expect(localStorage.getItem('aria-settings-nav-collapsed')).toBe('false')
+    expect(screen.getByText('个人')).toBeInTheDocument()
+    expect(screen.getByText('AI 与记忆')).toBeInTheDocument()
+    expect(screen.getByText('管理员')).toBeInTheDocument()
   })
 })
