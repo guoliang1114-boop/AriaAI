@@ -188,20 +188,24 @@ export function Layout() {
       const loader = primaryRouteLoaders[item.path]
       if (loader) void loader()
     }
+    // Per ``direction-codex-part1.jsx:106``: bg-tint + ink + 500 active,
+    // transparent + ink-mute + 400 idle, the ``.row-hov`` class supplies
+    // hover via bg-tint background.
     return (
       <NavLink
         key={item.path}
         to={item.path}
         onMouseEnter={preloadRoute}
         onFocus={preloadRoute}
-        className={`flex items-center gap-1.5 px-3 py-2 transition-all ${options?.mobile ? 'min-w-fit' : ''}`}
+        className={`row-hov flex items-center gap-1.5 ${options?.mobile ? 'min-w-fit' : ''}`}
         style={{
-          fontSize: 12.5,
-          fontWeight: 500,
-          background: isActive ? 'var(--color-codex-accent-bg)' : 'transparent',
+          padding: '6px 12px',
+          fontSize: 13.5,
+          fontWeight: isActive ? 500 : 400,
+          background: isActive ? 'var(--color-codex-bg-tint)' : 'transparent',
           color: isActive
-            ? 'var(--color-codex-accent-ink)'
-            : 'var(--color-codex-ink-soft)',
+            ? 'var(--color-codex-ink)'
+            : 'var(--color-codex-ink-mute)',
           borderRadius: 'var(--codex-r-sm, 3px)',
         }}
       >
@@ -359,19 +363,11 @@ export function Layout() {
                         key={entry.to}
                         to={entry.to}
                         onClick={() => setShowUserMenu(false)}
-                        className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
+                        className="row-hov flex w-full items-center gap-2 px-4 py-2"
                         style={{
                           fontSize: 12.5,
                           lineHeight: '20px',
                           color: 'var(--color-codex-ink-soft)',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
-                          e.currentTarget.style.color = 'var(--color-codex-ink)'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent'
-                          e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
                         }}
                       >
                         <entry.icon className="h-4 w-4 flex-shrink-0" />
@@ -380,19 +376,11 @@ export function Layout() {
                     ))}
                     <button
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
+                      className="row-hov cx-no-hover flex w-full items-center gap-2 px-4 py-2"
                       style={{
                         fontSize: 12.5,
                         lineHeight: '20px',
                         color: 'var(--color-codex-ink-soft)',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
-                        e.currentTarget.style.color = 'var(--color-codex-ink)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent'
-                        e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
                       }}
                     >
                       <LogOut className="h-4 w-4 flex-shrink-0" />

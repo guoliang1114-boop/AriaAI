@@ -313,9 +313,13 @@
   height: 1px;
 }
 
-/* Row hover — subtle tinted background, no shadow. */
+/* Row hover — subtle tinted background, no shadow. ``!important`` is
+ * required so the class wins over the inline ``style={{ background:
+ * '...' }}`` that workspace skill cards and other row callers set for
+ * their idle state (inline ``style`` has higher specificity than any
+ * class rule). */
 .theme-codex .codex-row-hov:hover {
-  background: var(--color-codex-bg-tint);
+  background: var(--color-codex-bg-tint) !important;
 }
 
 /* Status dot pulse — "alive" indicator for in-progress states. */
@@ -459,8 +463,13 @@
  * Net: every surface variant moves visibly. The direction differs
  * (dark surfaces brighten, light surfaces darken), but both register
  * as "you're hovering me" without per-call-site styling. */
-.theme-codex button:not(:disabled):not(.cx-no-hover):hover,
-.theme-codex [role="button"]:not(:disabled):not(.cx-no-hover):hover {
+/* Exclude ``.row-hov`` / ``.codex-row-hov`` so list-row buttons (e.g.
+ * the workspace project rows, chat thread rows) get only the quiet
+ * bg-tint hover the design specifies — the brightness(1.18) would
+ * lighten that bg-tint back toward white and make the hover look
+ * washed-out instead of crisp. */
+.theme-codex button:not(:disabled):not(.cx-no-hover):not(.row-hov):not(.codex-row-hov):hover,
+.theme-codex [role="button"]:not(:disabled):not(.cx-no-hover):not(.row-hov):not(.codex-row-hov):hover {
   filter: brightness(1.18);
   box-shadow: inset 0 0 0 9999px color-mix(in oklab, var(--color-codex-ink) 7%, transparent);
 }
@@ -469,4 +478,17 @@
 .theme-codex [role="button"]:focus-visible:not(:disabled) {
   outline: 2px solid color-mix(in oklab, var(--color-codex-accent) 40%, transparent);
   outline-offset: 2px;
+}
+
+/* `row-hov` — the design's quiet hover pattern for nav links, list rows,
+ * and dropdown items (see ``design_handoff_aria_codex_redesign/codex.css``
+ * and the ``.row-hov`` callers throughout the prototype). Hover fills
+ * the element with bg-tint, which matches the active-state background
+ * the design uses on nav links — so hovering an idle link "previews"
+ * what it'll look like when active. Apply this to anchors / divs that
+ * shouldn't get the brightness-1.18 button hover. ``!important`` so the
+ * hover wins over the inline ``style.background`` callers set for the
+ * idle state. */
+.theme-codex .row-hov:hover {
+  background: var(--color-codex-bg-tint) !important;
 }

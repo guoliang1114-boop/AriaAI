@@ -187,29 +187,46 @@ export function SettingsLayout() {
                       end={item.path === ''}
                       title={navCollapsed ? item.label : undefined}
                       className={({ isActive }) =>
-                        `group flex shrink-0 items-center gap-3 px-3 py-2.5 transition-all lg:w-full ${
-                          navCollapsed ? 'lg:justify-center lg:px-2' : ''
+                        `row-hov relative flex shrink-0 items-center gap-3 lg:w-full ${
+                          navCollapsed ? 'lg:justify-center' : ''
                         } ${isActive ? 'cx-setting-nav-active' : 'cx-setting-nav'}`
                       }
                       style={({ isActive }) => ({
-                        fontSize: 12.5,
-                        fontWeight: 500,
+                        padding: navCollapsed ? '7px 8px' : '7px 10px',
+                        fontSize: 13,
+                        fontWeight: isActive ? 500 : 400,
                         background: isActive
-                          ? 'var(--color-codex-accent-bg)'
+                          ? 'var(--color-codex-bg-tint)'
                           : 'transparent',
                         color: isActive
-                          ? 'var(--color-codex-accent-ink)'
+                          ? 'var(--color-codex-ink)'
                           : 'var(--color-codex-ink-soft)',
                         borderRadius: 'var(--codex-r-sm, 3px)',
                       })}
                     >
                       {({ isActive }) => (
                         <>
+                          {/* 2px accent stripe down the left edge for active
+                              item (see ``direction-codex-part2.jsx:259``). */}
+                          {isActive && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                top: 8,
+                                bottom: 8,
+                                width: 2,
+                                background: 'var(--color-codex-accent)',
+                                borderRadius: 999,
+                              }}
+                            />
+                          )}
                           <item.icon
                             className="h-3.5 w-3.5 flex-shrink-0"
                             style={{
                               color: isActive
-                                ? 'var(--color-codex-accent)'
+                                ? 'var(--color-codex-ink)'
                                 : 'var(--color-codex-ink-faint)',
                             }}
                           />
