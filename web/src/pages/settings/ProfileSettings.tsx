@@ -10,7 +10,7 @@
  * ``/auth/me``, ``/settings/``, ``/auth/users/:id`` (PATCH
  * display_name), ``/settings/timezone``, ``/auth/change-password``.
  */
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   Check,
@@ -22,6 +22,7 @@ import {
   User as UserIcon,
   X,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { api } from "../../api/client";
 import { CxFormRow } from "../../components/codex";
@@ -38,14 +39,14 @@ interface SavedMessage {
   text: string;
 }
 
-const TIMEZONE_OPTIONS = [
-  { value: "Asia/Shanghai", label: "中国标准时间", hint: "UTC+08:00" },
-  { value: BROWSER_TIMEZONE_VALUE, label: "跟随浏览器", hint: "" },
-  { value: "UTC", label: "协调世界时", hint: "UTC+00:00" },
-  { value: "Asia/Tokyo", label: "日本标准时间", hint: "UTC+09:00" },
-  { value: "America/Los_Angeles", label: "洛杉矶时间", hint: "UTC-08:00 / -07:00" },
-  { value: "America/New_York", label: "纽约时间", hint: "UTC-05:00 / -04:00" },
-  { value: "Europe/London", label: "伦敦时间", hint: "UTC+00:00 / +01:00" },
+const TIMEZONE_OPTIONS: { value: string; label_zh: string; label_en: string; hint: string }[] = [
+  { value: "Asia/Shanghai", label_zh: "中国标准时间", label_en: "China Standard Time", hint: "UTC+08:00" },
+  { value: BROWSER_TIMEZONE_VALUE, label_zh: "跟随浏览器", label_en: "Follow browser", hint: "" },
+  { value: "UTC", label_zh: "协调世界时", label_en: "Coordinated Universal Time", hint: "UTC+00:00" },
+  { value: "Asia/Tokyo", label_zh: "日本标准时间", label_en: "Japan Standard Time", hint: "UTC+09:00" },
+  { value: "America/Los_Angeles", label_zh: "洛杉矶时间", label_en: "Los Angeles", hint: "UTC-08:00 / -07:00" },
+  { value: "America/New_York", label_zh: "纽约时间", label_en: "New York", hint: "UTC-05:00 / -04:00" },
+  { value: "Europe/London", label_zh: "伦敦时间", label_en: "London", hint: "UTC+00:00 / +01:00" },
 ];
 
 const INPUT_STYLE = {
@@ -77,6 +78,8 @@ const GHOST_BUTTON_STYLE = {
 };
 
 export function ProfileSettings() {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const [user, setUser] = useState<UserType | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -94,6 +97,12 @@ export function ProfileSettings() {
   const [savingPwd, setSavingPwd] = useState(false);
   const [pwdMsg, setPwdMsg] = useState<SavedMessage | null>(null);
 
+  // Track every auto-clear timer so we cancel them on unmount instead of
+  // firing setState on a stale component.
+  const nameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tzTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pwdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     Promise.all([
       api.get<UserType>("/auth/me"),
@@ -105,6 +114,11 @@ export function ProfileSettings() {
         setSelectedTimeZone(settings.timezone || DEFAULT_APP_TIMEZONE);
       })
       .catch(() => {});
+    return () => {
+      if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+      if (tzTimerRef.current) clearTimeout(tzTimerRef.current);
+      if (pwdTimerRef.current) clearTimeout(pwdTimerRef.current);
+    };
   }, []);
 
   const handleSaveName = async () => {
@@ -113,12 +127,13 @@ export function ProfileSettings() {
     setNameMsg(null);
     try {
       await api.patch(`/auth/users/${user.id}`, { display_name: displayName.trim() });
-      setNameMsg({ type: "success", text: "已保存" });
-      setTimeout(() => setNameMsg(null), 3000);
+      setNameMsg({ type: "success", text: isZh ? "已保存" : "Saved" });
+      if (nameTimerRef.current) clearTimeout(nameTimerRef.current);
+      nameTimerRef.current = setTimeout(() => setNameMsg(null), 3000);
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setNameMsg({ type: "error", text: detail || "保存失败" });
+      setNameMsg({ type: "error", text: detail || (isZh ? "保存失败" : "Save failed") });
     } finally {
       setSavingName(false);
     }
@@ -130,12 +145,16 @@ export function ProfileSettings() {
     try {
       await api.put("/settings/timezone", { value: selectedTimeZone });
       setAppTimeZone(selectedTimeZone);
-      setTimeZoneMsg({ type: "success", text: "时区已保存" });
-      setTimeout(() => setTimeZoneMsg(null), 3000);
+      setTimeZoneMsg({ type: "success", text: isZh ? "时区已保存" : "Timezone saved" });
+      if (tzTimerRef.current) clearTimeout(tzTimerRef.current);
+      tzTimerRef.current = setTimeout(() => setTimeZoneMsg(null), 3000);
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setTimeZoneMsg({ type: "error", text: detail || "保存时区失败" });
+      setTimeZoneMsg({
+        type: "error",
+        text: detail || (isZh ? "保存时区失败" : "Failed to save timezone"),
+      });
     } finally {
       setSavingTimeZone(false);
     }
@@ -161,11 +180,17 @@ export function ProfileSettings() {
   const handleChangePassword = async (event: FormEvent) => {
     event.preventDefault();
     if (newPassword !== confirmPassword) {
-      setPwdMsg({ type: "error", text: "两次输入的新密码不一致" });
+      setPwdMsg({
+        type: "error",
+        text: isZh ? "两次输入的新密码不一致" : "New passwords don't match",
+      });
       return;
     }
     if (newPassword.length < 6) {
-      setPwdMsg({ type: "error", text: "新密码至少需要6位" });
+      setPwdMsg({
+        type: "error",
+        text: isZh ? "新密码至少需要 6 位" : "New password must be at least 6 characters",
+      });
       return;
     }
     setSavingPwd(true);
@@ -178,15 +203,22 @@ export function ProfileSettings() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setPwdMsg({ type: "success", text: "密码已修改成功" });
-      setTimeout(() => {
+      setPwdMsg({
+        type: "success",
+        text: isZh ? "密码已修改成功" : "Password updated",
+      });
+      if (pwdTimerRef.current) clearTimeout(pwdTimerRef.current);
+      pwdTimerRef.current = setTimeout(() => {
         setShowPasswordDialog(false);
         setPwdMsg(null);
       }, 1500);
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setPwdMsg({ type: "error", text: detail || "修改密码失败" });
+      setPwdMsg({
+        type: "error",
+        text: detail || (isZh ? "修改密码失败" : "Failed to change password"),
+      });
     } finally {
       setSavingPwd(false);
     }
@@ -220,7 +252,7 @@ export function ProfileSettings() {
             letterSpacing: "-0.015em",
           }}
         >
-          个人资料
+          {isZh ? "个人资料" : "Profile"}
         </h1>
         <p
           style={{
@@ -230,7 +262,9 @@ export function ProfileSettings() {
             lineHeight: 1.6,
           }}
         >
-          这些信息会出现在团队视图中，以及对话发送者标识。
+          {isZh
+            ? "这些信息会出现在团队视图中，以及对话发送者标识。"
+            : "These fields appear in team views and as your sender label on conversations."}
         </p>
       </header>
 
@@ -264,9 +298,9 @@ export function ProfileSettings() {
             type="button"
             style={GHOST_BUTTON_STYLE}
             disabled
-            title="头像上传暂未开放"
+            title={isZh ? "头像上传暂未开放" : "Avatar upload not yet available"}
           >
-            上传头像
+            {isZh ? "上传头像" : "Upload avatar"}
           </button>
           <div
             style={{
@@ -275,7 +309,9 @@ export function ProfileSettings() {
               marginTop: 6,
             }}
           >
-            PNG / JPG · 最大 2 MB · 暂未开放
+            {isZh
+              ? "PNG / JPG · 最大 2 MB · 暂未开放"
+              : "PNG / JPG · up to 2 MB · not available yet"}
           </div>
         </div>
       </div>
@@ -285,7 +321,7 @@ export function ProfileSettings() {
         label={
           <span className="inline-flex items-center gap-1.5">
             <UserIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            显示名称
+            {isZh ? "显示名称" : "Display name"}
           </span>
         }
         htmlFor="profile-display-name"
@@ -296,7 +332,7 @@ export function ProfileSettings() {
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="你的显示名称"
+            placeholder={isZh ? "你的显示名称" : "Your display name"}
             className="codex-input"
             style={{ ...INPUT_STYLE, flex: 1 }}
           />
@@ -312,7 +348,7 @@ export function ProfileSettings() {
             ) : (
               <Check className="h-3.5 w-3.5" aria-hidden="true" />
             )}
-            保存
+            {isZh ? "保存" : "Save"}
           </button>
         </div>
         <InlineMessage message={nameMsg} />
@@ -323,10 +359,10 @@ export function ProfileSettings() {
         label={
           <span className="inline-flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5" aria-hidden="true" />
-            邮箱地址
+            {isZh ? "邮箱地址" : "Email"}
           </span>
         }
-        hint="登录用，变更需联系管理员。"
+        hint={isZh ? "登录用，变更需联系管理员。" : "Used for sign-in; contact an admin to change."}
         htmlFor="profile-email"
       >
         <input
@@ -349,10 +385,14 @@ export function ProfileSettings() {
         label={
           <span className="inline-flex items-center gap-1.5">
             <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-            时区
+            {isZh ? "时区" : "Timezone"}
           </span>
         }
-        hint="默认使用北京时间（UTC+08:00）。对话、项目、知识库和任务记录等时间显示会优先使用这里的时区。"
+        hint={
+          isZh
+            ? "默认使用北京时间（UTC+08:00）。对话、项目、知识库和任务记录等时间显示会优先使用这里的时区。"
+            : "Defaults to Beijing time (UTC+08:00). Conversations, projects, knowledge base, and task logs render times in this zone."
+        }
         htmlFor="profile-timezone"
       >
         <div className="flex gap-3">
@@ -366,13 +406,17 @@ export function ProfileSettings() {
             {TIMEZONE_OPTIONS.map((option) => {
               const hint =
                 option.value === BROWSER_TIMEZONE_VALUE
-                  ? `（当前：${getBrowserTimeZone()}）`
+                  ? isZh
+                    ? `（当前：${getBrowserTimeZone()}）`
+                    : ` (now: ${getBrowserTimeZone()})`
                   : option.hint
-                    ? `（${option.hint}）`
+                    ? isZh
+                      ? `（${option.hint}）`
+                      : ` (${option.hint})`
                     : "";
               return (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {isZh ? option.label_zh : option.label_en}
                   {hint}
                 </option>
               );
@@ -390,7 +434,7 @@ export function ProfileSettings() {
             ) : (
               <Check className="h-3.5 w-3.5" aria-hidden="true" />
             )}
-            保存
+            {isZh ? "保存" : "Save"}
           </button>
         </div>
         <InlineMessage message={timeZoneMsg} />
@@ -401,10 +445,10 @@ export function ProfileSettings() {
         label={
           <span className="inline-flex items-center gap-1.5">
             <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-            密码
+            {isZh ? "密码" : "Password"}
           </span>
         }
-        hint="定期更换密码可以保护你的账户安全。"
+        hint={isZh ? "定期更换密码可以保护你的账户安全。" : "Rotate your password from time to time to keep the account safe."}
         divider={false}
       >
         <button
@@ -414,13 +458,14 @@ export function ProfileSettings() {
           style={GHOST_BUTTON_STYLE}
         >
           <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-          修改密码
+          {isZh ? "修改密码" : "Change password"}
         </button>
       </CxFormRow>
 
       {/* Password dialog */}
       {showPasswordDialog && (
         <PasswordDialog
+          isZh={isZh}
           currentPassword={currentPassword}
           newPassword={newPassword}
           confirmPassword={confirmPassword}
@@ -458,6 +503,7 @@ function InlineMessage({ message }: { message: SavedMessage | null }) {
 }
 
 interface PasswordDialogProps {
+  isZh: boolean;
   currentPassword: string;
   newPassword: string;
   confirmPassword: string;
@@ -471,6 +517,7 @@ interface PasswordDialogProps {
 }
 
 function PasswordDialog({
+  isZh,
   currentPassword,
   newPassword,
   confirmPassword,
@@ -533,7 +580,7 @@ function PasswordDialog({
                   color: "var(--color-codex-ink)",
                 }}
               >
-                修改密码
+                {isZh ? "修改密码" : "Change password"}
               </h2>
               <p
                 style={{
@@ -542,7 +589,7 @@ function PasswordDialog({
                   color: "var(--color-codex-ink-mute)",
                 }}
               >
-                请输入当前密码和新密码
+                {isZh ? "请输入当前密码和新密码" : "Enter your current password and a new one"}
               </p>
             </div>
           </div>
@@ -550,7 +597,7 @@ function PasswordDialog({
             type="button"
             onClick={onClose}
             disabled={saving}
-            aria-label="关闭"
+            aria-label={isZh ? "关闭" : "Close"}
             className="disabled:cursor-not-allowed disabled:opacity-50"
             style={{ color: "var(--color-codex-ink-mute)" }}
           >
@@ -561,21 +608,21 @@ function PasswordDialog({
         <form onSubmit={onSubmit} style={{ padding: 18, display: "grid", gap: 12 }}>
           <PasswordField
             id="pwd-current"
-            label="当前密码"
+            label={isZh ? "当前密码" : "Current password"}
             value={currentPassword}
             onChange={onChangeCurrent}
             autoFocus
           />
           <PasswordField
             id="pwd-new"
-            label="新密码"
-            placeholder="至少 6 位"
+            label={isZh ? "新密码" : "New password"}
+            placeholder={isZh ? "至少 6 位" : "At least 6 characters"}
             value={newPassword}
             onChange={onChangeNew}
           />
           <PasswordField
             id="pwd-confirm"
-            label="确认新密码"
+            label={isZh ? "确认新密码" : "Confirm new password"}
             value={confirmPassword}
             onChange={onChangeConfirm}
           />
@@ -617,7 +664,7 @@ function PasswordDialog({
               disabled={saving}
               style={GHOST_BUTTON_STYLE}
             >
-              取消
+              {isZh ? "取消" : "Cancel"}
             </button>
             <button
               type="submit"
@@ -630,12 +677,12 @@ function PasswordDialog({
               {saving ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                  修改中…
+                  {isZh ? "修改中…" : "Updating…"}
                 </>
               ) : (
                 <>
                   <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                  确认修改
+                  {isZh ? "确认修改" : "Confirm change"}
                 </>
               )}
             </button>

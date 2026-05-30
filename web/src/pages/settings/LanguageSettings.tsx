@@ -11,7 +11,7 @@
  * ``/settings/language``, ``handleLanguageChange`` previews immediately,
  * ``handleSave`` PUTs to the backend.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -31,9 +31,15 @@ export function LanguageSettings() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState("");
+  // Track the toast-clear timer so we can cancel it on unmount and
+  // not setState on a stale component.
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void loadSettings();
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
     // loadSettings has no React deps; intentional empty array.
   }, []);
 
@@ -57,25 +63,26 @@ export function LanguageSettings() {
     }
   };
 
-  const handleLanguageChange = (langCode: string) => {
+  // Auto-save: apply UI language immediately, PUT to backend in the
+  // background, surface a brief "saved" pill in the header. Matches
+  // the Appearance / Preference settings pattern; the old explicit
+  // Save button was the only personal-prefs page that still required
+  // a second click after picking an option.
+  const handleLanguageChange = async (langCode: string) => {
     setSelectedLanguage(langCode);
     changeLanguage(langCode);
-  };
-
-  const handleSave = async () => {
     setLoading(true);
     setSaved(false);
     setError("");
     try {
-      await api.put("/settings/language", { value: selectedLanguage });
-      changeLanguage(selectedLanguage);
+      await api.put("/settings/language", { value: langCode });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 1800);
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(detail || (err instanceof Error ? err.message : "Failed to save settings"));
-      changeLanguage(selectedLanguage);
     } finally {
       setLoading(false);
     }
@@ -102,28 +109,64 @@ export function LanguageSettings() {
         padding: "8px 4px 32px",
       }}
     >
-      <header style={{ marginBottom: 16 }}>
-        <h1
+      <header
+        className="flex items-start justify-between gap-4"
+        style={{ marginBottom: 16 }}
+      >
+        <div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 500,
+              color: "var(--color-codex-ink)",
+              letterSpacing: "-0.015em",
+            }}
+          >
+            {t("language.title")}
+          </h1>
+          <p
+            style={{
+              margin: "6px 0 0",
+              fontSize: 13,
+              color: "var(--color-codex-ink-mute)",
+              lineHeight: 1.6,
+            }}
+          >
+            {t("language.description")}
+          </p>
+        </div>
+        <span
+          aria-live="polite"
+          className="inline-flex flex-shrink-0 items-center gap-1.5"
           style={{
-            margin: 0,
-            fontSize: 22,
-            fontWeight: 500,
-            color: "var(--color-codex-ink)",
-            letterSpacing: "-0.015em",
+            marginTop: 4,
+            fontSize: 12,
+            color: loading
+              ? "var(--color-codex-ink-mute)"
+              : error
+                ? "var(--color-codex-bad)"
+                : saved
+                  ? "var(--color-codex-good)"
+                  : "var(--color-codex-ink-faint)",
           }}
         >
-          {t("language.title")}
-        </h1>
-        <p
-          style={{
-            margin: "6px 0 0",
-            fontSize: 13,
-            color: "var(--color-codex-ink-mute)",
-            lineHeight: 1.6,
-          }}
-        >
-          {t("language.description")}
-        </p>
+          {loading ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t("language.saving")}
+            </>
+          ) : saved ? (
+            <>
+              <Check className="h-3 w-3" />
+              {t("language.saved")}
+            </>
+          ) : (
+            <span style={{ opacity: 0.7 }}>
+              {i18n.language.startsWith("zh") ? "修改后自动保存" : "Auto-saves on change"}
+            </span>
+          )}
+        </span>
       </header>
 
       {error && (
@@ -146,7 +189,11 @@ export function LanguageSettings() {
 
       <CxFormRow
         label={t("language.interfaceLanguage") || "界面语言"}
-        hint={t("language.interfaceLanguageHint") || "切换后立即预览，保存后写入服务器并同步到其他设备。"}
+        hint={
+          i18n.language.startsWith("zh")
+            ? "点击即时切换界面语言，自动同步到其他设备。"
+            : "Click to switch the UI language instantly; syncs across your devices."
+        }
         divider={false}
       >
         <div
@@ -217,37 +264,6 @@ export function LanguageSettings() {
           })}
         </div>
       </CxFormRow>
-
-      <div style={{ marginTop: 24 }}>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 transition disabled:cursor-not-allowed disabled:opacity-60"
-          style={{
-            padding: "9px 18px",
-            background: "var(--color-codex-ink)",
-            color: "var(--color-codex-bg-elev)",
-            borderRadius: "var(--codex-r-sm, 3px)",
-            fontSize: 13,
-            fontWeight: 500,
-          }}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              {t("language.saving")}
-            </>
-          ) : saved ? (
-            <>
-              <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("language.saved")}
-            </>
-          ) : (
-            t("language.save")
-          )}
-        </button>
-      </div>
     </div>
   );
 }

@@ -6,8 +6,9 @@
  * The payload still goes through the shared UserMemory helpers so existing
  * onboarding and prompt-injection behavior stays compatible.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Eraser, Loader2, Save, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { api } from "../../api/client";
 import { CxConfirmDialog } from "../../components/codex";
@@ -27,6 +28,12 @@ interface SavedMessage {
   text: string;
 }
 
+interface Choice<T extends string> {
+  value: T;
+  label_zh: string;
+  label_en: string;
+}
+
 const INPUT_STYLE: React.CSSProperties = {
   width: "100%",
   marginTop: 12,
@@ -38,29 +45,29 @@ const INPUT_STYLE: React.CSSProperties = {
   color: "var(--color-codex-ink)",
 };
 
-const LANGUAGE_CHOICES: Array<{ value: Language; label: string }> = [
-  { value: "auto", label: "跟你一致" },
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+const LANGUAGE_CHOICES: Choice<Language>[] = [
+  { value: "auto", label_zh: "跟你一致", label_en: "Match you" },
+  { value: "zh", label_zh: "中文", label_en: "Chinese" },
+  { value: "en", label_zh: "English", label_en: "English" },
 ];
 
-const TONE_CHOICES: Array<{ value: Tone; label: string }> = [
-  { value: "direct", label: "直接" },
-  { value: "friendly", label: "友好" },
-  { value: "formal", label: "正式" },
+const TONE_CHOICES: Choice<Tone>[] = [
+  { value: "direct", label_zh: "直接", label_en: "Direct" },
+  { value: "friendly", label_zh: "友好", label_en: "Friendly" },
+  { value: "formal", label_zh: "正式", label_en: "Formal" },
 ];
 
-const FORMAT_CHOICES: Array<{ value: FormatShape; label: string }> = [
-  { value: "conclusion_first", label: "先结论" },
-  { value: "bullet_list", label: "分点列举" },
-  { value: "free", label: "自由" },
+const FORMAT_CHOICES: Choice<FormatShape>[] = [
+  { value: "conclusion_first", label_zh: "先结论", label_en: "Conclusion first" },
+  { value: "bullet_list", label_zh: "分点列举", label_en: "Bulleted" },
+  { value: "free", label_zh: "自由", label_en: "Free-form" },
 ];
 
-const CONFIRMATION_CHOICES: Array<{ value: ConfirmationPolicy; label: string }> = [
-  { value: "before_write", label: "写入前" },
-  { value: "before_delete", label: "删除前" },
-  { value: "all", label: "都需要" },
-  { value: "none", label: "都不需要" },
+const CONFIRMATION_CHOICES: Choice<ConfirmationPolicy>[] = [
+  { value: "before_write", label_zh: "写入前", label_en: "Before writes" },
+  { value: "before_delete", label_zh: "删除前", label_en: "Before deletes" },
+  { value: "all", label_zh: "都需要", label_en: "Both" },
+  { value: "none", label_zh: "都不需要", label_en: "Never" },
 ];
 
 function getConfirmationPolicy(prefs: PreferencesShape): ConfirmationPolicy {
@@ -73,6 +80,8 @@ function getConfirmationPolicy(prefs: PreferencesShape): ConfirmationPolicy {
 }
 
 export function PreferenceSettings() {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language.startsWith("zh");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -81,6 +90,7 @@ export function PreferenceSettings() {
   const [prefs, setPrefs] = useState<PreferencesShape>({});
   const [msg, setMsg] = useState<SavedMessage | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const msgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api
@@ -92,6 +102,9 @@ export function PreferenceSettings() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    return () => {
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    };
   }, []);
 
   const changePrefs = (updater: (cur: PreferencesShape) => PreferencesShape) => {
@@ -134,10 +147,14 @@ export function PreferenceSettings() {
       setPrefs(readShape(data.preferences as Record<string, unknown>));
       setVersion(data.version || version + 1);
       setDirty(false);
-      setMsg({ type: "success", text: "已保存" });
-      setTimeout(() => setMsg(null), 1800);
+      setMsg({ type: "success", text: isZh ? "已保存" : "Saved" });
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+      msgTimerRef.current = setTimeout(() => setMsg(null), 1800);
     } catch (err: any) {
-      setMsg({ type: "error", text: err.response?.data?.detail || "保存失败" });
+      setMsg({
+        type: "error",
+        text: err.response?.data?.detail || (isZh ? "保存失败" : "Save failed"),
+      });
     } finally {
       setSaving(false);
     }
@@ -151,10 +168,14 @@ export function PreferenceSettings() {
       setPrefs({});
       setDirty(false);
       setClearConfirmOpen(false);
-      setMsg({ type: "success", text: "偏好已清除。" });
-      setTimeout(() => setMsg(null), 3000);
+      setMsg({ type: "success", text: isZh ? "偏好已清除。" : "Preferences cleared." });
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+      msgTimerRef.current = setTimeout(() => setMsg(null), 3000);
     } catch (err: any) {
-      setMsg({ type: "error", text: err.response?.data?.detail || "清除失败" });
+      setMsg({
+        type: "error",
+        text: err.response?.data?.detail || (isZh ? "清除失败" : "Failed to clear preferences"),
+      });
       setClearConfirmOpen(false);
     } finally {
       setClearing(false);
@@ -201,7 +222,7 @@ export function PreferenceSettings() {
                 letterSpacing: "-0.02em",
               }}
             >
-              个人偏好
+              {isZh ? "个人偏好" : "Personal preferences"}
             </h1>
           </div>
           <p
@@ -212,7 +233,9 @@ export function PreferenceSettings() {
               lineHeight: 1.6,
             }}
           >
-            跨项目生效。AI 会在系统提示词中读取这些偏好，但不会写入客户/项目记忆。
+            {isZh
+              ? "跨项目生效。AI 会在系统提示词中读取这些偏好，但不会写入客户/项目记忆。"
+              : "Applies across every project. The model reads these as system context, but never writes them into client or project memory."}
             {version > 0 ? (
               <>
                 {" "}
@@ -230,15 +253,19 @@ export function PreferenceSettings() {
             style={{ fontSize: 13, color: "var(--color-codex-ink-mute)" }}
           >
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在加载...
+            {isZh ? "正在加载..." : "Loading..."}
           </div>
         ) : (
           <>
-            <SectionLabel>称呼</SectionLabel>
+            <SectionLabel>{isZh ? "称呼" : "Name"}</SectionLabel>
             <PreferenceCard>
               <PreferenceOption
-                title="Aria 怎么称呼你"
-                description="例如「李总」「小李」「Liang」。留空则使用账户姓名。"
+                title={isZh ? "Aria 怎么称呼你" : "How should Aria address you"}
+                description={
+                  isZh
+                    ? "例如「李总」「小李」「Liang」。留空则使用账户姓名。"
+                    : "Examples: 'Boss Li', 'Liang'. Leave empty to fall back to your account name."
+                }
                 divider={false}
               >
                 <input
@@ -251,7 +278,7 @@ export function PreferenceSettings() {
                       personal_info: { ...(cur.personal_info ?? {}), preferred_name: next },
                     }));
                   }}
-                  placeholder="例如: 李总、小李、Liang"
+                  placeholder={isZh ? "例如: 李总、小李、Liang" : "e.g. Boss Li, Liang"}
                   maxLength={40}
                   autoComplete="off"
                   style={INPUT_STYLE}
@@ -259,14 +286,19 @@ export function PreferenceSettings() {
               </PreferenceOption>
             </PreferenceCard>
 
-            <SectionLabel>回复风格</SectionLabel>
+            <SectionLabel>{isZh ? "回复风格" : "Reply style"}</SectionLabel>
             <PreferenceCard>
               <PreferenceOption
-                title="回复语言"
-                description="AI 的主要输出语言。「跟你一致」会根据你的提问语言自动判断。"
+                title={isZh ? "回复语言" : "Reply language"}
+                description={
+                  isZh
+                    ? "AI 的主要输出语言。「跟你一致」会根据你的提问语言自动判断。"
+                    : "The main output language. 'Match you' picks up the language of your last prompt."
+                }
               >
                 <ChoiceGroup
-                  ariaLabel="回复语言"
+                  ariaLabel={isZh ? "回复语言" : "Reply language"}
+                  isZh={isZh}
                   value={selectedLanguage}
                   options={LANGUAGE_CHOICES}
                   onChange={(value) => updateResponsePref("language", value as Language)}
@@ -274,11 +306,16 @@ export function PreferenceSettings() {
               </PreferenceOption>
 
               <PreferenceOption
-                title="回复语气"
-                description="客户场合建议「正式」；项目内部多用「直接」。"
+                title={isZh ? "回复语气" : "Tone"}
+                description={
+                  isZh
+                    ? "客户场合建议「正式」；项目内部多用「直接」。"
+                    : "Use 'Formal' with clients, 'Direct' for internal project work."
+                }
               >
                 <ChoiceGroup
-                  ariaLabel="回复语气"
+                  ariaLabel={isZh ? "回复语气" : "Tone"}
+                  isZh={isZh}
                   value={selectedTone}
                   options={TONE_CHOICES}
                   onChange={(value) => updateResponsePref("tone", value as Tone)}
@@ -286,12 +323,17 @@ export function PreferenceSettings() {
               </PreferenceOption>
 
               <PreferenceOption
-                title="回复结构"
-                description="「先结论」适合汇报场景；「自由」让 AI 自己组织。"
+                title={isZh ? "回复结构" : "Structure"}
+                description={
+                  isZh
+                    ? "「先结论」适合汇报场景；「自由」让 AI 自己组织。"
+                    : "'Conclusion first' suits briefings; 'Free-form' lets the model decide."
+                }
                 divider={false}
               >
                 <ChoiceGroup
-                  ariaLabel="回复结构"
+                  ariaLabel={isZh ? "回复结构" : "Structure"}
+                  isZh={isZh}
                   value={selectedFormat}
                   options={FORMAT_CHOICES}
                   onChange={(value) => updateResponsePref("format", value as FormatShape)}
@@ -299,15 +341,20 @@ export function PreferenceSettings() {
               </PreferenceOption>
             </PreferenceCard>
 
-            <SectionLabel>安全</SectionLabel>
+            <SectionLabel>{isZh ? "安全" : "Safety"}</SectionLabel>
             <PreferenceCard>
               <PreferenceOption
-                title="写入 / 删除前再确认"
-                description="AI 在改写项目记忆或删除文档之前，会先跟你打个招呼。"
+                title={isZh ? "写入 / 删除前再确认" : "Confirm before writing or deleting"}
+                description={
+                  isZh
+                    ? "AI 在改写项目记忆或删除文档之前，会先跟你打个招呼。"
+                    : "The model will check in with you before rewriting project memory or deleting a doc."
+                }
                 divider={false}
               >
                 <ChoiceGroup
-                  ariaLabel="写入 / 删除前再确认"
+                  ariaLabel={isZh ? "写入 / 删除前再确认" : "Confirm before writing or deleting"}
+                  isZh={isZh}
                   value={selectedConfirmation}
                   options={CONFIRMATION_CHOICES}
                   onChange={(value) => updateConfirmationPolicy(value as ConfirmationPolicy)}
@@ -347,11 +394,11 @@ export function PreferenceSettings() {
                 ) : (
                   <Eraser className="h-3.5 w-3.5" />
                 )}
-                清除所有偏好
+                {isZh ? "清除所有偏好" : "Clear all preferences"}
               </button>
 
               <div className="ml-auto flex items-center gap-3">
-                <StatusText saving={saving} dirty={dirty} msg={msg} />
+                <StatusText isZh={isZh} saving={saving} dirty={dirty} msg={msg} />
                 <button
                   type="button"
                   onClick={() => void savePreferences()}
@@ -371,7 +418,7 @@ export function PreferenceSettings() {
                   ) : (
                     <Save className="h-3.5 w-3.5" />
                   )}
-                  保存
+                  {isZh ? "保存" : "Save"}
                 </button>
               </div>
             </div>
@@ -386,10 +433,14 @@ export function PreferenceSettings() {
         }}
         onConfirm={() => void handleClear()}
         tone="danger"
-        title="清除所有 AI 偏好？"
-        description="清除后 AI 将不再读取这些个人化设置。该操作不可撤销。"
-        confirmLabel="清除"
-        cancelLabel="取消"
+        title={isZh ? "清除所有 AI 偏好？" : "Clear all AI preferences?"}
+        description={
+          isZh
+            ? "清除后 AI 将不再读取这些个人化设置。该操作不可撤销。"
+            : "Once cleared, the model will stop reading these personalisation settings. This cannot be undone."
+        }
+        confirmLabel={isZh ? "清除" : "Clear"}
+        cancelLabel={isZh ? "取消" : "Cancel"}
         busy={clearing}
       />
     </div>
@@ -467,13 +518,15 @@ function PreferenceOption({
 
 function ChoiceGroup<T extends string>({
   ariaLabel,
+  isZh,
   value,
   options,
   onChange,
 }: {
   ariaLabel: string;
+  isZh: boolean;
   value: T;
-  options: Array<{ value: T; label: string }>;
+  options: Choice<T>[];
   onChange: (value: T) => void;
 }) {
   return (
@@ -505,7 +558,7 @@ function ChoiceGroup<T extends string>({
               fontWeight: active ? 500 : 400,
             }}
           >
-            {option.label}
+            {isZh ? option.label_zh : option.label_en}
           </button>
         );
       })}
@@ -514,10 +567,12 @@ function ChoiceGroup<T extends string>({
 }
 
 function StatusText({
+  isZh,
   saving,
   dirty,
   msg,
 }: {
+  isZh: boolean;
   saving: boolean;
   dirty: boolean;
   msg: SavedMessage | null;
@@ -539,7 +594,7 @@ function StatusText({
       {saving ? (
         <>
           <Loader2 className="h-3 w-3 animate-spin" />
-          正在保存...
+          {isZh ? "正在保存..." : "Saving..."}
         </>
       ) : msg?.type === "error" ? (
         <>
@@ -552,7 +607,7 @@ function StatusText({
           {msg.text}
         </>
       ) : (
-        <span>有未保存修改</span>
+        <span>{isZh ? "有未保存修改" : "Unsaved changes"}</span>
       )}
     </span>
   );
