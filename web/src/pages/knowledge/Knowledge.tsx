@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Database, FileText, Loader2, Search, Trash2, Upload, X } from 'lucide-react'
+import { Database, FileText, Loader2, Search, Trash2, Upload, X } from 'lucide-react'
 
 import { api } from '../../api/client'
 import { CxConfirmDialog, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
@@ -172,7 +172,7 @@ export function Knowledge() {
   }, [documents])
 
   const indexedCount = documents.filter((doc) => doc.vector_status === 'synced').length
-  const totalSize = documents.reduce((sum, doc) => sum + (doc.size || 0), 0)
+  const totalSize = documents.reduce((sum, doc) => sum + (doc.size_bytes || 0), 0)
   const latestDoc = documents[0]
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -566,7 +566,7 @@ function KnowledgeRow({
         </div>
       </div>
       <span className="codex-num" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
-        {formatFileSize(doc.size)}
+        {formatFileSize(doc.size_bytes)}
       </span>
       <span style={{ fontSize: 11.5, color: 'var(--color-codex-ink-faint)' }}>{formatRelativeTime(doc.uploaded_at, isZh)}</span>
       <div className="flex items-center justify-end gap-1">
@@ -584,7 +584,6 @@ function KnowledgeRow({
         >
           <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
         </button>
-        <ArrowRight size={12} strokeWidth={1.5} style={{ color: 'var(--color-codex-ink-faint)' }} aria-hidden="true" />
       </div>
     </div>
   )

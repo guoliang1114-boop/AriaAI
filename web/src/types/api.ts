@@ -991,7 +991,11 @@ export interface KnowledgeDocument {
   category: string
   project_id?: number | null
   client_id?: number | null
-  size?: number
+  // Matches the backend ``KnowledgeDocument.size_bytes`` column. The old
+  // ``size`` alias was always undefined in JSON since the server never
+  // emitted that field, which is why the Knowledge list rendered "—"
+  // for every row.
+  size_bytes?: number
   vector_status: 'pending' | 'processing' | 'synced' | 'failed'
   uploaded_at: string
 }

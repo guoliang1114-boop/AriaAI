@@ -2670,15 +2670,16 @@ export function Chat() {
                 <div className="flex flex-1 items-center gap-2 overflow-x-auto sm:overflow-visible">
                   <button
                     type="button"
-                    className="inline-flex flex-shrink-0 items-center gap-1.5 transition-colors"
+                    disabled
+                    className="inline-flex flex-shrink-0 cursor-not-allowed items-center gap-1.5 opacity-50 transition-colors"
                     style={{
                       padding: '4px 8px',
                       fontSize: 12,
                       color: 'var(--color-codex-ink-mute)',
                       borderRadius: 'var(--codex-r-sm, 3px)',
                     }}
-                    title="Attach"
-                    aria-label="Attach"
+                    title={t('chat.attachComingSoon', { defaultValue: '附件上传暂未开放' })}
+                    aria-label={t('chat.attachComingSoon', { defaultValue: '附件上传暂未开放' })}
                   >
                     <Paperclip className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">附件</span>

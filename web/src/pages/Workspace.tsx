@@ -932,7 +932,9 @@ export function Workspace() {
                     type="button"
                     onClick={() =>
                       navigate(
-                        conv.project_id ? `/projects/${conv.project_id}/chat` : "/chat",
+                        conv.project_id
+                          ? `/projects/${conv.project_id}/chat?conversation=${conv.id}`
+                          : `/chat?conversation=${conv.id}`,
                       )
                     }
                     className="codex-row-hov block w-full text-left"

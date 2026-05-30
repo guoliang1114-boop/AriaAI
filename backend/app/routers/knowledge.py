@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks
 from sqlmodel import Session, select, func
 
 from app.config import UPLOADS_DIR
@@ -39,9 +39,12 @@ def list_documents(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    category: str = "",
-    project_id: Optional[int] = None,
-    client_id: Optional[int] = None,
+    # Without ``Form(...)`` FastAPI looks for these in the query string on a
+    # multipart request, so the frontend's ``FormData.append('category', ...)``
+    # silently dropped the value and every doc ended up uncategorised.
+    category: str = Form(""),
+    project_id: Optional[int] = Form(None),
+    client_id: Optional[int] = Form(None),
     session: Session = Depends(get_session),
 ):
     if project_id is not None:
