@@ -189,7 +189,7 @@ export function ProjectBriefingTab({ projectDetail, projectId }: ProjectBriefing
       navigate(`/projects/${projectId}/chat${params.toString() ? `?${params.toString()}` : ""}`);
       return;
     }
-    navigate(`/projects/${projectId}/space`);
+    navigate(`/projects/${projectId}/documents`);
   };
 
   if (isLoading && !briefing) {

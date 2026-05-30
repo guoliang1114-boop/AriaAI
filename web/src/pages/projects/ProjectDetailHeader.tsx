@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
-import { ArrowLeft, Circle } from "lucide-react";
+import { ArrowLeft, Circle, Edit2, MoreHorizontal, Trash2, Users } from "lucide-react";
 import type { Project } from "../../types/api";
 import { resolveProjectStage } from "../../types/enums";
 import { PROJECT_DETAIL_TABS, type ProjectDetailTabId } from "./projectDetailTabs";
@@ -63,11 +64,34 @@ export function ProjectDetailHeader({
   project,
   onBack,
   projectId,
+  onEdit,
+  onOpenMembers,
+  onDelete,
+  canEdit = true,
+  canDelete = true,
 }: {
   project: Project;
   onBack: () => void;
   projectId: string;
+  onEdit?: () => void;
+  onOpenMembers?: () => void;
+  onDelete?: () => void;
+  /** Permission gates — supplied by ``useProjectAccess`` upstream. */
+  canEdit?: boolean;
+  canDelete?: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const rawStatus = String(project.status || "").trim();
@@ -79,7 +103,7 @@ export function ProjectDetailHeader({
     : isZh
       ? "未知状态"
       : "Unknown";
-  const visibleTabs = PROJECT_DETAIL_TABS.filter((tab) => !tab.hiddenInNav);
+  const visibleTabs = PROJECT_DETAIL_TABS;
   const labelFor = (tab: { id: ProjectDetailTabId; labelKey: string }) => {
     const map = isZh ? TAB_LABEL_ZH : TAB_LABEL_EN;
     return map[tab.id] ?? t(tab.labelKey);
@@ -204,6 +228,124 @@ export function ProjectDetailHeader({
             </NavLink>
           ))}
         </nav>
+
+        {/* Utility area — edit + overflow menu (members / delete). The
+         * old Settings tab has been collapsed into these actions per the
+         * Codex handoff. Permission flags come from ``useProjectAccess``
+         * upstream so the upcoming permissions sprint can lock them
+         * without touching this component. */}
+        {(onEdit || onOpenMembers || onDelete) ? (
+          <div className="flex flex-shrink-0 items-center" style={{ gap: 6 }}>
+            {onEdit && canEdit ? (
+              <button
+                type="button"
+                onClick={onEdit}
+                title={isZh ? "编辑项目" : "Edit project"}
+                aria-label={isZh ? "编辑项目" : "Edit project"}
+                className="inline-flex items-center justify-center transition-colors"
+                style={{
+                  width: 30,
+                  height: 30,
+                  color: "var(--color-codex-ink-mute)",
+                  background: "transparent",
+                  border: "1px solid var(--color-codex-line)",
+                  borderRadius: "var(--codex-r-sm, 6px)",
+                }}
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            {(onOpenMembers || (onDelete && canDelete)) ? (
+              <div ref={menuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  title={isZh ? "更多操作" : "More"}
+                  aria-label={isZh ? "更多操作" : "More"}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  className="inline-flex items-center justify-center transition-colors"
+                  style={{
+                    width: 30,
+                    height: 30,
+                    color: "var(--color-codex-ink-mute)",
+                    background: menuOpen
+                      ? "var(--color-codex-bg-tint)"
+                      : "transparent",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-sm, 6px)",
+                  }}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                {menuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-40"
+                    style={{
+                      top: "calc(100% + 4px)",
+                      minWidth: 180,
+                      padding: 4,
+                      background: "var(--color-codex-bg-elev)",
+                      border: "1px solid var(--color-codex-line-strong, var(--color-codex-line))",
+                      borderRadius: "var(--codex-r-md, 8px)",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                    }}
+                  >
+                    {onOpenMembers ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onOpenMembers();
+                        }}
+                        className="flex w-full items-center transition-colors"
+                        style={{
+                          gap: 8,
+                          padding: "6px 8px",
+                          fontSize: 12.5,
+                          color: "var(--color-codex-ink)",
+                          background: "transparent",
+                          border: "none",
+                          borderRadius: "var(--codex-r-sm, 6px)",
+                          textAlign: "left",
+                        }}
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        {isZh ? "成员管理" : "Members"}
+                      </button>
+                    ) : null}
+                    {onDelete && canDelete ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onDelete();
+                        }}
+                        className="flex w-full items-center transition-colors"
+                        style={{
+                          gap: 8,
+                          padding: "6px 8px",
+                          fontSize: 12.5,
+                          color: "var(--color-codex-bad)",
+                          background: "transparent",
+                          border: "none",
+                          borderRadius: "var(--codex-r-sm, 6px)",
+                          textAlign: "left",
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {isZh ? "删除项目" : "Delete project"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </header>
   );

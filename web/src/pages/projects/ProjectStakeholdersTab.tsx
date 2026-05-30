@@ -173,7 +173,7 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
         client={client}
         isZh={isZh}
         keyContactCount={structuredStakeholders.length || keyContacts.length}
-        onManageAnchors={() => navigate(`/projects/${projectId}/anchors`)}
+        onManageAnchors={() => navigate(`/projects/${projectId}/memory`)}
         onOpenClientMemory={() => {
           if (client) navigate(`/clients/${client.id}/memory`);
         }}

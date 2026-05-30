@@ -26,12 +26,12 @@ vi.mock('./ProjectBriefingTab', () => ({
   ProjectBriefingTab: () => <div data-testid="project-briefing-tab">Briefing</div>,
 }))
 
-vi.mock('./ProjectSpaceTab', () => ({
-  ProjectSpaceTab: () => <div data-testid="project-space-tab">Space</div>,
-}))
-
 vi.mock('./ProjectMilestonesTab', () => ({
   ProjectMilestonesTab: () => <div data-testid="project-milestones-tab">Milestones</div>,
+}))
+
+vi.mock('./ProjectTodosTab', () => ({
+  ProjectTodosTab: () => <div data-testid="project-todos-tab">Todos</div>,
 }))
 
 vi.mock('./ProjectFinancialsTab', () => ({
@@ -42,16 +42,8 @@ vi.mock('./ProjectMemoryTab', () => ({
   ProjectMemoryTab: () => <div data-testid="project-memory-tab">Memory</div>,
 }))
 
-vi.mock('./ProjectAnchorsTab', () => ({
-  ProjectAnchorsTab: () => <div data-testid="project-anchors-tab">Anchors</div>,
-}))
-
 vi.mock('./ProjectStakeholdersTab', () => ({
   ProjectStakeholdersTab: () => <div data-testid="project-stakeholders-tab">Stakeholders</div>,
-}))
-
-vi.mock('./ProjectSettingsTab', () => ({
-  ProjectSettingsTab: () => <div data-testid="project-settings-tab">Settings</div>,
 }))
 
 vi.mock('./ProjectDetailLayout', () => ({

@@ -8,11 +8,15 @@ import { ProjectChatTab } from "./ProjectChatTab";
 import { ProjectNotesTab } from "./ProjectNotesTab";
 import type { ProjectDetailTabId } from "./projectDetailTabs";
 
-type ProjectPanelId = "chat" | "notes";
+// The persistent-panel optimisation keeps the chat and documents
+// tabs MOUNTED but hidden when the user switches away, so SSE chat
+// state and notes/docs editor state survive tab navigation. Other
+// tabs unmount normally.
+type ProjectPanelId = "chat" | "documents";
 
 const PANEL_WRAPPER_CLASSNAMES: Record<ProjectPanelId, string> = {
   chat: "h-[calc(100vh-3.5rem)] min-h-[32rem] px-3 py-3",
-  notes: "min-h-[calc(100vh-3.5rem)] max-w-full px-4 py-4",
+  documents: "min-h-[calc(100vh-3.5rem)] max-w-full px-4 py-4",
 };
 
 function PanelContainer({
@@ -68,7 +72,7 @@ function buildPersistentPanelConfig({
       ),
     },
     {
-      id: "notes",
+      id: "documents",
       element: (
         <ProjectNotesTab
           projectId={projectId}
@@ -104,11 +108,11 @@ export function PersistentProjectPanels({
     Record<ProjectPanelId, boolean>
   >({
     chat: activeTabId === "chat",
-    notes: activeTabId === "notes",
+    documents: activeTabId === "documents",
   });
 
   useEffect(() => {
-    if (activeTabId === "chat" || activeTabId === "notes") {
+    if (activeTabId === "chat" || activeTabId === "documents") {
       setMountedPersistentPanels((current) =>
         current[activeTabId]
           ? current

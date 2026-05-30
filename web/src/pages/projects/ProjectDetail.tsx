@@ -3,15 +3,12 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { FolderKanban, Home, Loader2, MessageSquare, RefreshCw } from "lucide-react";
 import { PageTitle } from "../../components/PageTitle";
 import { ServiceErrorState } from "../../components/ServiceErrorState";
-import { ProjectAnchorsTab } from "./ProjectAnchorsTab";
 import { ProjectBriefingTab } from "./ProjectBriefingTab";
 import { ProjectDetailLayout } from "./ProjectDetailLayout";
 import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectMilestonesTab } from "./ProjectMilestonesTab";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
-import { ProjectSettingsTab } from "./ProjectSettingsTab";
-import { ProjectSpaceTab } from "./ProjectSpaceTab";
 import { ProjectStakeholdersTab } from "./ProjectStakeholdersTab";
 import { ProjectTodosTab } from "./ProjectTodosTab";
 import { getActiveProjectDetailTabId, type ProjectDetailTabId } from "./projectDetailTabs";
@@ -31,16 +28,12 @@ function renderProjectDetailContent(
           projectId={projectId}
         />
       );
-    case "space":
-    case "notes":
     case "documents":
-      return (
-        <ProjectSpaceTab
-          projectDetail={projectDetail}
-          projectId={projectId}
-          onUpdate={onRefresh}
-        />
-      );
+      // The documents tab is handled by PersistentProjectPanels (kept
+      // mounted across tab switches so editor / dropzone state
+      // survives). Returning null here avoids double-render — the
+      // layout container is also ``hidden`` for documents/chat.
+      return null;
     case "milestones":
       return (
         <div className="space-y-6">
@@ -72,25 +65,11 @@ function renderProjectDetailContent(
           projectId={projectId}
         />
       );
-    case "anchors":
-      return (
-        <ProjectAnchorsTab
-          projectDetail={projectDetail}
-          projectId={projectId}
-        />
-      );
     case "stakeholders":
       return (
         <ProjectStakeholdersTab
           projectDetail={projectDetail}
           projectId={projectId}
-        />
-      );
-    case "settings":
-      return (
-        <ProjectSettingsTab
-          projectDetail={projectDetail}
-          onUpdate={onRefresh}
         />
       );
     case "overview":

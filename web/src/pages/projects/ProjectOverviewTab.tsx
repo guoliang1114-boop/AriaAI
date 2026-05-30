@@ -4,6 +4,7 @@ import { useToast } from "../../contexts/ToastContext";
 import type { ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
 import { downloadProjectFile } from "./downloadProjectFile";
 import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
+import { useProjectDetailActions } from "./ProjectDetailActionsContext";
 import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
 import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
 import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
@@ -32,6 +33,7 @@ export function ProjectOverviewTab({
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
   const toast = useToast();
+  const actions = useProjectDetailActions();
   const {
     descExpanded,
     formatAmount,
@@ -98,7 +100,7 @@ export function ProjectOverviewTab({
           descExpanded={descExpanded}
           description={project.description}
           isZh={isZh}
-          onEdit={() => navigate(`/projects/${projectId}/settings`, { state: { edit: true } })}
+          onEdit={() => actions?.openEdit()}
           onToggleDescription={() => setDescExpanded((value) => !value)}
           projectClient={project.client}
           projectStatus={project.status}
@@ -119,7 +121,7 @@ export function ProjectOverviewTab({
           clientName={project.client}
           isZh={isZh}
           memory={memory}
-          onManage={() => navigate(`/projects/${projectId}/anchors`)}
+          onManage={() => navigate(`/projects/${projectId}/memory`)}
         />
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -132,7 +134,7 @@ export function ProjectOverviewTab({
             files={recentFiles}
             isZh={isZh}
             onDownload={(file) => void handleDownload(file)}
-            onOpen={() => navigate(`/projects/${projectId}/space`)}
+            onOpen={() => navigate(`/projects/${projectId}/documents`)}
           />
         </div>
       </div>
@@ -158,7 +160,7 @@ export function ProjectOverviewTab({
             variant="compact"
           />
         }
-        onGoToDocuments={() => navigate(`/projects/${projectId}/space`)}
+        onGoToDocuments={() => navigate(`/projects/${projectId}/documents`)}
         onGoToFinancials={() => navigate(`/projects/${projectId}/financials`)}
         onGoToMilestones={() => navigate(`/projects/${projectId}/milestones`)}
         onGoToTodos={() => navigate(`/projects/${projectId}/milestones`)}
