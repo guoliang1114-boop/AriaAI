@@ -2357,14 +2357,14 @@ export function Chat() {
 
             {/* Load more */}
             {loadingMore && (
-              <div className="flex items-center justify-center gap-2 py-3 text-sm text-gray-400 mb-4">
+              <div className="flex items-center justify-center gap-2 py-3 text-sm text-codex-ink-faint mb-4">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span className="text-xs">加载中…</span>
               </div>
             )}
             {!loadingMore && hasMore && messages.length > 0 && (
               <button onClick={loadMoreMessages}
-                className="w-full flex items-center justify-center gap-2 py-2 mb-6 text-xs text-gray-400 hover:text-primary transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2 mb-6 text-xs text-codex-ink-faint hover:text-codex-accent transition-colors"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
                 {t('chat.loadEarlierMessages')}

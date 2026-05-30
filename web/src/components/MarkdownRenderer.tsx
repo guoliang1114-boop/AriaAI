@@ -165,7 +165,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
             typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
           )
           if (!safeHref) {
-            return <span className="md-link text-slate-500 no-underline">{children}</span>
+            return <span className="md-link text-codex-ink-mute no-underline">{children}</span>
           }
           return (
             <a href={safeHref} target="_blank" rel="noopener noreferrer" className="md-link">
