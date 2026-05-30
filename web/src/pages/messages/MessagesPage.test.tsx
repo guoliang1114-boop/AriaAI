@@ -69,8 +69,10 @@ describe('MessagesPage', () => {
     })
     mockPost.mockResolvedValue({})
     render(<MessagesPage />)
-    await waitFor(() => screen.getByText('Msg'))
-    const markReadBtn = screen.getByRole('button', { name: '标记已读' })
+    // The "标记已读" button lives in the detail pane and only appears
+    // once the auto-select effect picks the first message. Use the
+    // async findByRole so the test isn't sensitive to that extra tick.
+    const markReadBtn = await screen.findByRole('button', { name: '标记已读' })
     fireEvent.click(markReadBtn)
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith('/messages/1/read')
