@@ -13,13 +13,14 @@
  * — minus the "open Tweaks panel" callout because we don't ship a
  * Tweaks panel in production; this page IS the Tweaks panel.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Check, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Loader2, Sparkles } from "lucide-react";
 
 import { api } from "../../api/client";
 import { CxFormRow, CxStatus } from "../../components/codex";
 import { useCodexAppearance } from "../../hooks/useCodexAppearance";
+import { resolveTheme } from "../../utils/codexAppearance";
 import type {
   CodexAccent,
   CodexDensity,
@@ -27,6 +28,12 @@ import type {
   CodexTheme,
   CodexWarmth,
 } from "../../utils/codexAppearance";
+import {
+  compactPreferences,
+  readShape,
+  type PreferencesShape,
+  type UserMemoryResponse,
+} from "../../utils/userMemoryPreferences";
 import {
   APP_FONT_SIZE_SETTING_KEY,
   getStoredAppFontSize,
@@ -89,38 +96,80 @@ const DENSITY_OPTIONS_EN: ChipOption<CodexDensity>[] = [
   { value: "comfy", label: "Comfy" },
 ];
 
-// Radius previews now use a bigger tile + an inset button-and-pill
-// silhouette so the difference between sharp / soft / round is
-// obvious at a glance — the earlier version was a 56×36 outline only
-// and the user couldn't tell the choices apart.
-const RADIUS_OPTIONS: { value: CodexRadius; label_zh: string; label_en: string; px: number }[] = [
-  { value: "sharp", label_zh: "锐利", label_en: "Sharp", px: 0 },
-  { value: "soft", label_zh: "柔和", label_en: "Soft", px: 8 },
-  { value: "round", label_zh: "圆润", label_en: "Round", px: 18 },
+// Radius preview tiles use the same r-md / r-sm values the CSS will
+// actually apply, so the picker is an honest preview of the real UI.
+// Numbers below mirror the ``--codex-r-*`` rules in styles/codex.css.
+const RADIUS_OPTIONS: {
+  value: CodexRadius;
+  label_zh: string;
+  label_en: string;
+  tile: number; // matches --codex-r-md for the tile itself
+  inner: number; // matches --codex-r-sm for the mini button inside
+}[] = [
+  { value: "sharp", label_zh: "锐利", label_en: "Sharp", tile: 0, inner: 0 },
+  { value: "soft", label_zh: "柔和", label_en: "Soft", tile: 10, inner: 6 },
+  { value: "round", label_zh: "圆润", label_en: "Round", tile: 18, inner: 12 },
 ];
 
-// Warmth swatches use the same color the CSS class will set as
-// ``--color-codex-bg`` — keeps the picker honest. See the
-// ``.warmth-*`` rules in ``styles/codex.css``.
-const WARMTH_OPTIONS: { value: CodexWarmth; label_zh: string; label_en: string; bg: string }[] = [
-  { value: "white", label_zh: "纯白", label_en: "White", bg: "#ffffff" },
-  { value: "paper", label_zh: "中性", label_en: "Paper", bg: "#fafaf7" },
-  { value: "parchment", label_zh: "暖羊皮", label_en: "Parchment", bg: "#fcfbf7" },
+// Warmth swatches use the same colors the CSS class will set as
+// ``--color-codex-bg`` for the resolved theme — light bg in light mode,
+// dark bg in dark mode. See the ``.warmth-*`` and ``.dark.warmth-*``
+// rules in ``styles/codex.css``.
+const WARMTH_OPTIONS: {
+  value: CodexWarmth;
+  label_zh: string;
+  label_en: string;
+  bg_light: string;
+  bg_dark: string;
+}[] = [
+  {
+    value: "white",
+    label_zh: "纯白 / 纯黑",
+    label_en: "White / Black",
+    bg_light: "#ffffff",
+    bg_dark: "#0a0a0a",
+  },
+  {
+    value: "paper",
+    label_zh: "中性",
+    label_en: "Paper",
+    bg_light: "#fafaf7",
+    bg_dark: "#14140f",
+  },
+  {
+    value: "parchment",
+    label_zh: "暖羊皮",
+    label_en: "Parchment",
+    bg_light: "#fcfbf7",
+    bg_dark: "#15130f",
+  },
 ];
 
 export function AppearanceSettings() {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
-  const { appearance, patchAppearance } = useCodexAppearance();
+  const { appearance, setAppearance, patchAppearance } = useCodexAppearance();
 
   const themeOptions = isZh ? THEME_OPTIONS_ZH : THEME_OPTIONS_EN;
   const densityOptions = isZh ? DENSITY_OPTIONS_ZH : DENSITY_OPTIONS_EN;
+  const resolvedTheme = resolveTheme(appearance.theme);
 
-  // Font size — backend round-trip (not localStorage-only like the
-  // other appearance controls) because it has to follow the user
-  // across devices. Auto-saves on selection.
+  // Page-level save status — shared across font size + the appearance
+  // bundle so the user only sees one indicator (the old per-row toast
+  // was inconsistent with the rest of the page).
+  const [saving, setSaving] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<SavedMessage | null>(null);
+  const flashSaved = (text: string) => {
+    setStatusMsg({ type: "success", text });
+    setTimeout(
+      () => setStatusMsg((cur) => (cur && cur.type === "success" ? null : cur)),
+      1800,
+    );
+  };
+
+  // Font size — global setting (lives on the Setting table, keyed by
+  // ``font_size``). Auto-saves on selection.
   const [fontSize, setFontSize] = useState<AppFontSize>(getStoredAppFontSize);
-  const [fontSizeMsg, setFontSizeMsg] = useState<SavedMessage | null>(null);
 
   useEffect(() => {
     api
@@ -138,23 +187,83 @@ export function AppearanceSettings() {
   const handleSelectFontSize = async (value: AppFontSize) => {
     setFontSize(value);
     setAppFontSize(value);
-    setFontSizeMsg(null);
+    setSaving(true);
+    setStatusMsg(null);
     try {
       await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value });
-      setFontSizeMsg({
-        type: "success",
-        text: isZh ? "已保存" : "Saved",
-      });
-      setTimeout(() => setFontSizeMsg(null), 1800);
+      flashSaved(isZh ? "已保存" : "Saved");
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setFontSizeMsg({
+      setStatusMsg({
         type: "error",
-        text: detail || (isZh ? "保存字体大小失败" : "Failed to save font size"),
+        text: detail || (isZh ? "保存失败" : "Save failed"),
       });
+    } finally {
+      setSaving(false);
     }
   };
+
+  // ----- Appearance ↔ /user-memory sync -----
+  //
+  // localStorage gives us synchronous reads (no FOUC). The backend is
+  // the source of truth for cross-device sync: we fetch once on mount
+  // and apply server values if present, then debounced-PUT the full
+  // prefs whenever appearance changes after the initial hydration.
+  // We hold the rest of the prefs (response_preferences / work_style /
+  // personal_info / onboarding_seen) in state so the PUT doesn't clobber
+  // what PreferenceSettings has saved.
+  const [otherPrefs, setOtherPrefs] = useState<PreferencesShape>({});
+  const [hydratedFromServer, setHydratedFromServer] = useState(false);
+  const skipNextAppearanceSaveRef = useRef(false);
+  const appearanceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    api
+      .get<UserMemoryResponse>("/user-memory")
+      .then((data) => {
+        const shape = readShape(data.preferences as Record<string, unknown>);
+        const { appearance: serverAppearance, ...rest } = shape;
+        setOtherPrefs(rest);
+        if (serverAppearance) {
+          // Apply server's snapshot. The next save effect run will see
+          // ``skipNextAppearanceSaveRef`` and bail without bouncing the
+          // value right back to the server.
+          skipNextAppearanceSaveRef.current = true;
+          setAppearance(serverAppearance);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHydratedFromServer(true));
+  }, [setAppearance]);
+
+  useEffect(() => {
+    if (!hydratedFromServer) return;
+    if (skipNextAppearanceSaveRef.current) {
+      skipNextAppearanceSaveRef.current = false;
+      return;
+    }
+    if (appearanceSaveTimerRef.current) clearTimeout(appearanceSaveTimerRef.current);
+    appearanceSaveTimerRef.current = setTimeout(async () => {
+      setSaving(true);
+      setStatusMsg(null);
+      try {
+        const payload = compactPreferences({ ...otherPrefs, appearance });
+        await api.put<UserMemoryResponse>("/user-memory", { preferences: payload });
+        flashSaved(isZh ? "已保存" : "Saved");
+      } catch (err: any) {
+        setStatusMsg({
+          type: "error",
+          text: err?.response?.data?.detail || (isZh ? "保存失败" : "Save failed"),
+        });
+      } finally {
+        setSaving(false);
+      }
+    }, 400);
+    return () => {
+      if (appearanceSaveTimerRef.current) clearTimeout(appearanceSaveTimerRef.current);
+    };
+  }, [appearance, hydratedFromServer, otherPrefs, isZh]);
 
   // All copy on this page is in the Codex theme scope, so use codex tokens
   // directly. The outer wrapper opts the subtree into the codex theme even
@@ -170,30 +279,71 @@ export function AppearanceSettings() {
         padding: "8px 4px 32px",
       }}
     >
-      <header style={{ marginBottom: 16 }}>
-        <h1
+      <header
+        className="flex items-start justify-between gap-4"
+        style={{ marginBottom: 16 }}
+      >
+        <div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 500,
+              color: "var(--color-codex-ink)",
+              letterSpacing: "-0.015em",
+            }}
+          >
+            {isZh ? "外观" : "Appearance"}
+          </h1>
+          <p
+            style={{
+              margin: "6px 0 0",
+              fontSize: 13,
+              color: "var(--color-codex-ink-mute)",
+              lineHeight: 1.6,
+            }}
+          >
+            {isZh
+              ? "主题、背景、强调色、密度、圆角和字号 — 改动随用户跨设备生效，所有 Codex 风格的页面立即应用。"
+              : "Theme, background, accent, density, radius and font size — synced per-user across devices, applied instantly across every Codex-styled page."}
+          </p>
+        </div>
+        <span
+          aria-live="polite"
+          className="inline-flex flex-shrink-0 items-center gap-1.5"
           style={{
-            margin: 0,
-            fontSize: 22,
-            fontWeight: 500,
-            color: "var(--color-codex-ink)",
-            letterSpacing: "-0.015em",
+            marginTop: 4,
+            fontSize: 12,
+            color: saving
+              ? "var(--color-codex-ink-mute)"
+              : statusMsg?.type === "error"
+                ? "var(--color-codex-bad)"
+                : statusMsg?.type === "success"
+                  ? "var(--color-codex-good)"
+                  : "var(--color-codex-ink-faint)",
           }}
         >
-          {isZh ? "外观" : "Appearance"}
-        </h1>
-        <p
-          style={{
-            margin: "6px 0 0",
-            fontSize: 13,
-            color: "var(--color-codex-ink-mute)",
-            lineHeight: 1.6,
-          }}
-        >
-          {isZh
-            ? "主题、强调色、密度和圆角 — 改动只影响当前账户，所有 Codex 风格的页面立即生效。"
-            : "Theme, accent, density, and corner radius — applied per-user, instantly across every Codex-styled page."}
-        </p>
+          {saving ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {isZh ? "正在保存…" : "Saving…"}
+            </>
+          ) : statusMsg?.type === "error" ? (
+            <>
+              <AlertCircle className="h-3 w-3" />
+              {statusMsg.text}
+            </>
+          ) : statusMsg?.type === "success" ? (
+            <>
+              <Check className="h-3 w-3" />
+              {statusMsg.text}
+            </>
+          ) : (
+            <span style={{ opacity: 0.7 }}>
+              {isZh ? "修改后自动保存" : "Auto-saves on change"}
+            </span>
+          )}
+        </span>
       </header>
 
       {/* Theme */}
@@ -219,83 +369,6 @@ export function AppearanceSettings() {
         />
       </CxFormRow>
 
-      {/* Font size — backend-persisted (per-user, follows across
-          devices) unlike the other appearance choices which are local
-          to the browser. Lives here because it's a visual choice, not
-          an identity field — moved out of 个人资料 in the Codex
-          settings reorg. */}
-      <CxFormRow
-        label={isZh ? "字体大小" : "Font size"}
-        hint={
-          isZh
-            ? "整个界面的文字会按比例缩放，点击即时生效并自动同步到其他设备。"
-            : "Scales every text size in the app. Selection saves instantly and syncs across your devices."
-        }
-      >
-        <div data-testid="appearance-font-size">
-          <div
-            className="flex gap-2"
-            style={{
-              padding: 4,
-              background: "var(--color-codex-bg)",
-              border: "1px solid var(--color-codex-line)",
-              borderRadius: "var(--codex-r-sm, 3px)",
-            }}
-            role="radiogroup"
-            aria-label={isZh ? "字体大小" : "Font size"}
-          >
-            {FONT_SIZE_OPTIONS.map((option) => {
-              const active = fontSize === option.value;
-              const label = isZh ? option.label_zh : option.label_en;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  aria-label={label}
-                  onClick={() => void handleSelectFontSize(option.value)}
-                  className="flex flex-1 items-center justify-center gap-1.5 transition"
-                  style={{
-                    padding: "6px 10px",
-                    background: active
-                      ? "var(--color-codex-accent-bg)"
-                      : "transparent",
-                    color: active
-                      ? "var(--color-codex-accent-ink)"
-                      : "var(--color-codex-ink-soft)",
-                    borderRadius: "calc(var(--codex-r-sm, 3px) - 1px)",
-                    fontWeight: active ? 500 : 400,
-                    cursor: "pointer",
-                  }}
-                >
-                  <span className={option.previewClass}>Aa</span>
-                  <span className="text-[13px]">{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {fontSizeMsg && (
-          <p
-            role={fontSizeMsg.type === "error" ? "alert" : undefined}
-            className="mt-1.5 inline-flex items-center gap-1"
-            style={{
-              fontSize: 11.5,
-              color:
-                fontSizeMsg.type === "success"
-                  ? "var(--color-codex-good)"
-                  : "var(--color-codex-bad)",
-            }}
-          >
-            {fontSizeMsg.type === "error" && (
-              <AlertCircle className="h-3 w-3" aria-hidden="true" />
-            )}
-            {fontSizeMsg.text}
-          </p>
-        )}
-      </CxFormRow>
-
       {/* Background warmth — page color from pure white to warm
           parchment. Light AND dark themes both honor it now;
           previously only light theme listened. */}
@@ -310,6 +383,7 @@ export function AppearanceSettings() {
         <div className="flex flex-wrap gap-2.5" data-testid="appearance-warmth">
           {WARMTH_OPTIONS.map((opt) => {
             const active = appearance.warmth === opt.value;
+            const swatchBg = resolvedTheme === "dark" ? opt.bg_dark : opt.bg_light;
             return (
               <button
                 key={opt.value}
@@ -327,7 +401,7 @@ export function AppearanceSettings() {
                     width: 56,
                     height: 36,
                     borderRadius: 6,
-                    background: opt.bg,
+                    background: swatchBg,
                     border: `1px solid ${
                       active
                         ? "var(--color-codex-accent)"
@@ -427,9 +501,8 @@ export function AppearanceSettings() {
         />
       </CxFormRow>
 
-      {/* Radius — bigger tile with an inset button + pill so the
-          radius difference is visible without having to scroll down
-          to the live preview card. */}
+      {/* Radius — preview tiles use the real ``--codex-r-md`` / ``--codex-r-sm``
+          numbers so the picker is an honest match for the live UI. */}
       <CxFormRow
         label={isZh ? "圆角" : "Corner radius"}
         hint={
@@ -437,7 +510,6 @@ export function AppearanceSettings() {
             ? "影响卡片、按钮、徽章的整体气质。"
             : "Sets the visual mood of cards, buttons, and badges."
         }
-        divider={false}
       >
         <div className="flex flex-wrap gap-3" data-testid="appearance-radius">
           {RADIUS_OPTIONS.map((opt) => {
@@ -460,7 +532,7 @@ export function AppearanceSettings() {
                     width: 132,
                     height: 80,
                     padding: "0 14px",
-                    borderRadius: opt.px,
+                    borderRadius: opt.tile,
                     background: active
                       ? "var(--color-codex-accent-bg)"
                       : "var(--color-codex-bg-elev)",
@@ -475,16 +547,15 @@ export function AppearanceSettings() {
                     transition: "box-shadow 0.15s, border-color 0.15s",
                   }}
                 >
-                  {/* Mini button — uses the same radius value as the
-                      tile (proportionally smaller) so the picker
-                      reads as a stack of nested radii, not a single
-                      outline. */}
+                  {/* Mini button — uses ``--codex-r-sm`` magnitude so
+                      what the picker shows actually matches what hits
+                      a real button or chip downstream. */}
                   <span
                     style={{
                       display: "inline-block",
                       width: 48,
                       height: 26,
-                      borderRadius: Math.max(0, opt.px - 4),
+                      borderRadius: opt.inner,
                       background: "var(--color-codex-ink)",
                     }}
                   />
@@ -515,6 +586,63 @@ export function AppearanceSettings() {
               </button>
             );
           })}
+        </div>
+      </CxFormRow>
+
+      {/* Font size — moved to the bottom of the form group since it's
+          a sizing axis, not a surface choice like theme/warmth/accent. */}
+      <CxFormRow
+        label={isZh ? "字体大小" : "Font size"}
+        hint={
+          isZh
+            ? "整个界面的文字会按比例缩放，点击即时生效。"
+            : "Scales every text size in the app. Selection saves instantly."
+        }
+        divider={false}
+      >
+        <div data-testid="appearance-font-size">
+          <div
+            className="flex gap-2"
+            style={{
+              padding: 4,
+              background: "var(--color-codex-bg)",
+              border: "1px solid var(--color-codex-line)",
+              borderRadius: "var(--codex-r-sm, 3px)",
+            }}
+            role="radiogroup"
+            aria-label={isZh ? "字体大小" : "Font size"}
+          >
+            {FONT_SIZE_OPTIONS.map((option) => {
+              const active = fontSize === option.value;
+              const label = isZh ? option.label_zh : option.label_en;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={label}
+                  onClick={() => void handleSelectFontSize(option.value)}
+                  className="flex flex-1 items-center justify-center gap-1.5 transition"
+                  style={{
+                    padding: "6px 10px",
+                    background: active
+                      ? "var(--color-codex-accent-bg)"
+                      : "transparent",
+                    color: active
+                      ? "var(--color-codex-accent-ink)"
+                      : "var(--color-codex-ink-soft)",
+                    borderRadius: "calc(var(--codex-r-sm, 3px) - 1px)",
+                    fontWeight: active ? 500 : 400,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span className={option.previewClass}>Aa</span>
+                  <span className="text-[13px]">{label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </CxFormRow>
 

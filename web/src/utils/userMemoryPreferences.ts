@@ -19,6 +19,8 @@
  *   ``PreferencesShape``, tolerating missing keys.
  */
 
+import { normalizeAppearance, type CodexAppearance } from "./codexAppearance";
+
 export type Language = "" | "zh" | "en" | "auto";
 export type Tone = "" | "direct" | "friendly" | "formal";
 export type FormatShape = "" | "conclusion_first" | "free";
@@ -47,6 +49,12 @@ export interface PreferencesShape {
   work_style?: {
     ask_before_destructive?: boolean;
   };
+  /**
+   * Codex appearance — theme / accent / density / radius / warmth.
+   * Mirrors what's in localStorage (``aria-codex-appearance``) so the
+   * user's visual choices follow them across devices.
+   */
+  appearance?: CodexAppearance;
 }
 
 export const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
@@ -93,6 +101,7 @@ export function compactPreferences(prefs: PreferencesShape): Record<string, unkn
   if (typeof ws.ask_before_destructive === "boolean") {
     compact.work_style = { ask_before_destructive: ws.ask_before_destructive };
   }
+  if (prefs.appearance) compact.appearance = prefs.appearance;
   return compact as unknown as Record<string, unknown>;
 }
 
@@ -120,6 +129,10 @@ export function readShape(raw: Record<string, unknown> | undefined): Preferences
     if (typeof block.ask_before_destructive === "boolean") {
       out.work_style = { ask_before_destructive: block.ask_before_destructive };
     }
+  }
+  const app = (raw as { appearance?: unknown }).appearance;
+  if (app && typeof app === "object") {
+    out.appearance = normalizeAppearance(app);
   }
   return out;
 }

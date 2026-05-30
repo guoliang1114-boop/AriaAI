@@ -111,20 +111,20 @@
 .theme-codex.radius-sharp {
   --codex-r-sm: 0;
   --codex-r-md: 0;
-  --codex-r-lg: 2px;
+  --codex-r-lg: 0;
   --codex-r-pill: 0;
 }
 .theme-codex,
 .theme-codex.radius-soft {
-  --codex-r-sm: 3px;
-  --codex-r-md: 6px;
-  --codex-r-lg: 10px;
+  --codex-r-sm: 6px;
+  --codex-r-md: 10px;
+  --codex-r-lg: 14px;
   --codex-r-pill: 999px;
 }
 .theme-codex.radius-round {
-  --codex-r-sm: 8px;
-  --codex-r-md: 14px;
-  --codex-r-lg: 20px;
+  --codex-r-sm: 12px;
+  --codex-r-md: 18px;
+  --codex-r-lg: 24px;
   --codex-r-pill: 999px;
 }
 

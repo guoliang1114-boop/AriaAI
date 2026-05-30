@@ -20,6 +20,11 @@ import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders } from '../routeLoaders'
 import { DEFAULT_APP_TIMEZONE, setAppTimeZone } from '../utils/timezone'
+import {
+  applyAppearance,
+  normalizeAppearance,
+  writeSavedAppearance,
+} from '../utils/codexAppearance'
 import { CxLogo } from './codex/CxLogo'
 
 interface UserMemoryFetchResponse {
@@ -122,11 +127,23 @@ export function Layout() {
   // First-run gate: fetch /user-memory once so we can decide whether to mount
   // the 称呼 modal. On fetch failure we fail open (empty prefs) — locking the
   // entire app out because of an API hiccup is worse than skipping onboarding.
+  //
+  // Side-effect: if the prefs carry a saved ``appearance`` block, apply it +
+  // cache to localStorage so cross-device sync works at app boot (otherwise
+  // new devices would render with localStorage defaults until the user
+  // visited /settings/appearance).
   useEffect(() => {
     api
       .get<UserMemoryFetchResponse>('/user-memory')
       .then((response) => {
-        setUserMemoryPrefs(response.preferences || {})
+        const prefs = response.preferences || {}
+        setUserMemoryPrefs(prefs)
+        const rawAppearance = (prefs as { appearance?: unknown }).appearance
+        if (rawAppearance && typeof rawAppearance === 'object') {
+          const normalized = normalizeAppearance(rawAppearance)
+          applyAppearance(normalized)
+          writeSavedAppearance(normalized)
+        }
       })
       .catch(() => {
         setUserMemoryPrefs({})
