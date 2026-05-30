@@ -345,6 +345,26 @@
   }
 }
 
+/* Toast entrance + bottom-bar countdown. Consumed by ToastContext. */
+@keyframes codex-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes codex-toast-bar {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 /* ----------------------------------------------------------------
    Helper classes — namespaced so they only apply within a
    ``.theme-codex`` subtree. Existing pages get the same class
