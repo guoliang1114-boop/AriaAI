@@ -302,25 +302,17 @@ export function ClientDetail() {
                 </div>
               </div>
 
-              <div
-                className="flex flex-wrap items-center gap-1"
-                style={{
-                  padding: 4,
-                  border: '1px solid var(--color-codex-line)',
-                  borderRadius: 'var(--codex-r-md, 6px)',
-                  background: 'color-mix(in oklab, var(--color-codex-bg-elev) 84%, var(--color-codex-bg-tint))',
-                }}
-              >
+              <div className="flex flex-wrap items-center gap-2">
                 <HeaderActionButton
                   onClick={() => setIsEditing((current) => !current)}
                   icon={isEditing ? <X size={13} strokeWidth={1.5} /> : <Edit2 size={13} strokeWidth={1.5} />}
                 >
-                  {isEditing ? (isZh ? '取消编辑' : 'Cancel') : isZh ? '编辑客户档案' : 'Edit client'}
+                  {isEditing ? (isZh ? '取消编辑' : 'Cancel') : isZh ? '编辑档案' : 'Edit profile'}
                 </HeaderActionButton>
                 <HeaderActionButton onClick={() => navigate('/projects/new')} icon={<Plus size={13} strokeWidth={1.5} />} primary>
                   {isZh ? '新建项目' : 'New project'}
                 </HeaderActionButton>
-                <HeaderActionButton onClick={handleDelete} icon={<Trash2 size={13} strokeWidth={1.5} />} danger>
+                <HeaderActionButton onClick={handleDelete} icon={<Trash2 size={14} strokeWidth={1.5} />} danger iconOnly ariaLabel={isZh ? '删除客户' : 'Delete client'}>
                   {isZh ? '删除' : 'Delete'}
                 </HeaderActionButton>
               </div>
@@ -985,15 +977,19 @@ function CodexInput({
 }
 
 function HeaderActionButton({
+  ariaLabel,
   children,
   danger = false,
   icon,
+  iconOnly = false,
   onClick,
   primary = false,
 }: {
+  ariaLabel?: string
   children: ReactNode
   danger?: boolean
   icon?: ReactNode
+  iconOnly?: boolean
   onClick: () => void
   primary?: boolean
 }) {
@@ -1006,39 +1002,44 @@ function HeaderActionButton({
       }
     : danger
       ? {
-          background: 'color-mix(in oklab, var(--color-codex-bad) 6%, transparent)',
-          color: 'color-mix(in oklab, var(--color-codex-bad) 76%, var(--color-codex-ink-soft))',
-          border: '1px solid transparent',
+          background: 'transparent',
+          color: 'color-mix(in oklab, var(--color-codex-bad) 78%, var(--color-codex-ink-soft))',
+          border: '1px solid var(--color-codex-line)',
           fontWeight: 400,
         }
       : {
           background: 'transparent',
           color: 'var(--color-codex-ink-soft)',
-          border: '1px solid transparent',
+          border: '1px solid var(--color-codex-line)',
           fontWeight: 400,
         }
+
+  const height = 32
 
   return (
     <button
       type="button"
       onClick={onClick}
       className="inline-flex items-center justify-center gap-1.5"
+      aria-label={iconOnly ? ariaLabel : undefined}
+      title={iconOnly && typeof children === 'string' ? children : undefined}
       style={{
         ...style,
-        minHeight: 32,
-        padding: primary ? '0 13px' : '0 11px',
+        width: iconOnly ? height : undefined,
+        height,
+        padding: iconOnly ? 0 : primary ? '0 14px' : '0 12px',
         borderRadius: 'var(--codex-r-sm, 3px)',
         fontSize: 12.5,
-        lineHeight: 1,
+        lineHeight: '20px',
         whiteSpace: 'nowrap',
       }}
     >
       {icon ? (
-        <span className="inline-flex shrink-0 items-center justify-center" aria-hidden="true" style={{ width: 16 }}>
+        <span className="inline-flex shrink-0 items-center justify-center" aria-hidden="true" style={{ width: iconOnly ? 14 : 16 }}>
           {icon}
         </span>
       ) : null}
-      <span>{children}</span>
+      {iconOnly ? <span className="sr-only">{children}</span> : <span>{children}</span>}
     </button>
   )
 }
