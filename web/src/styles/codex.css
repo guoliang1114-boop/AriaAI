@@ -71,10 +71,14 @@
    ``dark`` (e.g. ``<html class="theme-codex dark">``). We keep the
    override on a class selector rather than ``@media`` so the choice
    stays driven by app state, not OS pref.
+
+   Only the same-element selector is used. The descendant variants
+   (``.theme-codex .dark`` / ``.dark .theme-codex``) used to re-define
+   ``--color-codex-bg`` on inner ``theme-codex`` wrappers — which
+   overrode the warmth-specific colors set on ``<html>`` and made the
+   warmth picker look like a no-op in dark mode.
    ---------------------------------------------------------------- */
-.theme-codex.dark,
-.theme-codex .dark,
-.dark .theme-codex {
+.theme-codex.dark {
   --color-codex-bg: #15130f;
   --color-codex-bg-elev: #1c1916;
   --color-codex-bg-sunken: #100e0b;
