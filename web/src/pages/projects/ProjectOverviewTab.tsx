@@ -1,17 +1,17 @@
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useToast } from "../../contexts/ToastContext";
-import type { ProjectDetail as ProjectDetailType, ProjectFile } from "../../types/api";
-import { downloadProjectFile } from "./downloadProjectFile";
-import { ProjectAnchorsCard } from "./ProjectAnchorsCard";
+import type { ProjectDetail as ProjectDetailType } from "../../types/api";
 import { useProjectDetailActions } from "./ProjectDetailActionsContext";
-import { ProjectOverviewDocumentsCard } from "./ProjectOverviewDocumentsCard";
-import { ProjectOverviewInfoCard } from "./ProjectOverviewInfoCard";
-import { ProjectOverviewMemoryCard } from "./ProjectOverviewMemoryCard";
-import { ProjectOverviewMilestonesCard } from "./ProjectOverviewMilestonesCard";
-import { ProjectOverviewSidebar } from "./ProjectOverviewSidebar";
-import { ProjectOverviewSummaryCard } from "./ProjectOverviewSummaryCard";
-import { buildProjectSkillPrompt, ProjectSkillWorkflowsCard } from "./ProjectSkillWorkflowsCard";
+import {
+  ProjectOverviewActivityTimelinePanel,
+  ProjectOverviewAISnapshotPanel,
+  ProjectOverviewArchivePanel,
+  ProjectOverviewBriefingPreviewPanel,
+  ProjectOverviewLoadingSkeleton,
+  ProjectOverviewMemoryExcerptPanel,
+  ProjectOverviewStakeholdersPreviewPanel,
+  ProjectOverviewTeamPanel,
+} from "./ProjectOverviewPanels";
 import { useProjectOverviewData } from "./useProjectOverviewData";
 import { formatDateOnly } from "../../utils/timezone";
 
@@ -24,35 +24,25 @@ interface ProjectOverviewTabProps {
 export function ProjectOverviewTab({
   projectDetail,
   projectId,
-  onProjectUpdate: _onProjectUpdate,
+  onProjectUpdate,
 }: ProjectOverviewTabProps) {
-  void _onProjectUpdate;
-
-  const { project, financials } = projectDetail;
+  void onProjectUpdate;
+  const { project, members } = projectDetail;
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
-  const toast = useToast();
   const actions = useProjectDetailActions();
+
   const {
-    descExpanded,
-    formatAmount,
     formatAmountInTenThousand,
     generateSummary,
     generatingSummary,
-    handleSummaryTypeChange,
     isLoadingMemory,
-    isRebuildingMemory,
     memory,
     recentFiles,
     recentMilestones,
     recentTodos,
-    rebuildMemory,
-    setDescExpanded,
-    summaryCooldownUntil,
-    summaryError,
     summaryText,
-    summaryType,
   } = useProjectOverviewData({
     language: i18n.language,
     isZh,
@@ -60,112 +50,93 @@ export function ProjectOverviewTab({
     projectId,
   });
 
-  const handleDownload = async (file: ProjectFile) => {
-    try {
-      await downloadProjectFile({
-        fileId: file.id,
-        fileName: file.name,
-        projectId,
-      });
-    } catch (error) {
-      console.error("Failed to download file:", error);
-      toast.error(isZh ? "下载失败" : "Download failed");
-    }
-  };
+  const ownerMember = members.find((member) => member.role === "owner") || members[0];
+  const ownerLabel = ownerMember?.user.display_name;
 
-  const handleStartProjectSkill = (intent: "brief" | "risk" | "stakeholder") => {
-    const prompt = buildProjectSkillPrompt({
-      intent,
-      isZh,
-      projectDetail,
-    });
-    const params = new URLSearchParams({
-      project: String(project.id),
-      projectName: project.name,
-      q: prompt,
-    });
-    navigate(`/skills?${params.toString()}`);
-  };
+  const contractAmount = project.contract_amount ?? 0;
+  const contractAmountText = contractAmount > 0
+    ? isZh
+      ? `¥${formatAmountInTenThousand(contractAmount)} 万`
+      : `CNY ${formatAmountInTenThousand(contractAmount)}K`
+    : "";
+
+  const briefText = (summaryText || memory?.project_brief || "").trim();
+
+  if (isLoadingMemory && !memory && !briefText) {
+    return <ProjectOverviewLoadingSkeleton isZh={isZh} />;
+  }
 
   return (
-    <div className="grid grid-cols-12 gap-6">
-      <div className="col-span-12 space-y-6 lg:col-span-8">
-        <ProjectOverviewInfoCard
-          contractAmountText={
-            (project.contract_amount ?? 0) > 0
-              ? `CNY ${formatAmountInTenThousand(project.contract_amount)}${isZh ? "万" : "K"}`
-              : ""
-          }
-          createdAt={formatDateOnly(project.created_at)}
-          descExpanded={descExpanded}
-          description={project.description}
+    <div
+      className="grid gap-5"
+      style={{
+        gridTemplateColumns: "minmax(0, 1fr) 320px",
+        alignItems: "start",
+      }}
+    >
+      <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
+        <ProjectOverviewAISnapshotPanel
+          briefText={briefText}
           isZh={isZh}
-          onEdit={() => actions?.openEdit()}
-          onToggleDescription={() => setDescExpanded((value) => !value)}
-          projectClient={project.client}
-          projectStatus={project.status}
-        />
-
-        <ProjectOverviewSummaryCard
-          generatingSummary={generatingSummary}
-          isZh={isZh}
-          onGenerate={generateSummary}
-          onSummaryTypeChange={handleSummaryTypeChange}
-          summaryCooldownUntil={summaryCooldownUntil}
-          summaryError={summaryError}
-          summaryText={summaryText}
-          summaryType={summaryType}
-        />
-
-        <ProjectAnchorsCard
-          clientName={project.client}
-          isZh={isZh}
+          loading={generatingSummary}
           memory={memory}
-          onManage={() => navigate(`/projects/${projectId}/memory`)}
+          memoryStale={Boolean(project.memory_stale)}
+          memoryUpdatedAt={project.memory_updated_at}
+          memoryVersion={project.memory_version}
+          onRegenerate={() => void generateSummary("overview", true)}
+          ownerLabel={ownerLabel}
         />
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <ProjectOverviewMilestonesCard
-            isZh={isZh}
-            milestones={recentMilestones}
-            onOpen={() => navigate(`/projects/${projectId}/milestones`)}
-          />
-          <ProjectOverviewDocumentsCard
-            files={recentFiles}
-            isZh={isZh}
-            onDownload={(file) => void handleDownload(file)}
-            onOpen={() => navigate(`/projects/${projectId}/documents`)}
-          />
-        </div>
-      </div>
-
-      <ProjectOverviewSidebar
-        financials={financials}
-        formatAmount={formatAmount}
-        isZh={isZh}
-        memoryCard={
-          <ProjectOverviewMemoryCard
-            isLoading={isLoadingMemory}
-            isRebuilding={isRebuildingMemory}
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 16,
+          }}
+        >
+          <ProjectOverviewMemoryExcerptPanel
             isZh={isZh}
             memory={memory}
-            onRebuild={() => void rebuildMemory()}
+            memoryVersion={project.memory_version}
+            onOpenMemory={() => navigate(`/projects/${projectId}/memory`)}
           />
-        }
-        skillWorkflowsCard={
-          <ProjectSkillWorkflowsCard
+          <ProjectOverviewBriefingPreviewPanel
             isZh={isZh}
-            onStart={handleStartProjectSkill}
-            projectDetail={projectDetail}
-            variant="compact"
+            memory={memory}
+            onOpenBriefing={() => navigate(`/projects/${projectId}/briefing`)}
           />
-        }
-        onGoToDocuments={() => navigate(`/projects/${projectId}/documents`)}
-        onGoToFinancials={() => navigate(`/projects/${projectId}/financials`)}
-        onGoToMilestones={() => navigate(`/projects/${projectId}/milestones`)}
-        onGoToTodos={() => navigate(`/projects/${projectId}/milestones`)}
-        recentTodos={recentTodos}
-      />
+        </div>
+
+        <ProjectOverviewActivityTimelinePanel
+          files={recentFiles}
+          isZh={isZh}
+          memoryUpdatedAt={project.memory_updated_at}
+          memoryVersion={project.memory_version}
+          milestones={recentMilestones}
+          onOpenChat={() => navigate(`/projects/${projectId}/chat`)}
+          todos={recentTodos}
+        />
+      </div>
+
+      <aside className="flex flex-col" style={{ gap: 16, position: "sticky", top: 76 }}>
+        <ProjectOverviewArchivePanel
+          contractAmountText={contractAmountText}
+          createdAt={project.created_at ? formatDateOnly(project.created_at) : null}
+          isZh={isZh}
+          ownerLabel={ownerLabel}
+          project={project}
+        />
+        <ProjectOverviewStakeholdersPreviewPanel
+          isZh={isZh}
+          memory={memory}
+          onOpenStakeholders={() => navigate(`/projects/${projectId}/stakeholders`)}
+        />
+        <ProjectOverviewTeamPanel
+          isZh={isZh}
+          members={members}
+          onInviteMember={actions ? () => actions.openMembers() : undefined}
+        />
+      </aside>
     </div>
   );
 }
