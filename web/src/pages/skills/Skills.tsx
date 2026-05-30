@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   BarChart3,
@@ -17,6 +18,7 @@ import {
   LayoutGrid,
   MessageSquare,
   Receipt,
+  RefreshCw,
   Shield,
   ShieldCheck,
   Target,
@@ -410,26 +412,31 @@ const buildCategories = (skills: SkillSummary[], allLabel: string, isZh: boolean
 function useSkillsData(allLabel: string, isZh: boolean) {
   const [loading, setLoading] = useState(true);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const fetchSkills = async () => {
       try {
         setLoading(true);
+        setError(null);
         const data = await api.get<SkillSummary[]>("/skills/meta/summary");
         setSkills(data);
-      } catch (error) {
-        console.error("Failed to fetch skills:", error);
+      } catch (err) {
+        console.error("Failed to fetch skills:", err);
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        setError(detail || (err instanceof Error ? err.message : "request failed"));
       } finally {
         setLoading(false);
       }
     };
 
     void fetchSkills();
-  }, []);
+  }, [reloadKey]);
 
   const categories = useMemo(() => buildCategories(skills, allLabel, isZh), [allLabel, isZh, skills]);
 
-  return { categories, loading, skills };
+  return { categories, loading, skills, error, reload: () => setReloadKey((k) => k + 1) };
 }
 
 function useSkillDetail(skillId?: string) {
@@ -495,7 +502,7 @@ export function Skills() {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
-  const { categories, loading, skills } = useSkillsData(t("skills.categories.all"), isZh);
+  const { categories, loading, skills, error, reload } = useSkillsData(t("skills.categories.all"), isZh);
 
   // Selection token. ``all`` shows every line + every sub-category;
   // ``line:<id>`` filters to one practice line; ``cat:<id>`` filters
@@ -503,6 +510,7 @@ export function Skills() {
   const [selection, setSelection] = useState<string>("all");
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
+  if (error) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;
 
   const filterCategories = categories.filter((cat) => cat.id !== "all");
   const allCategoryCount =
@@ -1647,6 +1655,76 @@ function SkillsLoading({ title }: { title: string }) {
             ))}
           </div>
         </div>
+      </div>
+    </>
+  );
+}
+
+function SkillsLoadError({
+  title,
+  message,
+  onRetry,
+  isZh,
+}: {
+  title: string;
+  message: string;
+  onRetry: () => void;
+  isZh: boolean;
+}) {
+  return (
+    <>
+      <PageTitle title={title} />
+      <div
+        className="theme-codex flex h-full flex-col items-center justify-center"
+        style={{
+          background: "var(--color-codex-bg)",
+          color: "var(--color-codex-ink)",
+          padding: "32px",
+          textAlign: "center",
+        }}
+      >
+        <AlertCircle
+          className="mb-3 h-7 w-7"
+          style={{ color: "var(--color-codex-bad)" }}
+          aria-hidden="true"
+        />
+        <p
+          style={{
+            margin: 0,
+            fontSize: 14,
+            fontWeight: 500,
+            color: "var(--color-codex-ink)",
+          }}
+        >
+          {isZh ? "暂时拉不到 Skill 列表" : "Couldn't load skills"}
+        </p>
+        <p
+          style={{
+            margin: "6px 0 16px",
+            fontSize: 12,
+            color: "var(--color-codex-ink-mute)",
+            maxWidth: 420,
+            lineHeight: 1.6,
+          }}
+        >
+          {message}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5"
+          style={{
+            padding: "8px 14px",
+            background: "var(--color-codex-bg-tint)",
+            color: "var(--color-codex-ink-soft)",
+            border: "1px solid var(--color-codex-line)",
+            borderRadius: "var(--codex-r-sm, 6px)",
+            fontSize: 13,
+          }}
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+          {isZh ? "重试" : "Retry"}
+        </button>
       </div>
     </>
   );

@@ -145,6 +145,7 @@ export function Clients() {
 
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -158,10 +159,13 @@ export function Clients() {
   const fetchClients = async () => {
     try {
       setLoading(true);
+      setFetchError(null);
       const data = await api.get<Client[]>("/clients");
       setClients(data);
     } catch (error) {
       console.error("Failed to fetch clients:", error);
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFetchError(detail || (error instanceof Error ? error.message : "request failed"));
     } finally {
       setLoading(false);
     }
@@ -318,6 +322,45 @@ export function Clients() {
 
             <StatsStrip stats={stats} isZh={isZh} />
 
+            {fetchError ? (
+              <div
+                role="alert"
+                className="mb-6 flex items-start justify-between gap-3"
+                style={{
+                  padding: "12px 14px",
+                  background: "color-mix(in oklch, var(--color-codex-bad) 8%, transparent)",
+                  border: "1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)",
+                  borderRadius: "var(--codex-r-sm, 6px)",
+                  color: "var(--color-codex-bad)",
+                  fontSize: 13,
+                }}
+              >
+                <div>
+                  <p style={{ margin: 0, fontWeight: 500 }}>
+                    {isZh ? "暂时拉不到客户数据" : "Couldn't load clients"}
+                  </p>
+                  <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--color-codex-ink-mute)" }}>
+                    {fetchError}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchClients()}
+                  className="inline-flex items-center gap-1.5"
+                  style={{
+                    padding: "6px 12px",
+                    background: "var(--color-codex-bg-elev)",
+                    color: "var(--color-codex-ink-soft)",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-sm, 6px)",
+                    fontSize: 12.5,
+                  }}
+                >
+                  {isZh ? "重试" : "Retry"}
+                </button>
+              </div>
+            ) : null}
+
             <section aria-label={isZh ? "客户列表" : "Client directory"}>
               {filteredClients.length === 0 ? (
                 <EmptyClientsState
@@ -343,7 +386,7 @@ export function Clients() {
                     <span>{isZh ? "行业" : "Industry"}</span>
                     <span>{isZh ? "地区" : "Region"}</span>
                     <span>{isZh ? "项目数" : "Projects"}</span>
-                    <span>{isZh ? "最近联系" : "Last contact"}</span>
+                    <span>{isZh ? "最近更新" : "Last update"}</span>
                     <span>{isZh ? "状态" : "Status"}</span>
                     <span />
                   </div>

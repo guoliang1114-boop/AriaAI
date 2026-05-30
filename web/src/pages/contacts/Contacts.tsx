@@ -171,17 +171,28 @@ export function Contacts() {
     note: '',
   })
 
+  const [partialFailures, setPartialFailures] = useState(0)
+
   const loadDirectory = async () => {
     setLoading(true)
     setError(null)
+    setPartialFailures(0)
     try {
       const clientList = await api.get<ClientListItem[]>('/clients')
+      let failedClients = 0
       const stakeholderLists = await Promise.all(
         clientList.map(async (client) => {
           try {
             const stakeholders = await api.get<ClientStakeholder[]>(`/clients/${client.id}/stakeholders`)
             return stakeholders.map((stakeholder) => ({ client, stakeholder }))
-          } catch {
+          } catch (err) {
+            // N+1 fan-out: one client's stakeholder fetch failing used to
+            // disappear silently and the directory looked incomplete. Count
+            // failures so the banner below can surface "N clients failed,
+            // contacts may be incomplete" without breaking the rest of
+            // the page.
+            console.error(`Failed to fetch stakeholders for client ${client.id}:`, err)
+            failedClients += 1
             return []
           }
         }),
@@ -189,6 +200,7 @@ export function Contacts() {
       const records = stakeholderLists.flat().sort(sortContacts)
       setClients(clientList)
       setContacts(records)
+      setPartialFailures(failedClients)
       setDraft((current) => ({
         ...current,
         clientId: current.clientId || String(clientList[0]?.id ?? ''),
@@ -363,6 +375,8 @@ export function Contacts() {
 
           {error ? (
             <div
+              role="alert"
+              className="flex items-center justify-between gap-3"
               style={{
                 marginBottom: 18,
                 padding: '10px 12px',
@@ -372,7 +386,38 @@ export function Contacts() {
                 background: 'color-mix(in oklab, var(--color-codex-bad) 7%, var(--color-codex-bg-elev))',
               }}
             >
-              {error}
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => void loadDirectory()}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  background: 'var(--color-codex-bg-elev)',
+                  color: 'var(--color-codex-ink-soft)',
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                }}
+              >
+                {isZh ? '重试' : 'Retry'}
+              </button>
+            </div>
+          ) : partialFailures > 0 ? (
+            <div
+              role="status"
+              style={{
+                marginBottom: 18,
+                padding: '10px 12px',
+                border: '1px solid color-mix(in oklab, var(--color-codex-warn) 24%, var(--color-codex-line))',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                color: 'var(--color-codex-warn)',
+                background: 'color-mix(in oklab, var(--color-codex-warn) 7%, var(--color-codex-bg-elev))',
+                fontSize: 12.5,
+              }}
+            >
+              {isZh
+                ? `有 ${partialFailures} 个客户的联系人没拉到，目录可能不完整。`
+                : `${partialFailures} client${partialFailures === 1 ? "" : "s"} failed to load — the directory may be incomplete.`}
             </div>
           ) : null}
 
