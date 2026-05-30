@@ -12,6 +12,8 @@ import {
   LogOut,
   Settings,
   UserRound,
+  Palette,
+  HelpCircle,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
@@ -331,70 +333,138 @@ export function Layout() {
 
                 {showUserMenu && (
                   <div
-                    className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-52 py-1.5"
+                    role="menu"
+                    aria-label={t('settings.title')}
+                    className="animate-fade-in absolute right-0 top-full z-50 mt-2"
                     style={{
+                      width: 300,
                       background: 'var(--color-codex-bg-elev)',
                       border: '1px solid var(--color-codex-line)',
                       borderRadius: 'var(--codex-r-md, 6px)',
-                      boxShadow: '0 4px 16px -4px rgba(0,0,0,0.08)',
+                      boxShadow: '0 12px 36px -8px rgba(0,0,0,0.18)',
                     }}
                   >
-                    <div
-                      className="px-4 py-2.5"
-                      style={{ borderBottom: '1px solid var(--color-codex-line-soft)' }}
-                    >
-                      <p
-                        style={{
-                          margin: 0,
-                          fontSize: 13,
-                          fontWeight: 500,
-                          color: 'var(--color-codex-ink)',
-                        }}
-                      >
-                        {user?.display_name || 'User'}
-                      </p>
-                      <p
-                        className="truncate font-mono"
-                        style={{
-                          margin: '2px 0 0',
-                          fontSize: 11,
-                          color: 'var(--color-codex-ink-mute)',
-                        }}
-                      >
-                        {user?.email || ''}
-                      </p>
-                    </div>
-                    {[
-                      { to: '/messages', icon: Bell, label: 'Messages' },
-                      { to: '/settings', icon: Settings, label: t('settings.title') },
-                    ].map((entry) => (
-                      <NavLink
-                        key={entry.to}
-                        to={entry.to}
-                        onClick={() => setShowUserMenu(false)}
-                        className="row-hov flex w-full items-center gap-2 px-4 py-2"
-                        style={{
-                          fontSize: 12.5,
-                          lineHeight: '20px',
-                          color: 'var(--color-codex-ink-soft)',
-                        }}
-                      >
-                        <entry.icon className="h-4 w-4 flex-shrink-0" />
-                        {entry.label}
-                      </NavLink>
-                    ))}
-                    <button
-                      onClick={handleLogout}
-                      className="row-hov cx-no-hover flex w-full items-center gap-2 px-4 py-2"
+                    {/* Pointer up to the avatar */}
+                    <span
+                      aria-hidden="true"
                       style={{
-                        fontSize: 12.5,
-                        lineHeight: '20px',
-                        color: 'var(--color-codex-ink-soft)',
+                        position: 'absolute',
+                        top: -7,
+                        right: 12,
+                        width: 12,
+                        height: 12,
+                        background: 'var(--color-codex-bg-elev)',
+                        borderTop: '1px solid var(--color-codex-line)',
+                        borderLeft: '1px solid var(--color-codex-line)',
+                        transform: 'rotate(45deg)',
+                      }}
+                    />
+
+                    {/* Identity card */}
+                    <div
+                      className="flex items-center gap-3"
+                      style={{
+                        padding: '16px 18px 14px',
+                        borderBottom: '1px solid var(--color-codex-line-soft)',
                       }}
                     >
-                      <LogOut className="h-4 w-4 flex-shrink-0" />
-                      {t('settings.signOut')}
-                    </button>
+                      <span
+                        className="inline-flex flex-shrink-0 items-center justify-center"
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 999,
+                          background: 'var(--color-codex-accent-bg)',
+                          color: 'var(--color-codex-accent-ink)',
+                          fontSize: 16,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {initials || <UserRound className="h-4 w-4" aria-hidden="true" />}
+                      </span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: 'var(--color-codex-ink)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {user?.display_name || 'User'}
+                        </p>
+                        <p
+                          className="truncate font-mono"
+                          style={{
+                            margin: '2px 0 0',
+                            fontSize: 11.5,
+                            color: 'var(--color-codex-ink-mute)',
+                          }}
+                        >
+                          {user?.email || ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Primary items */}
+                    <div
+                      style={{
+                        padding: '8px 10px',
+                        borderBottom: '1px solid var(--color-codex-line-soft)',
+                      }}
+                    >
+                      {[
+                        { to: '/settings', icon: UserRound, label: t('settings.profile.title', { defaultValue: '个人资料' }) },
+                        { to: '/settings/appearance', icon: Palette, label: t('settings.appearance.title', { defaultValue: '外观' }) },
+                        { to: '/settings/preferences', icon: Settings, label: t('settings.preferences.title', { defaultValue: '偏好设置' }) },
+                        { to: '/messages', icon: Bell, label: t('settings.messages.title', { defaultValue: '消息中心' }) },
+                        { to: '/settings/about', icon: HelpCircle, label: t('settings.about.title', { defaultValue: '帮助文档' }) },
+                      ].map((entry) => (
+                        <NavLink
+                          key={entry.to}
+                          to={entry.to}
+                          role="menuitem"
+                          onClick={() => setShowUserMenu(false)}
+                          className="row-hov flex w-full items-center gap-2.5"
+                          style={{
+                            padding: '8px 8px',
+                            fontSize: 13,
+                            color: 'var(--color-codex-ink-soft)',
+                            borderRadius: 'var(--codex-r-sm, 6px)',
+                          }}
+                        >
+                          <entry.icon
+                            className="h-3.5 w-3.5 flex-shrink-0"
+                            style={{ color: 'var(--color-codex-ink-mute)' }}
+                          />
+                          <span className="flex-1">{entry.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+
+                    {/* Logout */}
+                    <div style={{ padding: '8px 10px' }}>
+                      <button
+                        onClick={handleLogout}
+                        role="menuitem"
+                        className="row-hov cx-no-hover flex w-full items-center gap-2.5"
+                        style={{
+                          padding: '8px 8px',
+                          fontSize: 13,
+                          color: 'var(--color-codex-bad)',
+                          borderRadius: 'var(--codex-r-sm, 6px)',
+                        }}
+                      >
+                        <LogOut
+                          className="h-3.5 w-3.5 flex-shrink-0"
+                          style={{ color: 'var(--color-codex-bad)' }}
+                        />
+                        <span className="flex-1 text-left">{t('settings.signOut')}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
