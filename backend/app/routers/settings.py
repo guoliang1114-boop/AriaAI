@@ -43,7 +43,7 @@ _SECRET_SETTING_KEYS = frozenset(
 # Global/sensitive settings that affect every user (LLM endpoint + model config).
 # Writes are restricted to admins; reads remain open so that ordinary users can
 # see the current defaults (no secrets are involved). User-preference keys like
-# timezone / theme / language / font_size stay writable by any logged-in user.
+# timezone / theme / language stay writable by any logged-in user.
 _ADMIN_ONLY_SETTING_KEYS = frozenset(
     {
         "api_base_url",
@@ -253,7 +253,6 @@ _SETTING_METADATA = {
     "theme": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
     "language": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
     "timezone": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
-    "font_size": {"layer": 3, "category": "ui", "editable": True, "type": "string"},
 }
 
 

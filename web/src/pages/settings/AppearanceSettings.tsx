@@ -34,26 +34,6 @@ import {
   type PreferencesShape,
   type UserMemoryResponse,
 } from "../../utils/userMemoryPreferences";
-import {
-  APP_FONT_SIZE_SETTING_KEY,
-  getStoredAppFontSize,
-  isAppFontSize,
-  setAppFontSize,
-  type AppFontSize,
-} from "../../utils/fontSize";
-
-interface FontSizeOption {
-  value: AppFontSize;
-  label_zh: string;
-  label_en: string;
-  previewClass: string;
-}
-
-const FONT_SIZE_OPTIONS: FontSizeOption[] = [
-  { value: "small", label_zh: "小", label_en: "Small", previewClass: "text-[13px]" },
-  { value: "medium", label_zh: "中", label_en: "Medium", previewClass: "text-[15px]" },
-  { value: "large", label_zh: "大", label_en: "Large", previewClass: "text-[17px]" },
-];
 
 interface SavedMessage {
   type: "success" | "error";
@@ -167,43 +147,6 @@ export function AppearanceSettings() {
     );
   };
 
-  // Font size — global setting (lives on the Setting table, keyed by
-  // ``font_size``). Auto-saves on selection.
-  const [fontSize, setFontSize] = useState<AppFontSize>(getStoredAppFontSize);
-
-  useEffect(() => {
-    api
-      .get<Record<string, string>>("/settings/")
-      .then((settings) => {
-        const remote = settings[APP_FONT_SIZE_SETTING_KEY];
-        if (isAppFontSize(remote)) {
-          setFontSize(remote);
-          setAppFontSize(remote);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const handleSelectFontSize = async (value: AppFontSize) => {
-    setFontSize(value);
-    setAppFontSize(value);
-    setSaving(true);
-    setStatusMsg(null);
-    try {
-      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value });
-      flashSaved(isZh ? "已保存" : "Saved");
-    } catch (err) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setStatusMsg({
-        type: "error",
-        text: detail || (isZh ? "保存失败" : "Save failed"),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   // ----- Appearance ↔ /user-memory sync -----
   //
   // localStorage gives us synchronous reads (no FOUC). The backend is
@@ -304,8 +247,8 @@ export function AppearanceSettings() {
             }}
           >
             {isZh
-              ? "主题、背景、强调色、密度、圆角和字号 — 改动随用户跨设备生效，所有 Codex 风格的页面立即应用。"
-              : "Theme, background, accent, density, radius and font size — synced per-user across devices, applied instantly across every Codex-styled page."}
+              ? "主题、背景、强调色、密度和圆角 — 改动随用户跨设备生效，所有 Codex 风格的页面立即应用。"
+              : "Theme, background, accent, density, and radius — synced per-user across devices, applied instantly across every Codex-styled page."}
           </p>
         </div>
         <span
@@ -510,6 +453,7 @@ export function AppearanceSettings() {
             ? "影响卡片、按钮、徽章的整体气质。"
             : "Sets the visual mood of cards, buttons, and badges."
         }
+        divider={false}
       >
         <div className="flex flex-wrap gap-3" data-testid="appearance-radius">
           {RADIUS_OPTIONS.map((opt) => {
@@ -586,63 +530,6 @@ export function AppearanceSettings() {
               </button>
             );
           })}
-        </div>
-      </CxFormRow>
-
-      {/* Font size — moved to the bottom of the form group since it's
-          a sizing axis, not a surface choice like theme/warmth/accent. */}
-      <CxFormRow
-        label={isZh ? "字体大小" : "Font size"}
-        hint={
-          isZh
-            ? "整个界面的文字会按比例缩放，点击即时生效。"
-            : "Scales every text size in the app. Selection saves instantly."
-        }
-        divider={false}
-      >
-        <div data-testid="appearance-font-size">
-          <div
-            className="flex gap-2"
-            style={{
-              padding: 4,
-              background: "var(--color-codex-bg)",
-              border: "1px solid var(--color-codex-line)",
-              borderRadius: "var(--codex-r-sm, 3px)",
-            }}
-            role="radiogroup"
-            aria-label={isZh ? "字体大小" : "Font size"}
-          >
-            {FONT_SIZE_OPTIONS.map((option) => {
-              const active = fontSize === option.value;
-              const label = isZh ? option.label_zh : option.label_en;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  aria-label={label}
-                  onClick={() => void handleSelectFontSize(option.value)}
-                  className="flex flex-1 items-center justify-center gap-1.5 transition"
-                  style={{
-                    padding: "6px 10px",
-                    background: active
-                      ? "var(--color-codex-accent-bg)"
-                      : "transparent",
-                    color: active
-                      ? "var(--color-codex-accent-ink)"
-                      : "var(--color-codex-ink-soft)",
-                    borderRadius: "calc(var(--codex-r-sm, 3px) - 1px)",
-                    fontWeight: active ? 500 : 400,
-                    cursor: "pointer",
-                  }}
-                >
-                  <span className={option.previewClass}>Aa</span>
-                  <span className="text-[13px]">{label}</span>
-                </button>
-              );
-            })}
-          </div>
         </div>
       </CxFormRow>
 
