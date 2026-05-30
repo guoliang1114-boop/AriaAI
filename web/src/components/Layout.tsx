@@ -13,7 +13,7 @@ import {
   Settings,
   UserRound,
   Palette,
-  HelpCircle,
+  FileText,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
@@ -354,11 +354,11 @@ export function Layout() {
                     aria-label={t('settings.title')}
                     className="animate-fade-in absolute right-0 top-full z-50 mt-2"
                     style={{
-                      width: 300,
+                      width: 336,
                       background: 'var(--color-codex-bg-elev)',
                       border: '1px solid var(--color-codex-line)',
-                      borderRadius: 'var(--codex-r-md, 6px)',
-                      boxShadow: '0 12px 36px -8px rgba(0,0,0,0.18)',
+                      borderRadius: 'var(--codex-r-lg, 8px)',
+                      boxShadow: '0 28px 70px -30px rgba(0,0,0,0.34)',
                     }}
                   >
                     {/* Pointer up to the avatar */}
@@ -367,7 +367,7 @@ export function Layout() {
                       style={{
                         position: 'absolute',
                         top: -7,
-                        right: 12,
+                        right: 14,
                         width: 12,
                         height: 12,
                         background: 'var(--color-codex-bg-elev)',
@@ -381,30 +381,31 @@ export function Layout() {
                     <div
                       className="flex items-center gap-3"
                       style={{
-                        padding: '16px 18px 14px',
+                        padding: '24px 24px 22px',
                         borderBottom: '1px solid var(--color-codex-line-soft)',
                       }}
                     >
                       <span
                         className="inline-flex flex-shrink-0 items-center justify-center"
                         style={{
-                          width: 42,
-                          height: 42,
+                          width: 56,
+                          height: 56,
                           borderRadius: 999,
                           background: 'var(--color-codex-accent-bg)',
                           color: 'var(--color-codex-accent-ink)',
-                          fontSize: 16,
-                          fontWeight: 500,
+                          fontSize: 19,
+                          fontWeight: 600,
                         }}
                       >
-                        {initials || <UserRound className="h-4 w-4" aria-hidden="true" />}
+                        {initials || <UserRound className="h-5 w-5" aria-hidden="true" />}
                       </span>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <p
                           style={{
                             margin: 0,
-                            fontSize: 14,
-                            fontWeight: 600,
+                            fontSize: 18,
+                            fontWeight: 700,
+                            lineHeight: 1.25,
                             color: 'var(--color-codex-ink)',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -416,8 +417,9 @@ export function Layout() {
                         <p
                           className="truncate font-mono"
                           style={{
-                            margin: '2px 0 0',
-                            fontSize: 11.5,
+                            margin: '5px 0 0',
+                            fontSize: 14,
+                            lineHeight: 1.35,
                             color: 'var(--color-codex-ink-mute)',
                           }}
                         >
@@ -429,54 +431,75 @@ export function Layout() {
                     {/* Primary items */}
                     <div
                       style={{
-                        padding: '8px 10px',
+                        padding: '22px 0',
                         borderBottom: '1px solid var(--color-codex-line-soft)',
                       }}
                     >
                       {[
-                        { to: '/settings', icon: UserRound, label: t('settings.profile.title', { defaultValue: '个人资料' }) },
-                        { to: '/settings/appearance', icon: Palette, label: t('settings.appearance.title', { defaultValue: '外观' }) },
-                        { to: '/settings/preferences', icon: Settings, label: t('settings.preferences.title', { defaultValue: '偏好设置' }) },
-                        { to: '/messages', icon: Bell, label: t('settings.messages.title', { defaultValue: '消息中心' }) },
-                        { to: '/settings/about', icon: HelpCircle, label: t('settings.about.title', { defaultValue: '帮助文档' }) },
+                        { to: '/settings', icon: UserRound, label: t('settings.profile', { defaultValue: isZh ? '个人资料' : 'Profile' }) },
+                        { to: '/settings/appearance', icon: Palette, label: t('settings.appearance', { defaultValue: isZh ? '外观样式' : 'Appearance' }) },
+                        { to: '/settings/preferences', icon: Settings, label: t('settings.preferences', { defaultValue: isZh ? '个人偏好' : 'Preferences' }) },
+                        { to: '/messages', icon: Bell, label: t('settings.messages', { defaultValue: isZh ? '消息中心' : 'Message Center' }) },
+                        { to: '/settings/about', icon: FileText, label: t('settings.about', { defaultValue: isZh ? '系统版本' : 'System Version' }) },
                       ].map((entry) => (
                         <NavLink
                           key={entry.to}
                           to={entry.to}
                           role="menuitem"
                           onClick={() => setShowUserMenu(false)}
-                          className="row-hov flex w-full items-center gap-2.5"
+                          className="row-hov flex w-full items-center"
                           style={{
-                            padding: '8px 8px',
-                            fontSize: 13,
+                            minHeight: 52,
+                            padding: '12px 24px',
+                            gap: 18,
+                            fontSize: 17,
+                            fontWeight: 600,
+                            lineHeight: 1.3,
                             color: 'var(--color-codex-ink-soft)',
-                            borderRadius: 'var(--codex-r-sm, 6px)',
+                            borderRadius: 0,
                           }}
                         >
                           <entry.icon
-                            className="h-3.5 w-3.5 flex-shrink-0"
+                            className="h-[18px] w-[18px] flex-shrink-0"
                             style={{ color: 'var(--color-codex-ink-mute)' }}
                           />
                           <span className="flex-1">{entry.label}</span>
+                          {entry.to === '/settings/preferences' ? (
+                            <span
+                              aria-hidden="true"
+                              className="font-mono"
+                              style={{
+                                fontSize: 14,
+                                fontWeight: 500,
+                                color: 'var(--color-codex-ink-faint)',
+                              }}
+                            >
+                              ⌘,
+                            </span>
+                          ) : null}
                         </NavLink>
                       ))}
                     </div>
 
                     {/* Logout */}
-                    <div style={{ padding: '8px 10px' }}>
+                    <div style={{ padding: '18px 0' }}>
                       <button
                         onClick={handleLogout}
                         role="menuitem"
-                        className="row-hov cx-no-hover flex w-full items-center gap-2.5"
+                        className="row-hov cx-no-hover flex w-full items-center"
                         style={{
-                          padding: '8px 8px',
-                          fontSize: 13,
+                          minHeight: 52,
+                          padding: '12px 24px',
+                          gap: 18,
+                          fontSize: 17,
+                          fontWeight: 600,
+                          lineHeight: 1.3,
                           color: 'var(--color-codex-bad)',
-                          borderRadius: 'var(--codex-r-sm, 6px)',
+                          borderRadius: 0,
                         }}
                       >
                         <LogOut
-                          className="h-3.5 w-3.5 flex-shrink-0"
+                          className="h-[18px] w-[18px] flex-shrink-0"
                           style={{ color: 'var(--color-codex-bad)' }}
                         />
                         <span className="flex-1 text-left">{t('settings.signOut')}</span>
