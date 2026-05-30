@@ -15,7 +15,7 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Check, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Check, Sparkles } from "lucide-react";
 
 import { api } from "../../api/client";
 import { CxFormRow, CxStatus } from "../../components/codex";
@@ -52,15 +52,6 @@ interface SavedMessage {
   type: "success" | "error";
   text: string;
 }
-
-const SAVE_BUTTON_STYLE: React.CSSProperties = {
-  padding: "8px 16px",
-  background: "var(--color-codex-ink)",
-  color: "var(--color-codex-bg-elev)",
-  borderRadius: "var(--codex-r-sm, 3px)",
-  fontSize: 13,
-  fontWeight: 500,
-};
 
 interface ChipOption<T extends string> {
   value: T;
@@ -127,10 +118,8 @@ export function AppearanceSettings() {
 
   // Font size — backend round-trip (not localStorage-only like the
   // other appearance controls) because it has to follow the user
-  // across devices. The picker is live-preview, the save button
-  // syncs to ``/settings/font_size``.
+  // across devices. Auto-saves on selection.
   const [fontSize, setFontSize] = useState<AppFontSize>(getStoredAppFontSize);
-  const [savingFontSize, setSavingFontSize] = useState(false);
   const [fontSizeMsg, setFontSizeMsg] = useState<SavedMessage | null>(null);
 
   useEffect(() => {
@@ -146,23 +135,17 @@ export function AppearanceSettings() {
       .catch(() => {});
   }, []);
 
-  const handleSelectFontSize = (value: AppFontSize) => {
+  const handleSelectFontSize = async (value: AppFontSize) => {
     setFontSize(value);
     setAppFontSize(value);
     setFontSizeMsg(null);
-  };
-
-  const handleSaveFontSize = async () => {
-    setSavingFontSize(true);
-    setFontSizeMsg(null);
     try {
-      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value: fontSize });
-      setAppFontSize(fontSize);
+      await api.put(`/settings/${APP_FONT_SIZE_SETTING_KEY}`, { value });
       setFontSizeMsg({
         type: "success",
-        text: isZh ? "字体大小已保存" : "Font size saved",
+        text: isZh ? "已保存" : "Saved",
       });
-      setTimeout(() => setFontSizeMsg(null), 3000);
+      setTimeout(() => setFontSizeMsg(null), 1800);
     } catch (err) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -170,8 +153,6 @@ export function AppearanceSettings() {
         type: "error",
         text: detail || (isZh ? "保存字体大小失败" : "Failed to save font size"),
       });
-    } finally {
-      setSavingFontSize(false);
     }
   };
 
@@ -247,11 +228,11 @@ export function AppearanceSettings() {
         label={isZh ? "字体大小" : "Font size"}
         hint={
           isZh
-            ? "整个界面的文字会按比例缩放，点击即可即时预览。保存后在其他设备同步。"
-            : "Scales every text size in the app. Click to preview live; saving syncs across your devices."
+            ? "整个界面的文字会按比例缩放，点击即时生效并自动同步到其他设备。"
+            : "Scales every text size in the app. Selection saves instantly and syncs across your devices."
         }
       >
-        <div className="flex flex-wrap items-stretch gap-3" data-testid="appearance-font-size">
+        <div data-testid="appearance-font-size">
           <div
             className="flex gap-2"
             style={{
@@ -259,7 +240,6 @@ export function AppearanceSettings() {
               background: "var(--color-codex-bg)",
               border: "1px solid var(--color-codex-line)",
               borderRadius: "var(--codex-r-sm, 3px)",
-              flex: "1 1 auto",
             }}
             role="radiogroup"
             aria-label={isZh ? "字体大小" : "Font size"}
@@ -274,7 +254,7 @@ export function AppearanceSettings() {
                   role="radio"
                   aria-checked={active}
                   aria-label={label}
-                  onClick={() => handleSelectFontSize(option.value)}
+                  onClick={() => void handleSelectFontSize(option.value)}
                   className="flex flex-1 items-center justify-center gap-1.5 transition"
                   style={{
                     padding: "6px 10px",
@@ -295,20 +275,6 @@ export function AppearanceSettings() {
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => void handleSaveFontSize()}
-            disabled={savingFontSize}
-            className="inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-            style={SAVE_BUTTON_STYLE}
-          >
-            {savingFontSize ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            ) : (
-              <Check className="h-3.5 w-3.5" aria-hidden="true" />
-            )}
-            {isZh ? "保存" : "Save"}
-          </button>
         </div>
         {fontSizeMsg && (
           <p

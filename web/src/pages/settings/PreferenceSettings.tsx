@@ -13,7 +13,7 @@
  * ``utils/userMemoryPreferences.ts`` for the helpers shared with the
  * legacy module's tests.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Brain, Check, Eraser, Loader2 } from "lucide-react";
 
 import { api } from "../../api/client";
@@ -48,15 +48,6 @@ const INPUT_STYLE: React.CSSProperties = {
 
 const SELECT_STYLE: React.CSSProperties = { ...INPUT_STYLE };
 
-const SAVE_BUTTON_STYLE: React.CSSProperties = {
-  padding: "8px 16px",
-  background: "var(--color-codex-ink)",
-  color: "var(--color-codex-bg-elev)",
-  borderRadius: "var(--codex-r-sm, 3px)",
-  fontSize: 13,
-  fontWeight: 500,
-};
-
 const GHOST_BUTTON_STYLE: React.CSSProperties = {
   padding: "7px 14px",
   fontSize: 12.5,
@@ -66,27 +57,6 @@ const GHOST_BUTTON_STYLE: React.CSSProperties = {
   background: "var(--color-codex-bg-elev)",
 };
 
-function InlineMessage({ message }: { message: SavedMessage | null }) {
-  if (!message) return null;
-  const color =
-    message.type === "success" ? "var(--color-codex-accent-ink)" : "var(--color-codex-bad)";
-  return (
-    <p
-      style={{
-        margin: "8px 0 0",
-        fontSize: 12,
-        color,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-      }}
-    >
-      {message.type === "error" && <AlertCircle className="h-3 w-3" aria-hidden="true" />}
-      {message.text}
-    </p>
-  );
-}
-
 export function PreferenceSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -95,6 +65,10 @@ export function PreferenceSettings() {
   const [prefs, setPrefs] = useState<PreferencesShape>({});
   const [msg, setMsg] = useState<SavedMessage | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  // Auto-save plumbing: skip the initial hydration effect, then debounce
+  // writes so a fast typist in 称呼 doesn't fan out a PUT per keystroke.
+  const hasHydratedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api
@@ -117,7 +91,6 @@ export function PreferenceSettings() {
       ...cur,
       response_preferences: { ...(cur.response_preferences ?? {}), [key]: value },
     }));
-    setMsg(null);
   };
 
   const updateWorkStyle = (value: boolean | null) => {
@@ -128,24 +101,38 @@ export function PreferenceSettings() {
       }
       return { ...cur, work_style: { ask_before_destructive: value } };
     });
-    setMsg(null);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setMsg(null);
-    try {
-      const payload = compactPreferences(prefs);
-      const data = await api.put<UserMemoryResponse>("/user-memory", { preferences: payload });
-      setVersion(data.version || version + 1);
-      setMsg({ type: "success", text: "偏好已保存，下一轮对话生效。" });
-      setTimeout(() => setMsg(null), 3000);
-    } catch (err: any) {
-      setMsg({ type: "error", text: err.response?.data?.detail || "保存失败" });
-    } finally {
-      setSaving(false);
+  // Auto-save effect — debounced PUT whenever `prefs` changes after the
+  // initial hydration.
+  useEffect(() => {
+    if (loading) return;
+    if (!hasHydratedRef.current) {
+      hasHydratedRef.current = true;
+      return;
     }
-  };
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      setSaving(true);
+      setMsg(null);
+      try {
+        const payload = compactPreferences(prefs);
+        const data = await api.put<UserMemoryResponse>("/user-memory", {
+          preferences: payload,
+        });
+        setVersion(data.version || version + 1);
+        setMsg({ type: "success", text: "已保存" });
+        setTimeout(() => setMsg(null), 1800);
+      } catch (err: any) {
+        setMsg({ type: "error", text: err.response?.data?.detail || "保存失败" });
+      } finally {
+        setSaving(false);
+      }
+    }, 400);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [prefs, loading]);
 
   const handleClear = async () => {
     setClearing(true);
@@ -229,11 +216,11 @@ export function PreferenceSettings() {
               type="text"
               value={prefs.personal_info?.preferred_name ?? ""}
               onChange={(e) => {
+                const next = e.target.value;
                 setPrefs((cur) => ({
                   ...cur,
-                  personal_info: { preferred_name: e.target.value },
+                  personal_info: { preferred_name: next },
                 }));
-                setMsg(null);
               }}
               placeholder="例如：李总、小李、Liang"
               maxLength={40}
@@ -336,22 +323,38 @@ export function PreferenceSettings() {
               )}
               清除所有偏好
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-              style={SAVE_BUTTON_STYLE}
+            <span
+              className="inline-flex items-center gap-1.5"
+              style={{
+                fontSize: 12,
+                color: saving
+                  ? "var(--color-codex-ink-mute)"
+                  : msg?.type === "error"
+                    ? "var(--color-codex-bad)"
+                    : "var(--color-codex-ink-faint)",
+              }}
+              aria-live="polite"
             >
               {saving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  正在保存…
+                </>
+              ) : msg?.type === "error" ? (
+                <>
+                  <AlertCircle className="h-3 w-3" />
+                  {msg.text}
+                </>
+              ) : msg?.type === "success" ? (
+                <>
+                  <Check className="h-3 w-3" style={{ color: "var(--color-codex-good)" }} />
+                  {msg.text}
+                </>
               ) : (
-                <Check className="h-3.5 w-3.5" />
+                <span style={{ opacity: 0.6 }}>修改后自动保存</span>
               )}
-              保存
-            </button>
+            </span>
           </div>
-          <InlineMessage message={msg} />
         </>
       )}
       <CxConfirmDialog
