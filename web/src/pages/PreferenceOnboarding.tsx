@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Loader2, MessageSquare } from "lucide-react";
+import { ArrowRight, Loader2, MessageSquare, Sparkles } from "lucide-react";
 
 import { api } from "../api/client";
 import { CxLogo, CxStatus } from "../components/codex";
@@ -229,13 +229,13 @@ export function PreferenceOnboarding() {
   return (
     <div
       className="theme-codex flex min-h-screen flex-col"
-      style={{ background: "var(--color-codex-bg)", overflow: "hidden" }}
+      style={{ background: "var(--color-codex-bg-elev)" }}
       data-testid="preference-onboarding-page"
     >
       {/* Top bar — logo left, skip-link right. No bottom border. */}
       <header
         className="flex flex-shrink-0 items-center justify-between"
-        style={{ height: 56, padding: "0 36px" }}
+        style={{ height: 64, padding: "0 36px" }}
       >
         <CxLogo size={22} />
         <button
@@ -250,11 +250,15 @@ export function PreferenceOnboarding() {
         </button>
       </header>
 
-      {/* Split body — left form, right live preview. */}
+      {/* Centered, capped stage — keeps the two cards readable on ultrawide */}
       <div
-        className="grid flex-1 lg:grid-cols-2"
-        style={{ padding: "8px 36px 36px", gap: 20, minHeight: 0 }}
+        className="flex flex-1 items-center justify-center"
+        style={{ padding: "24px 36px 48px", minHeight: 0 }}
       >
+        <div
+          className="grid w-full lg:grid-cols-2"
+          style={{ maxWidth: 1160, gap: 20, alignItems: "stretch" }}
+        >
         {/* ---- LEFT — personalization form ---- */}
         <section
           className="flex flex-col overflow-hidden"
@@ -293,7 +297,7 @@ export function PreferenceOnboarding() {
                 lineHeight: 1.65,
               }}
             >
-              全部可选，之后随时可以在「设置 → AI 个人偏好」里调。
+              全部可选，之后随时可以在「设置 → 外观 / AI 个人偏好」里调。
             </p>
           </div>
 
@@ -507,7 +511,6 @@ export function PreferenceOnboarding() {
             <div className="flex items-start gap-2.5">
               <span
                 aria-hidden="true"
-                className="codex-mono"
                 style={{
                   width: 28,
                   height: 28,
@@ -518,13 +521,9 @@ export function PreferenceOnboarding() {
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  lineHeight: 1,
-                  letterSpacing: "-0.04em",
                 }}
               >
-                a
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
               </span>
               <div
                 style={{
@@ -615,6 +614,7 @@ export function PreferenceOnboarding() {
             </span>
           </div>
         </section>
+        </div>
       </div>
     </div>
   );
