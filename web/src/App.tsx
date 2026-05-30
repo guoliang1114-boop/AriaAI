@@ -18,7 +18,6 @@ import {
   loadContacts,
   loadContactDetail,
   loadClientDetail,
-  loadClientMemoryPage,
   loadMessagesPage,
   loadSettingsLayout,
   loadProfileSettings,
@@ -55,7 +54,6 @@ const Clients = lazy(() => loadClients().then((module) => ({ default: module.Cli
 const Contacts = lazy(() => loadContacts().then((module) => ({ default: module.Contacts })))
 const ContactDetail = lazy(() => loadContactDetail().then((module) => ({ default: module.ContactDetail })))
 const ClientDetail = lazy(() => loadClientDetail().then((module) => ({ default: module.ClientDetail })))
-const ClientMemoryPage = lazy(() => loadClientMemoryPage().then((module) => ({ default: module.ClientMemoryPage })))
 const MessagesPage = lazy(() => loadMessagesPage().then((module) => ({ default: module.MessagesPage })))
 const SettingsLayout = lazy(() => loadSettingsLayout().then((module) => ({ default: module.SettingsLayout })))
 const ProfileSettings = lazy(() => loadProfileSettings().then((module) => ({ default: module.ProfileSettings })))
@@ -310,14 +308,6 @@ function AppRoutes() {
           element={
             <LazyPage>
               <ClientDetail />
-            </LazyPage>
-          }
-        />
-        <Route
-          path="clients/:id/memory"
-          element={
-            <LazyPage>
-              <ClientMemoryPage />
             </LazyPage>
           }
         />

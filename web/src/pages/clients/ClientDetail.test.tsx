@@ -20,6 +20,7 @@ vi.mock('../../api/client', () => ({
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: '1' }),
   useNavigate: () => mockNavigate,
+  useSearchParams: () => [new URLSearchParams(), () => {}],
   Link: ({ children }: any) => children,
 }))
 

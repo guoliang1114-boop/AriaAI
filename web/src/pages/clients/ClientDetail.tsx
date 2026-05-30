@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
   ArrowRight,
-  Brain,
   Edit2,
   ExternalLink,
   FileText,
@@ -24,8 +23,14 @@ import {
 import { api } from '../../api/client'
 import { CxConfirmDialog, CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
-import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
+import type {
+  ClientMemoryResponse,
+  ClientMemoryStatusResponse,
+  ClientMemorySummaryType,
+  ClientStakeholder,
+} from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
+import { useClientMemorySummary } from './useClientMemorySummary'
 
 interface Client {
   id: number
@@ -76,9 +81,34 @@ export function ClientDetail() {
   const [editForm, setEditForm] = useState<Partial<Client>>({})
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
-  const [activeTab, setActiveTab] = useState<ClientDetailTab>('overview')
+  // Honor ``?tab=memory`` etc. on first mount so deep links from
+  // MemoryOperationsSettings ("打开客户记忆") land directly on the
+  // memory tab instead of overview.
+  const [searchParams] = useSearchParams()
+  const initialTab = ((): ClientDetailTab => {
+    const raw = searchParams.get('tab')
+    return raw === 'memory' || raw === 'contacts' || raw === 'projects' || raw === 'history' ? raw : 'overview'
+  })()
+  const [activeTab, setActiveTab] = useState<ClientDetailTab>(initialTab)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // AI summary state — used to live on the standalone /clients/:id/memory
+  // page. Folded into the memory tab so "Open memory" stays inside the
+  // client detail flow instead of jumping to a separate route.
+  const [activeSummary, setActiveSummary] = useState<ClientMemorySummaryType>('overview')
+  const {
+    content: summaryContent,
+    error: summaryError,
+    loading: summaryLoading,
+    refresh: refreshSummary,
+  } = useClientMemorySummary({
+    clientId: id || '',
+    summaryType: activeSummary,
+    language: i18n.language,
+    memoryVersion: memoryStatus?.memory_version,
+    enabled: Boolean(id && memoryStatus?.has_memory && activeTab === 'memory'),
+    errorMessage: isZh ? '加载客户摘要失败' : 'Failed to load client summary',
+  })
 
   useEffect(() => {
     if (id) {
@@ -393,7 +423,7 @@ export function ClientDetail() {
                       memoryState={memoryState}
                       memorySummary={memorySummary}
                       projects={projects}
-                      onOpenMemory={() => navigate(`/clients/${client.id}/memory`)}
+                      onOpenMemory={() => setActiveTab('memory')}
                     />
                     <ProjectsPanel isZh={isZh} projects={projects} onOpenProject={(projectId) => navigate(`/projects/${projectId}`)} />
                   </>
@@ -406,8 +436,13 @@ export function ClientDetail() {
                     memoryStatus={memoryStatus}
                     memorySummary={memorySummary}
                     rebuildingMemory={rebuildingMemory}
-                    onOpenMemory={() => navigate(`/clients/${client.id}/memory`)}
                     onRefresh={handleRebuildMemory}
+                    activeSummary={activeSummary}
+                    summaryContent={summaryContent}
+                    summaryError={summaryError}
+                    summaryLoading={summaryLoading}
+                    onChangeSummary={setActiveSummary}
+                    onRefreshSummary={() => void refreshSummary(true)}
                   />
                 ) : null}
 
@@ -793,52 +828,144 @@ function ClientSkillPanel({
   )
 }
 
+// Summary type labels for the AI summary tab switcher. Folded into the
+// client detail memory tab; previously lived on the standalone
+// /clients/:id/memory page.
+const CLIENT_SUMMARY_TABS: Array<{ key: ClientMemorySummaryType; zh: string; en: string; descZh: string; descEn: string }> = [
+  { key: 'overview', zh: 'AI 客户摘要', en: 'AI client summary', descZh: '快速理解这个客户是谁、合作方式如何。', descEn: 'Understand who this client is and how they work.' },
+  { key: 'stakeholder', zh: 'AI 干系人摘要', en: 'AI stakeholder view', descZh: '聚焦联系人、决策方式和关系信号。', descEn: 'Focus on contacts, decision style, and relationship signals.' },
+  { key: 'lessons', zh: 'AI 经验摘要', en: 'AI lessons learned', descZh: '沉淀未来项目最值得复用的经验。', descEn: 'Capture the lessons most worth reusing on future projects.' },
+  { key: 'client-facing', zh: 'AI 客户沟通摘要', en: 'AI client-facing summary', descZh: '适合面向客户团队的表达方式。', descEn: 'Safer language for client-facing teams.' },
+  { key: 'risk', zh: 'AI 客户风险摘要', en: 'AI client risk summary', descZh: '聚焦关系风险、决策摩擦和需要谨慎处理的话题。', descEn: 'Focus on relationship risks and decision friction.' },
+  { key: 'opportunity', zh: 'AI 机会摘要', en: 'AI opportunity summary', descZh: '提炼扩展合作、追加项目和信任加深的机会。', descEn: 'Highlight growth opportunities and expansion signals.' },
+  { key: 'relationship', zh: 'AI 关系摘要', en: 'AI relationship summary', descZh: '聚焦信任程度、沟通节奏和关键关系信号。', descEn: 'Focus on trust level, communication rhythm, and relationship signals.' },
+  { key: 'delivery', zh: 'AI 交付准备摘要', en: 'AI delivery readiness', descZh: '提炼客户的交付偏好、执行摩擦和启动前准备重点。', descEn: 'Highlight delivery preferences, execution friction, and readiness signals.' },
+]
+
 function ClientMemoryPanel({
   isZh,
   memoryState,
   memoryStatus,
   memorySummary,
-  onOpenMemory,
   onRefresh,
   rebuildingMemory,
+  activeSummary,
+  summaryContent,
+  summaryError,
+  summaryLoading,
+  onChangeSummary,
+  onRefreshSummary,
 }: {
   isZh: boolean
   memoryState: { label: string; tone: CxStatusTone; versionLabel: string }
   memoryStatus: ClientMemoryStatusResponse | null
   memorySummary: string
-  onOpenMemory: () => void
   onRefresh: () => void
   rebuildingMemory: boolean
+  activeSummary: ClientMemorySummaryType
+  summaryContent: string | null
+  summaryError: string | null
+  summaryLoading: boolean
+  onChangeSummary: (next: ClientMemorySummaryType) => void
+  onRefreshSummary: () => void
 }) {
+  const activeTab = CLIENT_SUMMARY_TABS.find((item) => item.key === activeSummary) ?? CLIENT_SUMMARY_TABS[0]
   return (
-    <CxPanel
-      title={isZh ? '客户记忆' : 'Client memory'}
-      subtitle={memorySummary}
-      action={<CxStatus tone={memoryState.tone}>{memoryState.label}</CxStatus>}
-    >
-      <div className="grid gap-3 md:grid-cols-3">
-        <MetricCell label={isZh ? '状态' : 'Status'} value={memoryState.label} />
-        <MetricCell label={isZh ? '版本' : 'Version'} value={memoryStatus?.memory_version != null ? `v${memoryStatus.memory_version}` : '—'} />
-        <MetricCell
-          label={isZh ? '最近同步' : 'Last sync'}
-          value={
-            memoryStatus?.memory_updated_at
-              ? formatDateTime(memoryStatus.memory_updated_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())
-              : isZh
-                ? '暂无记录'
-                : 'Not yet'
-          }
-        />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <ButtonLike onClick={onRefresh} icon={rebuildingMemory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw size={13} />}>
-          {isZh ? '刷新记忆' : 'Refresh'}
-        </ButtonLike>
-        <ButtonLike onClick={onOpenMemory} icon={<Brain size={13} />} primary>
-          {isZh ? '打开客户记忆' : 'Open memory'}
-        </ButtonLike>
-      </div>
-    </CxPanel>
+    <>
+      <CxPanel
+        title={isZh ? '客户记忆' : 'Client memory'}
+        subtitle={memorySummary}
+        action={<CxStatus tone={memoryState.tone}>{memoryState.label}</CxStatus>}
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          <MetricCell label={isZh ? '状态' : 'Status'} value={memoryState.label} />
+          <MetricCell label={isZh ? '版本' : 'Version'} value={memoryStatus?.memory_version != null ? `v${memoryStatus.memory_version}` : '—'} />
+          <MetricCell
+            label={isZh ? '最近同步' : 'Last sync'}
+            value={
+              memoryStatus?.memory_updated_at
+                ? formatDateTime(memoryStatus.memory_updated_at, isZh ? 'zh-CN' : 'en-US', undefined, getResolvedAppTimeZone())
+                : isZh
+                  ? '暂无记录'
+                  : 'Not yet'
+            }
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <ButtonLike onClick={onRefresh} icon={rebuildingMemory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw size={13} />}>
+            {isZh ? '刷新记忆' : 'Refresh'}
+          </ButtonLike>
+        </div>
+      </CxPanel>
+
+      <CxPanel
+        title={isZh ? activeTab.zh : activeTab.en}
+        subtitle={isZh ? activeTab.descZh : activeTab.descEn}
+        action={
+          <ButtonLike
+            onClick={onRefreshSummary}
+            icon={summaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw size={12} />}
+          >
+            {summaryContent ? (isZh ? '重新生成' : 'Regenerate') : isZh ? '生成摘要' : 'Generate'}
+          </ButtonLike>
+        }
+      >
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {CLIENT_SUMMARY_TABS.map((tab) => {
+            const isActive = tab.key === activeSummary
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => onChangeSummary(tab.key)}
+                className="transition-colors"
+                style={{
+                  padding: '5px 11px',
+                  fontSize: 12,
+                  color: isActive ? 'var(--color-codex-accent-ink)' : 'var(--color-codex-ink-soft)',
+                  background: isActive ? 'var(--color-codex-accent-bg)' : 'var(--color-codex-bg)',
+                  border: `1px solid ${isActive ? 'var(--color-codex-accent)' : 'var(--color-codex-line)'}`,
+                  borderRadius: 'var(--codex-r-pill, 999px)',
+                  fontWeight: isActive ? 500 : 400,
+                }}
+              >
+                {isZh ? tab.zh : tab.en}
+              </button>
+            )
+          })}
+        </div>
+        <div
+          style={{
+            minHeight: 140,
+            padding: '14px 16px',
+            background: 'var(--color-codex-bg-tint)',
+            border: '1px solid var(--color-codex-line-soft)',
+            borderRadius: 'var(--codex-r-sm, 6px)',
+            fontSize: 13.5,
+            lineHeight: 1.75,
+            color: 'var(--color-codex-ink)',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {summaryLoading ? (
+            <span className="inline-flex items-center gap-2" style={{ color: 'var(--color-codex-ink-mute)' }}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {isZh ? '正在整理客户记忆摘要…' : 'Preparing client memory summary…'}
+            </span>
+          ) : summaryError ? (
+            <span style={{ color: 'var(--color-codex-bad)' }}>{summaryError}</span>
+          ) : summaryContent ? (
+            summaryContent
+          ) : (
+            <span style={{ color: 'var(--color-codex-ink-mute)' }}>
+              {memoryStatus?.has_memory
+                ? isZh ? '点击「生成摘要」让 AI 输出该维度的总结。' : 'Click "Generate" to have the model produce this summary.'
+                : isZh ? '先刷新一次客户记忆，再生成摘要。' : 'Refresh the client memory first, then generate a summary.'}
+            </span>
+          )}
+        </div>
+      </CxPanel>
+    </>
   )
 }
 

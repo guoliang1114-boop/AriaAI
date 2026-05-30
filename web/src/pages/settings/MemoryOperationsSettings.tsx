@@ -692,7 +692,8 @@ export function MemoryOperationsSettings() {
       navigate(`/projects/${job.project_id}/memory`)
       return
     }
-    navigate(`/clients/${job.client_id}/memory`)
+    // ``/clients/:id/memory`` collapsed into the client detail memory tab.
+    navigate(`/clients/${job.client_id}?tab=memory`)
   }
 
   const runSuggestedAction = (failure: FailureItem) => {
