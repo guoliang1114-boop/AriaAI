@@ -45,23 +45,23 @@ export function ProjectMemoryInsightCard({
       : "Click Generate to create this view from the current project memory.";
 
   return (
-    <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-sky-50 p-5">
+    <div className="rounded-xl border border-codex-line-soft bg-gradient-to-r from-indigo-50 to-sky-50 p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm">
-            <Sparkles className="h-4 w-4 text-indigo-600" />
+            <Sparkles className="h-4 w-4 text-codex-accent" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900">{title}</h3>
+              <h3 className="font-semibold text-codex-ink">{title}</h3>
               {loading ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-indigo-600">
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-codex-accent">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {isZh ? "生成中" : "Streaming"}
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-xs text-gray-500">{hint}</p>
+            <p className="mt-1 text-xs text-codex-ink-mute">{hint}</p>
           </div>
         </div>
 
@@ -69,7 +69,7 @@ export function ProjectMemoryInsightCard({
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-codex-line bg-white px-3 py-1.5 text-xs font-medium text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           {actionLabel}
@@ -77,7 +77,7 @@ export function ProjectMemoryInsightCard({
       </div>
 
       {error ? (
-        <div className="mb-3 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600">
+        <div className="mb-3 rounded-lg border border-codex-line-soft bg-codex-bg-tint p-3 text-sm text-codex-bad">
           {error}
         </div>
       ) : null}
@@ -90,16 +90,16 @@ export function ProjectMemoryInsightCard({
               .replace(/\n(?!\n)/g, "\n\n")}
           />
           {loading ? (
-            <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-indigo-500 align-middle" />
+            <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-codex-accent align-middle" />
           ) : null}
         </div>
       ) : (
-        <div className="rounded-lg bg-white/70 p-3 text-sm text-gray-500">
+        <div className="rounded-lg bg-white/70 p-3 text-sm text-codex-ink-mute">
           {loading ? (
             isZh ? "正在整理项目摘要..." : "Generating summary..."
           ) : (
             <div className="space-y-1">
-              <div className="font-medium text-gray-700">{emptyTitle || fallbackEmptyTitle}</div>
+              <div className="font-medium text-codex-ink-soft">{emptyTitle || fallbackEmptyTitle}</div>
               <div>{emptyDescription || fallbackEmptyDescription}</div>
             </div>
           )}

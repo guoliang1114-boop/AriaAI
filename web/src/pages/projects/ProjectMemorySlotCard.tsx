@@ -47,16 +47,16 @@ export function ProjectMemorySlotCard({
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
+    <div className="rounded-xl border border-codex-line bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold text-gray-900">{title}</h3>
-          <p className="mt-1 text-sm text-gray-500">{description}</p>
+          <h3 className="font-semibold text-codex-ink">{title}</h3>
+          <p className="mt-1 text-sm text-codex-ink-mute">{description}</p>
         </div>
         <button
           onClick={() => void handleSave()}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg border border-codex-line px-3 py-2 text-sm font-medium text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-60"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {isZh ? "保存" : "Save"}
@@ -64,14 +64,14 @@ export function ProjectMemorySlotCard({
       </div>
 
       {slotDetail?.ai?.length ? (
-        <div className="mt-4 rounded-lg bg-gray-50 p-3">
-          <div className="text-xs font-medium text-gray-500">
+        <div className="mt-4 rounded-lg bg-codex-bg-tint p-3">
+          <div className="text-xs font-medium text-codex-ink-mute">
             {isZh ? "AI 建议" : "AI suggestions"}
           </div>
-          <ul className="mt-2 space-y-2 text-sm text-gray-700">
+          <ul className="mt-2 space-y-2 text-sm text-codex-ink-soft">
             {slotDetail.ai.map((item, index) => (
               <li key={`${item}-${index}`} className="flex items-start gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-codex-accent" />
                 <span>{item}</span>
               </li>
             ))}
@@ -80,14 +80,14 @@ export function ProjectMemorySlotCard({
       ) : null}
 
       <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-gray-500">
+        <div className="mb-2 text-xs font-medium text-codex-ink-mute">
           {isZh ? "固定内容（每行一条）" : "Pinned items (one per line)"}
         </div>
         <textarea
           value={value}
           onChange={(event) => setValue(event.target.value)}
           rows={6}
-          className="w-full rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+          className="w-full rounded-xl border border-codex-line px-3 py-3 text-sm text-codex-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
           placeholder={isZh ? "输入希望长期保留的要点，每行一条。" : "Add the items that should stay pinned, one per line."}
         />
       </div>
