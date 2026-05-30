@@ -42,10 +42,10 @@ const emptyDraft: StakeholderDraft = {
 };
 
 const relationshipStyles: Record<string, string> = {
-  blocked: "border-rose-200 bg-rose-50 text-rose-700",
-  neutral: "border-amber-200 bg-amber-50 text-amber-700",
-  supportive: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  unknown: "border-gray-200 bg-gray-50 text-gray-600",
+  blocked: "border-codex-line bg-codex-bg-tint text-codex-bad",
+  neutral: "border-codex-line bg-codex-bg-tint text-codex-warn",
+  supportive: "border-codex-line bg-codex-accent-bg text-codex-good",
+  unknown: "border-codex-line bg-codex-bg-tint text-codex-ink-soft",
 };
 
 export function ClientStakeholdersStructuredCard({
@@ -187,36 +187,36 @@ export function ClientStakeholdersStructuredCard({
   };
 
   return (
-    <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm">
+    <section className="rounded-2xl border border-codex-line-soft bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-emerald-600" />
-            <h2 className="text-lg font-semibold text-gray-950">
+            <Users className="h-4 w-4 text-codex-good" />
+            <h2 className="text-lg font-semibold text-codex-ink">
               {isZh ? "客户干系人维护" : "Client stakeholders"}
             </h2>
           </div>
-          <p className="mt-1 text-sm leading-6 text-gray-500">
+          <p className="mt-1 text-sm leading-6 text-codex-ink-mute">
             {isZh
               ? "维护客户关键人、影响类型、关系状态和关注点。这里的数据会进入 AI 项目总结、客户记忆和 Skill 上下文。"
               : "Maintain client contacts, influence type, relationship status, and concerns. These records feed AI summaries, client memory, and skill context."}
           </p>
         </div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+        <span className="rounded-full bg-codex-accent-bg px-3 py-1 text-xs font-medium text-codex-good">
           {stakeholders.length} {isZh ? "人" : "people"}
         </span>
       </div>
 
       <StakeholderGroups grouped={grouped} isZh={isZh} />
 
-      <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
-        <div className="text-sm font-semibold text-gray-900">{isZh ? "新增干系人" : "Add stakeholder"}</div>
+      <div className="mt-5 rounded-2xl border border-codex-line-soft bg-codex-bg-tint p-4">
+        <div className="text-sm font-semibold text-codex-ink">{isZh ? "新增干系人" : "Add stakeholder"}</div>
         <StakeholderForm draft={draft} isZh={isZh} onChange={setDraft} />
         <button
           type="button"
           onClick={() => void save()}
           disabled={!clientId || !draft.name.trim() || saving}
-          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:bg-gray-300"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-codex-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-codex-good disabled:bg-codex-bg-tint"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           {isZh ? "新增干系人" : "Add stakeholder"}
@@ -228,7 +228,7 @@ export function ClientStakeholdersStructuredCard({
           stakeholders.map((stakeholder) => {
             const isEditing = editingId === stakeholder.id;
             return (
-              <article key={stakeholder.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <article key={stakeholder.id} className="rounded-2xl border border-codex-line-soft bg-codex-bg-tint p-4">
                 {isEditing ? (
                   <>
                     <StakeholderForm draft={editDraft} isZh={isZh} onChange={setEditDraft} />
@@ -237,7 +237,7 @@ export function ClientStakeholdersStructuredCard({
                         type="button"
                         onClick={() => void update()}
                         disabled={!editDraft.name.trim() || savingEdit}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:bg-gray-300"
+                        className="inline-flex items-center gap-2 rounded-xl bg-codex-good px-4 py-2 text-sm font-medium text-white transition hover:bg-codex-good disabled:bg-codex-bg-tint"
                       >
                         {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         {isZh ? "保存修改" : "Save changes"}
@@ -246,7 +246,7 @@ export function ClientStakeholdersStructuredCard({
                         type="button"
                         onClick={cancelEdit}
                         disabled={savingEdit}
-                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded-xl border border-codex-line bg-white px-4 py-2 text-sm font-medium text-codex-ink-soft transition hover:bg-codex-bg-tint disabled:opacity-50"
                       >
                         <X className="h-4 w-4" />
                         {isZh ? "取消" : "Cancel"}
@@ -257,8 +257,8 @@ export function ClientStakeholdersStructuredCard({
                   <>
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-semibold text-gray-950">{stakeholder.name}</div>
-                        <div className="mt-1 text-xs text-gray-500">
+                        <div className="font-semibold text-codex-ink">{stakeholder.name}</div>
+                        <div className="mt-1 text-xs text-codex-ink-mute">
                           {[stakeholder.role, stakeholder.influence_type, stakeholder.organization_level].filter(Boolean).join(" · ") ||
                             (isZh ? "角色待补充" : "Role missing")}
                         </div>
@@ -269,7 +269,7 @@ export function ClientStakeholdersStructuredCard({
                             type="button"
                             onClick={() => void analyze(stakeholder.id)}
                             disabled={analyzingId === stakeholder.id}
-                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-primary disabled:opacity-50"
+                            className="rounded-lg p-1.5 text-codex-ink-faint transition hover:bg-white hover:text-codex-accent disabled:opacity-50"
                             aria-label={isZh ? "AI 分析联系人" : "Analyze contact"}
                             title={isZh ? "AI 分析联系人性格与沟通方式" : "Analyze personality and communication"}
                           >
@@ -279,7 +279,7 @@ export function ClientStakeholdersStructuredCard({
                         <button
                           type="button"
                           onClick={() => void fetchHistory(stakeholder.id)}
-                          className={`rounded-lg p-1.5 transition hover:bg-white ${historyId === stakeholder.id ? 'text-primary bg-white' : 'text-gray-400 hover:text-primary'}`}
+                          className={`rounded-lg p-1.5 transition hover:bg-white ${historyId === stakeholder.id ? 'text-codex-accent bg-white' : 'text-codex-ink-faint hover:text-codex-accent'}`}
                           aria-label={isZh ? "变更历史" : "Change history"}
                           title={isZh ? "查看变更历史" : "View change history"}
                         >
@@ -288,7 +288,7 @@ export function ClientStakeholdersStructuredCard({
                         <button
                           type="button"
                           onClick={() => beginEdit(stakeholder)}
-                          className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-emerald-600"
+                          className="rounded-lg p-1.5 text-codex-ink-faint transition hover:bg-white hover:text-codex-good"
                           aria-label={isZh ? "编辑干系人" : "Edit stakeholder"}
                         >
                           <Edit3 className="h-4 w-4" />
@@ -297,7 +297,7 @@ export function ClientStakeholdersStructuredCard({
                           type="button"
                           onClick={() => void remove(stakeholder.id)}
                           disabled={deletingId === stakeholder.id}
-                          className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-rose-600 disabled:opacity-50"
+                          className="rounded-lg p-1.5 text-codex-ink-faint transition hover:bg-white hover:text-codex-bad disabled:opacity-50"
                           aria-label={isZh ? "删除干系人" : "Delete stakeholder"}
                         >
                           {deletingId === stakeholder.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
@@ -308,11 +308,11 @@ export function ClientStakeholdersStructuredCard({
                       <Badge value={stakeholder.relationship_status || "unknown"} />
                       {stakeholder.communication_preference ? <Badge value={stakeholder.communication_preference} muted /> : null}
                     </div>
-                    <div className="mt-3 text-sm leading-6 text-gray-600">
+                    <div className="mt-3 text-sm leading-6 text-codex-ink-soft">
                       {stakeholder.concerns || stakeholder.note || stakeholder.last_action || (isZh ? "暂无补充信息" : "No extra detail yet")}
                     </div>
                     {stakeholder.personality_profile || stakeholder.decision_style || stakeholder.communication_strategy || stakeholder.trust_signals ? (
-                      <div className="mt-4 grid gap-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm leading-6 text-gray-700 md:grid-cols-2">
+                      <div className="mt-4 grid gap-2 rounded-xl border border-codex-line-soft bg-codex-accent-bg/60 p-3 text-sm leading-6 text-codex-ink-soft md:grid-cols-2">
                         <Insight label={isZh ? "性格画像" : "Personality"} value={stakeholder.personality_profile} />
                         <Insight label={isZh ? "决策风格" : "Decision style"} value={stakeholder.decision_style} />
                         <Insight label={isZh ? "沟通策略" : "Communication strategy"} value={stakeholder.communication_strategy} />
@@ -320,16 +320,16 @@ export function ClientStakeholdersStructuredCard({
                       </div>
                     ) : null}
                     {historyId === stakeholder.id && (
-                      <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-                        <div className="text-xs font-semibold text-gray-500 mb-2">
+                      <div className="mt-3 rounded-xl border border-codex-line bg-white p-3">
+                        <div className="text-xs font-semibold text-codex-ink-mute mb-2">
                           {isZh ? "变更历史" : "Change History"}
                         </div>
                         {loadingHistory ? (
-                          <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
+                          <div className="flex items-center gap-2 py-2 text-xs text-codex-ink-faint">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" /> {isZh ? "加载中..." : "Loading..."}
                           </div>
                         ) : historyData.length === 0 ? (
-                          <div className="py-2 text-xs text-gray-400">{isZh ? "暂无变更记录" : "No changes recorded yet"}</div>
+                          <div className="py-2 text-xs text-codex-ink-faint">{isZh ? "暂无变更记录" : "No changes recorded yet"}</div>
                         ) : (
                           <div className="space-y-2 max-h-48 overflow-y-auto">
                             {historyData.map((h, i) => (
@@ -337,14 +337,14 @@ export function ClientStakeholdersStructuredCard({
                                 <div className="flex-shrink-0 w-1 rounded-full bg-primary/20" />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-medium text-gray-800">{h.field_name}</span>
-                                    <span className={`rounded px-1 py-0.5 text-[9px] ${h.trigger === 'ai_analyze' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                    <span className="font-medium text-codex-ink-soft">{h.field_name}</span>
+                                    <span className={`rounded px-1 py-0.5 text-[9px] ${h.trigger === 'ai_analyze' ? 'bg-codex-accent-bg text-codex-accent' : 'bg-codex-bg-tint text-codex-ink-mute'}`}>
                                       {h.trigger === 'ai_analyze' ? 'AI' : h.trigger}
                                     </span>
-                                    <span className="ml-auto text-gray-400 flex-shrink-0">{formatDateOnly(h.changed_at)}</span>
+                                    <span className="ml-auto text-codex-ink-faint flex-shrink-0">{formatDateOnly(h.changed_at)}</span>
                                   </div>
-                                  {h.old_value && <div className="text-gray-400 line-clamp-1">{isZh ? "原" : "was"}: {h.old_value}</div>}
-                                  <div className="text-gray-700 line-clamp-1">{isZh ? "改为" : "now"}: {h.new_value}</div>
+                                  {h.old_value && <div className="text-codex-ink-faint line-clamp-1">{isZh ? "原" : "was"}: {h.old_value}</div>}
+                                  <div className="text-codex-ink-soft line-clamp-1">{isZh ? "改为" : "now"}: {h.new_value}</div>
                                 </div>
                               </div>
                             ))}
@@ -358,7 +358,7 @@ export function ClientStakeholdersStructuredCard({
             );
           })
         ) : (
-          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-5 text-sm text-gray-500">
+          <div className="rounded-2xl border border-dashed border-codex-line bg-codex-bg-tint p-5 text-sm text-codex-ink-mute">
             {isZh ? "还没有结构化干系人。先新增一位客户关键人。" : "No structured stakeholders yet. Add the first client contact above."}
           </div>
         )}
@@ -396,14 +396,14 @@ function GroupPanel({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-      <div className="text-xs font-semibold text-emerald-700">{title}</div>
+    <div className="rounded-2xl border border-codex-line-soft bg-codex-accent-bg/50 p-4">
+      <div className="text-xs font-semibold text-codex-good">{title}</div>
       <div className="mt-3 flex flex-wrap gap-2">
         {items.map(([label, count]) => (
           <span
             key={label}
             className={`rounded-full border px-3 py-1 text-xs font-medium ${
-              relationship ? relationshipStyles[label.toLowerCase()] || relationshipStyles.unknown : "border-emerald-200 bg-white text-emerald-700"
+              relationship ? relationshipStyles[label.toLowerCase()] || relationshipStyles.unknown : "border-codex-line bg-white text-codex-good"
             }`}
           >
             {label} · {count}
@@ -514,7 +514,7 @@ function StakeholderForm({
 }
 
 function Badge({ muted, value }: { muted?: boolean; value: string }) {
-  const style = muted ? "border-gray-200 bg-white text-gray-600" : relationshipStyles[value.toLowerCase()] || relationshipStyles.unknown;
+  const style = muted ? "border-codex-line bg-white text-codex-ink-soft" : relationshipStyles[value.toLowerCase()] || relationshipStyles.unknown;
   return <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${style}`}>{value}</span>;
 }
 
@@ -522,8 +522,8 @@ function Insight({ label, value }: { label: string; value?: string }) {
   if (!value?.trim()) return null;
   return (
     <div>
-      <div className="text-xs font-semibold text-blue-700">{label}</div>
-      <div className="mt-1 whitespace-pre-wrap text-gray-700">{value}</div>
+      <div className="text-xs font-semibold text-codex-accent-ink">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap text-codex-ink-soft">{value}</div>
     </div>
   );
 }
@@ -541,12 +541,12 @@ function Input({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-gray-500">{label}</span>
+      <span className="text-xs font-medium text-codex-ink-mute">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+        className="mt-1 w-full rounded-xl border border-codex-line bg-white px-3 py-2 text-sm outline-none transition focus:border-codex-line focus:ring-2 focus:ring-emerald-100"
       />
     </label>
   );
@@ -565,13 +565,13 @@ function Textarea({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-gray-500">{label}</span>
+      <span className="text-xs font-medium text-codex-ink-mute">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="mt-1 w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+        className="mt-1 w-full resize-none rounded-xl border border-codex-line bg-white px-3 py-2 text-sm outline-none transition focus:border-codex-line focus:ring-2 focus:ring-emerald-100"
       />
     </label>
   );

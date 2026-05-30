@@ -48,29 +48,29 @@ export function ProjectTodosPanel({
 }: ProjectTodosPanelProps) {
   return (
     <>
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
+      <div className="rounded-xl border border-codex-line bg-white p-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ListTodo className="h-5 w-5 text-gray-400" />
-            <h3 className="font-semibold text-gray-900">
+            <ListTodo className="h-5 w-5 text-codex-ink-faint" />
+            <h3 className="font-semibold text-codex-ink">
               {isZh ? "项目待办" : "Project Todos"}
             </h3>
           </div>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-codex-ink-mute">
             {completedCount} / {todos.length} {isZh ? "已完成" : "done"}
           </span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-codex-bg-tint">
           <div
-            className="h-full bg-primary transition-all duration-500"
+            className="h-full bg-codex-accent transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-xl border border-codex-line bg-white">
         {todos.length === 0 ? (
-          <div className="py-12 text-center text-gray-400">
+          <div className="py-12 text-center text-codex-ink-faint">
             <ListTodo className="mx-auto mb-3 h-12 w-12 opacity-20" />
             <p className="text-sm">{isZh ? "暂无待办事项" : "No todos yet"}</p>
             <p className="mt-1 text-xs opacity-70">

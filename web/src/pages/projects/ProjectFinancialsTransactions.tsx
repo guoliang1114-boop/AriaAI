@@ -37,9 +37,9 @@ export function ProjectFinancialsTransactions({
   onFilterChange,
 }: ProjectFinancialsTransactionsProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="flex items-center justify-between p-5 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900">
+    <div className="bg-white rounded-xl border border-codex-line">
+      <div className="flex items-center justify-between p-5 border-b border-codex-line-soft">
+        <h3 className="font-semibold text-codex-ink">
           {isZh ? "交易记录" : "Transactions"}
         </h3>
         <div className="flex items-center gap-2">
@@ -47,29 +47,29 @@ export function ProjectFinancialsTransactions({
             {
               key: "all" as const,
               label: isZh ? "全部" : "All",
-              activeClass: "bg-gray-100 text-gray-700 font-medium",
+              activeClass: "bg-codex-bg-tint text-codex-ink-soft font-medium",
             },
             {
               key: "received" as const,
               label: isZh ? "收款" : "Received",
-              activeClass: "bg-emerald-50 text-emerald-700 font-medium",
+              activeClass: "bg-codex-accent-bg text-codex-good font-medium",
             },
             {
               key: "invoiced" as const,
               label: isZh ? "开票" : "Invoiced",
-              activeClass: "bg-blue-50 text-blue-700 font-medium",
+              activeClass: "bg-codex-accent-bg text-codex-accent-ink font-medium",
             },
             {
               key: "expense" as const,
               label: isZh ? "支出" : "Expense",
-              activeClass: "bg-red-50 text-red-700 font-medium",
+              activeClass: "bg-codex-bg-tint text-codex-bad font-medium",
             },
           ].map((item) => (
             <button
               key={item.key}
               onClick={() => onFilterChange(item.key)}
               className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                filter === item.key ? item.activeClass : "text-gray-600 hover:bg-gray-100"
+                filter === item.key ? item.activeClass : "text-codex-ink-soft hover:bg-codex-bg-tint"
               }`}
             >
               {item.label}
@@ -79,7 +79,7 @@ export function ProjectFinancialsTransactions({
       </div>
       <div className="divide-y divide-gray-100">
         {filteredPayments.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-codex-ink-faint">
             <Receipt className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>{isZh ? "暂无交易记录" : "No transactions yet"}</p>
           </div>
@@ -87,7 +87,7 @@ export function ProjectFinancialsTransactions({
           filteredPayments.map((payment) => (
             <div
               key={payment.id}
-              className="flex items-center justify-between p-5 hover:bg-gray-50 transition-colors group"
+              className="flex items-center justify-between p-5 hover:bg-codex-bg-tint transition-colors group"
             >
               <div className="flex items-center gap-4">
                 <div
@@ -96,11 +96,11 @@ export function ProjectFinancialsTransactions({
                   <PaymentIcon type={payment.payment_type} />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">
+                  <p className="font-medium text-codex-ink">
                     {getPaymentLabel(payment.payment_type)}
                   </p>
-                  {payment.note && <p className="text-sm text-gray-500">{payment.note}</p>}
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  {payment.note && <p className="text-sm text-codex-ink-mute">{payment.note}</p>}
+                  <p className="text-xs text-codex-ink-faint mt-0.5">
                     {formatDateOnly(payment.payment_date)}
                   </p>
                 </div>
@@ -109,10 +109,10 @@ export function ProjectFinancialsTransactions({
                 <span
                   className={`font-semibold ${
                     payment.payment_type === "expense"
-                      ? "text-red-600"
+                      ? "text-codex-bad"
                       : payment.payment_type === "invoiced"
-                        ? "text-blue-600"
-                        : "text-emerald-600"
+                        ? "text-codex-accent"
+                        : "text-codex-good"
                   }`}
                 >
                   {payment.payment_type === "expense" ? "-" : "+"}¥
@@ -120,7 +120,7 @@ export function ProjectFinancialsTransactions({
                 </span>
                 <button
                   onClick={() => onDeletePayment(payment.id)}
-                  className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-2 rounded-lg text-codex-ink-faint hover:text-codex-bad hover:bg-codex-bg-tint opacity-0 group-hover:opacity-100 transition-all"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

@@ -93,13 +93,13 @@ export function ProjectFinancialsTab({
   const getPaymentColor = (type: ProjectPayment["payment_type"]) => {
     switch (type) {
       case "received":
-        return "bg-emerald-100 text-emerald-600";
+        return "bg-codex-accent-bg text-codex-good";
       case "invoiced":
-        return "bg-blue-100 text-blue-600";
+        return "bg-codex-accent-bg text-codex-accent";
       case "expense":
-        return "bg-red-100 text-red-600";
+        return "bg-codex-bg-tint text-codex-bad";
       default:
-        return "bg-gray-100 text-gray-600";
+        return "bg-codex-bg-tint text-codex-ink-soft";
     }
   };
 

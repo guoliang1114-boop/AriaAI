@@ -183,8 +183,8 @@ export function ProjectStakeholdersTab({ projectDetail, projectId }: ProjectStak
       />
 
       {loading ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-gray-200 bg-white">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-codex-line bg-white">
+          <Loader2 className="h-6 w-6 animate-spin text-codex-accent" />
         </div>
       ) : (
         <>
