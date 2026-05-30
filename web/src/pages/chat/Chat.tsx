@@ -33,6 +33,7 @@ import {
   Mail,
   Zap,
   Download,
+  MoreHorizontal,
 } from 'lucide-react'
 import { api } from '../../api/client'
 import { exportConversationFile } from '../../api/chatExport'
@@ -2174,84 +2175,84 @@ export function Chat() {
       {/* ── Main area ── */}
       <div className="flex h-full min-w-0 flex-1 flex-col">
 
-        {/* Header — title + project/skill meta + actions. */}
+        {/* Header — compact 48px single-line bar with title, inline meta,
+            and a "⋯" menu for export + delete actions. */}
         <div
-          className="flex-shrink-0"
+          className="flex flex-shrink-0 items-center"
           style={{
-            background: 'var(--color-codex-bg-elev)',
+            height: 48,
+            padding: '0 24px',
+            gap: 12,
             borderBottom: '1px solid var(--color-codex-line)',
-            padding: '14px 24px',
+            background:
+              'color-mix(in oklch, var(--color-codex-bg-elev) 50%, var(--color-codex-bg))',
           }}
         >
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className={`transition ${sidebarOpen ? 'md:hidden' : ''}`}
-              style={{
-                padding: 6,
-                color: 'var(--color-codex-ink-mute)',
-                borderRadius: 'var(--codex-r-sm, 3px)',
-              }}
-              title={t('chat.openSidebar')}
-              aria-label={t('chat.openSidebar')}
-            >
-              <PanelLeftOpen className="h-4 w-4" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: 15,
-                  fontWeight: 500,
-                  color: 'var(--color-codex-ink)',
-                  letterSpacing: '-0.01em',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {conversation?.title || t('chat.newConversation')}
-              </h1>
-              <div
-                className="mt-1 hidden items-center gap-1.5 sm:flex"
-                style={{
-                  fontSize: 12,
-                  color: 'var(--color-codex-ink-mute)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {selectedProjectData ? (
-                  <>
-                    <span>{t('chat.project')}</span>
-                    <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
-                    <span style={{ color: 'var(--color-codex-ink-soft)' }}>
-                      {selectedProjectData.name}
-                    </span>
-                  </>
-                ) : selectedSkillData ? (
-                  <>
-                    <span>{t('chat.skill')}</span>
-                    <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
-                    <span style={{ color: 'var(--color-codex-ink-soft)' }}>
-                      {selectedSkillData.name}
-                    </span>
-                  </>
-                ) : (
-                  <span>Aria workspace chat</span>
-                )}
-              </div>
-            </div>
-
-            {/* Export dropdown */}
-            {activeConversationId && (
-              <ExportDropdown
-                conversationId={activeConversationId}
-                conversationTitle={activeConversationTitle}
-              />
-            )}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className={`transition ${sidebarOpen ? 'md:hidden' : ''}`}
+            style={{
+              padding: 6,
+              color: 'var(--color-codex-ink-mute)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+            }}
+            title={t('chat.openSidebar')}
+            aria-label={t('chat.openSidebar')}
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+          <h1
+            className="min-w-0 flex-1 truncate"
+            style={{
+              margin: 0,
+              fontSize: 14.5,
+              fontWeight: 500,
+              color: 'var(--color-codex-ink)',
+              letterSpacing: '-0.01em',
+            }}
+          >
+            {conversation?.title || t('chat.newConversation')}
+          </h1>
+          {/* Inline meta — hidden on mobile to keep the bar tight. */}
+          <div
+            className="hidden flex-shrink-0 items-center sm:flex"
+            style={{
+              gap: 8,
+              fontSize: 11.5,
+              color: 'var(--color-codex-ink-mute)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {selectedProjectData ? (
+              <>
+                <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                <span>{t('chat.project')}</span>
+                <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                <span style={{ color: 'var(--color-codex-ink-soft)' }}>
+                  {selectedProjectData.name}
+                </span>
+              </>
+            ) : selectedSkillData ? (
+              <>
+                <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                <span>{t('chat.skill')}</span>
+                <span style={{ color: 'var(--color-codex-ink-faint)' }}>·</span>
+                <span style={{ color: 'var(--color-codex-ink-soft)' }}>
+                  {selectedSkillData.name}
+                </span>
+              </>
+            ) : null}
           </div>
+          {activeConversationId && (
+            <ConversationMenu
+              conversationId={activeConversationId}
+              conversationTitle={activeConversationTitle}
+              onDelete={() => {
+                setDeleteTargetId(activeConversationId)
+                setShowDeleteDialog(true)
+              }}
+            />
+          )}
         </div>
 
         {/* Top progress bar — only during the initial app data load
@@ -3431,18 +3432,22 @@ function SkillTemplateModal({ skill, variables, onApply, onCancel }: SkillTempla
   )
 }
 
-// ─── Export Dropdown Component ──────────────────────────────────────────────
-function ExportDropdown({ conversationId, conversationTitle }: {
+// ─── Conversation header menu — "⋯" dropdown with Export + Delete ──────────
+function ConversationMenu({
+  conversationId,
+  conversationTitle,
+  onDelete,
+}: {
   conversationId: number
   conversationTitle?: string
+  onDelete: () => void
 }) {
   const { t } = useTranslation()
   const toast = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  
-  // Close dropdown when clicking outside
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -3452,7 +3457,7 @@ function ExportDropdown({ conversationId, conversationTitle }: {
     if (isOpen) document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
-  
+
   const handleExport = async (format: 'markdown' | 'pdf') => {
     setIsExporting(true)
     try {
@@ -3465,58 +3470,98 @@ function ExportDropdown({ conversationId, conversationTitle }: {
       setIsExporting(false)
     }
   }
-  
+
+  const itemStyle: React.CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 12.5,
+    color: 'var(--color-codex-ink-soft)',
+    borderRadius: 'var(--codex-r-sm, 6px)',
+  }
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative flex-shrink-0" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isExporting}
-        className="flex items-center gap-1.5 px-3 py-1.5 transition-colors disabled:opacity-50"
+        className="inline-flex items-center justify-center transition-colors disabled:opacity-50"
         style={{
-          fontSize: 12.5,
-          color: 'var(--color-codex-ink-soft)',
-          borderRadius: 'var(--codex-r-sm, 3px)',
+          width: 30,
+          height: 30,
+          color: 'var(--color-codex-ink-mute)',
+          background: isOpen ? 'var(--color-codex-bg-tint)' : 'transparent',
+          borderRadius: 'var(--codex-r-sm, 6px)',
         }}
         title={t('chat.export')}
+        aria-label={t('chat.export')}
+        aria-expanded={isOpen}
       >
         {isExporting ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Download className="h-4 w-4" />
+          <MoreHorizontal className="h-4 w-4" />
         )}
-        <span className="hidden sm:inline">{t('chat.export')}</span>
-        <ChevronDown className="h-3 w-3" />
       </button>
 
       {isOpen && (
         <div
-          className="animate-fade-in absolute right-0 top-full z-50 mt-1 w-44 py-1"
+          className="animate-fade-in absolute right-0 top-full z-50 flex flex-col"
           style={{
+            marginTop: 6,
+            minWidth: 160,
+            padding: 5,
+            gap: 1,
             background: 'var(--color-codex-bg-elev)',
-            border: '1px solid var(--color-codex-line)',
-            borderRadius: 'var(--codex-r-md, 6px)',
-            boxShadow: '0 4px 16px -4px rgba(0,0,0,0.08)',
+            border: '1px solid var(--color-codex-line-strong)',
+            borderRadius: 'var(--codex-r-md, 10px)',
+            boxShadow: '0 14px 34px -14px rgba(0,0,0,0.45)',
           }}
         >
           <button
-            onClick={() => handleExport('markdown')}
-            className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
-            style={{ fontSize: 13, color: 'var(--color-codex-ink)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-codex-bg-tint)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            type="button"
+            onClick={() => void handleExport('markdown')}
+            className="row-hov flex items-center text-left transition-colors"
+            style={{ ...itemStyle, gap: 9 }}
           >
-            <FileText className="h-4 w-4" style={{ color: 'var(--color-codex-ink-faint)' }} />
+            <FileText
+              className="h-3.5 w-3.5 flex-shrink-0"
+              style={{ color: 'var(--color-codex-ink-mute)' }}
+            />
             {t('chat.exportMarkdown')}
           </button>
           <button
-            onClick={() => handleExport('pdf')}
-            className="flex w-full items-center gap-2 px-4 py-2 transition-colors"
-            style={{ fontSize: 13, color: 'var(--color-codex-ink)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-codex-bg-tint)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            type="button"
+            onClick={() => void handleExport('pdf')}
+            className="row-hov flex items-center text-left transition-colors"
+            style={{ ...itemStyle, gap: 9 }}
           >
-            <FileIcon className="h-4 w-4" style={{ color: 'var(--color-codex-bad)' }} />
+            <FileIcon
+              className="h-3.5 w-3.5 flex-shrink-0"
+              style={{ color: 'var(--color-codex-ink-mute)' }}
+            />
             {t('chat.exportPDF')}
+          </button>
+          <span
+            aria-hidden="true"
+            style={{
+              height: 1,
+              margin: '4px 6px',
+              background: 'var(--color-codex-line-soft)',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false)
+              onDelete()
+            }}
+            className="row-hov cx-no-hover flex items-center text-left transition-colors"
+            style={{ ...itemStyle, gap: 9, color: 'var(--color-codex-bad)' }}
+          >
+            <Trash2
+              className="h-3.5 w-3.5 flex-shrink-0"
+              style={{ color: 'var(--color-codex-bad)' }}
+            />
+            {t('chat.delete')}
           </button>
         </div>
       )}
