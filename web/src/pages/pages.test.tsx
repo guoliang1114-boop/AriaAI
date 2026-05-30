@@ -116,18 +116,3 @@ describe('MessagesPage smoke test', () => {
   })
 })
 
-describe('Welcome page smoke test', () => {
-  it('renders without crashing', async () => {
-    const { Welcome } = await import('../pages/Welcome')
-    try {
-      renderPage('/', Welcome)
-      await waitFor(() => {
-        expect(document.body.textContent).toBeTruthy()
-      })
-    } catch {
-      // Welcome page has complex API dependencies that may throw in test env
-      // The import itself validates the module loads correctly
-      expect(Welcome).toBeDefined()
-    }
-  })
-})

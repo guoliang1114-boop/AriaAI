@@ -295,34 +295,17 @@ export function Login() {
                   style={{ ...INPUT_STYLE, marginBottom: 18 }}
                 />
 
-                <div
+                <label
+                  htmlFor="login-password"
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "baseline",
+                    display: "block",
                     marginBottom: 6,
+                    fontSize: 12.5,
+                    color: "var(--color-codex-ink-soft)",
                   }}
                 >
-                  <label
-                    htmlFor="login-password"
-                    style={{
-                      fontSize: 12.5,
-                      color: "var(--color-codex-ink-soft)",
-                    }}
-                  >
-                    {t("login.password")}
-                  </label>
-                  <a
-                    href="#"
-                    style={{
-                      fontSize: 11.5,
-                      color: "var(--color-codex-accent)",
-                    }}
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    {t("login.forgotPassword")}
-                  </a>
-                </div>
+                  {t("login.password")}
+                </label>
                 <input
                   id="login-password"
                   type="password"

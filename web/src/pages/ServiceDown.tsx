@@ -160,7 +160,6 @@ export function ServiceDown() {
   const copy = isZh
     ? {
         statusPill: "系统维护中",
-        statusPage: "状态页 →",
         title: "服务暂时不可用",
         description:
           "我们正在做一次例行维护，通常 5–15 分钟内恢复。已经在路上的对话和未保存的草稿都已经替你存好，登录后会自动恢复。",
@@ -169,13 +168,10 @@ export function ServiceDown() {
         countdownSuffix: "秒后",
         retryNow: "立即重试",
         componentStatus: "各组件状态",
-        primary: "查看完整状态页 →",
-        secondary: "订阅恢复通知",
         incidentLabel: "事故编号",
       }
     : {
         statusPill: "Maintenance in progress",
-        statusPage: "Status page →",
         title: "Service temporarily unavailable",
         description:
           "We're running a routine maintenance window — usually 5–15 minutes. Anything in flight (conversations, drafts) is saved on our side and will come back automatically.",
@@ -184,8 +180,6 @@ export function ServiceDown() {
         countdownSuffix: "s",
         retryNow: "Retry now",
         componentStatus: "Component status",
-        primary: "View full status page →",
-        secondary: "Subscribe to recovery",
         incidentLabel: "Incident",
       };
 
@@ -207,19 +201,9 @@ export function ServiceDown() {
         }}
       >
         <CxLogo size={22} />
-        <div className="flex items-center gap-3.5">
-          <CxStatus tone="bad" pulse>
-            {copy.statusPill}
-          </CxStatus>
-          <a
-            href="https://status.example.com"
-            target="_blank"
-            rel="noreferrer"
-            style={{ fontSize: 12.5, color: "var(--color-codex-ink-mute)" }}
-          >
-            {copy.statusPage}
-          </a>
-        </div>
+        <CxStatus tone="bad" pulse>
+          {copy.statusPill}
+        </CxStatus>
       </header>
 
       <div
@@ -414,39 +398,14 @@ export function ServiceDown() {
             </div>
           </div>
 
-          {/* Bottom actions */}
+          {/* Incident id only — the prior "Status page" + secondary CTAs
+              pointed at a status.example.com placeholder that was never
+              wired up. The header retry button already covers the primary
+              "try again now" action. */}
           <div
-            className="flex items-center gap-2.5"
+            className="flex items-center"
             style={{ marginTop: 24, flexWrap: "wrap" }}
           >
-            <a
-              href="https://status.example.com"
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                padding: "9px 18px",
-                fontSize: 13,
-                color: "var(--color-codex-bg-elev)",
-                background: "var(--color-codex-ink)",
-                borderRadius: "var(--codex-r-sm, 3px)",
-                fontWeight: 500,
-              }}
-            >
-              {copy.primary}
-            </a>
-            <button
-              type="button"
-              style={{
-                padding: "9px 18px",
-                fontSize: 13,
-                color: "var(--color-codex-ink-soft)",
-                border: "1px solid var(--color-codex-line)",
-                borderRadius: "var(--codex-r-sm, 3px)",
-                background: "var(--color-codex-bg-elev)",
-              }}
-            >
-              {copy.secondary}
-            </button>
             <span
               style={{
                 marginLeft: "auto",

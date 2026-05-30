@@ -6,7 +6,6 @@ import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './pages/Login'
 import {
-  loadWelcome,
   loadPreferenceOnboarding,
   loadWorkspace,
   loadChat,
@@ -41,7 +40,6 @@ import {
   loadServiceDown,
 } from './routeLoaders'
 
-const Welcome = lazy(() => loadWelcome().then((module) => ({ default: module.Welcome })))
 const PreferenceOnboarding = lazy(() =>
   loadPreferenceOnboarding().then((module) => ({ default: module.PreferenceOnboarding })),
 )
@@ -216,14 +214,6 @@ function AppRoutes() {
           element={
             <LazyPage>
               <Workspace />
-            </LazyPage>
-          }
-        />
-        <Route
-          path="welcome"
-          element={
-            <LazyPage>
-              <Welcome />
             </LazyPage>
           }
         />

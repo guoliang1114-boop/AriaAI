@@ -41,8 +41,4 @@ describe('Forbidden', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/')
   })
 
-  it('renders the "request access" link', () => {
-    render(<Forbidden />)
-    expect(screen.getByText('如何申请权限？')).toBeInTheDocument()
-  })
 })

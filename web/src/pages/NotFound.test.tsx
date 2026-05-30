@@ -41,9 +41,4 @@ describe('NotFound', () => {
     expect(mockNavigate).toHaveBeenCalledWith(-1)
   })
 
-  it('renders the search hint with ⌘K shortcut', () => {
-    render(<NotFound />)
-    expect(screen.getByText('搜索项目、对话、Skill')).toBeInTheDocument()
-    expect(screen.getByText('⌘K')).toBeInTheDocument()
-  })
 })

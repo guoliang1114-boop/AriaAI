@@ -12,7 +12,7 @@
  * redesigned app. The new layout keeps the same three escape hatches
  * but treats them as the search hint instead of three big buttons.
  */
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -27,8 +27,6 @@ export function NotFound() {
           "你访问的页面不存在，或已被移除。可能是链接陈旧 — 不用紧张，回到工作台继续。",
         goBack: "返回上一页",
         dashboard: "回到工作台",
-        searchHint: "或者搜索你要找的内容",
-        searchPlaceholder: "搜索项目、对话、Skill",
       }
     : {
         title: "Nothing here",
@@ -36,8 +34,6 @@ export function NotFound() {
           "The page you tried to reach doesn't exist, or has been moved. The link may be stale — just head back to the workspace.",
         goBack: "Go back",
         dashboard: "Back to workspace",
-        searchHint: "Or search for what you wanted",
-        searchPlaceholder: "Search projects, chats, skills",
       };
 
   return (
@@ -116,42 +112,6 @@ export function NotFound() {
           }}
         >
           {copy.dashboard}
-        </button>
-      </div>
-
-      <div
-        className="flex flex-col items-center gap-2.5"
-        style={{ marginTop: 56 }}
-      >
-        <div style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}>
-          {copy.searchHint}
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          className="flex items-center gap-2"
-          style={{
-            padding: "8px 14px",
-            fontSize: 13,
-            border: "1px solid var(--color-codex-line)",
-            borderRadius: 99,
-            color: "var(--color-codex-ink-mute)",
-            width: 300,
-            background: "var(--color-codex-bg-elev)",
-          }}
-        >
-          <Search className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{copy.searchPlaceholder}</span>
-          <span
-            className="font-mono"
-            style={{
-              marginLeft: "auto",
-              fontSize: 10.5,
-              color: "var(--color-codex-ink-faint)",
-            }}
-          >
-            ⌘K
-          </span>
         </button>
       </div>
     </div>

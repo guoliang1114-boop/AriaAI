@@ -27,7 +27,6 @@ export function Forbidden() {
           "这个页面对当前账户不开放。如果你需要进入，请联系管理员开通权限，或者回到其他可用的工作区。",
         goBack: "返回上一页",
         dashboard: "回到工作台",
-        contact: "如何申请权限？",
       }
     : {
         title: "You can't access this area",
@@ -35,7 +34,6 @@ export function Forbidden() {
           "This page isn't open to your account. Ask an admin to grant access, or head back to another workspace you can use.",
         goBack: "Go back",
         dashboard: "Back to workspace",
-        contact: "How do I request access?",
       };
 
   return (
@@ -132,20 +130,6 @@ export function Forbidden() {
           {copy.dashboard}
         </button>
       </div>
-
-      <button
-        type="button"
-        onClick={() => navigate("/settings")}
-        style={{
-          marginTop: 32,
-          fontSize: 12,
-          color: "var(--color-codex-ink-faint)",
-          textDecoration: "underline",
-          textUnderlineOffset: 4,
-        }}
-      >
-        {copy.contact}
-      </button>
     </div>
   );
 }

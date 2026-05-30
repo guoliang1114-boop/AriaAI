@@ -1,4 +1,3 @@
-export const loadWelcome = () => import('./pages/Welcome')
 export const loadPreferenceOnboarding = () => import('./pages/PreferenceOnboarding')
 export const loadWorkspace = () => import('./pages/Workspace')
 export const loadChat = () => import('./pages/chat/Chat')

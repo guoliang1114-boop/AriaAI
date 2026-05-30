@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   primaryRouteLoaders,
   warmPrimaryRoutes,
-  loadWelcome,
   loadChat,
   loadSkills,
   loadProjects,
@@ -49,7 +48,6 @@ describe('routeLoaders', () => {
 
   it('individual loaders return promises', async () => {
     const results = [
-      loadWelcome(),
       loadChat(),
       loadSkills(),
       loadProjects(),
