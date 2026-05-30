@@ -326,11 +326,20 @@ function ProgressCard({
   title?: string
   completedLabel?: string
 }) {
+  // Collapsed by default — the full "task progress / tool logs" panel
+  // is internal-process detail that most users don't need to read line
+  // by line. A single pill says "Aria 正在执行 · 2/5 完成" and stays
+  // out of the way; clicking it expands to the previous full view for
+  // power users and debugging.
   const [expandedKeys, setExpandedKeys] = useState<string[]>([])
+  const [expanded, setExpanded] = useState(false)
   if (!steps.length) return null
 
   const activeIndex = steps.findIndex(step => step.status === 'active')
   const doneCount = steps.filter(step => step.status === 'done').length
+  const total = steps.length
+  const isRunning = activeIndex !== -1
+  const activeLabel = isRunning ? steps[activeIndex].label : null
   const allLogs = steps
     .flatMap(step => step.logs.map(log => `[${step.label}] ${log}`))
     .join('\n')
@@ -348,7 +357,67 @@ function ProgressCard({
     }
   }
 
-  const progressPct = Math.max(8, (doneCount / steps.length) * 100)
+  const progressPct = Math.max(8, (doneCount / total) * 100)
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="mt-3 mb-3 inline-flex w-full items-center gap-2.5 text-left transition-colors"
+        style={{
+          padding: '7px 12px',
+          background: 'var(--color-codex-bg-elev)',
+          border: '1px solid var(--color-codex-line)',
+          borderRadius: 'var(--codex-r-md, 6px)',
+          fontSize: 12,
+          color: 'var(--color-codex-ink-soft)',
+        }}
+        aria-expanded="false"
+      >
+        {isRunning ? (
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        ) : (
+          <Check
+            className="h-3 w-3"
+            aria-hidden="true"
+            style={{ color: 'var(--color-codex-good)' }}
+          />
+        )}
+        <span style={{ color: 'var(--color-codex-ink)', fontWeight: 500 }}>
+          {isRunning ? (activeLabel ?? title) : title}
+        </span>
+        <span
+          className="font-mono"
+          style={{ color: 'var(--color-codex-ink-mute)', fontSize: 11 }}
+        >
+          {doneCount}/{total} {completedLabel}
+        </span>
+        <div
+          aria-hidden="true"
+          className="h-1 flex-1 overflow-hidden"
+          style={{
+            maxWidth: 120,
+            background: 'var(--color-codex-bg-tint)',
+            borderRadius: 'var(--codex-r-pill, 999px)',
+          }}
+        >
+          <div
+            className="h-full transition-all duration-500"
+            style={{
+              width: `${progressPct}%`,
+              background: 'var(--color-codex-accent)',
+            }}
+          />
+        </div>
+        <ChevronDown
+          className="h-3 w-3 flex-shrink-0"
+          aria-hidden="true"
+          style={{ color: 'var(--color-codex-ink-faint)' }}
+        />
+      </button>
+    )
+  }
 
   return (
     <div
@@ -419,6 +488,24 @@ function ProgressCard({
         >
           <Copy className="h-3 w-3" aria-hidden="true" />
           复制日志
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="inline-flex items-center justify-center"
+          style={{
+            width: 24,
+            height: 24,
+            color: 'var(--color-codex-ink-mute)',
+            borderRadius: 'var(--codex-r-sm, 3px)',
+          }}
+          aria-label="收起"
+        >
+          <ChevronDown
+            className="h-3.5 w-3.5"
+            aria-hidden="true"
+            style={{ transform: 'rotate(180deg)' }}
+          />
         </button>
       </div>
       <div className="space-y-1.5">
