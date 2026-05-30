@@ -25,11 +25,27 @@ interface SettingsNavItem {
   path: string
   label: string
   group: SettingsGroupKey
+  /** Hide for non-admin users. The routes are also AdminGuard'd in
+      App.tsx — surfacing them in the nav for non-admins just sent
+      people to 403. */
+  adminOnly?: boolean
+}
+
+function getStoredUserIsAdmin(): boolean {
+  try {
+    const raw = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { is_admin?: boolean }
+    return !!parsed?.is_admin
+  } catch {
+    return false
+  }
 }
 
 export function SettingsLayout() {
   const { i18n, t } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
+  const isAdmin = getStoredUserIsAdmin()
 
   const groupLabels: Record<SettingsGroupKey, string> = {
     personal: isZh ? '个人' : 'Personal',
@@ -46,24 +62,28 @@ export function SettingsLayout() {
     { path: 'ai', label: t('settings.aiModel'), group: 'ai' },
     { path: 'memory', label: isZh ? '项目记忆' : 'Project Memory', group: 'ai' },
     { path: 'client-memory', label: isZh ? '客户记忆' : 'Client Memory', group: 'ai' },
-    { path: 'memory-ops', label: isZh ? '记忆任务中心' : 'Memory Operations', group: 'ai' },
-    { path: 'api-limits', label: isZh ? 'API 限流' : 'API Limits', group: 'admin' },
-    { path: 'migrations', label: isZh ? '迁移状态' : 'Migrations', group: 'admin' },
-    { path: 'messages', label: isZh ? '消息管理' : 'Message Manager', group: 'admin' },
-    { path: 'server', label: t('settings.server.title'), group: 'admin' },
-    { path: 'users', label: t('settings.users'), group: 'admin' },
+    { path: 'memory-ops', label: isZh ? '记忆任务中心' : 'Memory Operations', group: 'ai', adminOnly: true },
+    { path: 'api-limits', label: isZh ? 'API 限流' : 'API Limits', group: 'admin', adminOnly: true },
+    { path: 'migrations', label: isZh ? '迁移状态' : 'Migrations', group: 'admin', adminOnly: true },
+    { path: 'messages', label: isZh ? '消息管理' : 'Message Manager', group: 'admin', adminOnly: true },
+    { path: 'server', label: t('settings.server.title'), group: 'admin', adminOnly: true },
+    { path: 'users', label: t('settings.users'), group: 'admin', adminOnly: true },
     // 关于 ships its own one-item 系统 group — it was previously
     // tucked under 个人 and read as oddly out-of-place ("关于" isn't
     // a personal choice the user makes, it's a system info pane).
     { path: 'about', label: t('settings.about'), group: 'system' },
   ]
 
+  const visibleNavItems = settingNavItems.filter((item) => isAdmin || !item.adminOnly)
+
   const orderedGroups: SettingsGroupKey[] = ['personal', 'ai', 'admin', 'system']
-  const itemsByGroup = orderedGroups.map((group) => ({
-    group,
-    label: groupLabels[group],
-    items: settingNavItems.filter((item) => item.group === group),
-  }))
+  const itemsByGroup = orderedGroups
+    .map((group) => ({
+      group,
+      label: groupLabels[group],
+      items: visibleNavItems.filter((item) => item.group === group),
+    }))
+    .filter((entry) => entry.items.length > 0)
 
   return (
     <>
@@ -161,7 +181,7 @@ export function SettingsLayout() {
           className="flex gap-1 overflow-x-auto px-4 py-3 lg:hidden"
           style={{ borderBottom: '1px solid var(--color-codex-line)' }}
         >
-          {settingNavItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}

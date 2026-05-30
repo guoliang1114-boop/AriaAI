@@ -757,15 +757,20 @@ export function Workspace() {
                       padding: "8px 0",
                     }}
                   >
+                    {/* Bullet — read-only by design. The earlier
+                        square-with-rounded-corners affordance looked
+                        like a checkbox and invited the user to tick it,
+                        but there's no toggle-done behavior wired up. A
+                        dot makes the read-only nature obvious. */}
                     <span
                       aria-hidden="true"
                       className="flex-shrink-0"
                       style={{
-                        width: 14,
-                        height: 14,
-                        marginTop: 3,
-                        borderRadius: 3,
-                        border: "1px solid var(--color-codex-line-strong)",
+                        width: 5,
+                        height: 5,
+                        marginTop: 8,
+                        borderRadius: 999,
+                        background: "var(--color-codex-ink-faint)",
                       }}
                     />
                     <div className="flex-1" style={{ minWidth: 0 }}>

@@ -123,6 +123,18 @@ export function MessagesPage() {
     }
   }, [filteredMessages, activeId])
 
+  // Opening a message implies reading it. The earlier flow required a
+  // second click on "标记已读" in the detail pane — a chore. This effect
+  // covers both manual clicks and the auto-select-first behavior above.
+  useEffect(() => {
+    if (activeId == null) return
+    const active = messages.find((m) => m.id === activeId)
+    if (active && !active.is_read) void markRead(activeId)
+    // markRead is stable across renders (no React deps); we only want to
+    // fire when the selected message changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, messages])
+
   const markRead = async (messageId: number) => {
     try {
       await api.post(`/messages/${messageId}/read`)

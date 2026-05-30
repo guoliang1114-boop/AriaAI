@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { SettingsLayout } from './SettingsLayout'
 
@@ -17,6 +17,20 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('SettingsLayout', () => {
+  // Admin group + the memory-ops admin item are filtered out for
+  // non-admins now, so most tests seed localStorage with an admin
+  // user. A separate test covers the non-admin filtering.
+  beforeEach(() => {
+    window.localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 1, email: 'a@b.com', display_name: 'A', is_admin: true }),
+    )
+  })
+
+  afterEach(() => {
+    window.localStorage.removeItem('user')
+  })
+
   it('renders settings title and outlet', () => {
     render(<SettingsLayout />)
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
@@ -37,5 +51,19 @@ describe('SettingsLayout', () => {
     expect(screen.getByText('个人')).toBeInTheDocument()
     expect(screen.getByText('AI 与记忆')).toBeInTheDocument()
     expect(screen.getByText('管理员')).toBeInTheDocument()
+  })
+
+  it('hides the admin group and admin-only items from non-admin users', () => {
+    window.localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 2, email: 'b@b.com', display_name: 'B', is_admin: false }),
+    )
+    render(<SettingsLayout />)
+    expect(screen.queryByText('管理员')).not.toBeInTheDocument()
+    expect(screen.queryByText('记忆任务中心')).not.toBeInTheDocument()
+    expect(screen.queryByText('settings.users')).not.toBeInTheDocument()
+    // Personal + AI groups still render with their non-admin items.
+    expect(screen.getByText('个人')).toBeInTheDocument()
+    expect(screen.getByText('AI 与记忆')).toBeInTheDocument()
   })
 })
