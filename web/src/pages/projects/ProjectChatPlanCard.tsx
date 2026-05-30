@@ -21,38 +21,38 @@ export const ProjectChatPlanCard = memo<ProjectChatPlanCardProps>(
           <ListChecks className="w-3.5 h-3.5 text-white" />
         </div>
         <div className="flex-1 min-w-0 flex flex-col items-stretch">
-          <p className="text-xs font-medium text-gray-400 mb-1.5 px-0.5">
+          <p className="text-xs font-medium text-codex-ink-faint mb-1.5 px-0.5">
             {isZh ? "执行计划" : "Execution Plan"}
           </p>
 
-          <div className="w-full max-w-none rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3">
+          <div className="w-full max-w-none rounded-xl border border-codex-line-soft bg-codex-accent-bg/40 px-4 py-3">
             {isGenerating ? (
-              <div className="flex items-center gap-2 text-sm text-indigo-600">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+              <div className="flex items-center gap-2 text-sm text-codex-accent">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-codex-line border-t-indigo-600" />
                 {isZh ? "正在制定执行计划…" : "Generating execution plan…"}
               </div>
             ) : (
               <>
-                <div className="md-root w-full text-[15px] leading-[1.8] text-gray-700 whitespace-pre-wrap">
+                <div className="md-root w-full text-[15px] leading-[1.8] text-codex-ink-soft whitespace-pre-wrap">
                   {plan.plan_text}
                 </div>
 
                 {plan.planned_tools.length > 0 && (
                   <div className="mt-3 space-y-1.5">
-                    <p className="text-xs font-medium text-indigo-700">
+                    <p className="text-xs font-medium text-codex-accent-ink">
                       {isZh ? "计划调用的工具" : "Planned tools"}
                     </p>
                     {plan.planned_tools.map((tool, index) => (
                       <div
                         key={`${tool.name}-${index}`}
-                        className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-white px-3 py-2"
+                        className="flex items-center gap-2 rounded-lg border border-codex-line-soft bg-white px-3 py-2"
                       >
-                        <Wrench className="h-3.5 w-3.5 text-indigo-400" />
+                        <Wrench className="h-3.5 w-3.5 text-codex-accent" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-700">{tool.name}</p>
-                          <p className="text-xs text-gray-400">{tool.input_summary}</p>
+                          <p className="text-sm font-medium text-codex-ink-soft">{tool.name}</p>
+                          <p className="text-xs text-codex-ink-faint">{tool.input_summary}</p>
                         </div>
-                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        <CheckCircle2 className="h-4 w-4 text-codex-good" />
                       </div>
                     ))}
                   </div>
@@ -61,14 +61,14 @@ export const ProjectChatPlanCard = memo<ProjectChatPlanCardProps>(
                 <div className="mt-4 flex items-center gap-2">
                   <button
                     onClick={onExecute}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-700"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-codex-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-codex-accent"
                   >
                     <Play className="h-3.5 w-3.5" />
                     {isZh ? "执行此计划" : "Execute plan"}
                   </button>
                   <button
                     onClick={onCancel}
-                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:bg-gray-100"
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-codex-ink-mute transition hover:bg-codex-bg-tint"
                   >
                     {isZh ? "取消" : "Cancel"}
                   </button>

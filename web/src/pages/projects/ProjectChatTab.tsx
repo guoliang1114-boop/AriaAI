@@ -964,7 +964,7 @@ export function ProjectChatTab({
       className={
         isFullscreen
           ? "flex h-screen w-screen min-h-0 overflow-hidden border-0 bg-white shadow-none"
-          : "flex h-full min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+          : "flex h-full min-h-0 overflow-hidden rounded-lg border border-codex-line bg-white shadow-sm"
       }
     >
       <ProjectChatSidebar
@@ -994,7 +994,7 @@ export function ProjectChatTab({
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
       />
 
-      <div className="flex min-w-0 flex-1 bg-slate-50">
+      <div className="flex min-w-0 flex-1 bg-codex-bg-tint">
         <div className="flex min-w-0 flex-1">
           <ProjectChatMainPanel
             activeConversation={activeConversation}
@@ -1124,7 +1124,7 @@ export function ProjectChatTab({
                 isResizingPreview ? "bg-primary/10" : "hover:bg-primary/5"
               }`}
             >
-              <div className="h-12 w-0.5 rounded-full bg-gray-200 transition-colors group-hover:bg-primary/50" />
+              <div className="h-12 w-0.5 rounded-full bg-codex-bg-tint transition-colors group-hover:bg-primary/50" />
             </div>
             <div className="hidden min-h-0 shrink-0 xl:block" style={{ width: previewWidth }}>
               <ProjectChatFilePreviewPanel
@@ -1177,14 +1177,14 @@ export function ProjectChatTab({
 
       {stakeholderCapture ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-3xl border border-codex-line bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2 text-lg font-semibold text-gray-950">
-                  <Users className="h-5 w-5 text-emerald-600" />
+                <div className="flex items-center gap-2 text-lg font-semibold text-codex-ink">
+                  <Users className="h-5 w-5 text-codex-good" />
                   {isZh ? "确认加入客户干系人" : "Confirm client stakeholders"}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-gray-600">
+                <p className="mt-2 text-sm leading-6 text-codex-ink-soft">
                   {isZh
                     ? `只把明确的人名和职务加入「${stakeholderCapture.clientName}」客户卡片；部门、议题和材料名已经过滤。确认后会标记客户记忆待刷新。`
                     : `Only clear people with roles will be added to ${stakeholderCapture.clientName}'s client card. Departments, topics, and document terms are filtered out.`}
@@ -1193,7 +1193,7 @@ export function ProjectChatTab({
               <button
                 type="button"
                 onClick={() => setStakeholderCapture(null)}
-                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                className="rounded-xl p-2 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
                 aria-label={isZh ? "关闭" : "Close"}
               >
                 <X className="h-5 w-5" />
@@ -1202,19 +1202,19 @@ export function ProjectChatTab({
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {stakeholderCapture.candidates.map((candidate, index) => (
-                <div key={`${candidate.name}-${candidate.role}-${index}`} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <div key={`${candidate.name}-${candidate.role}-${index}`} className="rounded-2xl border border-codex-line-soft bg-codex-accent-bg/70 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-semibold text-gray-950">{candidate.name}</div>
-                      <div className="mt-1 text-xs text-emerald-700">
+                      <div className="font-semibold text-codex-ink">{candidate.name}</div>
+                      <div className="mt-1 text-xs text-codex-good">
                         {[candidate.role, candidate.influence_type, candidate.relationship_status].filter(Boolean).join(" / ") || "-"}
                       </div>
                     </div>
-                    <span className="rounded-full bg-white px-2 py-1 text-xs text-emerald-700">
+                    <span className="rounded-full bg-white px-2 py-1 text-xs text-codex-good">
                       {isZh ? "候选" : "Candidate"}
                     </span>
                   </div>
-                  {candidate.note ? <p className="mt-3 line-clamp-3 text-xs leading-5 text-gray-600">{candidate.note}</p> : null}
+                  {candidate.note ? <p className="mt-3 line-clamp-3 text-xs leading-5 text-codex-ink-soft">{candidate.note}</p> : null}
                 </div>
               ))}
             </div>
@@ -1224,7 +1224,7 @@ export function ProjectChatTab({
                 type="button"
                 onClick={() => setStakeholderCapture(null)}
                 disabled={isApplyingStakeholders}
-                className="inline-flex items-center justify-center rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-xl border border-codex-line px-4 py-2 text-sm font-medium text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-60"
               >
                 {isZh ? "先不加入" : "Not now"}
               </button>
@@ -1232,7 +1232,7 @@ export function ProjectChatTab({
                 type="button"
                 onClick={() => void confirmApplyStakeholders()}
                 disabled={isApplyingStakeholders}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-codex-good px-4 py-2 text-sm font-medium text-white hover:bg-codex-good disabled:opacity-60"
               >
                 {isApplyingStakeholders ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
                 {isZh ? "确认加入" : "Confirm add"}
@@ -1243,7 +1243,7 @@ export function ProjectChatTab({
       ) : null}
 
       {isCapturingStakeholders ? (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm text-emerald-700 shadow-lg">
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-codex-line bg-white px-4 py-2 text-sm text-codex-good shadow-lg">
           <span className="inline-flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             {isZh ? "正在识别客户干系人..." : "Detecting client stakeholders..."}
@@ -1252,13 +1252,13 @@ export function ProjectChatTab({
       ) : null}
 
       {autoStakeholderBanner ? (
-        <div className="fixed bottom-6 left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
+        <div className="fixed bottom-6 left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 rounded-2xl border border-codex-line bg-white px-4 py-3 shadow-lg">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-codex-accent-bg text-codex-good">
               <Users className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-gray-900">
+              <p className="text-sm font-medium text-codex-ink">
                 {isZh
                   ? "发现可能的客户联系人"
                   : "Possible client contacts found"
@@ -1268,15 +1268,15 @@ export function ProjectChatTab({
                 {autoStakeholderBanner.candidates.map((candidate) => (
                   <span
                     key={`${candidate.name}-${candidate.role}`}
-                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                    className="inline-flex max-w-full items-center gap-1 rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-soft"
                   >
                     <span className="truncate">{candidate.name}</span>
-                    <span className="text-slate-400">/</span>
-                    <span className="truncate text-slate-500">{candidate.role}</span>
+                    <span className="text-codex-ink-faint">/</span>
+                    <span className="truncate text-codex-ink-mute">{candidate.role}</span>
                   </span>
                 ))}
               </div>
-              <p className="mt-2 text-xs leading-5 text-gray-500">
+              <p className="mt-2 text-xs leading-5 text-codex-ink-mute">
                 {isZh ? "只会加入明确的人名和职务；部门、议题和材料名会自动忽略。" : "Only clear people with roles are added; departments, topics, and document terms are ignored."}
               </p>
               <div className="mt-3 flex items-center gap-2">
@@ -1284,7 +1284,7 @@ export function ProjectChatTab({
                   type="button"
                   onClick={() => void handleQuickApplyStakeholders()}
                   disabled={isQuickApplyingStakeholders}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-codex-good px-3 py-1.5 text-xs font-medium text-white hover:bg-codex-good disabled:opacity-60"
                 >
                   {isQuickApplyingStakeholders ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   {isZh ? "添加" : "Add"}
@@ -1295,7 +1295,7 @@ export function ProjectChatTab({
                     dismissedAutoDetectRef.current = autoStakeholderBanner.sourceText;
                     setAutoStakeholderBanner(null);
                   }}
-                  className="rounded-lg px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
+                  className="rounded-lg px-3 py-1.5 text-xs text-codex-ink-mute hover:bg-codex-bg-tint"
                 >
                   {isZh ? "忽略" : "Dismiss"}
                 </button>
@@ -1307,7 +1307,7 @@ export function ProjectChatTab({
                 dismissedAutoDetectRef.current = autoStakeholderBanner.sourceText;
                 setAutoStakeholderBanner(null);
               }}
-              className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              className="shrink-0 rounded-lg p-1 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
               aria-label={isZh ? "关闭" : "Close"}
             >
               <X className="h-4 w-4" />

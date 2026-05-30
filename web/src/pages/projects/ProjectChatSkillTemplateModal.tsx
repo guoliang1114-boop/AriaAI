@@ -99,15 +99,15 @@ export function ProjectChatSkillTemplateModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-codex-line bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-codex-line px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Wrench className="h-5 w-5 text-primary" />
+              <Wrench className="h-5 w-5 text-codex-accent" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">{skill.name}</h3>
-              <p className="text-xs text-gray-500">
+              <h3 className="text-lg font-semibold text-codex-ink">{skill.name}</h3>
+              <p className="text-xs text-codex-ink-mute">
                 {isZh ? "先补齐模板变量，再直接发到项目对话里" : "Fill in the template, then send it to the project chat"}
               </p>
             </div>
@@ -115,7 +115,7 @@ export function ProjectChatSkillTemplateModal({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100"
+            className="rounded-xl p-2 text-codex-ink-mute transition-colors hover:bg-codex-bg-tint"
           >
             <X className="h-5 w-5" />
           </button>
@@ -123,14 +123,14 @@ export function ProjectChatSkillTemplateModal({
 
         <div className="max-h-[65vh] overflow-auto px-6 py-4">
           {skill.description ? (
-            <p className="mb-4 text-sm text-gray-500">{skill.description}</p>
+            <p className="mb-4 text-sm text-codex-ink-mute">{skill.description}</p>
           ) : null}
 
           {variables.length > 0 ? (
             <div className="mb-5 space-y-3">
               {variables.map((variable, index) => (
                 <div key={variable.name}>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500">
+                  <label className="mb-1.5 block text-xs font-medium text-codex-ink-mute">
                     {variable.name}
                   </label>
                   <input
@@ -144,39 +144,39 @@ export function ProjectChatSkillTemplateModal({
                     }
                     autoFocus={index === 0}
                     placeholder={isZh ? `请输入 ${variable.name}` : `Enter ${variable.name}`}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-primary/50"
+                    className="w-full rounded-xl border border-codex-line bg-codex-bg-tint px-3 py-2.5 text-sm text-codex-ink-soft outline-none transition-colors placeholder:text-codex-ink-faint focus:border-primary/50"
                   />
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+            <div className="mb-5 rounded-xl border border-codex-line bg-codex-bg-tint p-3 text-sm text-codex-ink-mute">
               {isZh ? "这个模板没有需要补充的字段，可以直接发送。" : "This template has no fields to fill. You can send it directly."}
             </div>
           )}
 
           <div>
-            <p className="mb-2 text-xs font-medium text-gray-500">
+            <p className="mb-2 text-xs font-medium text-codex-ink-mute">
               {isZh ? "发送预览" : "Preview"}
             </p>
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-              <p className="whitespace-pre-wrap text-sm leading-6 text-gray-700">{preview}</p>
+            <div className="rounded-xl border border-codex-line bg-codex-bg-tint p-3">
+              <p className="whitespace-pre-wrap text-sm leading-6 text-codex-ink-soft">{preview}</p>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+        <div className="flex justify-end gap-3 border-t border-codex-line px-6 py-4">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-xl px-4 py-2 text-gray-500 transition-colors hover:bg-gray-100"
+            className="rounded-xl px-4 py-2 text-codex-ink-mute transition-colors hover:bg-codex-bg-tint"
           >
             {isZh ? "取消" : "Cancel"}
           </button>
           <button
             type="button"
             onClick={() => void onApply(preview)}
-            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-white transition-colors hover:bg-primary/90"
+            className="flex items-center gap-2 rounded-xl bg-codex-accent px-4 py-2 text-white transition-colors hover:bg-primary/90"
           >
             <Send className="h-4 w-4" />
             {isZh ? "应用并发送" : "Apply and send"}

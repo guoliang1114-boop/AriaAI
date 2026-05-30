@@ -71,28 +71,28 @@ const ChatStreamingMessage = memo<{
 
     return (
       <div className="project-chat-message mx-auto flex max-w-4xl items-start gap-3">
-        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
+        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-codex-ink shadow-sm">
           <Sparkles className="w-3.5 h-3.5 text-white" />
         </div>
         <div className="flex-1 min-w-0 flex flex-col items-stretch">
-          <p className="mb-1 px-0.5 text-xs font-medium text-slate-400">Aria</p>
-          <div className="w-full max-w-none text-[14px] leading-6 text-gray-700">
+          <p className="mb-1 px-0.5 text-xs font-medium text-codex-ink-faint">Aria</p>
+          <div className="w-full max-w-none text-[14px] leading-6 text-codex-ink-soft">
             <div className="md-root project-chat-answer w-full">
               {content ? renderedContent : null}
               {status ? (
                 <div
-                  className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-500 shadow-sm`}
+                  className={`${content ? "mt-2" : ""} inline-flex items-center gap-2 rounded-lg border border-codex-line bg-white px-2.5 py-1.5 text-xs text-codex-ink-mute shadow-sm`}
                 >
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <Loader2 className="h-4 w-4 animate-spin text-codex-accent" />
                   <span>{status}</span>
                 </div>
               ) : null}
-              <span className="project-chat-stream-caret ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-900" />
+              <span className="project-chat-stream-caret ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-codex-ink" />
               {isTruncated && onContinue && (
                 <div className="mt-3">
                   <button
                     onClick={onContinue}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-codex-accent transition hover:bg-primary/10"
                   >
                     <Play className="h-3.5 w-3.5" />
                     {isZh ? "继续生成" : "Continue generating"}
@@ -127,7 +127,7 @@ const ChatStreamingMessage = memo<{
                       <Link
                         to={buildReferenceHref(ref)}
                         key={`${ref.type}-${ref.id}-${index}`}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-500 hover:border-primary/30 hover:text-primary"
+                        className="inline-flex items-center gap-1 rounded-md border border-codex-line bg-codex-bg-tint px-2 py-0.5 text-xs text-codex-ink-mute hover:border-primary/30 hover:text-codex-accent"
                       >
                         {ref.type === "skill" && <Wrench className="h-3 w-3" />}
                         {ref.type === "doc" && <BookOpen className="h-3 w-3" />}
@@ -230,18 +230,18 @@ export function ProjectChatMessages({
       {isLoadingMessages && (
         <div className="mx-auto max-w-4xl space-y-4 animate-pulse">
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+            <div className="w-8 h-8 rounded-full bg-codex-bg-tint flex-shrink-0" />
             <div className="flex-1 space-y-2">
-              <div className="h-3 bg-gray-200 rounded-full w-3/4" />
-              <div className="h-3 bg-gray-200 rounded-full w-1/2" />
+              <div className="h-3 bg-codex-bg-tint rounded-full w-3/4" />
+              <div className="h-3 bg-codex-bg-tint rounded-full w-1/2" />
             </div>
           </div>
           <div className="flex gap-3 justify-end">
             <div className="flex-1 space-y-2 flex flex-col items-end">
-              <div className="h-3 bg-gray-200 rounded-full w-2/3" />
-              <div className="h-3 bg-gray-200 rounded-full w-1/3" />
+              <div className="h-3 bg-codex-bg-tint rounded-full w-2/3" />
+              <div className="h-3 bg-codex-bg-tint rounded-full w-1/3" />
             </div>
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+            <div className="w-8 h-8 rounded-full bg-codex-bg-tint flex-shrink-0" />
           </div>
         </div>
       )}
@@ -328,14 +328,14 @@ export function ProjectChatMessages({
               streamingArtifacts.length === 0 &&
               streamingReferences.length === 0 && (
                 <div className="project-chat-message mx-auto flex max-w-4xl gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-950 shadow-sm">
+                  <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-codex-ink shadow-sm">
                     <Sparkles className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="space-y-2">
-                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+                    <div className="rounded-lg border border-codex-line bg-white px-2.5 py-1.5 shadow-sm">
                       <div className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                        <span className="text-xs text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin text-codex-accent" />
+                        <span className="text-xs text-codex-ink-mute">
                           {thinkingLabel}
                         </span>
                       </div>

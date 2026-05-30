@@ -81,7 +81,7 @@ export function ProjectChatInput({
   }, []);
 
   return (
-    <div className="relative flex-shrink-0 border-t border-gray-100 bg-slate-50 px-4 pb-4 pt-3">
+    <div className="relative flex-shrink-0 border-t border-codex-line-soft bg-codex-bg-tint px-4 pb-4 pt-3">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-10 -translate-y-full bg-gradient-to-b from-transparent to-slate-50" />
       <div className={`mx-auto ${isFullscreen ? "max-w-5xl" : "max-w-4xl"}`}>
         {contextControls}
@@ -128,7 +128,7 @@ export function ProjectChatInput({
               onKeyUp={checkMention}
               placeholder={placeholder}
               disabled={isLoading}
-              className="min-h-[34px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[13.5px] leading-6 text-gray-700 outline-none placeholder:text-gray-300 disabled:opacity-50"
+              className="min-h-[34px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[13.5px] leading-6 text-codex-ink-soft outline-none placeholder:text-codex-ink-faint disabled:opacity-50"
               rows={1}
               style={{ height: "auto" }}
               onInput={(event) => {
@@ -144,8 +144,8 @@ export function ProjectChatInput({
               title={isPlanMode ? "Plan mode: ON" : "Plan mode: OFF"}
               className={`mb-0.5 flex-shrink-0 rounded-lg p-2.5 transition-all ${
                 isPlanMode
-                  ? "bg-indigo-100 text-indigo-600 shadow-sm shadow-indigo-500/20"
-                  : "bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+                  ? "bg-codex-accent-bg text-codex-accent shadow-sm shadow-indigo-500/20"
+                  : "bg-codex-bg-tint text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
               }`}
             >
               <ListChecks className="h-4 w-4" />
@@ -154,7 +154,7 @@ export function ProjectChatInput({
           {isLoading ? (
             <button
               onClick={onStop}
-              className="mb-0.5 flex-shrink-0 rounded-lg bg-red-500 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
+              className="mb-0.5 flex-shrink-0 rounded-lg bg-codex-bg-tint0 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
             >
               <Square className="h-4 w-4" />
             </button>

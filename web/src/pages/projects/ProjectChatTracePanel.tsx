@@ -76,23 +76,23 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
   const totalLabel = formatMs(totalMs);
 
   return (
-    <div className="mt-3 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white/80 px-3.5 py-3 shadow-sm">
+    <div className="mt-3 w-full max-w-3xl rounded-2xl border border-codex-line bg-white/80 px-3.5 py-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-soft">
             <Activity className="h-3.5 w-3.5" />
             {formatMode(trace.chat_mode, isZh)}
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-codex-accent-bg px-2.5 py-1 text-xs font-medium text-codex-good">
             <ShieldCheck className="h-3.5 w-3.5" />
             {formatPolicy(trace.action_policy, isZh)}
           </span>
           {trace.model_used ? (
-            <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">{trace.model_used}</span>
+            <span className="rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-mute">{trace.model_used}</span>
           ) : null}
           {prepareLabel ? (
             <span
-              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              className="inline-flex items-center gap-1 rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-mute"
               title={isZh ? "请求前准备（prepare_total_ms）" : "Prepare (prepare_total_ms)"}
             >
               <Clock3 className="h-3.5 w-3.5" />
@@ -101,7 +101,7 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
           ) : null}
           {firstEventLabel ? (
             <span
-              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              className="inline-flex items-center gap-1 rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-mute"
               title={isZh ? "首次响应（model_first_event_ms）" : "First token (model_first_event_ms)"}
             >
               <Clock3 className="h-3.5 w-3.5" />
@@ -110,7 +110,7 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
           ) : null}
           {totalLabel ? (
             <span
-              className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+              className="inline-flex items-center gap-1 rounded-full bg-codex-bg-tint px-2.5 py-1 text-xs font-medium text-codex-ink-mute"
               title={isZh ? "本轮总耗时（total_stream_ms）" : "Total (total_stream_ms)"}
             >
               <Clock3 className="h-3.5 w-3.5" />
@@ -121,7 +121,7 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-800"
+          className="inline-flex items-center gap-1 rounded-full border border-codex-line bg-white px-2.5 py-1 text-xs font-medium text-codex-ink-mute transition hover:border-codex-line-strong hover:text-codex-ink-soft"
         >
           <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
           {expanded ? (isZh ? "收起执行依据" : "Hide trace") : (isZh ? "执行依据" : "Trace")}
@@ -129,33 +129,33 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
       </div>
 
       {expanded ? (
-        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-3 border-t border-codex-line-soft pt-3">
           <div>
-            <p className="text-xs font-semibold text-slate-700">{isZh ? "路由原因" : "Routing reason"}</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            <p className="text-xs font-semibold text-codex-ink-soft">{isZh ? "路由原因" : "Routing reason"}</p>
+            <p className="mt-1 text-xs leading-relaxed text-codex-ink-mute">
               {trace.intent_method || "policy_guard"} · {trace.intent_reason || (isZh ? "无额外说明" : "No extra reason")}
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-xs text-slate-400">{isZh ? "工具决策" : "Tool decisions"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{toolDecisions.length}</p>
+            <div className="rounded-xl bg-codex-bg-tint px-3 py-2">
+              <p className="text-xs text-codex-ink-faint">{isZh ? "工具决策" : "Tool decisions"}</p>
+              <p className="mt-1 text-sm font-semibold text-codex-ink-soft">{toolDecisions.length}</p>
             </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-xs text-slate-400">{isZh ? "生成物" : "Artifacts"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{artifacts.length}</p>
+            <div className="rounded-xl bg-codex-bg-tint px-3 py-2">
+              <p className="text-xs text-codex-ink-faint">{isZh ? "生成物" : "Artifacts"}</p>
+              <p className="mt-1 text-sm font-semibold text-codex-ink-soft">{artifacts.length}</p>
             </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="text-xs text-slate-400">{isZh ? "Prompt 层" : "Prompt layers"}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{promptLayers.length}</p>
+            <div className="rounded-xl bg-codex-bg-tint px-3 py-2">
+              <p className="text-xs text-codex-ink-faint">{isZh ? "Prompt 层" : "Prompt layers"}</p>
+              <p className="mt-1 text-sm font-semibold text-codex-ink-soft">{promptLayers.length}</p>
             </div>
           </div>
           {blockedTools.length ? (
-            <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
-              <p className="text-xs font-semibold text-amber-800">{isZh ? "已阻止的工具调用" : "Blocked tool calls"}</p>
+            <div className="rounded-xl border border-codex-line-soft bg-codex-bg-tint px-3 py-2">
+              <p className="text-xs font-semibold text-codex-warn">{isZh ? "已阻止的工具调用" : "Blocked tool calls"}</p>
               <div className="mt-1 space-y-1">
                 {blockedTools.map((tool, index) => (
-                  <p key={`${tool.tool_name}-${index}`} className="text-xs text-amber-700">
+                  <p key={`${tool.tool_name}-${index}`} className="text-xs text-codex-warn">
                     <Wrench className="mr-1 inline h-3.5 w-3.5" />
                     {tool.tool_name}: {tool.error || tool.message || tool.summary || "blocked"}
                   </p>
@@ -164,11 +164,11 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
             </div>
           ) : null}
           {fallbackEvents.length ? (
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-              <p className="text-xs font-semibold text-slate-700">{isZh ? "系统保护记录" : "Guardrail events"}</p>
+            <div className="rounded-xl border border-codex-line-soft bg-codex-bg-tint px-3 py-2">
+              <p className="text-xs font-semibold text-codex-ink-soft">{isZh ? "系统保护记录" : "Guardrail events"}</p>
               <div className="mt-1 space-y-1">
                 {fallbackEvents.map((event, index) => (
-                  <p key={`${event.type || "event"}-${index}`} className="text-xs leading-relaxed text-slate-500">
+                  <p key={`${event.type || "event"}-${index}`} className="text-xs leading-relaxed text-codex-ink-mute">
                     {event.stage ? `${event.stage} · ` : ""}
                     {event.type || "event"}
                     {event.tool_name ? ` · ${event.tool_name}` : ""}
@@ -181,10 +181,10 @@ export function ProjectChatTracePanel({ trace, isZh }: ProjectChatTracePanelProp
           ) : null}
           {artifacts.length ? (
             <div>
-              <p className="text-xs font-semibold text-slate-700">{isZh ? "本轮生成物" : "Artifacts"}</p>
+              <p className="text-xs font-semibold text-codex-ink-soft">{isZh ? "本轮生成物" : "Artifacts"}</p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {artifacts.map((artifact) => (
-                  <span key={`${artifact.id ?? artifact.path}-${artifact.name}`} className="inline-flex items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                  <span key={`${artifact.id ?? artifact.path}-${artifact.name}`} className="inline-flex items-center gap-1 rounded-lg bg-codex-bg-tint px-2 py-1 text-xs text-codex-ink-soft">
                     <FileText className="h-3.5 w-3.5" />
                     {artifact.name}
                   </span>

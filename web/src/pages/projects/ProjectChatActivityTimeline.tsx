@@ -47,39 +47,39 @@ const ITEM_STATUS_LABEL: Record<ToolProgressStatus, string> = {
 function statusIcon(status: StepStatus | ToolProgressStatus) {
   switch (status) {
     case "completed":
-      return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />;
+      return <CheckCircle2 className="h-3.5 w-3.5 text-codex-good" />;
     case "failed":
-      return <XCircle className="h-3.5 w-3.5 text-rose-600" />;
+      return <XCircle className="h-3.5 w-3.5 text-codex-bad" />;
     case "running":
-      return <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />;
+      return <Loader2 className="h-3.5 w-3.5 animate-spin text-codex-accent" />;
     default:
-      return <Clock className="h-3.5 w-3.5 text-slate-400" />;
+      return <Clock className="h-3.5 w-3.5 text-codex-ink-faint" />;
   }
 }
 
 function StepRow({ step, expanded, onToggle }: { step: ActivityStep; expanded: boolean; onToggle: () => void }) {
   const hasItems = step.items.length > 0;
   return (
-    <li className="rounded-lg border border-slate-200 bg-white">
+    <li className="rounded-lg border border-codex-line bg-white">
       <button
         type="button"
         onClick={hasItems ? onToggle : undefined}
         className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left ${
-          hasItems ? "hover:bg-slate-50" : "cursor-default"
+          hasItems ? "hover:bg-codex-bg-tint" : "cursor-default"
         }`}
       >
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-slate-100 text-xs tabular-nums text-slate-500">
+          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-codex-bg-tint text-xs tabular-nums text-codex-ink-mute">
             {step.index}
           </span>
-          <span className="truncate text-sm text-slate-800">{step.title}</span>
+          <span className="truncate text-sm text-codex-ink-soft">{step.title}</span>
           {step.truncated && (
-            <span className="flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">
+            <span className="flex items-center gap-1 rounded bg-codex-bg-tint px-1.5 py-0.5 text-[11px] text-codex-warn">
               <AlertTriangle className="h-3 w-3" />截断
             </span>
           )}
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1.5 text-xs text-slate-500">
+        <div className="flex flex-shrink-0 items-center gap-1.5 text-xs text-codex-ink-mute">
           {typeof step.duration_ms === "number" && (
             <span className="tabular-nums">{step.duration_ms}ms</span>
           )}
@@ -89,15 +89,15 @@ function StepRow({ step, expanded, onToggle }: { step: ActivityStep; expanded: b
         </div>
       </button>
       {hasItems && expanded && (
-        <ul className="space-y-1 border-t border-slate-100 px-3 py-2">
+        <ul className="space-y-1 border-t border-codex-line-soft px-3 py-2">
           {step.items.map((item, i) => (
-            <li key={`${item.tool_name}-${i}`} className="flex items-start gap-2 text-xs text-slate-600">
+            <li key={`${item.tool_name}-${i}`} className="flex items-start gap-2 text-xs text-codex-ink-soft">
               {statusIcon(item.status)}
               <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium text-slate-700">{item.tool_name}</span>
-                {item.detail && <span className="ml-1 text-slate-500">— {item.detail}</span>}
+                <span className="font-medium text-codex-ink-soft">{item.tool_name}</span>
+                {item.detail && <span className="ml-1 text-codex-ink-mute">— {item.detail}</span>}
               </span>
-              <span className="text-slate-400">{ITEM_STATUS_LABEL[item.status]}</span>
+              <span className="text-codex-ink-faint">{ITEM_STATUS_LABEL[item.status]}</span>
             </li>
           ))}
         </ul>
@@ -128,20 +128,20 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
   return (
     <section className="space-y-2 text-sm" aria-label="Run activity timeline">
       {timeline.skill && (
-        <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+        <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs text-codex-accent">
           <Sparkles className="h-3.5 w-3.5" />
           <span>Skill：{timeline.skill.name}</span>
         </div>
       )}
 
       {timeline.task && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700">
+        <div className="rounded-lg border border-codex-line bg-codex-bg-tint px-3 py-1.5 text-xs text-codex-ink-soft">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate">
               任务 #{timeline.task.task_id}
               {timeline.task.step_title ? ` · ${timeline.task.step_title}` : ""}
             </span>
-            <span className="tabular-nums text-slate-500">
+            <span className="tabular-nums text-codex-ink-mute">
               {typeof timeline.task.progress_pct === "number"
                 ? `${timeline.task.progress_pct}%`
                 : ""}
@@ -154,11 +154,11 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
       )}
 
       {timeline.status && !timeline.final_status && (
-        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-sm">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+        <div className="flex items-center gap-2 rounded-lg border border-codex-line bg-white px-3 py-1.5 text-xs text-codex-ink-mute shadow-sm">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-codex-accent" />
           <span className="truncate">{timeline.status.message}</span>
           {typeof timeline.status.progress === "number" && (
-            <span className="ml-auto tabular-nums text-slate-400">
+            <span className="ml-auto tabular-nums text-codex-ink-faint">
               {Math.round(timeline.status.progress * 100) / 100}%
             </span>
           )}
@@ -167,14 +167,14 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
 
       {totalSteps > 0 && (
         <details open={timeline.final_status !== "completed"} className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded px-1 py-1 text-xs text-slate-500 hover:bg-slate-50">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded px-1 py-1 text-xs text-codex-ink-mute hover:bg-codex-bg-tint">
             <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
             {timeline.final_status === "completed" ? (
               <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-codex-good" />
                 <span>已完成 · {totalSteps} 步</span>
                 {timeline.artifacts.length > 0 && (
-                  <span className="text-slate-400">· {timeline.artifacts.length} 个交付物</span>
+                  <span className="text-codex-ink-faint">· {timeline.artifacts.length} 个交付物</span>
                 )}
               </span>
             ) : (
@@ -198,12 +198,12 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
       )}
 
       {timeline.confirmation && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="rounded-lg border border-codex-line bg-codex-bg-tint px-3 py-2 text-xs text-codex-warn">
           <div className="flex items-center gap-1.5 font-medium">
             <AlertTriangle className="h-3.5 w-3.5" />
             需要确认：{timeline.confirmation.action}
           </div>
-          <p className="mt-0.5 text-amber-800">{timeline.confirmation.impact}</p>
+          <p className="mt-0.5 text-codex-warn">{timeline.confirmation.impact}</p>
         </div>
       )}
 
@@ -212,15 +212,15 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
           {timeline.artifacts.map((a) => (
             <li
               key={a.id}
-              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs"
+              className="flex items-center justify-between rounded-lg border border-codex-line bg-white px-3 py-1.5 text-xs"
             >
-              <span className="truncate text-slate-700">
-                📎 #{a.id} <span className="uppercase text-slate-400">{a.type}</span>
+              <span className="truncate text-codex-ink-soft">
+                📎 #{a.id} <span className="uppercase text-codex-ink-faint">{a.type}</span>
               </span>
               {a.download_url && (
                 <a
                   href={a.download_url}
-                  className="text-primary hover:underline"
+                  className="text-codex-accent hover:underline"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -233,11 +233,11 @@ export function ProjectChatActivityTimeline({ timeline }: Props) {
       )}
 
       {timeline.error && (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+        <div className="rounded-lg border border-codex-line bg-codex-bg-tint px-3 py-2 text-xs text-codex-bad">
           <div className="flex items-center gap-1.5 font-medium">
             <XCircle className="h-3.5 w-3.5" /> 失败：{timeline.error.code}
           </div>
-          <p className="mt-0.5 text-rose-800">{timeline.error.message}</p>
+          <p className="mt-0.5 text-codex-bad">{timeline.error.message}</p>
         </div>
       )}
     </section>

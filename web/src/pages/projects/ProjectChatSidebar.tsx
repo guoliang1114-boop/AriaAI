@@ -242,7 +242,7 @@ export function ProjectChatSidebar({
 
   return (
     <div
-      className={`${isOpen ? (isFullscreen ? "w-72" : "w-56") : "w-0"} min-h-0 border-r border-slate-100 bg-white flex flex-col text-[12.5px] transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
+      className={`${isOpen ? (isFullscreen ? "w-72" : "w-56") : "w-0"} min-h-0 border-r border-codex-line-soft bg-white flex flex-col text-[12.5px] transition-all duration-300 ${isOpen ? "" : "overflow-hidden"}`}
     >
       {onUploadFiles ? (
         <input
@@ -266,7 +266,7 @@ export function ProjectChatSidebar({
         <div className="flex items-center gap-2">
           <button
             onClick={onStartNewChat}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 py-1.5 text-[12px] font-medium leading-4 text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-codex-accent px-2.5 py-1.5 text-[12px] font-medium leading-4 text-white transition-all hover:bg-primary/90 active:scale-[0.98]"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             {copy.newChatButton}
@@ -286,23 +286,23 @@ export function ProjectChatSidebar({
                   }
                 }}
                 disabled={isUploadingFile}
-                className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] font-medium leading-4 text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-codex-line bg-white px-2.5 py-1.5 text-[12px] font-medium leading-4 text-codex-ink-soft transition-all hover:bg-codex-bg-tint active:scale-[0.98] disabled:opacity-50"
               >
                 {isUploadingFile ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : null}
                 {isZh ? "上传文档" : "Upload"}
                 {folderList.length > 1 ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                  <ChevronDown className="h-3.5 w-3.5 text-codex-ink-faint" />
                 ) : null}
               </button>
               {showUploadFolderSelect && folderList.length > 1 ? (
-                <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
-                  <div className="border-b border-slate-100 px-3 py-2">
-                    <p className="text-[13px] font-semibold leading-5 text-slate-700">
+                <div className="absolute left-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-lg border border-codex-line bg-white shadow-xl shadow-slate-900/10">
+                  <div className="border-b border-codex-line-soft px-3 py-2">
+                    <p className="text-[13px] font-semibold leading-5 text-codex-ink-soft">
                       {isZh ? "选择上传目录" : "Select upload folder"}
                     </p>
-                    <p className="text-xs leading-4 text-slate-500">
+                    <p className="text-xs leading-4 text-codex-ink-mute">
                       {isZh
                         ? "文件会保存到所选项目空间目录"
                         : "Files will be saved to the selected space folder"}
@@ -320,16 +320,16 @@ export function ProjectChatSidebar({
                             setShowUploadFolderSelect(false);
                             openUploadPicker(folder.id);
                           }}
-                          className="group flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                          className="group flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-codex-bg-tint"
                         >
-                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600">
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-codex-bg-tint text-codex-warn">
                             <FolderOpen className="h-3.5 w-3.5" />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="line-clamp-2 break-words text-[13px] font-medium leading-5 text-slate-800 group-hover:text-primary">
+                            <span className="line-clamp-2 break-words text-[13px] font-medium leading-5 text-codex-ink-soft group-hover:text-codex-accent">
                               {folder.name}
                             </span>
-                            <span className="mt-0.5 block text-xs leading-4 text-slate-500">
+                            <span className="mt-0.5 block text-xs leading-4 text-codex-ink-mute">
                               {isZh
                                 ? `${fileCount} 个文件`
                                 : `${fileCount} files`}
@@ -342,7 +342,7 @@ export function ProjectChatSidebar({
                   <button
                     type="button"
                     onClick={() => setShowUploadFolderSelect(false)}
-                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-600"
+                    className="flex w-full items-center gap-2 border-t border-codex-line-soft px-3 py-2 text-left text-xs font-medium text-codex-ink-mute transition-colors hover:bg-codex-bg-tint hover:text-codex-ink-soft"
                   >
                     <X className="h-3.5 w-3.5" />
                     {isZh ? "取消" : "Cancel"}
@@ -355,7 +355,7 @@ export function ProjectChatSidebar({
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-codex-line bg-white text-codex-ink-mute transition-colors hover:bg-codex-bg-tint hover:text-codex-ink-soft"
               title={isFullscreen ? copy.exitFullscreen : copy.enterFullscreen}
               aria-label={
                 isFullscreen ? copy.exitFullscreen : copy.enterFullscreen
@@ -371,13 +371,13 @@ export function ProjectChatSidebar({
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-md bg-gray-100 p-0.5">
+        <div className="flex rounded-md bg-codex-bg-tint p-0.5">
           <button
             onClick={() => setActiveTab("chat")}
             className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-[12px] font-medium leading-4 transition-all ${
               activeTab === "chat"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white text-codex-ink shadow-sm"
+                : "text-codex-ink-mute hover:text-codex-ink-soft"
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -387,8 +387,8 @@ export function ProjectChatSidebar({
             onClick={() => setActiveTab("space")}
             className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-[12px] font-medium leading-4 transition-all ${
               activeTab === "space"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white text-codex-ink shadow-sm"
+                : "text-codex-ink-mute hover:text-codex-ink-soft"
             }`}
           >
             <FolderKanban className="w-3.5 h-3.5" />
@@ -404,18 +404,18 @@ export function ProjectChatSidebar({
             {/* Search */}
             <div className="px-3 pb-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-codex-ink-faint pointer-events-none" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={isZh ? "搜索对话" : "Search conversations"}
-                  className="w-full rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-8 pr-7 text-[12.5px] leading-5 text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-primary/30"
+                  className="w-full rounded-lg border border-codex-line-soft bg-codex-bg-tint py-1.5 pl-8 pr-7 text-[12.5px] leading-5 text-codex-ink-soft outline-none transition-colors placeholder:text-codex-ink-faint focus:border-primary/30"
                 />
                 {search && (
                   <button
                     onClick={() => setSearch("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-codex-ink-faint hover:text-codex-ink-mute"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -432,13 +432,13 @@ export function ProjectChatSidebar({
                       key={i}
                       className="flex items-center gap-2 px-2.5 py-2 rounded-lg animate-pulse"
                     >
-                      <div className="w-1.5 h-1.5 rounded-full bg-gray-100 flex-shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-codex-bg-tint flex-shrink-0" />
                       <div className="flex-1 space-y-1.5">
                         <div
-                          className="h-3 rounded bg-gray-100"
+                          className="h-3 rounded bg-codex-bg-tint"
                           style={{ width: `${55 + (i % 3) * 18}%` }}
                         />
-                        <div className="h-2 rounded bg-gray-100 w-16" />
+                        <div className="h-2 rounded bg-codex-bg-tint w-16" />
                       </div>
                     </div>
                   ))}
@@ -447,16 +447,16 @@ export function ProjectChatSidebar({
                 <div className="pt-1">
                   {/* New chat placeholder */}
                   <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-primary/8 mb-0.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-codex-accent flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="truncate text-[12.5px] font-medium leading-5 text-primary">
+                      <p className="truncate text-[12.5px] font-medium leading-5 text-codex-accent">
                         {copy.defaultNewChatTitle}
                       </p>
                     </div>
                   </div>
                   {conversationGroups.map((group) => (
                     <div key={group.label}>
-                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-gray-500">
+                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-codex-ink-mute">
                         {group.label}
                       </p>
                       {group.items.map((conversation) => (
@@ -464,14 +464,14 @@ export function ProjectChatSidebar({
                           key={conversation.id}
                           to={getConversationHref?.(conversation.id) || "#"}
                           onClick={() => onSelectConversation(conversation.id)}
-                          className="group flex items-center gap-2 px-2.5 py-2 rounded-lg mb-0.5 transition-colors hover:bg-gray-50 cursor-pointer"
+                          className="group flex items-center gap-2 px-2.5 py-2 rounded-lg mb-0.5 transition-colors hover:bg-codex-bg-tint cursor-pointer"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-codex-bg-tint flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="truncate text-[12.5px] leading-5 text-gray-700">
+                            <p className="truncate text-[12.5px] leading-5 text-codex-ink-soft">
                               {conversation.title || copy.defaultNewChatTitle}
                             </p>
-                            <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
+                            <p className="mt-0.5 text-[11.5px] leading-4 text-codex-ink-mute">
                               {formatProjectConversationTime(
                                 conversation.updated_at,
                                 resolvedTimeZone,
@@ -484,16 +484,16 @@ export function ProjectChatSidebar({
                   ))}
                 </div>
               ) : filteredConversations.length === 0 && search ? (
-                <p className="text-xs text-gray-300 text-center py-8">
+                <p className="text-xs text-codex-ink-faint text-center py-8">
                   {isZh ? "无搜索结果" : "No results"}
                 </p>
               ) : (
                 <div className="pt-1">
                   {activeConvId === null && !search && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-primary/8 mb-0.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-codex-accent flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-[12.5px] font-medium leading-5 text-primary">
+                        <p className="truncate text-[12.5px] font-medium leading-5 text-codex-accent">
                           {copy.defaultNewChatTitle}
                         </p>
                       </div>
@@ -501,7 +501,7 @@ export function ProjectChatSidebar({
                   )}
                   {conversationGroups.map((group) => (
                     <div key={group.label}>
-                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-gray-500">
+                      <p className="px-2.5 pt-3 pb-1 text-[11.5px] font-semibold leading-4 text-codex-ink-mute">
                         {group.label}
                       </p>
                       {group.items.map((conversation) => {
@@ -509,15 +509,15 @@ export function ProjectChatSidebar({
                         const rowClassName = `group flex items-center gap-2 px-2.5 py-2 rounded-lg mb-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${
                           activeConvId === conversation.id
                             ? "bg-primary/8"
-                            : "hover:bg-gray-50"
+                            : "hover:bg-codex-bg-tint"
                         }`;
                         const rowContent = (
                           <>
                             <div
                               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
                                 activeConvId === conversation.id
-                                  ? "bg-primary"
-                                  : "bg-gray-200"
+                                  ? "bg-codex-accent"
+                                  : "bg-codex-bg-tint"
                               }`}
                             />
                             <div className="flex-1 min-w-0">
@@ -541,22 +541,22 @@ export function ProjectChatSidebar({
                                     onRenameSubmit(conversation.id, editTitle)
                                   }
                                   onClick={(e) => e.stopPropagation()}
-                                  className="w-full rounded border border-gray-200 px-2 py-1 text-[12.5px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                  className="w-full rounded border border-codex-line px-2 py-1 text-[12.5px] leading-5 focus:outline-none focus:ring-2 focus:ring-primary/20"
                                   autoFocus
                                 />
                               ) : (
                                 <p
                                   className={`truncate text-[12.5px] leading-5 transition-colors ${
                                     activeConvId === conversation.id
-                                      ? "text-primary font-medium"
-                                      : "text-gray-700"
+                                      ? "text-codex-accent font-medium"
+                                      : "text-codex-ink-soft"
                                   }`}
                                 >
                                   {conversation.title ||
                                     copy.defaultNewChatTitle}
                                 </p>
                               )}
-                              <p className="mt-0.5 text-[11.5px] leading-4 text-gray-500">
+                              <p className="mt-0.5 text-[11.5px] leading-4 text-codex-ink-mute">
                                 {formatProjectConversationTime(
                                   conversation.updated_at,
                                   resolvedTimeZone,
@@ -571,7 +571,7 @@ export function ProjectChatSidebar({
                                     event.stopPropagation();
                                     onBeginRename(conversation);
                                   }}
-                                  className="p-1 rounded-md hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors"
+                                  className="p-1 rounded-md hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-ink-mute transition-colors"
                                 >
                                   <Edit3 className="w-3 h-3" />
                                 </button>
@@ -579,7 +579,7 @@ export function ProjectChatSidebar({
                                   onClick={(event) =>
                                     handleDelete(event, conversation)
                                   }
-                                  className="p-1 rounded-md hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
+                                  className="p-1 rounded-md hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-bad transition-colors"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
@@ -620,10 +620,10 @@ export function ProjectChatSidebar({
         ) : (
           /* Project Space */
           <div className="h-full overflow-y-auto px-3 py-3">
-            <div className="mb-2.5 flex w-full items-center justify-between rounded-lg px-1 text-left text-[12px] font-semibold leading-4 text-gray-500">
+            <div className="mb-2.5 flex w-full items-center justify-between rounded-lg px-1 text-left text-[12px] font-semibold leading-4 text-codex-ink-mute">
               <span>{isZh ? "项目空间" : "Project Space"}</span>
               <div className="flex items-center gap-1">
-                <span className="text-xs font-medium text-gray-400">
+                <span className="text-xs font-medium text-codex-ink-faint">
                   {files.length}
                 </span>
               </div>
@@ -638,14 +638,14 @@ export function ProjectChatSidebar({
                     <button
                       type="button"
                       onClick={() => toggleFolder(folder.id)}
-                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-gray-700 hover:bg-gray-50"
+                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-codex-ink-soft hover:bg-codex-bg-tint"
                     >
                       {isFolderOpen ? (
-                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                        <ChevronDown className="h-3.5 w-3.5 text-codex-ink-faint" />
                       ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
+                        <ChevronRight className="h-3.5 w-3.5 text-codex-ink-faint" />
                       )}
-                      <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+                      <FolderOpen className="h-3.5 w-3.5 text-codex-warn" />
                       <span className="truncate">{folder.name}</span>
                     </button>
                     {isFolderOpen ? (
@@ -658,8 +658,8 @@ export function ProjectChatSidebar({
                             onClick={() => onSelectFile?.(file)}
                             className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 transition-colors ${
                               selectedFileId === file.id
-                                ? "bg-primary/10 font-medium text-primary"
-                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                                ? "bg-primary/10 font-medium text-codex-accent"
+                                : "text-codex-ink-soft hover:bg-codex-bg-tint hover:text-codex-ink"
                             }`}
                           >
                             <ProjectSpaceFileIcon file={file} />
@@ -667,7 +667,7 @@ export function ProjectChatSidebar({
                           </button>
                         ))}
                         {folderFiles.length === 0 ? (
-                          <p className="px-2 py-1 text-xs text-gray-400">
+                          <p className="px-2 py-1 text-xs text-codex-ink-faint">
                             {isZh ? "暂无文件" : "No files"}
                           </p>
                         ) : null}
@@ -678,20 +678,20 @@ export function ProjectChatSidebar({
               })}
 
               {(groupedFiles.get("uncategorized") || []).length > 0 ? (
-                <div className="mt-2 rounded-lg border-t border-dashed border-gray-100 pt-2">
+                <div className="mt-2 rounded-lg border-t border-dashed border-codex-line-soft pt-2">
                   <button
                     type="button"
                     onClick={() => toggleFolder("uncategorized")}
-                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-gray-500 hover:bg-gray-50"
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-codex-ink-mute hover:bg-codex-bg-tint"
                   >
                     {openFolders.uncategorized ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                      <ChevronDown className="h-3.5 w-3.5 text-codex-ink-faint" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
+                      <ChevronRight className="h-3.5 w-3.5 text-codex-ink-faint" />
                     )}
-                    <FolderKanban className="h-3.5 w-3.5 text-gray-400" />
+                    <FolderKanban className="h-3.5 w-3.5 text-codex-ink-faint" />
                     <span>{isZh ? "待归类" : "To classify"}</span>
-                    <span className="ml-auto text-xs text-gray-400">
+                    <span className="ml-auto text-xs text-codex-ink-faint">
                       {(groupedFiles.get("uncategorized") || []).length}
                     </span>
                   </button>
@@ -705,8 +705,8 @@ export function ProjectChatSidebar({
                           onClick={() => onSelectFile?.(file)}
                           className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 transition-colors ${
                             selectedFileId === file.id
-                              ? "bg-primary/10 font-medium text-primary"
-                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                              ? "bg-primary/10 font-medium text-codex-accent"
+                              : "text-codex-ink-soft hover:bg-codex-bg-tint hover:text-codex-ink"
                           }`}
                         >
                           <ProjectSpaceFileIcon file={file} />
@@ -719,7 +719,7 @@ export function ProjectChatSidebar({
               ) : null}
 
               {files.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-4 text-center text-xs text-gray-400">
+                <p className="rounded-lg border border-dashed border-codex-line bg-white px-3 py-4 text-center text-xs text-codex-ink-faint">
                   {isZh ? "暂无空间文件" : "No space files yet"}
                 </p>
               ) : null}

@@ -30,7 +30,7 @@ export function ProjectChatPptPathBadge({ metadata, artifacts }: Props) {
   //     earlier in V0.0.4) — the model built slides from the conversation.
   if (reason === "rule:pptx_from_prior_outline") {
     return (
-      <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] text-primary">
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] text-codex-accent">
         <ListTree className="h-3 w-3" />
         PPT 按本次对话的大纲生成
       </div>
@@ -41,7 +41,7 @@ export function ProjectChatPptPathBadge({ metadata, artifacts }: Props) {
   //     pipeline built its own outline from project memory.
   if (taskType === "generate_client_ppt") {
     return (
-      <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-codex-line bg-codex-bg-tint px-2 py-0.5 text-[11px] text-codex-ink-soft">
         <Workflow className="h-3 w-3" />
         PPT 自动从项目记忆生成
       </div>
@@ -51,7 +51,7 @@ export function ProjectChatPptPathBadge({ metadata, artifacts }: Props) {
   // (3) Fallback: a PPT exists but we can't tell the path with confidence —
   //     still show a neutral chip so the user sees it was deliberate.
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-codex-line bg-codex-bg-tint px-2 py-0.5 text-[11px] text-codex-ink-soft">
       <FileText className="h-3 w-3" />
       已生成 PPT
     </div>

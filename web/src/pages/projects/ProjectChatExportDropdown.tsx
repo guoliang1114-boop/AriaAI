@@ -59,7 +59,7 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
         <button
           onClick={() => setIsOpen(!isOpen)}
           disabled={isExporting}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-codex-ink-mute transition-colors hover:bg-codex-bg-tint hover:text-codex-ink-soft disabled:opacity-50"
         >
           {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           <span className="hidden sm:inline">{copy.export}</span>
@@ -67,27 +67,27 @@ export const ProjectChatExportDropdown = memo<ProjectChatExportDropdownProps>(
         </button>
 
         {isOpen && (
-          <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-codex-line bg-white py-1 shadow-lg">
             <button
               onClick={() => handleExport("markdown")}
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-codex-ink-soft transition-colors hover:bg-codex-bg-tint"
             >
-              <FileText className="h-4 w-4 text-gray-400" />
+              <FileText className="h-4 w-4 text-codex-ink-faint" />
               {copy.exportMarkdown}
             </button>
             <button
               onClick={() => handleExport("pdf")}
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-codex-ink-soft transition-colors hover:bg-codex-bg-tint"
             >
-              <FileText className="h-4 w-4 text-red-400" />
+              <FileText className="h-4 w-4 text-codex-bad" />
               {copy.exportPDF}
             </button>
             {onOpenSaveModal && (
               <button
                 onClick={handleSaveToProject}
-                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-codex-ink-soft transition-colors hover:bg-codex-bg-tint"
               >
-                <BookOpen className="h-4 w-4 text-emerald-500" />
+                <BookOpen className="h-4 w-4 text-codex-good" />
                 {copy.saveConversationToProject}
               </button>
             )}

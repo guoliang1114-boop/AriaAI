@@ -111,24 +111,24 @@ export function ProjectChatSaveModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">{copy.saveToNotes}</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-codex-line-soft">
+          <h3 className="font-semibold text-codex-ink">{copy.saveToNotes}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-codex-bg-tint text-codex-ink-faint transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="border-b border-emerald-100 bg-emerald-50/70 px-5 py-3 text-sm leading-6 text-emerald-800">
+        <div className="border-b border-codex-line-soft bg-codex-accent-bg/70 px-5 py-3 text-sm leading-6 text-codex-good">
           {copy.saveToMemoryHint}
         </div>
 
         {saved ? (
           <div className="space-y-4 p-5">
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+            <div className="rounded-2xl border border-codex-line-soft bg-codex-accent-bg p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-codex-good">
                 <CheckCircle2 className="h-4 w-4" />
                 {copy.saveCompleteTitle}
               </div>
-              <p className="mt-2 text-sm leading-6 text-emerald-800">{copy.saveCompleteHint}</p>
+              <p className="mt-2 text-sm leading-6 text-codex-good">{copy.saveCompleteHint}</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {onRefreshProjectMemory ? (
@@ -147,7 +147,7 @@ export function ProjectChatSaveModal({
                     }
                   }}
                   disabled={refreshingMemory}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-codex-ink px-4 py-2.5 text-sm font-medium text-white transition hover:bg-codex-accent disabled:opacity-60"
                 >
                   {refreshingMemory ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   {copy.refreshProjectMemory}
@@ -157,7 +157,7 @@ export function ProjectChatSaveModal({
                 <button
                   type="button"
                   onClick={onOpenProjectMemory}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-codex-line px-4 py-2.5 text-sm font-medium text-codex-ink-soft transition hover:bg-codex-bg-tint"
                 >
                   {copy.openProjectMemory}
                   <ArrowRight className="h-4 w-4" />
@@ -167,7 +167,7 @@ export function ProjectChatSaveModal({
             <button
               type="button"
               onClick={onClose}
-              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              className="w-full rounded-xl border border-codex-line px-4 py-2.5 text-sm font-medium text-codex-ink-soft transition hover:bg-codex-bg-tint"
             >
               {copy.finishSave}
             </button>

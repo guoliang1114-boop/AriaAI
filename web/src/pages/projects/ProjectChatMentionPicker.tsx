@@ -124,10 +124,10 @@ export function ProjectChatMentionPicker({
 
   if (loading) {
     return (
-      <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+      <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-codex-line bg-white p-3 shadow-lg">
         <div className="animate-pulse space-y-2">
-          <div className="h-8 rounded-lg bg-gray-100" />
-          <div className="h-8 rounded-lg bg-gray-100" />
+          <div className="h-8 rounded-lg bg-codex-bg-tint" />
+          <div className="h-8 rounded-lg bg-codex-bg-tint" />
         </div>
       </div>
     );
@@ -135,8 +135,8 @@ export function ProjectChatMentionPicker({
 
   if (filtered.length === 0) {
     return (
-      <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
-        <p className="text-xs text-gray-400">未找到匹配项</p>
+      <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-codex-line bg-white p-3 shadow-lg">
+        <p className="text-xs text-codex-ink-faint">未找到匹配项</p>
       </div>
     );
   }
@@ -144,7 +144,7 @@ export function ProjectChatMentionPicker({
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 z-50 mb-2 w-72 max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg"
+      className="absolute bottom-full left-0 z-50 mb-2 w-72 max-h-72 overflow-y-auto rounded-xl border border-codex-line bg-white py-1.5 shadow-lg"
     >
       {filtered.map((entry, index) => {
         const Icon =
@@ -162,14 +162,14 @@ export function ProjectChatMentionPicker({
             }}
             onClick={() => onSelect(entry.type, entry.item.id, entry.item.name)}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
-              isSelected ? "bg-primary/5 text-gray-900" : "text-gray-700 hover:bg-gray-50"
+              isSelected ? "bg-primary/5 text-codex-ink" : "text-codex-ink-soft hover:bg-codex-bg-tint"
             }`}
           >
-            <Icon className="h-4 w-4 shrink-0 text-gray-400" />
+            <Icon className="h-4 w-4 shrink-0 text-codex-ink-faint" />
             <div className="min-w-0">
               <p className="truncate font-medium">{entry.item.name}</p>
               {entry.item.role ? (
-                <p className="text-xs text-gray-400">{entry.item.role}</p>
+                <p className="text-xs text-codex-ink-faint">{entry.item.role}</p>
               ) : null}
             </div>
           </button>

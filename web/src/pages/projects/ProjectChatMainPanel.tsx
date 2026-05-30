@@ -250,7 +250,7 @@ export function ProjectChatMainPanel({
                 <button
                   type="button"
                   onClick={() => onSaveMessage(latestAssistantMessage.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-codex-line bg-codex-accent-bg px-2.5 py-1.5 text-xs text-codex-good transition-colors hover:bg-codex-accent-bg"
                 >
                   <BookOpen className="h-4 w-4" />
                   <span>{copy.saveSkillResult}</span>
@@ -259,7 +259,7 @@ export function ProjectChatMainPanel({
               <button
                 type="button"
                 onClick={onOpenConversationSaveModal}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700 transition-colors hover:bg-blue-100"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-codex-line bg-codex-accent-bg px-2.5 py-1.5 text-xs text-codex-accent-ink transition-colors hover:bg-codex-accent-bg"
               >
                 <BookOpen className="h-4 w-4" />
                 <span>{copy.saveSkillConversation}</span>
@@ -271,7 +271,7 @@ export function ProjectChatMainPanel({
           <button
             type="button"
             onClick={() => setIsTaskDrawerOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-codex-line bg-white px-2.5 py-1.5 text-xs text-codex-ink-soft shadow-sm transition-colors hover:border-codex-line hover:bg-codex-accent-bg hover:text-codex-accent-ink"
           >
             <ClipboardList className="h-4 w-4" />
             <span>{isZh ? "任务" : "Tasks"}</span>
@@ -342,7 +342,7 @@ export function ProjectChatMainPanel({
                   >
                     {copy.noSkill}
                   </DropdownItem>
-                  <div className="border-b border-gray-100 px-3 py-2">
+                  <div className="border-b border-codex-line-soft px-3 py-2">
                     <div className="flex flex-wrap gap-1">
                       {[
                         "all",
@@ -359,8 +359,8 @@ export function ProjectChatMainPanel({
                           }}
                           className={`rounded-md px-2 py-0.5 text-xs transition-colors ${
                             skillCategoryFilter === category
-                              ? "bg-primary text-white"
-                              : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                              ? "bg-codex-accent text-white"
+                              : "bg-codex-bg-tint text-codex-ink-mute hover:bg-codex-bg-tint"
                           }`}
                         >
                           {category === "all" ? "All" : category}
@@ -388,27 +388,27 @@ export function ProjectChatMainPanel({
             {/* HITAS: Server-side persisted pending actions. Keep it as a real modal so reload/new windows cannot hide approval behind the chat input. */}
             {activePendingToolActionBatches.length > 0 &&
             onConfirmHitasAction ? (
-              <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/25 px-4 py-5 backdrop-blur-[2px] sm:items-center">
-                <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-amber-200 bg-white shadow-2xl">
-                  <div className="flex items-start justify-between gap-4 border-b border-amber-100 bg-amber-50 px-5 py-4">
+              <div className="fixed inset-0 z-[80] flex items-end justify-center bg-codex-ink/25 px-4 py-5 backdrop-blur-[2px] sm:items-center">
+                <div className="w-full max-w-4xl overflow-hidden rounded-xl border border-codex-line bg-white shadow-2xl">
+                  <div className="flex items-start justify-between gap-4 border-b border-codex-line-soft bg-codex-bg-tint px-5 py-4">
                     <div className="flex min-w-0 gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-codex-bg-tint text-codex-warn">
                         <Wrench className="h-5 w-5" />
                       </div>
                       <div className="min-w-0">
-                        <h4 className="text-base font-semibold text-slate-950">
+                        <h4 className="text-base font-semibold text-codex-ink">
                           {isZh
                             ? "Action Preview：等待确认"
                             : "Action Preview: approval required"}
                         </h4>
-                        <p className="mt-1 text-sm text-slate-600">
+                        <p className="mt-1 text-sm text-codex-ink-soft">
                           {isZh
                             ? "这些操作会直接修改项目空间，确认后将按已保存的工具参数确定性执行。"
                             : "These actions will modify the project workspace and run deterministically with the saved tool input."}
                         </p>
                       </div>
                     </div>
-                    <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-700">
+                    <span className="rounded-full border border-codex-line bg-white px-3 py-1 text-xs font-medium text-codex-warn">
                       {isZh ? "确认后才会执行" : "Requires approval"}
                     </span>
                   </div>
@@ -422,23 +422,23 @@ export function ProjectChatMainPanel({
                         return (
                           <div
                             key={batch.key}
-                            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                            className="rounded-lg border border-codex-line bg-codex-bg-tint p-4"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
-                                <div className="text-sm font-semibold text-slate-950">
+                                <div className="text-sm font-semibold text-codex-ink">
                                   {batch.title}
                                 </div>
-                                <div className="mt-1 text-sm text-slate-600">
+                                <div className="mt-1 text-sm text-codex-ink-soft">
                                   {batch.description}
                                 </div>
                               </div>
-                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+                              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-codex-ink-mute ring-1 ring-slate-200">
                                 {pendingActionBadge(primaryAction, isZh)}
                               </span>
                             </div>
                             {batch.details.length > 0 ? (
-                              <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">
+                              <ul className="mt-3 max-h-40 overflow-y-auto rounded-md border border-codex-line bg-white p-3 text-sm text-codex-ink-soft">
                                 {batch.details.map((detail, index) => (
                                   <li key={index} className="py-0.5">
                                     • {detail}
@@ -447,7 +447,7 @@ export function ProjectChatMainPanel({
                               </ul>
                             ) : null}
                             {batch.actions.length > 1 ? (
-                              <div className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              <div className="mt-3 rounded-md border border-codex-line-soft bg-codex-bg-tint px-3 py-2 text-xs text-codex-warn">
                                 {isZh
                                   ? "确认会执行同一批次里的全部动作，不会每完成一个动作再弹一次确认。"
                                   : "Approval applies to every action in this batch, so the flow will not ask again after each step."}
@@ -478,7 +478,7 @@ export function ProjectChatMainPanel({
                                     }
                                   }}
                                   disabled={isConfirmingBatch}
-                                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="rounded-lg border border-codex-line bg-white px-4 py-2 text-sm font-medium text-codex-ink-soft shadow-sm hover:bg-codex-bg-tint disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                   {isZh ? "取消" : "Cancel"}
                                 </button>
@@ -504,7 +504,7 @@ export function ProjectChatMainPanel({
                                   }
                                 }}
                                 disabled={isConfirmingBatch}
-                                className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded-lg bg-codex-ink px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-codex-ink disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {isConfirmingBatch
                                   ? isZh
@@ -598,25 +598,25 @@ function ProjectSkillReferencePanel({
           : "Project context";
 
   return (
-    <div className="mx-auto mb-3 max-w-4xl overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/60">
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200/80 px-3 py-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
-          <Info className="h-4 w-4 text-emerald-700" />
+    <div className="mx-auto mb-3 max-w-4xl overflow-hidden rounded-lg border border-codex-line bg-codex-accent-bg/60">
+      <div className="flex flex-wrap items-center gap-2 border-b border-codex-line/80 px-3 py-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-codex-accent-bg">
+          <Info className="h-4 w-4 text-codex-good" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium leading-5 text-gray-700">
+          <p className="truncate text-[13px] font-medium leading-5 text-codex-ink-soft">
             {skill.name}
           </p>
-          <p className="truncate text-xs text-gray-500">
+          <p className="truncate text-xs text-codex-ink-mute">
             {skill.category} ·{" "}
             {isZh ? "将随消息一起携带" : "attached to the next message"}
           </p>
         </div>
-        <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-1 text-xs text-emerald-700">
+        <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-1 text-xs text-codex-good">
           {scopeLabel}
         </span>
         {skill.estimated_time ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-codex-ink-mute">
             <Clock3 className="h-3 w-3" />
             {skill.estimated_time}
           </span>
@@ -624,7 +624,7 @@ function ProjectSkillReferencePanel({
       </div>
       <div className="space-y-2 px-3 py-3">
         {skill.description ? (
-          <p className="text-[13px] leading-5 text-gray-600">
+          <p className="text-[13px] leading-5 text-codex-ink-soft">
             {skill.description}
           </p>
         ) : null}
@@ -634,8 +634,8 @@ function ProjectSkillReferencePanel({
             onClick={() => onKnowledgeScopeChange("project")}
             className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
               knowledgeScope === "project"
-                ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-                : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white"
+                ? "border-codex-line bg-codex-accent-bg text-codex-good"
+                : "border-codex-line bg-white/80 text-codex-ink-soft hover:bg-white"
             }`}
           >
             {isZh ? "使用项目上下文" : "Use project context"}
@@ -646,8 +646,8 @@ function ProjectSkillReferencePanel({
               onClick={() => onKnowledgeScopeChange("client")}
               className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
                 knowledgeScope === "client"
-                  ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-                  : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white"
+                  ? "border-codex-line bg-codex-accent-bg text-codex-good"
+                  : "border-codex-line bg-white/80 text-codex-ink-soft hover:bg-white"
               }`}
             >
               {isZh
@@ -656,15 +656,15 @@ function ProjectSkillReferencePanel({
             </button>
           ) : null}
         </div>
-        <p className="text-xs leading-5 text-gray-500">
+        <p className="text-xs leading-5 text-codex-ink-mute">
           {isZh
             ? "Skill 产出后可通过顶部“沉淀结果 / 沉淀对话”保存到项目文档，后续可继续进入项目或客户记忆治理。"
             : "After the skill runs, use Save result / Save chat in the header to persist output into project documents for later memory governance."}
         </p>
         {skill.user_template ? (
-          <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
-            <p className="mb-1 text-xs font-medium text-gray-400">Template</p>
-            <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-gray-500">
+          <div className="rounded-lg border border-codex-line bg-white/80 px-3 py-2">
+            <p className="mb-1 text-xs font-medium text-codex-ink-faint">Template</p>
+            <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-codex-ink-mute">
               {skill.user_template}
             </p>
           </div>
@@ -692,7 +692,7 @@ function renderSkillOptions({
 
     return Object.entries(grouped).map(([category, categorySkills]) => (
       <div key={category}>
-        <div className="bg-gray-50 px-4 py-1.5 text-xs font-medium text-gray-400">
+        <div className="bg-codex-bg-tint px-4 py-1.5 text-xs font-medium text-codex-ink-faint">
           {category}
         </div>
         {categorySkills.map((skill) => (
@@ -700,7 +700,7 @@ function renderSkillOptions({
             <div className="flex flex-col">
               <span>{skill.name}</span>
               {skill.estimated_time ? (
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-codex-ink-faint">
                   {skill.estimated_time}
                 </span>
               ) : null}
@@ -718,7 +718,7 @@ function renderSkillOptions({
         <div className="flex flex-col">
           <span>{skill.name}</span>
           {skill.estimated_time ? (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-codex-ink-faint">
               {skill.estimated_time}
             </span>
           ) : null}
@@ -750,9 +750,9 @@ const ContextPill = forwardRef<
         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors ${
           active
             ? secondary
-              ? "bg-gray-100/80 text-gray-600"
-              : "bg-primary/8 text-primary"
-            : "text-gray-400 hover:bg-gray-100/70 hover:text-gray-600"
+              ? "bg-codex-bg-tint/80 text-codex-ink-soft"
+              : "bg-primary/8 text-codex-accent"
+            : "text-codex-ink-faint hover:bg-codex-bg-tint/70 hover:text-codex-ink-soft"
         }`}
       >
         {icon}
@@ -776,7 +776,7 @@ function DropdownMenu({
 }) {
   return (
     <div
-      className={`absolute bottom-full left-0 z-50 mb-2 rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg ${wide ? "w-80" : "w-60"}`}
+      className={`absolute bottom-full left-0 z-50 mb-2 rounded-xl border border-codex-line bg-white py-1.5 shadow-lg ${wide ? "w-80" : "w-60"}`}
     >
       {children}
     </div>
@@ -796,8 +796,8 @@ function DropdownItem({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-gray-50 ${
-        muted ? "text-gray-400" : "text-gray-700"
+      className={`w-full px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-codex-bg-tint ${
+        muted ? "text-codex-ink-faint" : "text-codex-ink-soft"
       }`}
     >
       {children}

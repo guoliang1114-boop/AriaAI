@@ -28,20 +28,20 @@ export function ProjectChatDeleteDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-codex-line-soft px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-500">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-codex-bg-tint text-codex-bad">
               <Trash2 className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{copy.deleteConversationTitle}</h3>
-              <p className="text-sm text-gray-500">{copy.deleteConversationConfirm}</p>
+              <h3 className="font-semibold text-codex-ink">{copy.deleteConversationTitle}</h3>
+              <p className="text-sm text-codex-ink-mute">{copy.deleteConversationConfirm}</p>
             </div>
           </div>
           <button
             onClick={onCancel}
             disabled={isDeleting}
-            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100"
+            className="rounded-lg p-1.5 text-codex-ink-faint transition-colors hover:bg-codex-bg-tint"
           >
             <X className="h-4 w-4" />
           </button>
@@ -49,24 +49,24 @@ export function ProjectChatDeleteDialog({
 
         <div className="space-y-2 px-5 py-4">
           {conversationTitle && (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <p className="truncate text-sm font-medium text-gray-800">{conversationTitle}</p>
+            <div className="rounded-xl border border-codex-line bg-codex-bg-tint px-3 py-2">
+              <p className="truncate text-sm font-medium text-codex-ink-soft">{conversationTitle}</p>
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4">
+        <div className="flex justify-end gap-2 border-t border-codex-line-soft bg-codex-bg-tint px-5 py-4">
           <button
             onClick={onCancel}
             disabled={isDeleting}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50"
+            className="rounded-lg border border-codex-line px-4 py-2 text-sm font-medium text-codex-ink-soft transition-colors hover:bg-white disabled:opacity-50"
           >
             {copy.cancel}
           </button>
           <button
             onClick={onConfirm}
             disabled={isDeleting}
-            className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-codex-bg-tint0 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-codex-bad disabled:opacity-50"
           >
             {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
             {copy.deleteConversationAction}
