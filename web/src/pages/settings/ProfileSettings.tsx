@@ -79,7 +79,7 @@ const GHOST_BUTTON_STYLE = {
 
 export function ProfileSettings() {
   const { i18n } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
+  const isZh = (i18n.language ?? "zh").startsWith("zh");
   const [user, setUser] = useState<UserType | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [savingName, setSavingName] = useState(false);

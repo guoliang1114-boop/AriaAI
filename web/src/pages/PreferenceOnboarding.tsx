@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Loader2, MessageSquare, Sparkles } from "lucide-react";
 
 import { api } from "../api/client";
@@ -61,26 +62,32 @@ type ToneValue = Exclude<PreviewTone, "">;
 type FormatValue = Exclude<PreviewFormat, "">;
 type AskValue = "true" | "false";
 
-const LANGUAGE_CHIPS: { value: LangValue; label: string }[] = [
-  { value: "auto", label: "跟你一致" },
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+interface Chip<T extends string> {
+  value: T;
+  label_zh: string;
+  label_en: string;
+}
+
+const LANGUAGE_CHIPS: Chip<LangValue>[] = [
+  { value: "auto", label_zh: "跟你一致", label_en: "Match you" },
+  { value: "zh", label_zh: "中文", label_en: "Chinese" },
+  { value: "en", label_zh: "English", label_en: "English" },
 ];
 
-const TONE_CHIPS: { value: ToneValue; label: string }[] = [
-  { value: "direct", label: "直接" },
-  { value: "friendly", label: "温和" },
-  { value: "formal", label: "严谨" },
+const TONE_CHIPS: Chip<ToneValue>[] = [
+  { value: "direct", label_zh: "直接", label_en: "Direct" },
+  { value: "friendly", label_zh: "温和", label_en: "Friendly" },
+  { value: "formal", label_zh: "严谨", label_en: "Formal" },
 ];
 
-const FORMAT_CHIPS: { value: FormatValue; label: string }[] = [
-  { value: "conclusion_first", label: "先结论" },
-  { value: "free", label: "自由" },
+const FORMAT_CHIPS: Chip<FormatValue>[] = [
+  { value: "conclusion_first", label_zh: "先结论", label_en: "Conclusion first" },
+  { value: "free", label_zh: "自由", label_en: "Free-form" },
 ];
 
-const ASK_CHIPS: { value: AskValue; label: string }[] = [
-  { value: "true", label: "总是确认" },
-  { value: "false", label: "不必确认" },
+const ASK_CHIPS: Chip<AskValue>[] = [
+  { value: "true", label_zh: "总是确认", label_en: "Always ask" },
+  { value: "false", label_zh: "不必确认", label_en: "Never ask" },
 ];
 
 function readDraftFromPreferences(preferences: Record<string, unknown>): DraftPreferences {
@@ -144,6 +151,8 @@ function buildPayloadFromDraft(
 
 export function PreferenceOnboarding() {
   const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const isZh = (i18n.language ?? "zh").startsWith("zh");
   const [existing, setExisting] = useState<Record<string, unknown>>({});
   const [draft, setDraft] = useState<DraftPreferences>(EMPTY_DRAFT);
   const [loading, setLoading] = useState(true);
@@ -204,27 +213,51 @@ export function PreferenceOnboarding() {
 
   // Effect chips derived from the current draft — match the prototype's
   // "setting · choice → impact on reply" row.
-  const effectRows = [
-    draft.tone === "direct"
-      ? { k: "语气 · 直接", e: "省去客套寒暄，直接给判断" }
-      : draft.tone === "friendly"
-        ? { k: "语气 · 温和", e: "保留同理心 + 简短背景，再给判断" }
-        : draft.tone === "formal"
-          ? { k: "语气 · 严谨", e: "用正式书面语，列出关键节点与依据" }
-          : null,
-    draft.format === "conclusion_first"
-      ? { k: "结构 · 先结论", e: "结论在前，理由在后" }
-      : draft.format === "free"
-        ? { k: "结构 · 自由", e: "由模型按场景自然展开" }
-        : null,
-    draft.language === "auto"
-      ? { k: "语言 · 跟你一致", e: "你用什么语言，它就用什么" }
-      : draft.language === "zh"
-        ? { k: "语言 · 中文", e: "默认用中文回答" }
-        : draft.language === "en"
-          ? { k: "语言 · English", e: "Defaults to English replies" }
-          : null,
-  ].filter((row): row is { k: string; e: string } => row !== null);
+  const effectRows = (
+    isZh
+      ? [
+          draft.tone === "direct"
+            ? { k: "语气 · 直接", e: "省去客套寒暄，直接给判断" }
+            : draft.tone === "friendly"
+              ? { k: "语气 · 温和", e: "保留同理心 + 简短背景，再给判断" }
+              : draft.tone === "formal"
+                ? { k: "语气 · 严谨", e: "用正式书面语，列出关键节点与依据" }
+                : null,
+          draft.format === "conclusion_first"
+            ? { k: "结构 · 先结论", e: "结论在前，理由在后" }
+            : draft.format === "free"
+              ? { k: "结构 · 自由", e: "由模型按场景自然展开" }
+              : null,
+          draft.language === "auto"
+            ? { k: "语言 · 跟你一致", e: "你用什么语言，它就用什么" }
+            : draft.language === "zh"
+              ? { k: "语言 · 中文", e: "默认用中文回答" }
+              : draft.language === "en"
+                ? { k: "语言 · English", e: "Defaults to English replies" }
+                : null,
+        ]
+      : [
+          draft.tone === "direct"
+            ? { k: "Tone · Direct", e: "Skips pleasantries — calls it as it sees it" }
+            : draft.tone === "friendly"
+              ? { k: "Tone · Friendly", e: "Acknowledges, frames briefly, then decides" }
+              : draft.tone === "formal"
+                ? { k: "Tone · Formal", e: "Reads as written prose with explicit key points" }
+                : null,
+          draft.format === "conclusion_first"
+            ? { k: "Structure · Conclusion first", e: "Verdict up front, reasoning afterwards" }
+            : draft.format === "free"
+              ? { k: "Structure · Free-form", e: "Lets the model shape the reply to the situation" }
+              : null,
+          draft.language === "auto"
+            ? { k: "Language · Match you", e: "Replies in whatever language your prompt was in" }
+            : draft.language === "zh"
+              ? { k: "Language · Chinese", e: "Defaults to Chinese replies" }
+              : draft.language === "en"
+                ? { k: "Language · English", e: "Defaults to English replies" }
+                : null,
+        ]
+  ).filter((row): row is { k: string; e: string } => row !== null);
 
   return (
     <div
@@ -246,7 +279,7 @@ export function PreferenceOnboarding() {
           style={{ fontSize: 12.5, color: "var(--color-codex-ink-mute)" }}
           data-testid="skip-onboarding"
         >
-          稍后再说 →
+          {isZh ? "稍后再说 →" : "Later →"}
         </button>
       </header>
 
@@ -280,14 +313,29 @@ export function PreferenceOnboarding() {
                 lineHeight: 1.3,
               }}
             >
-              一起花{" "}
-              <span
-                className="font-mono"
-                style={{ color: "var(--color-codex-accent)", fontVariantNumeric: "tabular-nums" }}
-              >
-                30
-              </span>{" "}
-              秒，把 Aria 调到顺手
+              {isZh ? (
+                <>
+                  一起花{" "}
+                  <span
+                    className="font-mono"
+                    style={{ color: "var(--color-codex-accent)", fontVariantNumeric: "tabular-nums" }}
+                  >
+                    30
+                  </span>{" "}
+                  秒，把 Aria 调到顺手
+                </>
+              ) : (
+                <>
+                  Take{" "}
+                  <span
+                    className="font-mono"
+                    style={{ color: "var(--color-codex-accent)", fontVariantNumeric: "tabular-nums" }}
+                  >
+                    30
+                  </span>{" "}
+                  seconds to make Aria fit your style
+                </>
+              )}
             </h1>
             <p
               style={{
@@ -297,7 +345,9 @@ export function PreferenceOnboarding() {
                 lineHeight: 1.65,
               }}
             >
-              全部可选，之后随时可以在「设置 → 外观 / AI 个人偏好」里调。
+              {isZh
+                ? "全部可选，之后随时可以在「设置 → 外观 / AI 个人偏好」里调。"
+                : "All optional — you can revisit any of this later under Settings → Appearance / Personal preferences."}
             </p>
           </div>
 
@@ -313,7 +363,7 @@ export function PreferenceOnboarding() {
                 marginBottom: 8,
               }}
             >
-              Aria 怎么称呼你
+              {isZh ? "Aria 怎么称呼你" : "How should Aria address you"}
             </label>
             <input
               id="onb-preferred-name"
@@ -322,7 +372,7 @@ export function PreferenceOnboarding() {
               onChange={(e) =>
                 setDraft((cur) => ({ ...cur, preferred_name: e.target.value }))
               }
-              placeholder="例如：李总、小李、Liang"
+              placeholder={isZh ? "例如：李总、小李、Liang" : "e.g. Boss Li, Liang"}
               maxLength={40}
               autoComplete="off"
               className="codex-input"
@@ -344,34 +394,40 @@ export function PreferenceOnboarding() {
                 marginTop: 6,
               }}
             >
-              最长 40 个字 · 留空也行，后续可以补
+              {isZh
+                ? "最长 40 个字 · 留空也行，后续可以补"
+                : "Up to 40 characters · leave blank and fill in later"}
             </div>
           </div>
 
           {/* Chip groups */}
           <PrefChips
-            label="回复语言"
+            label={isZh ? "回复语言" : "Reply language"}
+            isZh={isZh}
             value={draft.language}
             options={LANGUAGE_CHIPS}
             onChange={(v) => setDraft((cur) => ({ ...cur, language: v as PreviewLanguage }))}
             groupTestId="onb-language"
           />
           <PrefChips
-            label="回复语气"
+            label={isZh ? "回复语气" : "Tone"}
+            isZh={isZh}
             value={draft.tone}
             options={TONE_CHIPS}
             onChange={(v) => setDraft((cur) => ({ ...cur, tone: v as PreviewTone }))}
             groupTestId="onb-tone"
           />
           <PrefChips
-            label="回复结构"
+            label={isZh ? "回复结构" : "Structure"}
+            isZh={isZh}
             value={draft.format}
             options={FORMAT_CHIPS}
             onChange={(v) => setDraft((cur) => ({ ...cur, format: v as PreviewFormat }))}
             groupTestId="onb-format"
           />
           <PrefChips
-            label="写入 / 删除前是否再次确认"
+            label={isZh ? "写入 / 删除前是否再次确认" : "Confirm before writing or deleting?"}
+            isZh={isZh}
             value={draft.ask_before_destructive}
             options={ASK_CHIPS}
             onChange={(v) =>
@@ -406,7 +462,7 @@ export function PreferenceOnboarding() {
             style={{ paddingTop: 24 }}
           >
             <span style={{ fontSize: 12, color: "var(--color-codex-ink-mute)" }}>
-              所有设置仅对你自己生效
+              {isZh ? "所有设置仅对你自己生效" : "These settings only apply to your account"}
             </span>
             <button
               type="button"
@@ -427,10 +483,11 @@ export function PreferenceOnboarding() {
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               ) : (
                 <>
-                  完成设置 <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                  {isZh ? "完成设置" : "Done"}
+                  <ArrowRight className="h-3 w-3" aria-hidden="true" />
                 </>
               )}
-              {saving === "completing" ? "保存中…" : null}
+              {saving === "completing" ? (isZh ? "保存中…" : "Saving…") : null}
             </button>
           </div>
         </section>
@@ -478,10 +535,10 @@ export function PreferenceOnboarding() {
                 textTransform: "uppercase",
               }}
             >
-              Aria 会这样回应你
+              {isZh ? "Aria 会这样回应你" : "How Aria would reply"}
             </span>
             <CxStatus tone="accent" pulse>
-              实时
+              {isZh ? "实时" : "Live"}
             </CxStatus>
           </div>
 
@@ -610,7 +667,9 @@ export function PreferenceOnboarding() {
               ✦
             </span>
             <span>
-              这是示范，不是真的对话。改改左侧设置，右边会跟着变 — 你能看到每个偏好对回答的具体影响。
+              {isZh
+                ? "这是示范，不是真的对话。改改左侧设置，右边会跟着变 — 你能看到每个偏好对回答的具体影响。"
+                : "This is a demo, not a real conversation. Tweak the form on the left and the right side updates live — you'll see exactly how each preference shapes the reply."}
             </span>
           </div>
         </section>
@@ -622,14 +681,16 @@ export function PreferenceOnboarding() {
 
 interface PrefChipsProps<T extends string> {
   label: string;
+  isZh: boolean;
   value: T | "";
-  options: { value: T; label: string }[];
+  options: Chip<T>[];
   onChange: (next: T | "") => void;
   groupTestId: string;
 }
 
 function PrefChips<T extends string>({
   label,
+  isZh,
   value,
   options,
   onChange,
@@ -676,7 +737,7 @@ function PrefChips<T extends string>({
                 fontWeight: active ? 500 : 400,
               }}
             >
-              {opt.label}
+              {isZh ? opt.label_zh : opt.label_en}
             </button>
           );
         })}

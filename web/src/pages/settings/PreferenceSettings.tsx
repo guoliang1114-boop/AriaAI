@@ -81,7 +81,7 @@ function getConfirmationPolicy(prefs: PreferencesShape): ConfirmationPolicy {
 
 export function PreferenceSettings() {
   const { i18n } = useTranslation();
-  const isZh = i18n.language.startsWith("zh");
+  const isZh = (i18n.language ?? "zh").startsWith("zh");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
