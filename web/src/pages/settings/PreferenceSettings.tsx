@@ -176,7 +176,7 @@ export function PreferenceSettings() {
         minHeight: "100%",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 720, margin: "0 auto", paddingBottom: 32 }}>
+      <div style={{ width: "100%", paddingBottom: 32 }}>
         <header style={{ marginBottom: 26 }}>
           <div className="flex items-center gap-2.5">
             <span
