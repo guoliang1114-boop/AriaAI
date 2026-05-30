@@ -2500,7 +2500,6 @@ export function Chat() {
                           fontSize: 14.5,
                           lineHeight: 1.75,
                           color: 'var(--color-codex-ink)',
-                          maxWidth: 720,
                         }}
                       >
                         {streamingContent ? (
@@ -3609,7 +3608,7 @@ function MessageRow({ message }: { message: Message }) {
               fontSize: 14.5,
               lineHeight: 1.75,
               color: 'var(--color-codex-ink)',
-              maxWidth: 720,
+              maxWidth: 880,
             }}
           >
             {message.content}
@@ -3620,7 +3619,6 @@ function MessageRow({ message }: { message: Message }) {
               fontSize: 14.5,
               lineHeight: 1.75,
               color: 'var(--color-codex-ink)',
-              maxWidth: 720,
             }}
           >
             <ProgressCard steps={skillProgress} title="Skill 执行清单" />
