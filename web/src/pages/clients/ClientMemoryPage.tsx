@@ -103,9 +103,15 @@ export function ClientMemoryPage() {
     }
   }, [id])
 
+  // Depending on the whole ``memoryStatus`` object meant the 10s interval
+  // tore down + restarted on every successful poll (each setMemoryStatus
+  // re-ran the effect). Gate on a derived boolean so the timer only
+  // restarts when polling actually transitions on/off.
+  const isMemoryRebuilding = ['queued', 'rebuilding'].includes(
+    memoryStatus?.memory_rebuild_status || '',
+  )
   useEffect(() => {
-    if (!id || !memoryStatus) return
-    if (!['queued', 'rebuilding'].includes(memoryStatus.memory_rebuild_status || '')) return
+    if (!id || !isMemoryRebuilding) return
 
     const timer = window.setInterval(() => {
       void api
@@ -115,7 +121,7 @@ export function ClientMemoryPage() {
     }, 10000)
 
     return () => window.clearInterval(timer)
-  }, [id, memoryStatus])
+  }, [id, isMemoryRebuilding])
 
   const loadClientMemoryPage = async () => {
     try {

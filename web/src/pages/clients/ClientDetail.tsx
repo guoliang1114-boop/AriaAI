@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 
 import { api } from '../../api/client'
-import { CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
+import { CxConfirmDialog, CxPanel, CxStatus, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientMemoryResponse, ClientMemoryStatusResponse, ClientStakeholder } from '../../types/api'
 import { formatDateOnly, formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
@@ -77,6 +77,8 @@ export function ClientDetail() {
   const [memoryStatus, setMemoryStatus] = useState<ClientMemoryStatusResponse | null>(null)
   const [rebuildingMemory, setRebuildingMemory] = useState(false)
   const [activeTab, setActiveTab] = useState<ClientDetailTab>('overview')
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -125,15 +127,22 @@ export function ClientDetail() {
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!client) return
-    if (!confirm(isZh ? '确定要删除这个客户吗？' : 'Are you sure you want to delete this client?')) return
+    setDeleteConfirmOpen(true)
+  }
 
+  const handleConfirmDelete = async () => {
+    if (!client) return
+    setDeleting(true)
     try {
       await api.delete(`/clients/${client.id}`)
       navigate('/clients')
     } catch (error) {
       console.error('Failed to delete client:', error)
+    } finally {
+      setDeleting(false)
+      setDeleteConfirmOpen(false)
     }
   }
 
@@ -420,6 +429,23 @@ export function ClientDetail() {
           </div>
         </div>
       </main>
+      <CxConfirmDialog
+        open={deleteConfirmOpen}
+        onClose={() => {
+          if (!deleting) setDeleteConfirmOpen(false)
+        }}
+        onConfirm={() => void handleConfirmDelete()}
+        tone="danger"
+        title={isZh ? '删除该客户？' : 'Delete this client?'}
+        description={
+          isZh
+            ? `${client?.name ?? ''} 的档案、关联记忆和对话指针都会一并清除。该操作不可撤销。`
+            : `${client?.name ?? ''}'s profile, memory, and conversation references will be removed. This cannot be undone.`
+        }
+        confirmLabel={isZh ? '删除' : 'Delete'}
+        cancelLabel={isZh ? '取消' : 'Cancel'}
+        busy={deleting}
+      />
     </>
   )
 }

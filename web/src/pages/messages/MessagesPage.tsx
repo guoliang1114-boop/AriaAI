@@ -290,18 +290,11 @@ export function MessagesPage() {
                   const Icon = LEVEL_ICON[message.level] || Bell
                   const tone = LEVEL_TONE[message.level] || LEVEL_TONE.info
                   return (
-                    <a
+                    <button
                       key={message.id}
-                      role="button"
-                      tabIndex={0}
+                      type="button"
                       onClick={() => setActiveId(message.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setActiveId(message.id)
-                        }
-                      }}
-                      className="row-hov block cursor-pointer"
+                      className="row-hov block w-full cursor-pointer text-left"
                       style={{
                         position: 'relative',
                         padding: '12px 12px',
@@ -383,7 +376,7 @@ export function MessagesPage() {
                       >
                         {relativeTime(message.created_at, isZh, resolvedTimeZone)}
                       </p>
-                    </a>
+                    </button>
                   )
                 })}
               </div>
