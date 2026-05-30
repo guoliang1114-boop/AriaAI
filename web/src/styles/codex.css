@@ -249,6 +249,14 @@
   --color-codex-bg-elev: #121212;
   --color-codex-bg-sunken: #000000;
   --color-codex-bg-tint: #1e1e1e;
+  /* Lines ease back toward bg here. The default dark ``--color-codex-line``
+     (oklch 0.26) sits ~0.13 above the parchment-dark bg (#15130f, ~0.13);
+     on near-black ``#070707`` (~0.06) that same value becomes a ~0.20
+     jump and reads as a bright cut across the page. These keep a
+     similar ~0.10 delta. */
+  --color-codex-line: oklch(0.16 0 0);
+  --color-codex-line-soft: oklch(0.12 0 0);
+  --color-codex-line-strong: oklch(0.24 0 0);
 }
 
 .theme-codex.dark.warmth-paper {
