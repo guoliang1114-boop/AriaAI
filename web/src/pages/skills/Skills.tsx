@@ -242,9 +242,6 @@ type PracticeLineMeta = {
   subtitle: { zh: string; en: string };
   description: { zh: string; en: string };
   icon: typeof ShieldCheck;
-  accentClass: string;
-  cardTintClass: string;
-  badgeTone: string; // e.g. "bg-blue-50 text-blue-700"
 };
 
 const PRACTICE_LINE_META: Record<string, PracticeLineMeta> = {
@@ -254,9 +251,6 @@ const PRACTICE_LINE_META: Record<string, PracticeLineMeta> = {
     subtitle: { zh: "Audit & Assurance", en: "Audit & Assurance" },
     description: { zh: "面向审计、鉴证、内控和可持续信息披露的专业能力。", en: "Capabilities for audit, assurance, controls, and sustainability reporting." },
     icon: ShieldCheck,
-    accentClass: "bg-blue-200",
-    cardTintClass: "from-sky-50/80 via-white to-white",
-    badgeTone: "border border-blue-100 bg-blue-50/70 text-blue-700",
   },
   tax: {
     id: "tax",
@@ -264,9 +258,6 @@ const PRACTICE_LINE_META: Record<string, PracticeLineMeta> = {
     subtitle: { zh: "Tax", en: "Tax" },
     description: { zh: "覆盖企业税、国际税、转让定价、税务合规和筹划优化。", en: "Covers corporate tax, international tax, transfer pricing, compliance, and planning." },
     icon: Receipt,
-    accentClass: "bg-emerald-200",
-    cardTintClass: "from-emerald-50/80 via-white to-white",
-    badgeTone: "border border-emerald-100 bg-emerald-50/70 text-emerald-700",
   },
   consulting: {
     id: "consulting",
@@ -274,9 +265,6 @@ const PRACTICE_LINE_META: Record<string, PracticeLineMeta> = {
     subtitle: { zh: "Consulting", en: "Consulting" },
     description: { zh: "按咨询业务线组织，覆盖战略、客户、组织、技术、数据和风险。", en: "Organized by consulting practice lines across strategy, customer, people, technology, data, and risk." },
     icon: Compass,
-    accentClass: "bg-indigo-200",
-    cardTintClass: "from-indigo-50/75 via-white to-white",
-    badgeTone: "border border-indigo-100 bg-indigo-50/70 text-indigo-700",
   },
 };
 
@@ -286,9 +274,6 @@ const GENERAL_LINE_META: PracticeLineMeta = {
   subtitle: { zh: "跨业务线共享的基础服务与工具", en: "Cross-practice foundational services & tools" },
   description: { zh: "适用于提案、交付、复盘、资料整理和跨业务线基础工作。", en: "Reusable capabilities for proposals, delivery, retrospectives, synthesis, and cross-practice work." },
   icon: LayoutGrid,
-  accentClass: "bg-slate-200",
-  cardTintClass: "from-slate-50 via-white to-white",
-  badgeTone: "border border-slate-200 bg-slate-50 text-slate-700",
 };
 
 const PRACTICE_LINE_IDS = ["audit-assurance", "tax", "consulting", "general"] as const;
