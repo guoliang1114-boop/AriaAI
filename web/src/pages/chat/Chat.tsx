@@ -1108,21 +1108,27 @@ export function Chat() {
   }, [])
 
   // ── Data fetch ────────────────────────────────────────────────────────────
+  //
+  // Previously this awaited Promise.all([conversations, projects, skills])
+  // before clearing ``isLoadingConversations``, so the sidebar skeleton
+  // stayed up until the slowest of the three arrived. The sidebar only
+  // actually needs the conversation list to render — ``projects`` and
+  // ``skills`` feed dropdowns the user only opens on demand — so we let
+  // those resolve in the background.
   const fetchInitialData = async () => {
-    try {
-      const [convsData, projectsData, skillsData] = await Promise.all([
-        api.get<Conversation[]>('/chat/conversations?standalone=true'),
-        api.get<Project[]>('/projects'),
-        api.get<Skill[]>('/skills'),
-      ])
-      setConversations(convsData)
-      setProjects(projectsData)
-      setSkills(skillsData)
-    } catch (err) {
-      console.error('Failed to fetch initial data:', err)
-    } finally {
-      setIsLoadingConversations(false)
-    }
+    void api
+      .get<Conversation[]>('/chat/conversations?standalone=true')
+      .then((convsData) => setConversations(convsData))
+      .catch((err) => console.error('Failed to fetch conversations:', err))
+      .finally(() => setIsLoadingConversations(false))
+    void api
+      .get<Project[]>('/projects')
+      .then((projectsData) => setProjects(projectsData))
+      .catch((err) => console.error('Failed to fetch projects:', err))
+    void api
+      .get<Skill[]>('/skills')
+      .then((skillsData) => setSkills(skillsData))
+      .catch((err) => console.error('Failed to fetch skills:', err))
   }
 
   const loadConversation = async (id: number, beforeId?: number) => {
@@ -1967,32 +1973,21 @@ export function Chat() {
           {/* Conversation list */}
           <div className="flex-1 overflow-auto" style={{ padding: '4px 10px 12px' }}>
             {isLoadingConversations ? (
+              // CxSkeleton shimmers between bg-tint and bg-sunken so the
+              // skeleton is actually visible on light themes. The earlier
+              // inline divs used a flat bg-tint that was effectively
+              // invisible against the page background (#efede7 on
+              // #ffffff is a ~5% luminance delta).
               <div className="pt-1">
                 {[...Array(6)].map((_, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-2 animate-pulse"
+                    className="flex items-center gap-2"
                     style={{ padding: '8px 10px' }}
                   >
-                    <div
-                      className="flex-1 space-y-1.5"
-                      style={{ minWidth: 0 }}
-                    >
-                      <div
-                        className="h-3"
-                        style={{
-                          width: `${55 + (i % 3) * 18}%`,
-                          background: 'var(--color-codex-bg-tint)',
-                          borderRadius: 2,
-                        }}
-                      />
-                      <div
-                        className="h-2 w-12"
-                        style={{
-                          background: 'var(--color-codex-bg-tint)',
-                          borderRadius: 2,
-                        }}
-                      />
+                    <div className="flex-1 space-y-1.5" style={{ minWidth: 0 }}>
+                      <CxSkeleton w={`${55 + (i % 3) * 18}%`} h={12} />
+                      <CxSkeleton w={48} h={8} />
                     </div>
                   </div>
                 ))}

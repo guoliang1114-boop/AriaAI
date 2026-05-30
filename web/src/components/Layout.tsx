@@ -131,7 +131,7 @@ export function Layout() {
       })
   }, [])
 
-  // Per-route bundles are still preloaded on nav-link hover/focus via
+  // Per-route bundles are preloaded on nav-link hover/focus via
   // ``primaryRouteLoaders[item.path]`` below, so the most-likely-next
   // route is already warmed up by the time the user clicks. The
   // previous blanket ``warmPrimaryRoutes()`` (which prefetched all 9
@@ -139,6 +139,27 @@ export function Layout() {
   // contention on slow connections — fast users got faster, slow users
   // got 10s+ of background traffic competing with the current page's
   // own data calls. Dropped in favor of the hover-only path.
+  //
+  // Exception: ``/chat`` is the single most common destination from the
+  // workspace and gets pre-warmed regardless of hover, scheduled on the
+  // browser's idle queue so it never competes with the current page's
+  // own data calls. Cold-cache visits to /chat used to wait for the
+  // 17.7 kB gzip chunk + its lucide-icon children before any React
+  // code ran — a noticeable stall on slow connections. If the user is
+  // already on /chat we skip (avoid a redundant import).
+  useEffect(() => {
+    if (location.pathname.startsWith('/chat')) return
+    const idle = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
+    const schedule = idle ?? ((cb: () => void) => window.setTimeout(cb, 1200))
+    const handle = schedule(() => {
+      void primaryRouteLoaders['/chat']?.()
+    })
+    return () => {
+      const cancelIdle = (window as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (cancelIdle) cancelIdle(handle as number)
+      else window.clearTimeout(handle as number)
+    }
+  }, [location.pathname])
 
   useEffect(() => {
     const loadUnreadCount = () => {
