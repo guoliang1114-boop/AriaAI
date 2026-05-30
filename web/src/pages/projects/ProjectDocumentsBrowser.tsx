@@ -39,8 +39,8 @@ export function ProjectDocumentsBrowser({
     <div className="flex-1 relative">
       {isDragging && !uploading && (
         <div className="absolute inset-0 bg-primary/10 border-2 border-dashed border-primary rounded-xl flex flex-col items-center justify-center z-20">
-          <Upload className="w-12 h-12 text-primary mb-3" />
-          <p className="text-primary font-medium">
+          <Upload className="w-12 h-12 text-codex-accent mb-3" />
+          <p className="text-codex-accent font-medium">
             {isZh ? "拖放文件即可上传" : "Drop files to upload"}
           </p>
         </div>

@@ -36,16 +36,16 @@ function getProjectSpaceFileIconMeta(file: ProjectFile): FileIconMeta {
   const type = rawType || extension;
 
   if (type === "md" || extension === "md" || type.includes("markdown")) {
-    return { Icon: FileText, className: "text-slate-600", label: "MD" };
+    return { Icon: FileText, className: "text-codex-ink-soft", label: "MD" };
   }
   if (["doc", "docx"].includes(extension) || type.includes("doc") || type.includes("word")) {
-    return { Icon: FileType2, className: "text-blue-600", label: "DOC" };
+    return { Icon: FileType2, className: "text-codex-accent", label: "DOC" };
   }
   if (["ppt", "pptx"].includes(extension) || type.includes("ppt") || type.includes("presentation")) {
-    return { Icon: Presentation, className: "text-orange-600", label: "PPT" };
+    return { Icon: Presentation, className: "text-codex-warn", label: "PPT" };
   }
   if (extension === "pdf" || type.includes("pdf")) {
-    return { Icon: FileText, className: "text-red-600", label: "PDF" };
+    return { Icon: FileText, className: "text-codex-bad", label: "PDF" };
   }
   if (
     ["xls", "xlsx", "csv"].includes(extension) ||
@@ -53,9 +53,9 @@ function getProjectSpaceFileIconMeta(file: ProjectFile): FileIconMeta {
     type.includes("sheet") ||
     type.includes("csv")
   ) {
-    return { Icon: FileSpreadsheet, className: "text-emerald-600", label: "XLS" };
+    return { Icon: FileSpreadsheet, className: "text-codex-good", label: "XLS" };
   }
-  return { Icon: File, className: "text-gray-500", label: extension.toUpperCase() || "FILE" };
+  return { Icon: File, className: "text-codex-ink-mute", label: extension.toUpperCase() || "FILE" };
 }
 
 export function ProjectSpaceFileIcon({ file }: { file: ProjectFile }) {
@@ -65,7 +65,7 @@ export function ProjectSpaceFileIcon({ file }: { file: ProjectFile }) {
     <span className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
       <Icon className={`h-4 w-4 ${className}`} />
       {label !== "MD" ? (
-        <span className="absolute -bottom-1 -right-1 rounded-[3px] bg-white px-0.5 text-[7px] font-semibold leading-3 text-gray-500 shadow-sm ring-1 ring-gray-200">
+        <span className="absolute -bottom-1 -right-1 rounded-[3px] bg-white px-0.5 text-[7px] font-semibold leading-3 text-codex-ink-mute shadow-sm ring-1 ring-gray-200">
           {label}
         </span>
       ) : null}
@@ -94,19 +94,19 @@ export function ProjectNotesFolderTree({
         return (
           <div
             key={folder.id}
-            className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+            className="overflow-hidden rounded-xl border border-codex-line bg-white"
           >
-            <div className="flex w-full items-center justify-between px-3 py-2.5 hover:bg-gray-50">
+            <div className="flex w-full items-center justify-between px-3 py-2.5 hover:bg-codex-bg-tint">
               <button
                 onClick={() => onToggleFolder(folder.id)}
-                className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-gray-800"
+                className="flex flex-1 items-center gap-2 text-left text-sm font-medium text-codex-ink-soft"
               >
                 {isOpen ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400" />
+                  <ChevronDown className="h-4 w-4 text-codex-ink-faint" />
                 ) : (
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
+                  <ChevronRight className="h-4 w-4 text-codex-ink-faint" />
                 )}
-                <FolderOpen className="h-4 w-4 text-amber-500" />
+                <FolderOpen className="h-4 w-4 text-codex-warn" />
                 {folder.name}
               </button>
               <button
@@ -114,7 +114,7 @@ export function ProjectNotesFolderTree({
                   event.stopPropagation();
                   onCreateDocument(folder.id);
                 }}
-                className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                className="rounded-md p-1 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
                 title={copy.createInFolder}
               >
                 <FilePlus2 className="h-4 w-4" />
@@ -130,21 +130,21 @@ export function ProjectNotesFolderTree({
                       onClick={() => onSelectFile(file.id)}
                       className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                         selectedFileId === file.id
-                          ? "bg-primary/10 text-primary"
-                          : "text-gray-600 hover:bg-gray-50"
+                          ? "bg-primary/10 text-codex-accent"
+                          : "text-codex-ink-soft hover:bg-codex-bg-tint"
                       }`}
                     >
                       <ProjectSpaceFileIcon file={file} />
                       <span className="truncate">{file.name}</span>
                       {file.origin === "markdown_derivative" && (
-                        <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                        <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-codex-accent">
                           AI
                         </span>
                       )}
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-2 text-xs text-gray-400">
+                  <div className="px-3 py-2 text-xs text-codex-ink-faint">
                     {copy.noDocuments}
                   </div>
                 )}
@@ -155,17 +155,17 @@ export function ProjectNotesFolderTree({
       })}
 
       {(groupedFiles.get("uncategorized") || []).length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-dashed border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-xl border border-dashed border-codex-line bg-white">
           <button
             onClick={() => onToggleFolder("uncategorized")}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-codex-ink-soft hover:bg-codex-bg-tint"
           >
             {openFolders.uncategorized ? (
-              <ChevronDown className="h-4 w-4 text-gray-400" />
+              <ChevronDown className="h-4 w-4 text-codex-ink-faint" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-gray-400" />
+              <ChevronRight className="h-4 w-4 text-codex-ink-faint" />
             )}
-            <FolderOpen className="h-4 w-4 text-gray-400" />
+            <FolderOpen className="h-4 w-4 text-codex-ink-faint" />
             {copy.uncategorized}
           </button>
           {openFolders.uncategorized && (
@@ -176,14 +176,14 @@ export function ProjectNotesFolderTree({
                   onClick={() => onSelectFile(file.id)}
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                     selectedFileId === file.id
-                      ? "bg-primary/10 text-primary"
-                      : "text-gray-600 hover:bg-gray-50"
+                      ? "bg-primary/10 text-codex-accent"
+                      : "text-codex-ink-soft hover:bg-codex-bg-tint"
                   }`}
                 >
                   <ProjectSpaceFileIcon file={file} />
                   <span className="truncate">{file.name}</span>
                   {file.origin === "markdown_derivative" && (
-                    <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                    <span className="ml-auto flex-shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-codex-accent">
                       AI
                     </span>
                   )}

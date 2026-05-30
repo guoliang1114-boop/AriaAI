@@ -35,7 +35,7 @@ export function ProjectDocumentsContextMenu({
 
   return (
     <div
-      className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[160px]"
+      className="fixed bg-white rounded-lg shadow-lg border border-codex-line py-1 z-50 min-w-[160px]"
       style={{ top: contextMenu.y, left: contextMenu.x }}
     >
       {isFile ? (
@@ -45,32 +45,32 @@ export function ProjectDocumentsContextMenu({
               void handleDownload(contextMenu.item as ProjectFile)
               onClose()
             }}
-            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-ink-soft hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <Upload className="w-4 h-4" />
             {isZh ? "下载" : "Download"}
           </button>
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-ink-soft hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <Edit3 className="w-4 h-4" />
             {isZh ? "重命名" : "Rename"}
           </button>
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-ink-soft hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <Share2 className="w-4 h-4" />
             {isZh ? "分享" : "Share"}
           </button>
-          <div className="h-px bg-gray-100 my-1" />
+          <div className="h-px bg-codex-bg-tint my-1" />
           <button
             onClick={() => {
               handleDeleteFile(contextMenu.item.id, contextMenu.item.name)
               onClose()
             }}
-            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-bad hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
             {isZh ? "删除" : "Delete"}
@@ -83,14 +83,14 @@ export function ProjectDocumentsContextMenu({
               enterFolder(contextMenu.item.name)
               onClose()
             }}
-            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-ink-soft hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <FolderKanban className="w-4 h-4" />
             {isZh ? "打开" : "Open"}
           </button>
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm text-codex-ink-soft hover:bg-codex-bg-tint flex items-center gap-2"
           >
             <Edit3 className="w-4 h-4" />
             {isZh ? "重命名" : "Rename"}

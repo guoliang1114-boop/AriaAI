@@ -37,20 +37,20 @@ export function ProjectNotesMoveDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-lg rounded-2xl border border-codex-line bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 className="text-lg font-semibold text-codex-ink">
               {copy.moveDocument}
             </h3>
-            <p className="mt-1 truncate text-sm text-gray-500">
+            <p className="mt-1 truncate text-sm text-codex-ink-mute">
               {file.name}
             </p>
           </div>
           <button
             onClick={onClose}
             disabled={isMoving}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
+            className="rounded-lg p-2 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft disabled:opacity-50"
             type="button"
           >
             <X className="h-5 w-5" />
@@ -67,15 +67,15 @@ export function ProjectNotesMoveDialog({
                 onClick={() => onChangeTargetFolder(target.id)}
                 className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                   selected
-                    ? "border-primary/40 bg-primary/5 text-primary"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-primary/30 hover:bg-gray-50"
+                    ? "border-primary/40 bg-primary/5 text-codex-accent"
+                    : "border-codex-line bg-white text-codex-ink-soft hover:border-primary/30 hover:bg-codex-bg-tint"
                 }`}
               >
                 <span
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                     target.muted
-                      ? "bg-gray-100 text-gray-500"
-                      : "bg-amber-50 text-amber-600"
+                      ? "bg-codex-bg-tint text-codex-ink-mute"
+                      : "bg-codex-bg-tint text-codex-warn"
                   }`}
                 >
                   <FolderOpen className="h-4 w-4" />
@@ -95,7 +95,7 @@ export function ProjectNotesMoveDialog({
           <button
             onClick={onClose}
             disabled={isMoving}
-            className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+            className="rounded-xl px-4 py-2.5 text-sm font-medium text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-50"
             type="button"
           >
             {copy.cancel}
@@ -103,7 +103,7 @@ export function ProjectNotesMoveDialog({
           <button
             onClick={onConfirm}
             disabled={isMoving || isSameFolder}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-codex-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
             type="button"
           >
             {isMoving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

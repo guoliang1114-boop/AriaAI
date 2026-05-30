@@ -187,7 +187,7 @@ export function ProjectNotesTab({
   };
 
   return (
-    <div className="h-full min-h-[calc(100vh-7.5rem)] overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="h-full min-h-[calc(100vh-7.5rem)] overflow-hidden rounded-lg border border-codex-line bg-white">
       <div className="flex h-full min-h-[calc(100vh-7.5rem)]">
         <ProjectNotesSidebar
           folderList={folderList}

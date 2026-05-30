@@ -51,28 +51,28 @@ export function ProjectNotesToolbar({
   const isMarkdown = selectedFile?.file_type?.toLowerCase() === "md";
 
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4">
+    <div className="flex items-center justify-between gap-4 border-b border-codex-line bg-white px-5 py-4">
       <div className="min-w-0">
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-codex-ink-faint">
           {copy.currentDocument}
         </p>
-        <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">
+        <h3 className="mt-1 truncate text-lg font-semibold text-codex-ink">
           {selectedFile?.name || copy.selectDocument}
         </h3>
         {dirty && (
-          <p className="mt-1 text-xs text-amber-600">{copy.unsavedChanges}</p>
+          <p className="mt-1 text-xs text-codex-warn">{copy.unsavedChanges}</p>
         )}
       </div>
 
       <div className="flex items-center gap-2">
         {isMarkdown ? (
-          <div className="flex items-center rounded-lg bg-gray-100 p-1">
+          <div className="flex items-center rounded-lg bg-codex-bg-tint p-1">
             <button
               onClick={() => onSetMode("edit")}
               className={`rounded-md px-3 py-1.5 text-sm ${
                 mode === "edit"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500"
+                  ? "bg-white text-codex-ink shadow-sm"
+                  : "text-codex-ink-mute"
               }`}
             >
               {copy.edit}
@@ -81,8 +81,8 @@ export function ProjectNotesToolbar({
               onClick={() => onSetMode("split")}
               className={`rounded-md px-3 py-1.5 text-sm ${
                 mode === "split"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500"
+                  ? "bg-white text-codex-ink shadow-sm"
+                  : "text-codex-ink-mute"
               }`}
             >
               {copy.split}
@@ -91,8 +91,8 @@ export function ProjectNotesToolbar({
               onClick={() => onSetMode("preview")}
               className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${
                 mode === "preview"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500"
+                  ? "bg-white text-codex-ink shadow-sm"
+                  : "text-codex-ink-mute"
               }`}
             >
               <Eye className="h-3.5 w-3.5" />
@@ -104,7 +104,7 @@ export function ProjectNotesToolbar({
         <button
           onClick={onOpenAIModal}
           disabled={!selectedFile || !isMarkdown}
-          className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-codex-accent-bg px-3 py-2 text-sm font-medium text-codex-accent-ink hover:bg-codex-accent-bg disabled:opacity-50"
         >
           <Sparkles className="h-4 w-4" />
           {copy.aiAssist}
@@ -113,7 +113,7 @@ export function ProjectNotesToolbar({
         <button
           onClick={onSave}
           disabled={!selectedFile || !isMarkdown || isSaving || !dirty}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
         >
           {isSaving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -126,7 +126,7 @@ export function ProjectNotesToolbar({
         {selectedFile && !isMarkdown ? (
           <button
             onClick={onDownloadFile}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+            className="inline-flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
           >
             <Download className="h-4 w-4" />
             {isZh ? "下载" : "Download"}
@@ -136,42 +136,42 @@ export function ProjectNotesToolbar({
         <button
           onClick={onToggleMoreMenu}
           disabled={!selectedFile}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-codex-line bg-white text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-50"
           title={copy.moreActions}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
 
         {showMoreMenu && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+          <div className="absolute right-0 top-full z-50 mt-2 w-44 rounded-xl border border-codex-line bg-white py-1 shadow-lg">
             <button
               onClick={onOpenMove}
-              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-codex-ink-soft hover:bg-codex-bg-tint"
             >
-              <FolderInput className="h-4 w-4 text-gray-400" />
+              <FolderInput className="h-4 w-4 text-codex-ink-faint" />
               {copy.moveDocument}
             </button>
             <button
               onClick={onOpenRename}
               disabled={isRenamingDoc || !isMarkdown}
-              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-50"
             >
               {isRenamingDoc ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Pencil className="h-4 w-4 text-gray-400" />
+                <Pencil className="h-4 w-4 text-codex-ink-faint" />
               )}
               {copy.rename}
             </button>
             <button
               onClick={onRequestDelete}
               disabled={isDeletingDoc}
-              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-codex-bad hover:bg-codex-bg-tint disabled:opacity-50"
             >
               {isDeletingDoc ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Trash2 className="h-4 w-4 text-red-500" />
+                <Trash2 className="h-4 w-4 text-codex-bad" />
               )}
               {copy.delete}
             </button>

@@ -12,11 +12,11 @@ export function ProjectDocumentsEmptyState({
   isZh,
 }: ProjectDocumentsEmptyStateProps) {
   return (
-    <div className="h-full flex flex-col items-center bg-white rounded-xl border border-dashed border-gray-200 pt-16">
-      <div className="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
-        <Upload className="w-8 h-8 text-gray-300" />
+    <div className="h-full flex flex-col items-center bg-white rounded-xl border border-dashed border-codex-line pt-16">
+      <div className="w-16 h-16 rounded-full bg-codex-bg-tint flex items-center justify-center mb-4">
+        <Upload className="w-8 h-8 text-codex-ink-faint" />
       </div>
-      <p className="text-gray-500 font-medium mb-2">
+      <p className="text-codex-ink-mute font-medium mb-2">
         {currentFolder
           ? isZh
             ? "这个文件夹还是空的"
@@ -25,7 +25,7 @@ export function ProjectDocumentsEmptyState({
             ? "把文件拖到这里开始上传"
             : "Drop files here"}
       </p>
-      <p className="text-sm text-gray-400 mb-4">
+      <p className="text-sm text-codex-ink-faint mb-4">
         {currentFolder
           ? isZh
             ? "点击上方新建按钮添加文件"
@@ -35,7 +35,7 @@ export function ProjectDocumentsEmptyState({
             : "Or click the New button above"}
       </p>
       {currentFolder && (
-        <button onClick={goToRoot} className="text-sm text-primary hover:underline mb-12">
+        <button onClick={goToRoot} className="text-sm text-codex-accent hover:underline mb-12">
           {isZh ? "返回根目录" : "Go back"}
         </button>
       )}
