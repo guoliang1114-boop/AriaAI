@@ -1090,15 +1090,11 @@ export function Chat() {
     const pendingConvId = sessionStorage.getItem('pendingStreamingConvId')
     if (pendingConvId) {
       const convId = parseInt(pendingConvId)
-      console.log('[Chat] Recovery - Found pending:', convId, 'current:', conversationId)
-      
-      // If we're not on this conversation, navigate to it
-      // The loading useEffect will handle the refresh
+      // If we're not on this conversation, navigate to it.
+      // The loading useEffect will handle the refresh.
       if (!conversationId || parseInt(conversationId) !== convId) {
-        console.log('[Chat] Recovery - Navigating to:', convId)
         navigate(`/chat?conversation=${convId}`, { replace: true })
       }
-      // If already on the conversation, loading useEffect will handle the refresh
     }
   }, [])
 
@@ -1125,20 +1121,14 @@ export function Chat() {
       const pendingId = sessionStorage.getItem('pendingStreamingConvId')
       const needRefresh = pendingId && parseInt(pendingId) === convId
       
-      // Prevent loading the same conversation twice (React StrictMode)
-      // But always refresh if we're recovering from a navigation
+      // Prevent loading the same conversation twice (React StrictMode).
+      // But always refresh if we're recovering from a navigation.
       if (loadedConvIdRef.current === convId && messages.length > 0 && !needRefresh) {
-        console.log('[Chat] Already loaded conversation:', convId)
         return
       }
-      
-      if (needRefresh) {
-        console.log('[Chat] Force refreshing conversation:', convId)
-        sessionStorage.removeItem('pendingStreamingConvId')
-      } else {
-        console.log('[Chat] Loading conversation:', convId)
-      }
-      
+
+      if (needRefresh) sessionStorage.removeItem('pendingStreamingConvId')
+
       loadedConvIdRef.current = convId
       loadConversation(convId)
     }
@@ -1169,8 +1159,6 @@ export function Chat() {
 
     // If we switched from one conversation to another
     if (prevConvId && prevConvId !== currentConvId) {
-      console.log('[Chat] Switched from', prevConvId, 'to', currentConvId)
-
       // Save the previous conversation ID to force refresh when we come back
       sessionStorage.setItem('pendingStreamingConvId', prevConvId)
 

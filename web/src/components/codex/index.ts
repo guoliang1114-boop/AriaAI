@@ -1,7 +1,7 @@
 /**
  * Codex primitives barrel — import from a single path:
  *
- *   import { CxLogo, CxStatus, CxPanel, CxFormRow, CxSwitch, CxSkeleton }
+ *   import { CxLogo, CxStatus, CxPanel, CxFormRow, CxSkeleton }
  *     from "../components/codex";
  *
  * All primitives expect to render inside a ``theme-codex`` subtree
@@ -13,7 +13,6 @@ export { CxLogo } from "./CxLogo";
 export { CxStatus, type CxStatusTone } from "./CxStatus";
 export { CxPanel } from "./CxPanel";
 export { CxFormRow } from "./CxFormRow";
-export { CxSwitch } from "./CxSwitch";
 export { CxSkeleton } from "./CxSkeleton";
 export { CxTopProgress } from "./CxTopProgress";
 export {
