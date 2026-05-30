@@ -108,7 +108,7 @@ const RADIUS_OPTIONS: {
 }[] = [
   { value: "sharp", label_zh: "锐利", label_en: "Sharp", tile: 0, inner: 0 },
   { value: "soft", label_zh: "柔和", label_en: "Soft", tile: 10, inner: 6 },
-  { value: "round", label_zh: "圆润", label_en: "Round", tile: 18, inner: 12 },
+  { value: "round", label_zh: "圆润", label_en: "Round", tile: 22, inner: 16 },
 ];
 
 // Warmth swatches use the same colors the CSS class will set as
@@ -127,21 +127,21 @@ const WARMTH_OPTIONS: {
     label_zh: "纯白 / 纯黑",
     label_en: "White / Black",
     bg_light: "#ffffff",
-    bg_dark: "#0a0a0a",
+    bg_dark: "#070707",
   },
   {
     value: "paper",
     label_zh: "中性",
     label_en: "Paper",
     bg_light: "#fafaf7",
-    bg_dark: "#14140f",
+    bg_dark: "#1c1c1d",
   },
   {
     value: "parchment",
     label_zh: "暖羊皮",
     label_en: "Parchment",
     bg_light: "#fcfbf7",
-    bg_dark: "#15130f",
+    bg_dark: "#241e16",
   },
 ];
 

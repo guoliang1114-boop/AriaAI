@@ -122,9 +122,9 @@
   --codex-r-pill: 999px;
 }
 .theme-codex.radius-round {
-  --codex-r-sm: 12px;
-  --codex-r-md: 18px;
-  --codex-r-lg: 24px;
+  --codex-r-sm: 16px;
+  --codex-r-md: 22px;
+  --codex-r-lg: 30px;
   --codex-r-pill: 999px;
 }
 
@@ -236,25 +236,29 @@
  * specificity is the same as the light variants, so these rules
  * have to come after both the dark block and the warmth-light
  * rules to win. Ink / accent stay on the dark defaults. */
+/* Dark warmth bgs are now pulled meaningfully apart — the previous
+   ``#14140f`` / ``#15130f`` pair was a 1-RGB-unit-per-channel delta,
+   invisible to the human eye. White is true neutral near-black, paper
+   is a medium cool charcoal, parchment is a distinctly warm brown. */
 .theme-codex.dark.warmth-white {
-  --color-codex-bg: #0a0a0a;
-  --color-codex-bg-elev: #141414;
+  --color-codex-bg: #070707;
+  --color-codex-bg-elev: #121212;
   --color-codex-bg-sunken: #000000;
-  --color-codex-bg-tint: #1f1f1f;
+  --color-codex-bg-tint: #1e1e1e;
 }
 
 .theme-codex.dark.warmth-paper {
-  --color-codex-bg: #14140f;
-  --color-codex-bg-elev: #1a1a14;
-  --color-codex-bg-sunken: #0a0a08;
-  --color-codex-bg-tint: #1f1f17;
+  --color-codex-bg: #1c1c1d;
+  --color-codex-bg-elev: #27272a;
+  --color-codex-bg-sunken: #101012;
+  --color-codex-bg-tint: #2d2d30;
 }
 
 .theme-codex.dark.warmth-parchment {
-  --color-codex-bg: #15130f;
-  --color-codex-bg-elev: #1c1916;
-  --color-codex-bg-sunken: #100e0b;
-  --color-codex-bg-tint: #211d17;
+  --color-codex-bg: #241e16;
+  --color-codex-bg-elev: #2e271d;
+  --color-codex-bg-sunken: #19130b;
+  --color-codex-bg-tint: #352d22;
 }
 
 /* ----------------------------------------------------------------
