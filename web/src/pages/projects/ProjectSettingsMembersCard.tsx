@@ -39,8 +39,8 @@ export function ProjectSettingsMembersCard({
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6">
-      <h3 className="mb-4 font-semibold text-gray-900">
+    <div className="rounded-xl border border-codex-line bg-white p-6">
+      <h3 className="mb-4 font-semibold text-codex-ink">
         {isZh ? "项目成员" : "Project Members"}
       </h3>
       <div className="space-y-3">
@@ -57,7 +57,7 @@ export function ProjectSettingsMembersCard({
           <button
             onClick={handleAddMember}
             disabled={!selectedUserId || isAddingMember}
-            className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-codex-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-codex-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isAddingMember ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -71,7 +71,7 @@ export function ProjectSettingsMembersCard({
 
         <div className="pt-2">
           {members.length === 0 ? (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-codex-ink-faint">
               {isZh ? "暂无成员" : "No members yet"}
             </p>
           ) : (
@@ -79,24 +79,24 @@ export function ProjectSettingsMembersCard({
               {members.map((member) => (
                 <li
                   key={member.user_id}
-                  className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                  className="flex items-center justify-between rounded-lg bg-codex-bg-tint px-3 py-2"
                 >
                   <div className="min-w-0 flex items-center gap-2">
-                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-codex-accent/10 text-xs font-semibold text-codex-accent">
                       {(member.user?.display_name || "?").charAt(0)}
                     </div>
                     <div className="min-w-0">
-                      <span className="block truncate text-sm text-gray-800">
+                      <span className="block truncate text-sm text-codex-ink-soft">
                         {member.user?.display_name || (isZh ? "未知成员" : "Unknown")}
                       </span>
-                      <span className="text-xs text-gray-400">{roleLabel(member.role)}</span>
+                      <span className="text-xs text-codex-ink-faint">{roleLabel(member.role)}</span>
                     </div>
                   </div>
                   <button
                     onClick={() => handleRemoveMember(member.user_id)}
                     disabled={removingUserId === member.user_id}
                     title={isZh ? "移除成员" : "Remove"}
-                    className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                    className="rounded-md p-1.5 text-codex-ink-faint transition-colors hover:bg-codex-bg-tint hover:text-codex-bad disabled:opacity-40"
                   >
                     {removingUserId === member.user_id ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

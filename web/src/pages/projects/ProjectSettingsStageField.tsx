@@ -33,7 +33,7 @@ function StageOptionGroup({
             className={`flex flex-col items-center gap-1 rounded-lg border p-2 text-center transition-all ${
               isActive
                 ? `${stage.bgColor} ${stage.color} ${stage.borderColor} shadow-sm`
-                : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100"
+                : "bg-codex-bg-tint border-codex-line text-codex-ink-faint hover:bg-codex-bg-tint"
             }`}
           >
             <Icon className="h-4 w-4" />
@@ -64,7 +64,7 @@ export function ProjectSettingsStageField({
 
     return (
       <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700">
+        <label className="mb-2 block text-sm font-medium text-codex-ink-soft">
           {isZh ? "项目阶段" : "Project Stage"}
         </label>
         <div
@@ -82,11 +82,11 @@ export function ProjectSettingsStageField({
 
   return (
     <div>
-      <label className="mb-2 block text-sm font-medium text-gray-700">
+      <label className="mb-2 block text-sm font-medium text-codex-ink-soft">
         {isZh ? "项目阶段" : "Project Stage"}
       </label>
       <div className="space-y-2">
-        <p className="text-xs font-medium text-gray-400">
+        <p className="text-xs font-medium text-codex-ink-faint">
           {isZh ? "商务阶段" : "Business Phase"}
         </p>
         <StageOptionGroup
@@ -97,7 +97,7 @@ export function ProjectSettingsStageField({
           value={value}
         />
 
-        <p className="text-xs font-medium text-gray-400">
+        <p className="text-xs font-medium text-codex-ink-faint">
           {isZh ? "交付阶段" : "Delivery Phase"}
         </p>
         <StageOptionGroup
@@ -114,7 +114,7 @@ export function ProjectSettingsStageField({
           className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all ${
             isArchivedActive
               ? `${archivedStage.bgColor} ${archivedStage.color} ${archivedStage.borderColor} shadow-sm`
-              : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100"
+              : "bg-codex-bg-tint border-codex-line text-codex-ink-faint hover:bg-codex-bg-tint"
           }`}
         >
           <ArchivedIcon className="h-4 w-4" />

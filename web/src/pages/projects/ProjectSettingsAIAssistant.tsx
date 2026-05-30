@@ -31,8 +31,8 @@ export function ProjectSettingsAIAssistant({
   return (
     <div className="rounded-xl border border-primary/10 bg-gradient-to-r from-primary/5 to-purple-500/5 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium text-gray-700">
+        <Sparkles className="h-4 w-4 text-codex-accent" />
+        <span className="text-sm font-medium text-codex-ink-soft">
           {isZh ? "AI 助手" : "AI Assistant"}
         </span>
       </div>
@@ -42,7 +42,7 @@ export function ProjectSettingsAIAssistant({
           type="button"
           onClick={onSuggest}
           disabled={isAILoading}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg bg-codex-accent px-3 py-1.5 text-sm text-white transition-colors hover:bg-codex-accent/90 disabled:opacity-50"
         >
           {isAILoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -57,7 +57,7 @@ export function ProjectSettingsAIAssistant({
             type="button"
             onClick={onPolish}
             disabled={isAILoading}
-            className="flex items-center gap-1.5 rounded-lg border border-primary bg-white px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/5 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-primary bg-white px-3 py-1.5 text-sm text-codex-accent transition-colors hover:bg-codex-accent/5 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" />
             {isZh ? "优化描述" : "Polish"}
@@ -65,11 +65,11 @@ export function ProjectSettingsAIAssistant({
         )}
       </div>
 
-      {aiError && <div className="mt-2 text-xs text-amber-600">{aiError}</div>}
+      {aiError && <div className="mt-2 text-xs text-codex-warn">{aiError}</div>}
 
       {showSuggestions && suggestions.length > 0 && (
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-codex-ink-mute">
             {isZh ? "AI 建议，点击即可应用" : "AI suggestions, click to apply"}
           </p>
           {suggestions.map((suggestion, index) => (
@@ -77,10 +77,10 @@ export function ProjectSettingsAIAssistant({
               key={`${suggestion.name}-${index}`}
               type="button"
               onClick={() => onApplySuggestion(suggestion)}
-              className="w-full rounded-lg border border-gray-200 bg-white p-3 text-left transition-all hover:border-primary/50 hover:shadow-sm"
+              className="w-full rounded-lg border border-codex-line bg-white p-3 text-left transition-all hover:border-primary/50 hover:shadow-sm"
             >
-              <p className="text-sm font-medium text-gray-900">{suggestion.name}</p>
-              <p className="line-clamp-2 text-xs text-gray-500">
+              <p className="text-sm font-medium text-codex-ink">{suggestion.name}</p>
+              <p className="line-clamp-2 text-xs text-codex-ink-mute">
                 {suggestion.description}
               </p>
             </button>

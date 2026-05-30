@@ -61,15 +61,15 @@ export function ProjectSettingsFormCard({
   suggestions,
 }: ProjectSettingsFormCardProps) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6">
+    <div className="rounded-xl border border-codex-line bg-white p-6">
       <div className="mb-6 flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900">
+        <h3 className="font-semibold text-codex-ink">
           {isZh ? "项目信息" : "Project Information"}
         </h3>
         {!isEditing ? (
           <button
             onClick={onEdit}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+            className="flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-codex-accent/90"
           >
             <Edit3 className="h-4 w-4" />
             {isZh ? "编辑" : "Edit"}
@@ -79,14 +79,14 @@ export function ProjectSettingsFormCard({
             <button
               onClick={onCancel}
               disabled={isSaving}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+              className="rounded-lg border border-codex-line px-4 py-2 text-sm font-medium text-codex-ink-soft transition-colors hover:bg-codex-bg-tint disabled:opacity-50"
             >
               {isZh ? "取消" : "Cancel"}
             </button>
             <button
               onClick={onSave}
               disabled={isSaving}
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-codex-accent/90 disabled:opacity-50"
             >
               {isSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

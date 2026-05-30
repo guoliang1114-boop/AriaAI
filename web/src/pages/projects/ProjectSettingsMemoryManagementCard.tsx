@@ -45,14 +45,14 @@ export function ProjectSettingsMemoryManagementCard({
         : "This project memory is ready for overview, chat, and execution views.";
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
+    <div className="rounded-xl border border-codex-line bg-white p-5">
       <div className="mb-4 flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100">
-          <Brain className="h-4 w-4 text-gray-600" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-codex-bg-tint">
+          <Brain className="h-4 w-4 text-codex-ink-soft" />
         </div>
         <div>
-          <h3 className="font-semibold text-gray-900">{isZh ? "项目记忆概况" : "Project Memory"}</h3>
-          <p className="mt-1 text-xs text-gray-500">
+          <h3 className="font-semibold text-codex-ink">{isZh ? "项目记忆概况" : "Project Memory"}</h3>
+          <p className="mt-1 text-xs text-codex-ink-mute">
             {isZh
               ? "把项目里的关键信息整理成一份可复用的共识底稿，方便概览、聊天和执行协作。"
               : "A reusable project brief built from key project signals for overview, chat, and execution collaboration."}
@@ -62,30 +62,30 @@ export function ProjectSettingsMemoryManagementCard({
 
       <div className="space-y-3 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-gray-500">{isZh ? "当前状态" : "Current status"}</span>
-          <span className="font-medium text-gray-900">{statusText}</span>
+          <span className="text-codex-ink-mute">{isZh ? "当前状态" : "Current status"}</span>
+          <span className="font-medium text-codex-ink">{statusText}</span>
         </div>
         <div className="flex items-start justify-between gap-4">
-          <span className="text-gray-500">{isZh ? "最近同步" : "Last sync"}</span>
-          <span className="text-right font-medium text-gray-900">
+          <span className="text-codex-ink-mute">{isZh ? "最近同步" : "Last sync"}</span>
+          <span className="text-right font-medium text-codex-ink">
             {formatProjectMemoryUpdatedAt(project.memory_updated_at, isZh)}
           </span>
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm leading-relaxed text-gray-600">
+      <div className="mt-4 rounded-lg bg-codex-bg-tint p-3 text-sm leading-relaxed text-codex-ink-soft">
         {helperText}
       </div>
 
       <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-gray-500">
+        <div className="mb-2 text-xs font-medium text-codex-ink-mute">
           {isZh ? "当前覆盖来源" : "Current coverage"}
         </div>
         <div className="grid grid-cols-2 gap-2">
           {coverageItems.map((item) => (
-            <div key={item.label} className="rounded-lg bg-gray-50 px-3 py-2">
-              <div className="text-xs text-gray-500">{item.label}</div>
-              <div className="mt-1 text-sm font-semibold text-gray-900">{item.value}</div>
+            <div key={item.label} className="rounded-lg bg-codex-bg-tint px-3 py-2">
+              <div className="text-xs text-codex-ink-mute">{item.label}</div>
+              <div className="mt-1 text-sm font-semibold text-codex-ink">{item.value}</div>
             </div>
           ))}
         </div>
@@ -95,7 +95,7 @@ export function ProjectSettingsMemoryManagementCard({
         <button
           type="button"
           onClick={onOpenMemory}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-codex-line bg-white px-4 py-2.5 text-sm font-medium text-codex-ink-soft transition-colors hover:bg-codex-bg-tint"
         >
           {isZh ? "查看项目记忆" : "Open Memory Page"}
           <ChevronRight className="h-4 w-4" />
@@ -105,7 +105,7 @@ export function ProjectSettingsMemoryManagementCard({
           type="button"
           onClick={onRebuild}
           disabled={isRebuilding}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-codex-line bg-codex-bg-tint px-4 py-2.5 text-sm font-medium text-codex-ink-soft transition-colors hover:bg-codex-bg-tint disabled:opacity-50"
         >
           {isRebuilding ? (
             <Loader2 className="h-4 w-4 animate-spin" />
