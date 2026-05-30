@@ -31,17 +31,22 @@ export function ProjectDetailLayout({
     }
     return window.localStorage.getItem("aria-project-chat-fullscreen") === "true";
   });
-  const isPersistentTab =
-    activeTabId === "chat" || activeTabId === "notes";
+  const isPersistentTab = activeTabId === "chat" || activeTabId === "notes";
+  const isChatFullscreen = activeTabId === "chat" && isChatFocusMode;
 
   return (
-    <div className={`project-ui ${activeTabId === "chat" && isChatFocusMode ? "h-screen overflow-hidden bg-gray-50" : "min-h-full bg-gray-50"}`}>
-      {!(activeTabId === "chat" && isChatFocusMode) ? (
+    <div
+      className={`project-ui theme-codex ${isChatFullscreen ? "h-screen overflow-hidden" : "min-h-full"}`}
+      style={{
+        background: "var(--color-codex-bg)",
+        color: "var(--color-codex-ink)",
+      }}
+    >
+      {!isChatFullscreen ? (
         <ProjectDetailHeader
           project={project}
           onBack={onBack}
           projectId={projectId}
-          compact
         />
       ) : null}
 

@@ -52,17 +52,17 @@ export function ProjectOverviewMemoryCard({
           : 'Not Built'
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white">
-      <div className="flex items-center justify-between border-b border-gray-100 p-5">
-        <h3 className="flex items-center gap-2 font-semibold text-gray-900">
-          <Brain className="h-4 w-4 text-gray-400" />
+    <div className="rounded-xl border border-codex-line bg-white">
+      <div className="flex items-center justify-between border-b border-codex-line-soft p-5">
+        <h3 className="flex items-center gap-2 font-semibold text-codex-ink">
+          <Brain className="h-4 w-4 text-codex-ink-faint" />
           {isZh ? '项目记忆' : 'Project Memory'}
         </h3>
         <button
           type="button"
           onClick={onRebuild}
           disabled={isLoading || isRebuilding}
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-codex-line px-3 py-1.5 text-xs font-medium text-codex-ink-soft hover:bg-codex-bg-tint disabled:opacity-50"
         >
           {isRebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           {isZh ? '更新记忆' : 'Refresh Memory'}
@@ -71,30 +71,30 @@ export function ProjectOverviewMemoryCard({
 
       <div className="space-y-3 p-5 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-gray-500">{isZh ? '状态' : 'Status'}</span>
-          <span className="font-medium text-gray-900">{statusText}</span>
+          <span className="text-codex-ink-mute">{isZh ? '状态' : 'Status'}</span>
+          <span className="font-medium text-codex-ink">{statusText}</span>
         </div>
         <div className="flex items-start justify-between gap-4">
-          <span className="text-gray-500">{isZh ? '更新时间' : 'Updated'}</span>
-          <span className="text-right font-medium text-gray-900">
+          <span className="text-codex-ink-mute">{isZh ? '更新时间' : 'Updated'}</span>
+          <span className="text-right font-medium text-codex-ink">
             {formatProjectMemoryUpdatedAt(memory?.last_updated_at, isZh)}
           </span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-gray-500">{isZh ? '异步状态' : 'Async Status'}</span>
-          <span className="text-right font-medium text-gray-900">{getAsyncStatusText(rebuildStatus, isZh)}</span>
+          <span className="text-codex-ink-mute">{isZh ? '异步状态' : 'Async Status'}</span>
+          <span className="text-right font-medium text-codex-ink">{getAsyncStatusText(rebuildStatus, isZh)}</span>
         </div>
         {rebuildFailedAt ? (
           <div className="flex items-start justify-between gap-4">
-            <span className="text-gray-500">{isZh ? '失败时间' : 'Failed At'}</span>
-            <span className="text-right font-medium text-red-600">
+            <span className="text-codex-ink-mute">{isZh ? '失败时间' : 'Failed At'}</span>
+            <span className="text-right font-medium text-codex-bad">
               {formatProjectMemoryUpdatedAt(rebuildFailedAt, isZh)}
             </span>
           </div>
         ) : null}
 
         {memory?.stale ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <div className="rounded-lg border border-codex-line bg-codex-bg-tint p-3 text-xs text-codex-warn">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <p>
@@ -107,7 +107,7 @@ export function ProjectOverviewMemoryCard({
         ) : null}
 
         {hasMemory ? (
-          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
+          <div className="rounded-lg bg-codex-bg-tint p-3 text-xs leading-relaxed text-codex-ink-soft">
             {memory?.project_brief
               ? memory.project_brief
               : isZh
@@ -115,7 +115,7 @@ export function ProjectOverviewMemoryCard({
                 : 'Project memory is ready for summaries, chat, and execution views.'}
           </div>
         ) : (
-          <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
+          <div className="rounded-lg bg-codex-bg-tint p-3 text-xs leading-relaxed text-codex-ink-soft">
             {isZh
               ? '系统还没有为这个项目整理出可复用的项目记忆。'
               : 'No reusable project memory has been generated for this project yet.'}

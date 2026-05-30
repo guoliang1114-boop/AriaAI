@@ -15,10 +15,10 @@ export function ProjectOverviewDocumentsCard({
   onOpen,
 }: ProjectOverviewDocumentsCardProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="flex items-center justify-between p-5 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-          <Files className="w-4 h-4 text-gray-400" />
+    <div className="bg-white rounded-xl border border-codex-line">
+      <div className="flex items-center justify-between p-5 border-b border-codex-line-soft">
+        <h3 className="font-semibold text-codex-ink flex items-center gap-2">
+          <Files className="w-4 h-4 text-codex-ink-faint" />
           {isZh ? "最近文档" : "Recent Documents"}
         </h3>
         <button onClick={onOpen} className="text-sm text-primary hover:underline">
@@ -27,28 +27,28 @@ export function ProjectOverviewDocumentsCard({
       </div>
       <div className="divide-y divide-gray-100">
         {files.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-codex-ink-faint">
             <p className="text-sm">{isZh ? "暂无文档" : "No documents yet"}</p>
           </div>
         ) : (
           files.map((file) => (
             <div
               key={file.id}
-              className="flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+              className="flex items-center gap-3 p-4 hover:bg-codex-bg-tint transition-colors cursor-pointer"
             >
-              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                <FileText className="w-5 h-5 text-gray-500" />
+              <div className="w-10 h-10 rounded-lg bg-codex-bg-tint flex items-center justify-center">
+                <FileText className="w-5 h-5 text-codex-ink-mute" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-                <p className="text-xs text-gray-400">{file.file_type.toUpperCase()}</p>
+                <p className="text-sm font-medium text-codex-ink truncate">{file.name}</p>
+                <p className="text-xs text-codex-ink-faint">{file.file_type.toUpperCase()}</p>
               </div>
               <button
                 onClick={(event) => {
                   event.stopPropagation();
                   onDownload(file);
                 }}
-                className="p-2 rounded-lg hover:bg-gray-200 text-gray-400"
+                className="p-2 rounded-lg hover:bg-codex-bg-tint text-codex-ink-faint"
               >
                 <Download className="w-4 h-4" />
               </button>

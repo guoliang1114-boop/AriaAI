@@ -28,9 +28,9 @@ export function ProjectOverviewInfoCard({
   const Icon = stage.icon;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <div className="bg-white rounded-xl border border-codex-line p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-900">
+        <h3 className="font-semibold text-codex-ink">
           {isZh ? "项目基本信息" : "Project Info"}
         </h3>
         <button
@@ -43,7 +43,7 @@ export function ProjectOverviewInfoCard({
       </div>
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">{isZh ? "阶段：" : "Stage:"}</span>
+          <span className="text-sm text-codex-ink-mute">{isZh ? "阶段：" : "Stage:"}</span>
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${stage.bgColor} ${stage.color} ${stage.borderColor}`}
           >
@@ -52,33 +52,33 @@ export function ProjectOverviewInfoCard({
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <User className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-600">
+          <User className="w-4 h-4 text-codex-ink-faint" />
+          <span className="text-sm text-codex-ink-soft">
             {isZh ? "客户：" : "Client: "}
             {projectClient}
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-600">
+          <Calendar className="w-4 h-4 text-codex-ink-faint" />
+          <span className="text-sm text-codex-ink-soft">
             {isZh ? "创建时间：" : "Created: "}
             {createdAt}
           </span>
         </div>
         {contractAmountText && (
           <div className="flex items-center gap-3">
-            <DollarSign className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-600">
+            <DollarSign className="w-4 h-4 text-codex-ink-faint" />
+            <span className="text-sm text-codex-ink-soft">
               {isZh ? "合同金额：" : "Contract: "}
               {contractAmountText}
             </span>
           </div>
         )}
         {description && (
-          <div className="pt-3 border-t border-gray-100">
+          <div className="pt-3 border-t border-codex-line-soft">
             <button
               onClick={onToggleDescription}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors w-full text-left mb-1"
+              className="flex items-center gap-1 text-xs text-codex-ink-mute hover:text-codex-ink-soft transition-colors w-full text-left mb-1"
             >
               <ChevronDown
                 className={`w-3 h-3 transition-transform ${descExpanded ? "rotate-180" : ""}`}
@@ -86,7 +86,7 @@ export function ProjectOverviewInfoCard({
               {isZh ? "项目描述" : "Description"}
             </button>
             {descExpanded && (
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{description}</p>
+              <p className="text-sm text-codex-ink-soft whitespace-pre-wrap">{description}</p>
             )}
           </div>
         )}

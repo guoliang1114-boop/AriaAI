@@ -14,10 +14,10 @@ export function ProjectOverviewMilestonesCard({
   onOpen,
 }: ProjectOverviewMilestonesCardProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="flex items-center justify-between p-5 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-          <Flag className="w-4 h-4 text-gray-400" />
+    <div className="bg-white rounded-xl border border-codex-line">
+      <div className="flex items-center justify-between p-5 border-b border-codex-line-soft">
+        <h3 className="font-semibold text-codex-ink flex items-center gap-2">
+          <Flag className="w-4 h-4 text-codex-ink-faint" />
           {isZh ? "里程碑" : "Milestones"}
         </h3>
         <button onClick={onOpen} className="text-sm text-primary hover:underline">
@@ -26,7 +26,7 @@ export function ProjectOverviewMilestonesCard({
       </div>
       <div className="p-5">
         {milestones.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-codex-ink-faint">
             <p className="text-sm">{isZh ? "暂无里程碑" : "No milestones yet"}</p>
           </div>
         ) : (
@@ -34,18 +34,18 @@ export function ProjectOverviewMilestonesCard({
             {milestones.map((milestone) => (
               <div key={milestone.id} className="flex items-start gap-3">
                 {milestone.is_done ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5" />
+                  <CheckCircle2 className="w-5 h-5 text-codex-good mt-0.5" />
                 ) : (
-                  <Circle className="w-5 h-5 text-gray-300 mt-0.5" />
+                  <Circle className="w-5 h-5 text-codex-ink-faint mt-0.5" />
                 )}
                 <div className="flex-1">
                   <p
-                    className={`text-sm ${milestone.is_done ? "text-gray-400 line-through" : "text-gray-900"}`}
+                    className={`text-sm ${milestone.is_done ? "text-codex-ink-faint line-through" : "text-codex-ink"}`}
                   >
                     {milestone.title}
                   </p>
                   {milestone.due_date && (
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-codex-ink-faint mt-0.5">
                       {isZh ? "截止：" : "Due: "}
                       {formatDateOnly(milestone.due_date)}
                     </p>
@@ -54,10 +54,10 @@ export function ProjectOverviewMilestonesCard({
                 <span
                   className={`px-2 py-0.5 rounded text-xs font-medium ${
                     milestone.priority === "high"
-                      ? "bg-red-50 text-red-600"
+                      ? "bg-codex-bg-tint text-codex-bad"
                       : milestone.priority === "medium"
-                        ? "bg-amber-50 text-amber-600"
-                        : "bg-gray-100 text-gray-600"
+                        ? "bg-codex-bg-tint text-codex-warn"
+                        : "bg-codex-bg-tint text-codex-ink-soft"
                   }`}
                 >
                   {milestone.priority}

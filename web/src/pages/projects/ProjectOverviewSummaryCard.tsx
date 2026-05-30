@@ -92,7 +92,7 @@ export function ProjectOverviewSummaryCard({
 
   const controls = (
     <div className="space-y-2">
-      <p className="text-xs text-gray-500">{getSummaryHint(summaryType, isZh)}</p>
+      <p className="text-xs text-codex-ink-mute">{getSummaryHint(summaryType, isZh)}</p>
       <div className="flex flex-wrap gap-2">
         {SUMMARY_TYPES.map((type) => (
           <button
@@ -102,7 +102,7 @@ export function ProjectOverviewSummaryCard({
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               summaryType === type
                 ? "bg-indigo-600 text-white"
-                : "bg-white/80 text-gray-600 hover:bg-white"
+                : "bg-white/80 text-codex-ink-soft hover:bg-white"
             }`}
           >
             {getSummaryTypeLabel(type, isZh)}
@@ -122,7 +122,7 @@ export function ProjectOverviewSummaryCard({
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">{title}</h3>
+                <h3 className="font-semibold text-codex-ink">{title}</h3>
                 {generatingSummary && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-indigo-600">
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -150,8 +150,8 @@ export function ProjectOverviewSummaryCard({
         </div>
 
         {summaryError && (
-          <div className="mb-3 rounded-lg border border-red-100 bg-red-50 p-3">
-            <p className="text-sm text-red-600">{summaryError}</p>
+          <div className="mb-3 rounded-lg border border-codex-line bg-codex-bg-tint p-3">
+            <p className="text-sm text-codex-bad">{summaryError}</p>
           </div>
         )}
 
@@ -170,24 +170,24 @@ export function ProjectOverviewSummaryCard({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 p-6">
+    <div className="rounded-xl border border-codex-line bg-gradient-to-r from-gray-50 to-gray-100 p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white shadow-sm">
             {generatingSummary ? (
               <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
             ) : (
-              <Sparkles className="h-5 w-5 text-gray-400" />
+              <Sparkles className="h-5 w-5 text-codex-ink-faint" />
             )}
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{title}</h3>
-            <p className="mt-0.5 text-xs text-gray-500">{getSummaryHint(summaryType, isZh)}</p>
+            <h3 className="font-semibold text-codex-ink">{title}</h3>
+            <p className="mt-0.5 text-xs text-codex-ink-mute">{getSummaryHint(summaryType, isZh)}</p>
           </div>
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          {summaryError && <p className="text-xs text-red-500">{summaryError}</p>}
+          {summaryError && <p className="text-xs text-codex-bad">{summaryError}</p>}
           <button
             type="button"
             onClick={() => void onGenerate(summaryType, true)}

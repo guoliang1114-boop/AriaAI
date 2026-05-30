@@ -119,8 +119,14 @@ export function ProjectDetail() {
     return (
       <>
         <PageTitle title="Project" />
-        <div className="min-h-full bg-gray-50 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <div
+          className="theme-codex min-h-full flex items-center justify-center"
+          style={{ background: "var(--color-codex-bg)" }}
+        >
+          <Loader2
+            className="w-7 h-7 animate-spin"
+            style={{ color: "var(--color-codex-accent)" }}
+          />
         </div>
       </>
     );
