@@ -23,7 +23,8 @@ import { normalizeAppearance, type CodexAppearance } from "./codexAppearance";
 
 export type Language = "" | "zh" | "en" | "auto";
 export type Tone = "" | "direct" | "friendly" | "formal";
-export type FormatShape = "" | "conclusion_first" | "free";
+export type FormatShape = "" | "conclusion_first" | "bullet_list" | "free";
+export type ConfirmationPolicy = "" | "before_write" | "before_delete" | "all" | "none";
 
 export interface UserMemoryResponse {
   preferences: Record<string, unknown>;
@@ -48,6 +49,7 @@ export interface PreferencesShape {
   };
   work_style?: {
     ask_before_destructive?: boolean;
+    confirmation_policy?: ConfirmationPolicy;
   };
   /**
    * Codex appearance — theme / accent / density / radius / warmth.
@@ -74,6 +76,7 @@ export const TONE_OPTIONS: { value: Tone; label: string }[] = [
 export const FORMAT_OPTIONS: { value: FormatShape; label: string }[] = [
   { value: "", label: "未设置" },
   { value: "conclusion_first", label: "先给结论再展开" },
+  { value: "bullet_list", label: "分点列举" },
   { value: "free", label: "由模型自由判断" },
 ];
 
@@ -98,8 +101,14 @@ export function compactPreferences(prefs: PreferencesShape): Record<string, unkn
   if (Object.keys(rpOut).length > 0) compact.response_preferences = rpOut;
 
   const ws = prefs.work_style ?? {};
-  if (typeof ws.ask_before_destructive === "boolean") {
-    compact.work_style = { ask_before_destructive: ws.ask_before_destructive };
+  if (typeof ws.ask_before_destructive === "boolean" || ws.confirmation_policy) {
+    compact.work_style = {};
+    if (typeof ws.ask_before_destructive === "boolean") {
+      compact.work_style.ask_before_destructive = ws.ask_before_destructive;
+    }
+    if (ws.confirmation_policy) {
+      compact.work_style.confirmation_policy = ws.confirmation_policy;
+    }
   }
   if (prefs.appearance) compact.appearance = prefs.appearance;
   return compact as unknown as Record<string, unknown>;
@@ -126,8 +135,17 @@ export function readShape(raw: Record<string, unknown> | undefined): Preferences
   }
   if (ws && typeof ws === "object") {
     const block = ws as Partial<Record<string, unknown>>;
+    const policy = typeof block.confirmation_policy === "string"
+      ? (block.confirmation_policy as ConfirmationPolicy)
+      : "";
     if (typeof block.ask_before_destructive === "boolean") {
       out.work_style = { ask_before_destructive: block.ask_before_destructive };
+    }
+    if (["before_write", "before_delete", "all", "none"].includes(policy)) {
+      out.work_style = {
+        ...(out.work_style ?? {}),
+        confirmation_policy: policy,
+      };
     }
   }
   const app = (raw as { appearance?: unknown }).appearance;
