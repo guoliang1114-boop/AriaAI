@@ -50,6 +50,23 @@ const PAGE_SIZE = 20
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
+function getCurrentUserDisplayName(): string {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return ''
+    const parsed = JSON.parse(raw) as { display_name?: string; email?: string }
+    return (parsed.display_name || parsed.email || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function getInitialChar(name: string, fallback: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return fallback
+  return Array.from(trimmed)[0] ?? fallback
+}
+
 function formatTime(dateStr: string, timeZone?: string) {
   // Backend timestamps are tz-naive UTC ("2026-05-28T13:22:00", no Z); plain
   // ``new Date(...)`` would treat them as browser-local and skew by the local
@@ -2245,10 +2262,10 @@ export function Chat() {
         {/* Messages */}
         <div
           ref={messagesContainerRef}
-          className="flex-1 overflow-auto py-4 relative sm:py-8"
+          className="flex-1 overflow-auto py-4 relative sm:py-7"
           style={{ background: 'var(--color-codex-bg)' }}
         >
-          <div className={`mx-auto px-3 sm:px-6 ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
+          <div className="mx-auto w-full px-4 sm:px-14">
 
             {/* Load more */}
             {loadingMore && (
@@ -2431,7 +2448,7 @@ export function Chat() {
               </div>
 
             ) : (
-              <div className="space-y-5 sm:space-y-7">
+              <div className="space-y-5 sm:space-y-8">
                 {messages.map(msg => (
                   <MessageRow key={msg.id} message={msg} />
                 ))}
@@ -2599,7 +2616,7 @@ export function Chat() {
 
         {/* ── Input area ── */}
         <div
-          className="relative flex-shrink-0 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5"
+          className="relative flex-shrink-0 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-14 sm:pb-5"
           style={{
             background: 'var(--color-codex-bg)',
             borderTop: '1px solid var(--color-codex-line)',
@@ -2613,17 +2630,67 @@ export function Chat() {
                 'linear-gradient(to bottom, transparent, var(--color-codex-bg))',
             }}
           />
-          <div className={`mx-auto ${sidebarOpen ? 'max-w-4xl' : 'max-w-5xl'}`}>
-            {/* Context pills */}
-            <div className="flex items-center gap-1 mb-2 flex-nowrap overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
-              <ContextPill
-                ref={projectDropdownRef}
-                icon={<FolderKanban className="w-3 h-3" />}
-                label={selectedProjectData ? selectedProjectData.name : 'Project'}
-                active={!!selectedProject}
-                open={showProjectDropdown}
-                onToggle={() => setShowProjectDropdown(v => !v)}
+          <div className="mx-auto w-full">
+            {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
+
+            {/* Composer box — textarea on top, toolbar with context pills + send at the bottom. */}
+            <div
+              className="transition-all duration-200"
+              style={{
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+                padding: '12px 14px',
+              }}
+            >
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onCompositionStart={() => { isComposingRef.current = true }}
+                onCompositionEnd={() => { isComposingRef.current = false }}
+                onKeyDown={handleKeyDown}
+                placeholder={t('chat.placeholder')}
+                disabled={sending}
+                rows={1}
+                className="block w-full resize-none overflow-hidden bg-transparent outline-none disabled:opacity-50"
+                style={{
+                  minHeight: 36,
+                  maxHeight: 180,
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  color: 'var(--color-codex-ink)',
+                }}
+              />
+              {/* Toolbar */}
+              <div
+                className="mt-2 flex items-center justify-between gap-2 pt-2"
+                style={{ borderTop: '1px solid var(--color-codex-line-soft)' }}
               >
+                <div className="flex flex-1 items-center gap-2 overflow-x-auto sm:overflow-visible">
+                  <button
+                    type="button"
+                    className="inline-flex flex-shrink-0 items-center gap-1.5 transition-colors"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 12,
+                      color: 'var(--color-codex-ink-mute)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                    }}
+                    title="Attach"
+                    aria-label="Attach"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">附件</span>
+                  </button>
+                  <ContextPill
+                    ref={projectDropdownRef}
+                    icon={<FolderKanban className="w-3 h-3" />}
+                    label={selectedProjectData ? selectedProjectData.name : 'Project'}
+                    active={!!selectedProject}
+                    open={showProjectDropdown}
+                    onToggle={() => setShowProjectDropdown(v => !v)}
+                  >
                 {showProjectDropdown && (
                   <DropdownMenu>
                     <DropdownItem onClick={() => { setSelectedProject(null); setShowProjectDropdown(false) }} muted>
@@ -2747,80 +2814,45 @@ export function Chat() {
                   </DropdownMenu>
                 )}
               </ContextPill>
-            </div>
-
-            {selectedSkillData && <SkillRequirementsPanel skill={selectedSkillData} />}
-
-            {/* Textarea + actions */}
-            <div
-              className="flex items-end gap-2 px-3 py-2.5 transition-all duration-200 sm:gap-3 sm:px-4 sm:py-3"
-              style={{
-                background: 'var(--color-codex-bg-elev)',
-                border: '1px solid var(--color-codex-line)',
-                borderRadius: 'var(--codex-r-md, 6px)',
-              }}
-            >
-              <button
-                className="hidden flex-shrink-0 p-1.5 transition-colors sm:block"
-                style={{
-                  marginBottom: 2,
-                  color: 'var(--color-codex-ink-faint)',
-                  borderRadius: 'var(--codex-r-sm, 3px)',
-                }}
-                title="Attach"
-                aria-label="Attach"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={handleInputChange}
-                onCompositionStart={() => { isComposingRef.current = true }}
-                onCompositionEnd={() => { isComposingRef.current = false }}
-                onKeyDown={handleKeyDown}
-                placeholder={t('chat.placeholder')}
-                disabled={sending}
-                rows={1}
-                className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-1.5 outline-none leading-relaxed disabled:opacity-50"
-                style={{
-                  minHeight: 36,
-                  maxHeight: 180,
-                  fontSize: 14.5,
-                  color: 'var(--color-codex-ink)',
-                }}
-              />
-              {sending ? (
-                <button
-                  onClick={handleStop}
-                  title={t('chat.stopGeneration')}
-                  className="flex-shrink-0 p-2 transition-colors"
-                  style={{
-                    marginBottom: 2,
-                    background: 'var(--color-codex-bg-tint)',
-                    color: 'var(--color-codex-ink-soft)',
-                    border: '1px solid var(--color-codex-line)',
-                    borderRadius: 'var(--codex-r-sm, 3px)',
-                  }}
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  className="flex-shrink-0 p-2 transition-all active:scale-95 disabled:opacity-25"
-                  style={{
-                    marginBottom: 2,
-                    background: 'var(--color-codex-accent)',
-                    color: 'var(--color-codex-bg-elev)',
-                    borderRadius: 'var(--codex-r-sm, 3px)',
-                  }}
-                  aria-label="Send"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
-              )}
+                </div>
+                {sending ? (
+                  <button
+                    onClick={handleStop}
+                    title={t('chat.stopGeneration')}
+                    className="inline-flex flex-shrink-0 items-center gap-1.5 transition-colors"
+                    style={{
+                      padding: '5px 14px',
+                      background: 'var(--color-codex-bg-tint)',
+                      color: 'var(--color-codex-ink-soft)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    停止
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className="inline-flex flex-shrink-0 items-center gap-1.5 transition-all active:scale-95 disabled:opacity-30"
+                    style={{
+                      padding: '5px 14px',
+                      background: 'var(--color-codex-accent)',
+                      color: 'var(--color-codex-bg-elev)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                    }}
+                    aria-label="Send"
+                  >
+                    发送
+                    <Send className="h-3 w-3" strokeWidth={1.8} />
+                  </button>
+                )}
+              </div>
             </div>
             <p
               className="mt-2 hidden text-center sm:block font-mono"
@@ -3505,6 +3537,10 @@ function ExportDropdown({ conversationId, conversationTitle }: {
 function MessageRow({ message }: { message: Message }) {
   const { t } = useTranslation()
   const isUser = message.role === 'user'
+  const displayName = isUser ? getCurrentUserDisplayName() : ''
+  const fallbackYou = t('chat.you')
+  const userLabel = displayName || fallbackYou
+  const userInitial = getInitialChar(displayName, fallbackYou)
 
   let references: Array<{ type: string; id: number; title: string }> = []
   let skillProgress: ChatProgressStep[] = []
@@ -3540,7 +3576,7 @@ function MessageRow({ message }: { message: Message }) {
             : 'var(--color-codex-accent)',
         }}
       >
-        {isUser ? t('chat.you') : <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
+        {isUser ? userInitial : <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
       </span>
 
       {/* Content column. No bubble — just markdown text + meta. */}
@@ -3558,7 +3594,7 @@ function MessageRow({ message }: { message: Message }) {
               fontWeight: 500,
             }}
           >
-            {isUser ? t('chat.you') : 'Aria'}
+            {isUser ? userLabel : 'Aria'}
           </span>
           <span>·</span>
           <span className="font-mono">{formatTime(message.created_at)}</span>
