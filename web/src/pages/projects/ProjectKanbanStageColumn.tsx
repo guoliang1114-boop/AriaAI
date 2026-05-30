@@ -39,9 +39,9 @@ export function ProjectKanbanStageColumn({
         </div>
 
         <div className="flex items-center justify-between">
-          <p className="truncate text-[11px] text-gray-500">{stage.description}</p>
+          <p className="truncate text-[11px] text-codex-ink-mute">{stage.description}</p>
           {totalValue > 0 && (
-            <span className="text-[11px] font-medium text-gray-600">
+            <span className="text-[11px] font-medium text-codex-ink-soft">
               CNY {(totalValue / 10000).toFixed(0)}
               {isZh ? '万' : 'K'}
             </span>

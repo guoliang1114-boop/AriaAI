@@ -29,7 +29,7 @@ export function ProjectTodoCreateForm({
   users,
 }: ProjectTodoCreateFormProps) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className="rounded-xl border border-codex-line bg-white p-4">
       <div className="flex flex-col gap-3 sm:flex-row">
         <input
           type="text"
@@ -39,16 +39,16 @@ export function ProjectTodoCreateForm({
             if (event.key === "Enter") onCreate();
           }}
           placeholder={isZh ? "添加新的待办事项..." : "Add a new todo..."}
-          className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="flex-1 rounded-lg border border-codex-line bg-codex-bg-tint px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
         <div className="sm:w-44">
           <div className="relative">
-            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-codex-ink-faint" />
             <input
               type="date"
               value={newDueDate}
               onChange={(event) => onDueDateChange(event.target.value)}
-              className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm text-gray-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-lg border border-codex-line bg-white py-2.5 pl-9 pr-3 text-sm text-codex-ink-soft focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
         </div>
@@ -63,7 +63,7 @@ export function ProjectTodoCreateForm({
         <button
           onClick={onCreate}
           disabled={isAdding || !newContent.trim()}
-          className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+          className="flex items-center justify-center gap-1.5 rounded-lg bg-codex-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
           {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           {isZh ? "添加" : "Add"}

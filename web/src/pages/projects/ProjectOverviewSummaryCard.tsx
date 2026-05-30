@@ -101,7 +101,7 @@ export function ProjectOverviewSummaryCard({
             onClick={() => onSummaryTypeChange(type)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               summaryType === type
-                ? "bg-indigo-600 text-white"
+                ? "bg-codex-accent text-white"
                 : "bg-white/80 text-codex-ink-soft hover:bg-white"
             }`}
           >
@@ -114,17 +114,17 @@ export function ProjectOverviewSummaryCard({
 
   if (summaryText) {
     return (
-      <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50 p-6">
+      <div className="rounded-xl border border-codex-line-soft bg-gradient-to-r from-indigo-50 to-purple-50 p-6">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm">
-              <Sparkles className="h-4 w-4 text-indigo-600" />
+              <Sparkles className="h-4 w-4 text-codex-accent" />
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-codex-ink">{title}</h3>
                 {generatingSummary && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-indigo-600">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs text-codex-accent">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     {isZh ? "流式生成中" : "Streaming"}
                   </span>
@@ -138,7 +138,7 @@ export function ProjectOverviewSummaryCard({
             type="button"
             onClick={() => void onGenerate(summaryType, true)}
             disabled={actionDisabled}
-            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+            className="flex items-center gap-1 text-xs text-codex-accent hover:text-codex-accent-ink disabled:opacity-50"
           >
             {generatingSummary ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -162,7 +162,7 @@ export function ProjectOverviewSummaryCard({
               .replace(/\n(?!\n)/g, "\n\n")}
           />
           {generatingSummary && (
-            <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-indigo-500 align-middle" />
+            <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-codex-accent-bg0 align-middle" />
           )}
         </div>
       </div>
@@ -175,7 +175,7 @@ export function ProjectOverviewSummaryCard({
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white shadow-sm">
             {generatingSummary ? (
-              <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+              <Loader2 className="h-5 w-5 animate-spin text-codex-accent" />
             ) : (
               <Sparkles className="h-5 w-5 text-codex-ink-faint" />
             )}
@@ -192,7 +192,7 @@ export function ProjectOverviewSummaryCard({
             type="button"
             onClick={() => void onGenerate(summaryType, true)}
             disabled={actionDisabled}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white hover:bg-codex-accent disabled:opacity-50"
           >
             {generatingSummary ? (
               <Loader2 className="h-4 w-4 animate-spin" />

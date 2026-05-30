@@ -18,10 +18,10 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
           return <Icon className={`w-4 h-4 ${currentStage.color}`} />
         })()}
         <span className={`text-sm font-medium ${currentStage.color}`}>{currentStage.labelZh}</span>
-        <span className="text-xs text-on-surface-muted ml-1">— {currentStage.description}</span>
+        <span className="text-xs text-codex-ink-mute ml-1">— {currentStage.description}</span>
       </div>
 
-      <p className="text-xs font-medium text-on-surface-muted mb-2">商机阶段</p>
+      <p className="text-xs font-medium text-codex-ink-mute mb-2">商机阶段</p>
       <div className="grid grid-cols-5 gap-2 mb-4">
         {PROJECT_STAGE_CONFIGS.filter(stage => stage.phase === 'business').map(stage => {
           const Icon = stage.icon
@@ -34,7 +34,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
               className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
                 active
                   ? `${stage.bgColor} ${stage.color} ${stage.borderColor} shadow-sm ring-2 ring-offset-1 ring-current/30`
-                  : 'bg-surface-container-lowest border-outline/15 text-on-surface-muted hover:border-outline/30 hover:bg-surface-container-low'
+                  : 'bg-codex-bg-tint-lowest border-outline/15 text-codex-ink-mute hover:border-outline/30 hover:bg-codex-bg-tint'
               }`}
             >
               {active && <Check className="absolute top-1.5 right-1.5 w-3 h-3" />}
@@ -45,7 +45,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
         })}
       </div>
 
-      <p className="text-xs font-medium text-on-surface-muted mb-2">交付阶段</p>
+      <p className="text-xs font-medium text-codex-ink-mute mb-2">交付阶段</p>
       <div className="grid grid-cols-4 gap-2 mb-4">
         {PROJECT_STAGE_CONFIGS.filter(stage => stage.phase === 'delivery').map(stage => {
           const Icon = stage.icon
@@ -58,7 +58,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
               className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${
                 active
                   ? `${stage.bgColor} ${stage.color} ${stage.borderColor} shadow-sm ring-2 ring-offset-1 ring-current/30`
-                  : 'bg-surface-container-lowest border-outline/15 text-on-surface-muted hover:border-outline/30 hover:bg-surface-container-low'
+                  : 'bg-codex-bg-tint-lowest border-outline/15 text-codex-ink-mute hover:border-outline/30 hover:bg-codex-bg-tint'
               }`}
             >
               {active && <Check className="absolute top-1.5 right-1.5 w-3 h-3" />}
@@ -75,7 +75,7 @@ export function NewProjectStageSelector({ value, onChange }: NewProjectStageSele
         className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm transition-all ${
           value === 'archived'
             ? `${archivedStage.bgColor} ${archivedStage.color} ${archivedStage.borderColor} shadow-sm`
-            : 'bg-surface-container-lowest border-outline/15 text-on-surface-muted hover:border-outline/30'
+            : 'bg-codex-bg-tint-lowest border-outline/15 text-codex-ink-mute hover:border-outline/30'
         }`}
       >
         {value === 'archived' && <Check className="w-3.5 h-3.5" />}

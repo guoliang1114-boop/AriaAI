@@ -132,7 +132,7 @@ function StakeholderManagementCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-codex-accent text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-codex-accent text-codex-bg-elev">
               <Users className="h-4 w-4" />
             </div>
             <div>
@@ -575,7 +575,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
               type="button"
               onClick={() => void promoteToClientMemory()}
               disabled={isPromotingToClient || !clientName || !hasProjectMemory}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-codex-good px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-900/10 transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-codex-bg-tint disabled:text-codex-ink-soft disabled:shadow-none"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-codex-good px-4 py-2.5 text-sm font-semibold text-codex-bg-elev shadow-sm shadow transition hover:bg-codex-good disabled:cursor-not-allowed disabled:bg-codex-bg-tint disabled:text-codex-ink-soft disabled:shadow-none"
             >
               {isPromotingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
               {isZh ? "提升到客户记忆" : "Promote to client memory"}
@@ -897,7 +897,7 @@ export function ProjectMemoryTab({ projectDetail, projectId }: ProjectMemoryTabP
                 type="button"
                 onClick={() => void rollbackSnapshot(rollbackConfirmSnapshot)}
                 disabled={isRollingBackSnapshotId === rollbackConfirmSnapshot.id}
-                className="inline-flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-white hover:bg-codex-accent disabled:cursor-wait disabled:bg-codex-accent-bg"
+                className="inline-flex items-center gap-2 rounded-lg bg-codex-accent px-4 py-2 text-sm font-medium text-codex-bg-elev hover:bg-codex-accent disabled:cursor-wait disabled:bg-codex-accent-bg"
               >
                 {isRollingBackSnapshotId === rollbackConfirmSnapshot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {isZh ? "确认恢复" : "Restore"}

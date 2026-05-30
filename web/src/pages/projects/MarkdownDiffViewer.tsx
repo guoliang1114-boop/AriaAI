@@ -29,23 +29,23 @@ export function MarkdownDiffViewer({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-codex-line bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-codex-line-soft px-5 py-3">
           <div className="flex items-center gap-2.5">
-            <FileText className="h-4 w-4 text-gray-400" />
-            <h3 className="text-sm font-semibold text-gray-900">
+            <FileText className="h-4 w-4 text-codex-ink-faint" />
+            <h3 className="text-sm font-semibold text-codex-ink">
               {isZh ? "文件变更对比" : "File Changes"}
               {fileName ? ` — ${fileName}` : ""}
             </h3>
             <span className="ml-2 inline-flex items-center gap-1.5 text-xs">
               {removedCount > 0 ? (
-                <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-600">
+                <span className="rounded-full bg-codex-bg-tint px-2 py-0.5 text-codex-bad">
                   -{removedCount}
                 </span>
               ) : null}
               {addedCount > 0 ? (
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-600">
+                <span className="rounded-full bg-codex-accent-bg px-2 py-0.5 text-codex-good">
                   +{addedCount}
                 </span>
               ) : null}
@@ -53,18 +53,18 @@ export function MarkdownDiffViewer({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-lg p-1.5 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Toggle raw views */}
-        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2">
+        <div className="flex items-center gap-2 border-b border-codex-line-soft px-5 py-2">
           <button
             onClick={() => setShowOld((v) => !v)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              showOld ? "bg-gray-100 text-gray-700" : "text-gray-400 hover:text-gray-600"
+              showOld ? "bg-codex-bg-tint text-codex-ink-soft" : "text-codex-ink-faint hover:text-codex-ink-soft"
             }`}
           >
             {isZh ? "原内容" : "Original"}
@@ -72,7 +72,7 @@ export function MarkdownDiffViewer({
           <button
             onClick={() => setShowNew((v) => !v)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              showNew ? "bg-gray-100 text-gray-700" : "text-gray-400 hover:text-gray-600"
+              showNew ? "bg-codex-bg-tint text-codex-ink-soft" : "text-codex-ink-faint hover:text-codex-ink-soft"
             }`}
           >
             {isZh ? "新内容" : "New"}
@@ -82,21 +82,21 @@ export function MarkdownDiffViewer({
         {/* Diff body */}
         <div className="flex-1 overflow-y-auto px-5 py-3">
           {showOld ? (
-            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-400">
+            <div className="mb-4 rounded-lg border border-codex-line bg-codex-bg-tint p-3">
+              <p className="mb-2 text-xs font-medium text-codex-ink-faint">
                 {isZh ? "原内容" : "Original"}
               </p>
-              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-codex-ink-soft">
                 {oldContent || (isZh ? "（空文件）" : "(empty)")}
               </pre>
             </div>
           ) : null}
           {showNew ? (
-            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-400">
+            <div className="mb-4 rounded-lg border border-codex-line bg-codex-bg-tint p-3">
+              <p className="mb-2 text-xs font-medium text-codex-ink-faint">
                 {isZh ? "新内容" : "New"}
               </p>
-              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed text-codex-ink-soft">
                 {newContent || (isZh ? "（空文件）" : "(empty)")}
               </pre>
             </div>
@@ -114,9 +114,9 @@ export function MarkdownDiffViewer({
                   return lines.map((line, li) => (
                     <div
                       key={`add-${index}-${li}`}
-                      className="flex bg-emerald-50/60 text-emerald-900"
+                      className="flex bg-codex-accent-bg/60 text-codex-good"
                     >
-                      <span className="w-6 shrink-0 select-none pr-2 text-right text-emerald-400">+</span>
+                      <span className="w-6 shrink-0 select-none pr-2 text-right text-codex-good">+</span>
                       <span className="break-all">{line || " "}</span>
                     </div>
                   ));
@@ -125,16 +125,16 @@ export function MarkdownDiffViewer({
                   return lines.map((line, li) => (
                     <div
                       key={`rem-${index}-${li}`}
-                      className="flex bg-red-50/60 text-red-900"
+                      className="flex bg-codex-bg-tint/60 text-codex-bad"
                     >
-                      <span className="w-6 shrink-0 select-none pr-2 text-right text-red-400">-</span>
+                      <span className="w-6 shrink-0 select-none pr-2 text-right text-codex-bad">-</span>
                       <span className="break-all">{line || " "}</span>
                     </div>
                   ));
                 }
                 return lines.map((line, li) => (
-                  <div key={`same-${index}-${li}`} className="flex text-gray-600">
-                    <span className="w-6 shrink-0 select-none pr-2 text-right text-gray-300">
+                  <div key={`same-${index}-${li}`} className="flex text-codex-ink-soft">
+                    <span className="w-6 shrink-0 select-none pr-2 text-right text-codex-ink-faint">
                       &middot;
                     </span>
                     <span className="break-all">{line || " "}</span>

@@ -19,13 +19,13 @@ type ProjectTaskRunsDrawerProps = {
 };
 
 const STATUS_COPY: Record<string, { zh: string; en: string; className: string }> = {
-  pending: { zh: "等待中", en: "Pending", className: "bg-slate-100 text-slate-600" },
-  running: { zh: "执行中", en: "Running", className: "bg-blue-100 text-blue-700" },
-  completed: { zh: "已完成", en: "Completed", className: "bg-emerald-100 text-emerald-700" },
-  failed: { zh: "失败", en: "Failed", className: "bg-rose-100 text-rose-700" },
-  canceled: { zh: "已取消", en: "Canceled", className: "bg-gray-100 text-gray-600" },
-  paused: { zh: "已暂停", en: "Paused", className: "bg-amber-100 text-amber-700" },
-  skipped: { zh: "已跳过", en: "Skipped", className: "bg-gray-100 text-gray-500" },
+  pending: { zh: "等待中", en: "Pending", className: "bg-codex-bg-tint text-codex-ink-soft" },
+  running: { zh: "执行中", en: "Running", className: "bg-codex-accent-bg text-codex-accent-ink" },
+  completed: { zh: "已完成", en: "Completed", className: "bg-codex-accent-bg text-codex-good" },
+  failed: { zh: "失败", en: "Failed", className: "bg-codex-bg-tint text-codex-bad" },
+  canceled: { zh: "已取消", en: "Canceled", className: "bg-codex-bg-tint text-codex-ink-soft" },
+  paused: { zh: "已暂停", en: "Paused", className: "bg-codex-bg-tint text-codex-warn" },
+  skipped: { zh: "已跳过", en: "Skipped", className: "bg-codex-bg-tint text-codex-ink-mute" },
 };
 
 function statusCopy(status: string, isZh: boolean) {
@@ -69,27 +69,27 @@ function eventText(event: TaskRunEvent) {
 function StepRow({ events, isZh, step }: { events: TaskRunEvent[]; isZh: boolean; step: TaskRunStep }) {
   const stepEvents = events.filter((event) => event.step_id === step.id);
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+    <div className="rounded-2xl border border-codex-line bg-white p-3">
       <div className="flex items-start gap-3">
         <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${statusClass(step.status)}`}>
           <StatusIcon status={step.status} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-950">
+            <p className="text-sm font-semibold text-codex-ink">
               {step.sort_order}. {step.title}
             </p>
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(step.status)}`}>
               {statusCopy(step.status, isZh)}
             </span>
           </div>
-          {step.error_message ? <p className="mt-1 text-xs text-rose-600">{step.error_message}</p> : null}
+          {step.error_message ? <p className="mt-1 text-xs text-codex-bad">{step.error_message}</p> : null}
           {stepEvents.length ? (
-            <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+            <div className="mt-2 space-y-1 border-t border-codex-line-soft pt-2">
               {stepEvents.map((event) => (
-                <p key={event.id || `${step.id}-${event.created_at}-${event.event_type}`} className="text-xs leading-5 text-slate-500">
-                  <span className="text-slate-400">{formatTime(event.created_at)}</span>
-                  <span className="mx-1.5 text-slate-300">·</span>
+                <p key={event.id || `${step.id}-${event.created_at}-${event.event_type}`} className="text-xs leading-5 text-codex-ink-mute">
+                  <span className="text-codex-ink-faint">{formatTime(event.created_at)}</span>
+                  <span className="mx-1.5 text-codex-ink-faint">·</span>
                   {eventText(event)}
                 </p>
               ))}
@@ -209,37 +209,37 @@ export function ProjectTaskRunsDrawer({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/25 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex justify-end bg-codex-ink/25 backdrop-blur-sm">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label={isZh ? "关闭任务面板" : "Close tasks"} />
-      <aside className="relative flex h-full w-full max-w-5xl flex-col bg-slate-50 shadow-2xl sm:w-[88vw] xl:w-[980px]">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+      <aside className="relative flex h-full w-full max-w-5xl flex-col bg-codex-bg-tint shadow-2xl sm:w-[88vw] xl:w-[980px]">
+        <div className="flex items-start justify-between gap-4 border-b border-codex-line bg-white px-5 py-4">
           <div>
-            <p className="text-xs font-medium text-slate-400">{isZh ? "项目任务" : "Project tasks"}</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isZh ? "任务详情" : "Task details"}</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="text-xs font-medium text-codex-ink-faint">{isZh ? "项目任务" : "Project tasks"}</p>
+            <h2 className="mt-1 text-lg font-semibold text-codex-ink">{isZh ? "任务详情" : "Task details"}</h2>
+            <p className="mt-1 text-sm text-codex-ink-mute">
               {isZh ? "查看每一步、日志、生成物，并处理失败任务。" : "Inspect steps, logs, artifacts, and failed runs."}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto border-r border-slate-200 bg-white p-4">
+          <div className="min-h-0 overflow-y-auto border-r border-codex-line bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-700">{isZh ? "任务记录" : "Runs"}</p>
-              <button type="button" onClick={() => void loadTasks()} className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+              <p className="text-sm font-semibold text-codex-ink-soft">{isZh ? "任务记录" : "Runs"}</p>
+              <button type="button" onClick={() => void loadTasks()} className="rounded-lg px-2 py-1 text-xs text-codex-ink-mute hover:bg-codex-bg-tint">
                 {isZh ? "刷新" : "Refresh"}
               </button>
             </div>
             {isLoading ? (
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              <div className="flex items-center gap-2 rounded-2xl border border-codex-line bg-codex-bg-tint p-4 text-sm text-codex-ink-mute">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {isZh ? "加载中..." : "Loading..."}
               </div>
             ) : tasks.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              <div className="rounded-2xl border border-dashed border-codex-line bg-codex-bg-tint p-4 text-sm text-codex-ink-mute">
                 {isZh ? "暂无任务记录。" : "No task runs yet."}
               </div>
             ) : (
@@ -251,17 +251,17 @@ export function ProjectTaskRunsDrawer({
                     onClick={() => setSelectedTaskId(task.id)}
                     className={`w-full rounded-2xl border p-3 text-left transition ${
                       selectedTask?.id === task.id
-                        ? "border-blue-200 bg-blue-50"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        ? "border-codex-line bg-codex-accent-bg"
+                        : "border-codex-line bg-white hover:border-codex-line-strong hover:bg-codex-bg-tint"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="max-h-10 overflow-hidden text-sm font-semibold leading-5 text-slate-900">{task.goal || task.task_type}</p>
+                      <p className="max-h-10 overflow-hidden text-sm font-semibold leading-5 text-codex-ink">{task.goal || task.task_type}</p>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(task.status)}`}>
                         {statusCopy(task.status, isZh)}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs text-slate-400">{formatTime(task.created_at)}</p>
+                    <p className="mt-2 text-xs text-codex-ink-faint">{formatTime(task.created_at)}</p>
                   </button>
                 ))}
               </div>
@@ -271,26 +271,26 @@ export function ProjectTaskRunsDrawer({
           <div className="min-h-0 overflow-y-auto p-5">
             {selectedTask ? (
               <div className="space-y-4">
-                <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                <div className="rounded-3xl border border-codex-line bg-white p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-semibold text-slate-950">{selectedTask.goal || selectedTask.task_type}</h3>
+                        <h3 className="text-base font-semibold text-codex-ink">{selectedTask.goal || selectedTask.task_type}</h3>
                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(selectedTask.status)}`}>
                           {statusCopy(selectedTask.status, isZh)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-slate-500">
+                      <p className="mt-2 text-sm text-codex-ink-mute">
                         {selectedTask.task_type}
-                        <span className="mx-2 text-slate-300">·</span>
+                        <span className="mx-2 text-codex-ink-faint">·</span>
                         {formatTime(selectedTask.created_at)}
                       </p>
                       {selectedTaskNeedsConfirmation && typeof selectedTask.input?.confirmation_reason === "string" ? (
-                        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        <p className="mt-2 rounded-lg border border-codex-line bg-codex-bg-tint px-3 py-2 text-sm text-codex-warn">
                           {selectedTask.input.confirmation_reason}
                         </p>
                       ) : null}
-                      {selectedTask.error_message ? <p className="mt-2 text-sm text-rose-600">{selectedTask.error_message}</p> : null}
+                      {selectedTask.error_message ? <p className="mt-2 text-sm text-codex-bad">{selectedTask.error_message}</p> : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {selectedTask.status === "failed" ? (
@@ -298,7 +298,7 @@ export function ProjectTaskRunsDrawer({
                           type="button"
                           disabled={actionTaskId === selectedTask.id}
                           onClick={() => void retryTask(selectedTask)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-codex-accent px-3 py-2 text-sm font-medium text-white hover:bg-codex-accent disabled:opacity-60"
                         >
                           <RotateCcw className="h-4 w-4" />
                           {isZh ? "从失败处重试" : "Retry"}
@@ -309,7 +309,7 @@ export function ProjectTaskRunsDrawer({
                           type="button"
                           disabled={actionTaskId === selectedTask.id}
                           onClick={() => void pauseTask(selectedTask)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-codex-line bg-codex-bg-tint px-3 py-2 text-sm font-medium text-codex-warn hover:bg-codex-bg-tint disabled:opacity-60"
                         >
                           <Pause className="h-4 w-4" />
                           {isZh ? "暂停" : "Pause"}
@@ -320,7 +320,7 @@ export function ProjectTaskRunsDrawer({
                           type="button"
                           disabled={actionTaskId === selectedTask.id}
                           onClick={() => void resumeTask(selectedTask)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-codex-accent px-3 py-2 text-sm font-medium text-white hover:bg-codex-accent disabled:opacity-60"
                         >
                           <Play className="h-4 w-4" />
                           {selectedTaskNeedsConfirmation ? (isZh ? "确认并执行" : "Confirm and run") : (isZh ? "恢复" : "Resume")}
@@ -331,7 +331,7 @@ export function ProjectTaskRunsDrawer({
                           type="button"
                           disabled={actionTaskId === selectedTask.id}
                           onClick={() => void cancelTask(selectedTask)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-codex-line bg-codex-bg-tint px-3 py-2 text-sm font-medium text-codex-bad hover:bg-codex-bg-tint disabled:opacity-60"
                         >
                           <Square className="h-4 w-4" />
                           {isZh ? "取消任务" : "Cancel"}
@@ -342,7 +342,7 @@ export function ProjectTaskRunsDrawer({
                 </div>
 
                 <section className="space-y-2">
-                  <h4 className="text-sm font-semibold text-slate-700">{isZh ? "执行步骤" : "Steps"}</h4>
+                  <h4 className="text-sm font-semibold text-codex-ink-soft">{isZh ? "执行步骤" : "Steps"}</h4>
                   {(selectedTask.steps || []).map((step) => (
                     <StepRow key={step.id} step={step} events={selectedTask.events || []} isZh={isZh} />
                   ))}
@@ -350,7 +350,7 @@ export function ProjectTaskRunsDrawer({
 
                 {(selectedTask.artifacts || []).length ? (
                   <section className="space-y-2">
-                    <h4 className="text-sm font-semibold text-slate-700">{isZh ? "生成物" : "Artifacts"}</h4>
+                    <h4 className="text-sm font-semibold text-codex-ink-soft">{isZh ? "生成物" : "Artifacts"}</h4>
                     {(selectedTask.artifacts || [])
                       .map(artifactFromTaskRunArtifact)
                       .filter((artifact): artifact is GeneratedArtifact => Boolean(artifact))
@@ -367,20 +367,20 @@ export function ProjectTaskRunsDrawer({
                 ) : null}
 
                 <section className="space-y-2">
-                  <h4 className="text-sm font-semibold text-slate-700">{isZh ? "完整日志" : "Event log"}</h4>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <h4 className="text-sm font-semibold text-codex-ink-soft">{isZh ? "完整日志" : "Event log"}</h4>
+                  <div className="rounded-2xl border border-codex-line bg-white p-3">
                     {(selectedTask.events || []).length ? (
                       <div className="space-y-2">
                         {(selectedTask.events || []).map((event) => (
-                          <p key={event.id || `${event.created_at}-${event.event_type}`} className="text-xs leading-5 text-slate-500">
-                            <span className="text-slate-400">{formatTime(event.created_at)}</span>
-                            <span className="mx-1.5 text-slate-300">·</span>
+                          <p key={event.id || `${event.created_at}-${event.event_type}`} className="text-xs leading-5 text-codex-ink-mute">
+                            <span className="text-codex-ink-faint">{formatTime(event.created_at)}</span>
+                            <span className="mx-1.5 text-codex-ink-faint">·</span>
                             {eventText(event)}
                           </p>
                         ))}
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <div className="flex items-center gap-2 text-sm text-codex-ink-faint">
                         <FileText className="h-4 w-4" />
                         {isZh ? "暂无日志。" : "No logs yet."}
                       </div>
@@ -389,7 +389,7 @@ export function ProjectTaskRunsDrawer({
                 </section>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white text-sm text-slate-500">
+              <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-codex-line bg-white text-sm text-codex-ink-mute">
                 {isZh ? "选择一个任务查看详情。" : "Select a task to inspect."}
               </div>
             )}

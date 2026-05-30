@@ -51,24 +51,24 @@ export function ProjectTodoItem({
 
   return (
     <div
-      className={`group flex items-center gap-3 p-4 transition-colors hover:bg-gray-50 ${
-        todo.is_done ? 'bg-gray-50/50' : ''
+      className={`group flex items-center gap-3 p-4 transition-colors hover:bg-codex-bg-tint ${
+        todo.is_done ? 'bg-codex-bg-tint/50' : ''
       }`}
     >
-      <div className="shrink-0 text-gray-400">
+      <div className="shrink-0 text-codex-ink-faint">
         {isSaving ? (
           <Loader2 className="h-5 w-5 animate-spin" />
         ) : todo.is_done ? (
           <button
             onClick={() => onToggle(todo)}
-            className="text-gray-400 transition-colors hover:text-primary"
+            className="text-codex-ink-faint transition-colors hover:text-codex-accent"
           >
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            <CheckCircle2 className="h-5 w-5 text-codex-good" />
           </button>
         ) : (
           <button
             onClick={() => onToggle(todo)}
-            className="text-gray-400 transition-colors hover:text-primary"
+            className="text-codex-ink-faint transition-colors hover:text-codex-accent"
           >
             <Circle className="h-5 w-5" />
           </button>
@@ -91,12 +91,12 @@ export function ProjectTodoItem({
             />
             <div className="sm:w-40">
               <div className="relative">
-                <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-codex-ink-faint" />
                 <input
                   type="date"
                   value={editDueDate}
                   onChange={(event) => onChangeEditDueDate(event.target.value)}
-                  className="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-9 pr-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-md border border-codex-line bg-white py-1.5 pl-9 pr-3 text-sm text-codex-ink-soft focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
             </div>
@@ -111,7 +111,7 @@ export function ProjectTodoItem({
               <button
                 onClick={() => onSaveEdit(todo.id)}
                 disabled={isSaving}
-                className="rounded-md bg-primary p-1.5 text-white hover:bg-primary/90 disabled:opacity-50"
+                className="rounded-md bg-codex-accent p-1.5 text-white hover:bg-primary/90 disabled:opacity-50"
               >
                 {isSaving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -121,7 +121,7 @@ export function ProjectTodoItem({
               </button>
               <button
                 onClick={onCancelEdit}
-                className="rounded-md bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200"
+                className="rounded-md bg-codex-bg-tint p-1.5 text-codex-ink-soft hover:bg-codex-bg-tint"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -129,10 +129,10 @@ export function ProjectTodoItem({
           </div>
         ) : (
           <div className="flex flex-col gap-1">
-            <p className={`text-sm ${todo.is_done ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+            <p className={`text-sm ${todo.is_done ? 'text-codex-ink-faint line-through' : 'text-codex-ink'}`}>
               {todo.content}
             </p>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-codex-ink-mute">
               {todo.due_date && (
                 <div className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
@@ -141,7 +141,7 @@ export function ProjectTodoItem({
               )}
               {todo.assigned_user && (
                 <div className="flex items-center gap-1.5">
-                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-500">
+                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-codex-bg-tint text-xs text-codex-ink-mute">
                     {todo.assigned_user.display_name.charAt(0)}
                   </div>
                   <span>{todo.assigned_user.display_name}</span>
@@ -155,13 +155,13 @@ export function ProjectTodoItem({
       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           onClick={() => onStartEdit(todo)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          className="rounded-lg p-1.5 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
         >
           <Edit3 className="h-4 w-4" />
         </button>
         <button
           onClick={() => onDelete(todo)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+          className="rounded-lg p-1.5 text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-bad"
         >
           <Trash2 className="h-4 w-4" />
         </button>

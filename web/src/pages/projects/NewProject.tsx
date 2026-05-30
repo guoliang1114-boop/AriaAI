@@ -142,7 +142,7 @@ export function NewProject() {
   return (
     <>
       <PageTitle title={isZh ? '新建项目' : 'New Project'} />
-      <div className="min-h-full bg-surface">
+      <div className="min-h-full bg-codex-bg">
         <div className="max-w-2xl mx-auto px-6 py-8">
           <NewProjectHeader isZh={isZh} onBack={() => navigate('/projects')} />
 

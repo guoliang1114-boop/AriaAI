@@ -62,21 +62,21 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
       onClick={onClick}
       onMouseEnter={onPointerEnter}
       onPointerDown={onPointerDown}
-      className="group relative cursor-pointer overflow-hidden rounded-lg border border-gray-100 bg-white p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg"
+      className="group relative cursor-pointer overflow-hidden rounded-lg border border-codex-line-soft bg-white p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-codex-line hover:shadow-lg"
     >
       <div className={`absolute bottom-0 left-0 top-0 w-1 ${stage.lightColor}`} />
 
       <div className="pl-2.5">
         <div className="mb-1.5 min-w-0">
-          <div className="mb-1 text-[11px] font-semibold leading-4 text-gray-400">
+          <div className="mb-1 text-[11px] font-semibold leading-4 text-codex-ink-faint">
             {project.client}
           </div>
-          <h4 className="line-clamp-2 text-[13px] font-semibold leading-5 text-gray-900">
+          <h4 className="line-clamp-2 text-[13px] font-semibold leading-5 text-codex-ink">
             {project.name}
           </h4>
         </div>
 
-        <div className="mb-2.5 min-h-[18px] text-[11px] leading-4 text-gray-500">
+        <div className="mb-2.5 min-h-[18px] text-[11px] leading-4 text-codex-ink-mute">
           {summaryText ? (
             <p className="line-clamp-1">{summaryText}</p>
           ) : (
@@ -84,7 +84,7 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-50 pt-2.5">
+        <div className="flex items-center justify-between border-t border-codex-line-soft pt-2.5">
           <span
             className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${stage.bgColor} ${stage.color}`}
           >
@@ -93,12 +93,12 @@ export function ProjectKanbanCard({ onClick, onPointerEnter, onPointerDown, proj
           </span>
 
           {project.contract_amount ? (
-            <span className="text-[11px] font-semibold text-gray-800">
+            <span className="text-[11px] font-semibold text-codex-ink-soft">
               CNY {formatAmountInTenThousand(project.contract_amount)}
               {isZh ? "万" : "K"}
             </span>
           ) : (
-            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-600">
+            <span className="rounded-full bg-codex-bg-tint px-1.5 py-0.5 text-[11px] font-medium text-codex-warn">
               {isZh ? "待报价" : "Quote Pending"}
             </span>
           )}
