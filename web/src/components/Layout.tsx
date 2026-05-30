@@ -263,10 +263,10 @@ export function Layout() {
               </nav>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate('/messages')}
-                className="relative flex h-7 w-7 items-center justify-center transition-colors"
+                className="relative flex h-8 w-8 items-center justify-center transition-colors"
                 style={{
                   color: 'var(--color-codex-ink-soft)',
                   borderRadius: 'var(--codex-r-sm, 3px)',
@@ -281,7 +281,7 @@ export function Layout() {
                 }}
                 title="Messages"
               >
-                <Bell className="h-3.5 w-3.5" />
+                <Bell className="h-[15px] w-[15px]" />
                 {unreadCount > 0 ? (
                   <span
                     className="absolute -right-0.5 -top-0.5 font-mono"
@@ -318,7 +318,7 @@ export function Layout() {
                       className="block text-center font-semibold leading-none"
                       data-testid="user-initials"
                       style={{
-                        fontSize: 11,
+                        fontSize: 12,
                         lineHeight: 1,
                         transform: `scale(${initialsScale})`,
                         transformOrigin: 'center',
