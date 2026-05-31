@@ -7,7 +7,8 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, BackgroundTasks, Query
+from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
 from app.config import UPLOADS_DIR
@@ -19,6 +20,44 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 KB_UPLOADS = UPLOADS_DIR / "knowledge"
 KB_UPLOADS.mkdir(parents=True, exist_ok=True)
+
+
+class KnowledgeCategoryCount(BaseModel):
+    category: str
+    count: int
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    items: list[KnowledgeDocument]
+    total: int
+    limit: int
+    offset: int
+    categories: list[KnowledgeCategoryCount]
+    recent: list[KnowledgeDocument]
+    indexed_count: int
+    total_size: int = 0
+
+
+def _knowledge_scope_filters(project_id: Optional[int], client_id: Optional[int]):
+    filters = []
+    if project_id is not None:
+        filters.append(KnowledgeDocument.project_id == project_id)
+    elif client_id is not None:
+        filters.append(KnowledgeDocument.client_id == client_id)
+    return filters
+
+
+def _knowledge_search_filter(search: str):
+    keyword = search.strip()
+    if not keyword:
+        return None
+    pattern = f"%{keyword}%"
+    return (
+        KnowledgeDocument.name.ilike(pattern)
+        | KnowledgeDocument.file_type.ilike(pattern)
+        | KnowledgeDocument.category.ilike(pattern)
+        | KnowledgeDocument.path.ilike(pattern)
+    )
 
 
 @router.get("/documents")
@@ -33,6 +72,66 @@ def list_documents(
     elif client_id is not None:
         stmt = stmt.where(KnowledgeDocument.client_id == client_id)
     return session.exec(stmt).all()
+
+
+@router.get("/documents/list", response_model=KnowledgeDocumentListResponse)
+def list_documents_paginated(
+    project_id: Optional[int] = None,
+    client_id: Optional[int] = None,
+    search: str = "",
+    category: str = "all",
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    scope_filters = _knowledge_scope_filters(project_id, client_id)
+    search_filter = _knowledge_search_filter(search)
+
+    stmt = select(KnowledgeDocument)
+    count_stmt = select(func.count(KnowledgeDocument.id))
+    for condition in scope_filters:
+        stmt = stmt.where(condition)
+        count_stmt = count_stmt.where(condition)
+    if search_filter is not None:
+        stmt = stmt.where(search_filter)
+        count_stmt = count_stmt.where(search_filter)
+    if category and category != "all":
+        stmt = stmt.where(KnowledgeDocument.category == category)
+        count_stmt = count_stmt.where(KnowledgeDocument.category == category)
+
+    total = session.exec(count_stmt).one()
+    items = session.exec(
+        stmt.order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    category_stmt = (
+        select(KnowledgeDocument.category, func.count(KnowledgeDocument.id))
+        .group_by(KnowledgeDocument.category)
+        .order_by(func.count(KnowledgeDocument.id).desc())
+    )
+    indexed_stmt = select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.vector_status == "synced")
+    recent_stmt = select(KnowledgeDocument).order_by(KnowledgeDocument.uploaded_at.desc(), KnowledgeDocument.id.desc()).limit(5)
+    for condition in scope_filters:
+        category_stmt = category_stmt.where(condition)
+        indexed_stmt = indexed_stmt.where(condition)
+        recent_stmt = recent_stmt.where(condition)
+
+    categories = [
+        KnowledgeCategoryCount(category=(row[0] or "uncategorized"), count=row[1])
+        for row in session.exec(category_stmt).all()
+    ]
+    return KnowledgeDocumentListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        categories=categories,
+        recent=session.exec(recent_stmt).all(),
+        indexed_count=session.exec(indexed_stmt).one(),
+        total_size=0,
+    )
 
 
 @router.post("/documents", status_code=201)

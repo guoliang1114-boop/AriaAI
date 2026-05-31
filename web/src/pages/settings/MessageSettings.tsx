@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell, CheckCircle2, Loader2, Megaphone, RefreshCw, Send } from 'lucide-react'
 import { api } from '../../api/client'
@@ -12,6 +12,15 @@ interface MessageFormData {
   level: 'info' | 'success' | 'warning' | 'error'
   link: string
   is_published: boolean
+}
+
+interface MessageAdminListResponse {
+  items: SystemMessageAdminItem[]
+  total: number
+  limit: number
+  offset: number
+  published_count: number
+  total_read_count: number
 }
 
 const defaultFormData: MessageFormData = {
@@ -28,6 +37,9 @@ export function MessageSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
   const [messages, setMessages] = useState<SystemMessageAdminItem[]>([])
+  const [messageTotal, setMessageTotal] = useState(0)
+  const [publishedCount, setPublishedCount] = useState(0)
+  const [totalReadCount, setTotalReadCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -36,12 +48,21 @@ export function MessageSettings() {
   const [messagePage, setMessagePage] = useState(1)
   const [messagePageSize, setMessagePageSize] = useState(MESSAGES_PAGE_SIZE)
 
-  const loadMessages = async () => {
+  const loadMessages = async (options: { page?: number } = {}) => {
     try {
       setLoading(true)
       setError('')
-      const result = await api.get<SystemMessageAdminItem[]>('/messages/admin')
-      setMessages(result)
+      const page = options.page ?? messagePage
+      const result = await api.get<MessageAdminListResponse>('/messages/admin/list', {
+        params: {
+          limit: messagePageSize,
+          offset: (page - 1) * messagePageSize,
+        },
+      })
+      setMessages(result.items)
+      setMessageTotal(result.total)
+      setPublishedCount(result.published_count)
+      setTotalReadCount(result.total_read_count)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load messages')
     } finally {
@@ -51,7 +72,7 @@ export function MessageSettings() {
 
   useEffect(() => {
     void loadMessages()
-  }, [])
+  }, [messagePage, messagePageSize])
 
   const handleCreate = async () => {
     if (!formData.title.trim() || !formData.content.trim()) {
@@ -63,10 +84,10 @@ export function MessageSettings() {
       setSubmitting(true)
       setError('')
       setSuccess('')
-      const created = await api.post<SystemMessageAdminItem>('/messages/admin', formData)
-      setMessages((current) => [created, ...current])
+      await api.post<SystemMessageAdminItem>('/messages/admin', formData)
       setFormData(defaultFormData)
       setMessagePage(1)
+      await loadMessages({ page: 1 })
       setSuccess(isZh ? '消息已发布。' : 'Message published.')
       window.dispatchEvent(new Event('messages:updated'))
     } catch (err: any) {
@@ -76,16 +97,8 @@ export function MessageSettings() {
     }
   }
 
-  const totalRead = useMemo(
-    () => messages.reduce((sum, message) => sum + message.read_count, 0),
-    [messages],
-  )
-  const messagePageCount = Math.max(1, Math.ceil(messages.length / messagePageSize))
+  const messagePageCount = Math.max(1, Math.ceil(messageTotal / messagePageSize))
   const currentMessagePage = Math.min(messagePage, messagePageCount)
-  const paginatedMessages = useMemo(() => {
-    const start = (currentMessagePage - 1) * messagePageSize
-    return messages.slice(start, start + messagePageSize)
-  }, [currentMessagePage, messagePageSize, messages])
 
   useEffect(() => {
     setMessagePage((current) => Math.min(current, messagePageCount))
@@ -368,12 +381,12 @@ export function MessageSettings() {
           {/* Stat cards */}
           <div className="grid gap-3 sm:grid-cols-3">
             {[
-              { label: isZh ? '消息总数' : 'Messages', value: messages.length },
+              { label: isZh ? '消息总数' : 'Messages', value: messageTotal },
               {
                 label: isZh ? '已发布' : 'Published',
-                value: messages.filter((message) => message.is_published).length,
+                value: publishedCount,
               },
-              { label: isZh ? '累计已读' : 'Total reads', value: totalRead },
+              { label: isZh ? '累计已读' : 'Total reads', value: totalReadCount },
             ].map((stat) => (
               <div
                 key={stat.label}
@@ -445,7 +458,7 @@ export function MessageSettings() {
               </div>
             ) : (
               <div className="space-y-3">
-                {paginatedMessages.map((message) => (
+                {messages.map((message) => (
                   <div
                     key={message.id}
                     style={{
@@ -536,20 +549,21 @@ export function MessageSettings() {
                     </div>
                   </div>
                 ))}
-                {messages.length > 0 ? (
+                {messageTotal > 0 ? (
                   <CxPagination
                     page={currentMessagePage}
                     pageSize={messagePageSize}
-                    totalItems={messages.length}
+                    totalItems={messageTotal}
                     onPageChange={setMessagePage}
                     onPageSizeChange={(nextPageSize) => {
                       setMessagePageSize(nextPageSize)
                       setMessagePage(1)
                     }}
                     isZh={isZh}
+                    pageSizeOptions={[10, 20, 50]}
                   />
                 ) : null}
-                {messages.length === 0 ? (
+                {messageTotal === 0 ? (
                   <div
                     className="text-center"
                     style={{

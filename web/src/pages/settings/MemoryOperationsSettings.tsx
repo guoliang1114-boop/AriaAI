@@ -37,8 +37,8 @@ type FailureCategory = 'all' | 'budget' | 'rate_limit' | 'timeout' | 'database' 
 type AttentionFilter = 'all' | 'manual'
 
 const MEMORY_JOBS_PAGE_SIZE = 10
-const MEMORY_SUCCESSES_PAGE_SIZE = 8
-const MEMORY_FAILURES_PAGE_SIZE = 8
+const MEMORY_SUCCESSES_PAGE_SIZE = 10
+const MEMORY_FAILURES_PAGE_SIZE = 10
 
 type BudgetInfo = {
   used: number
@@ -287,6 +287,9 @@ export function MemoryOperationsSettings() {
   const [operationsSummary, setOperationsSummary] = useState<MemoryOperationsSummaryResponse | null>(null)
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
   const [recentSuccesses, setRecentSuccesses] = useState<SuccessItem[]>([])
+  const [jobsTotal, setJobsTotal] = useState(0)
+  const [successTotal, setSuccessTotal] = useState(0)
+  const [failureTotal, setFailureTotal] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [jobsPage, setJobsPage] = useState(1)
   const [jobsPageSize, setJobsPageSize] = useState(MEMORY_JOBS_PAGE_SIZE)
@@ -317,30 +320,31 @@ export function MemoryOperationsSettings() {
   const loadJobs = async (silent = false) => {
     try {
       if (!silent) setLoading(true)
-      const [projectData, clientData, summaryData] = await Promise.all([
-        api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs'),
-        api.get<ClientMemoryJobsResponse>('/clients/memory/jobs'),
-        api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary').catch(() => null),
-      ])
+      const summaryData = await api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
+        params: {
+          search: searchQuery.trim(),
+          scope: scopeFilter,
+          job_type: jobTypeFilter,
+          retry: retryFilter,
+          failure_category: failureCategoryFilter,
+          attention: attentionFilter,
+          jobs_limit: jobsPageSize,
+          jobs_offset: (jobsPage - 1) * jobsPageSize,
+          success_limit: successPageSize,
+          success_offset: (successPage - 1) * successPageSize,
+          failure_limit: failurePageSize,
+          failure_offset: (failurePage - 1) * failurePageSize,
+        },
+      })
       setOperationsSummary(summaryData)
-      setJobs([
-        ...(projectData.jobs || []).map((job) => ({ ...job, scope: 'project' as const })),
-        ...(clientData.jobs || []).map((job) => ({ ...job, scope: 'client' as const })),
-      ])
-      setProjectBudget(projectData.budget ?? null)
-      setClientBudget(clientData.budget ?? null)
-      setRecentFailures(
-        [
-          ...((projectData.recent_failures as FailureItem[] | undefined) ?? []),
-          ...((clientData.recent_failures as FailureItem[] | undefined) ?? []),
-        ].sort((a, b) => (b.failed_at || '').localeCompare(a.failed_at || '')),
-      )
-      setRecentSuccesses(
-        [
-          ...((projectData.recent_successes as SuccessItem[] | undefined) ?? []),
-          ...((clientData.recent_successes as SuccessItem[] | undefined) ?? []),
-        ].sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')),
-      )
+      setJobs((summaryData.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
+      setProjectBudget(summaryData.budget.project ?? null)
+      setClientBudget(summaryData.budget.client ?? null)
+      setRecentFailures(((summaryData.pages?.failures?.items ?? []) as FailureItem[]))
+      setRecentSuccesses(((summaryData.pages?.successes?.items ?? []) as SuccessItem[]))
+      setJobsTotal(summaryData.pages?.jobs?.total ?? 0)
+      setFailureTotal(summaryData.pages?.failures?.total ?? 0)
+      setSuccessTotal(summaryData.pages?.successes?.total ?? 0)
     } catch (error) {
       console.error('Failed to load memory operations:', error)
       toast.error(isZh ? '加载记忆任务中心失败' : 'Failed to load memory operations')
@@ -355,7 +359,20 @@ export function MemoryOperationsSettings() {
       void loadJobs(true)
     }, 10000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [
+    attentionFilter,
+    failureCategoryFilter,
+    failurePage,
+    failurePageSize,
+    jobTypeFilter,
+    jobsPage,
+    jobsPageSize,
+    retryFilter,
+    scopeFilter,
+    searchQuery,
+    successPage,
+    successPageSize,
+  ])
 
   const grouped = useMemo(
     () => ({
@@ -563,24 +580,15 @@ export function MemoryOperationsSettings() {
     () => filteredFailures.filter((failure) => !dismissedKeys.has(getFailureKey(failure))),
     [dismissedKeys, filteredFailures],
   )
-  const jobsPageCount = Math.max(1, Math.ceil(filteredJobs.length / jobsPageSize))
+  const jobsPageCount = Math.max(1, Math.ceil(jobsTotal / jobsPageSize))
   const currentJobsPage = Math.min(jobsPage, jobsPageCount)
-  const paginatedJobs = useMemo(() => {
-    const start = (currentJobsPage - 1) * jobsPageSize
-    return filteredJobs.slice(start, start + jobsPageSize)
-  }, [currentJobsPage, filteredJobs, jobsPageSize])
-  const successPageCount = Math.max(1, Math.ceil(filteredSuccesses.length / successPageSize))
+  const paginatedJobs = filteredJobs
+  const successPageCount = Math.max(1, Math.ceil(successTotal / successPageSize))
   const currentSuccessPage = Math.min(successPage, successPageCount)
-  const paginatedSuccesses = useMemo(() => {
-    const start = (currentSuccessPage - 1) * successPageSize
-    return filteredSuccesses.slice(start, start + successPageSize)
-  }, [currentSuccessPage, filteredSuccesses, successPageSize])
-  const failurePageCount = Math.max(1, Math.ceil(visibleFailures.length / failurePageSize))
+  const paginatedSuccesses = filteredSuccesses
+  const failurePageCount = Math.max(1, Math.ceil(failureTotal / failurePageSize))
   const currentFailurePage = Math.min(failurePage, failurePageCount)
-  const paginatedFailures = useMemo(() => {
-    const start = (currentFailurePage - 1) * failurePageSize
-    return visibleFailures.slice(start, start + failurePageSize)
-  }, [currentFailurePage, failurePageSize, visibleFailures])
+  const paginatedFailures = visibleFailures
 
   useEffect(() => {
     setJobsPage(1)
@@ -1584,11 +1592,11 @@ export function MemoryOperationsSettings() {
           {!showFailuresOnly ? (
             <>
               <div className="space-y-3">{paginatedJobs.map(renderJobCard)}</div>
-              {filteredJobs.length > 0 ? (
+              {jobsTotal > 0 ? (
                 <CxPagination
                   page={currentJobsPage}
                   pageSize={jobsPageSize}
-                  totalItems={filteredJobs.length}
+                  totalItems={jobsTotal}
                   onPageChange={setJobsPage}
                   onPageSizeChange={(nextPageSize) => {
                     setJobsPageSize(nextPageSize)
@@ -1601,7 +1609,7 @@ export function MemoryOperationsSettings() {
             </>
           ) : null}
 
-          {!showFailuresOnly && filteredSuccesses.length > 0 ? (
+          {!showFailuresOnly && successTotal > 0 ? (
             <div
               style={{
                 padding: 16,
@@ -1621,20 +1629,20 @@ export function MemoryOperationsSettings() {
               <CxPagination
                 page={currentSuccessPage}
                 pageSize={successPageSize}
-                totalItems={filteredSuccesses.length}
+                totalItems={successTotal}
                 onPageChange={setSuccessPage}
                 onPageSizeChange={(nextPageSize) => {
                   setSuccessPageSize(nextPageSize)
                   setSuccessPage(1)
                 }}
-                pageSizeOptions={[8, 16, 32]}
+                pageSizeOptions={[10, 20, 50]}
                 isZh={isZh}
                 style={{ marginTop: 12 }}
               />
             </div>
           ) : null}
 
-          {visibleFailures.length > 0 ? (
+          {failureTotal > 0 ? (
             <div
               style={{
                 padding: 16,
@@ -1654,7 +1662,7 @@ export function MemoryOperationsSettings() {
                     className="font-mono"
                     style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-codex-ink-mute)' }}
                   >
-                    ({visibleFailures.length})
+                    ({failureTotal})
                   </span>
                 </div>
                 <button
@@ -1882,13 +1890,13 @@ export function MemoryOperationsSettings() {
               <CxPagination
                 page={currentFailurePage}
                 pageSize={failurePageSize}
-                totalItems={visibleFailures.length}
+                totalItems={failureTotal}
                 onPageChange={setFailurePage}
                 onPageSizeChange={(nextPageSize) => {
                   setFailurePageSize(nextPageSize)
                   setFailurePage(1)
                 }}
-                pageSizeOptions={[8, 16, 32]}
+                pageSizeOptions={[10, 20, 50]}
                 isZh={isZh}
                 style={{ marginTop: 12 }}
               />

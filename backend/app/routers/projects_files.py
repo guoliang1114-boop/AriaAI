@@ -6,8 +6,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 # UPLOADS_DIR imported below via projects_deps
@@ -72,11 +73,58 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["projects"])
 
 
+class ProjectFileListResponse(BaseModel):
+    items: list[ProjectFile]
+    total: int
+    limit: int
+    offset: int
+    source_counts: dict[str, int]
+    recent: list[ProjectFile]
+
+
+def _project_file_origin(file: ProjectFile) -> str:
+    origin = (file.origin or "").lower()
+    if "knowledge" in origin or "kb" in origin:
+        return "knowledge"
+    if "skill" in origin:
+        return "skill"
+    if "auto" in origin or "memory" in origin or "generated" in origin:
+        return "auto"
+    return "manual"
+
+
 # ── Files ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/files")
 def list_files(project_id: int, session: Session = Depends(get_session)):
     return list_project_files(session, project_id)
+
+
+@router.get("/{project_id}/files/list", response_model=ProjectFileListResponse)
+def list_files_paginated(
+    project_id: int,
+    origin: str = "all",
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    files = sorted(
+        list_project_files(session, project_id),
+        key=lambda item: item.uploaded_at,
+        reverse=True,
+    )
+    source_counts = {"manual": 0, "knowledge": 0, "skill": 0, "auto": 0}
+    for file in files:
+        source_counts[_project_file_origin(file)] += 1
+    filtered = files if origin == "all" else [file for file in files if _project_file_origin(file) == origin]
+    return ProjectFileListResponse(
+        items=filtered[offset : offset + limit],
+        total=len(filtered),
+        limit=limit,
+        offset=offset,
+        source_counts=source_counts,
+        recent=files[:3],
+    )
 
 
 @router.get("/{project_id}/files/trash")

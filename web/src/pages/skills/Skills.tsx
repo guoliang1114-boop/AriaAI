@@ -39,7 +39,7 @@ type SkillCategory = {
   count: number;
 };
 
-const SKILLS_PAGE_SIZE = 12;
+const SKILLS_PAGE_SIZE = 10;
 
 const extractMinutes = (estimatedTime?: string) => {
   if (!estimatedTime) return 0;
@@ -394,19 +394,69 @@ const buildCategories = (skills: SkillSummary[], allLabel: string, isZh: boolean
   return [{ id: "all", label: allLabel, count: skills.length }, ...sorted];
 };
 
-function useSkillsData(allLabel: string, isZh: boolean) {
+interface SkillCategoryCount {
+  id: string;
+  count: number;
+}
+
+interface SkillSummaryListResponse {
+  items: SkillSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  categories: SkillCategoryCount[];
+}
+
+const buildCategoriesFromCounts = (counts: SkillCategoryCount[], allLabel: string, isZh: boolean) => {
+  const sorted = counts
+    .filter((item) => item.count > 0)
+    .map((item) => ({
+      id: item.id,
+      label: getCategoryLabel(item.id, isZh),
+      count: item.count,
+    }))
+    .sort((a, b) => {
+      const aOrder = categoryOrder.indexOf(getCategoryKey(a.id));
+      const bOrder = categoryOrder.indexOf(getCategoryKey(b.id));
+      const safeAOrder = aOrder === -1 ? categoryOrder.length : aOrder;
+      const safeBOrder = bOrder === -1 ? categoryOrder.length : bOrder;
+      if (safeAOrder !== safeBOrder) return safeAOrder - safeBOrder;
+      return b.count - a.count;
+    });
+  const total = sorted.reduce((sum, item) => sum + item.count, 0);
+  return [{ id: "all", label: allLabel, count: total }, ...sorted];
+};
+
+function useSkillsData(
+  allLabel: string,
+  isZh: boolean,
+  categoryKeys: string[],
+  page: number,
+  pageSize: number,
+) {
   const [loading, setLoading] = useState(true);
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [total, setTotal] = useState(0);
+  const [categoryCounts, setCategoryCounts] = useState<SkillCategoryCount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const categoryKeyParam = categoryKeys.join(",");
 
   useEffect(() => {
     const fetchSkills = async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await api.get<SkillSummary[]>("/skills/meta/summary");
-        setSkills(data);
+        const data = await api.get<SkillSummaryListResponse>("/skills/meta/list", {
+          params: {
+            category_keys: categoryKeyParam,
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+          },
+        });
+        setSkills(data.items);
+        setTotal(data.total);
+        setCategoryCounts(data.categories);
       } catch (err) {
         console.error("Failed to fetch skills:", err);
         const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -417,11 +467,11 @@ function useSkillsData(allLabel: string, isZh: boolean) {
     };
 
     void fetchSkills();
-  }, [reloadKey]);
+  }, [categoryKeyParam, page, pageSize, reloadKey]);
 
-  const categories = useMemo(() => buildCategories(skills, allLabel, isZh), [allLabel, isZh, skills]);
+  const categories = useMemo(() => buildCategoriesFromCounts(categoryCounts, allLabel, isZh), [allLabel, categoryCounts, isZh]);
 
-  return { categories, loading, skills, error, reload: () => setReloadKey((k) => k + 1) };
+  return { categories, loading, skills, total, error, reload: () => setReloadKey((k) => k + 1) };
 }
 
 function useSkillDetail(skillId?: string) {
@@ -487,7 +537,6 @@ export function Skills() {
   const { i18n, t } = useTranslation();
   const isZh = i18n.language.startsWith("zh");
   const navigate = useNavigate();
-  const { categories, loading, skills, error, reload } = useSkillsData(t("skills.categories.all"), isZh);
 
   // Selection token. ``all`` shows every line + every sub-category;
   // ``line:<id>`` filters to one practice line; ``cat:<id>`` filters
@@ -495,6 +544,26 @@ export function Skills() {
   const [selection, setSelection] = useState<string>("all");
   const [skillPage, setSkillPage] = useState(1);
   const [skillPageSize, setSkillPageSize] = useState(SKILLS_PAGE_SIZE);
+  const selectedCategoryKeys = useMemo(() => {
+    if (selection === "all") return [];
+    if (selection.startsWith("line:")) {
+      const lineId = selection.slice("line:".length);
+      return (PRACTICE_LINE_GROUPS[lineId] ?? []).flatMap((group) => group.categoryIds);
+    }
+    if (selection.startsWith("cat:")) return [selection.slice("cat:".length)];
+    return [];
+  }, [selection]);
+  const { categories, loading, skills, total: skillTotal, error, reload } = useSkillsData(
+    t("skills.categories.all"),
+    isZh,
+    selectedCategoryKeys,
+    skillPage,
+    skillPageSize,
+  );
+  useEffect(() => {
+    const nextPageCount = Math.max(1, Math.ceil(skillTotal / skillPageSize));
+    setSkillPage((current) => Math.min(current, nextPageCount));
+  }, [skillPageSize, skillTotal]);
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
   if (error) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;
@@ -513,6 +582,7 @@ export function Skills() {
     if (!skillsByCategoryKey.has(key)) skillsByCategoryKey.set(key, []);
     skillsByCategoryKey.get(key)!.push(skill);
   }
+  const categoryCountMap = new Map(categories.map((cat) => [cat.id, cat.count]));
 
   // Materialize the 2-level sidebar tree. For each practice line we
   // walk ``PRACTICE_LINE_GROUPS`` (the design's grouping table), then
@@ -535,7 +605,7 @@ export function Skills() {
     for (const group of groups) {
       let count = 0;
       for (const catId of group.categoryIds) {
-        count += skillsByCategoryKey.get(catId)?.length ?? 0;
+        count += categoryCountMap.get(catId) ?? 0;
       }
       lineTotal += count;
       if (count > 0) {
@@ -609,24 +679,15 @@ export function Skills() {
     },
     items: skillsByCategoryKey.get(key) ?? [],
   }));
-  const visibleSkillEntries = visibleGroups.flatMap((group) =>
-    group.items.map((skill) => ({ cat: group.cat, skill })),
-  );
-  const skillPageCount = Math.max(1, Math.ceil(visibleSkillEntries.length / skillPageSize));
+  const skillPageCount = Math.max(1, Math.ceil(skillTotal / skillPageSize));
   const currentSkillPage = Math.min(skillPage, skillPageCount);
-  const paginatedSkillEntries = visibleSkillEntries.slice(
-    (currentSkillPage - 1) * skillPageSize,
-    currentSkillPage * skillPageSize,
-  );
   const paginatedVisibleGroups = visibleGroups
     .map((group) => ({
       cat: group.cat,
-      items: paginatedSkillEntries
-        .filter((entry) => entry.cat.id === group.cat.id)
-        .map((entry) => entry.skill),
-      totalCount: group.items.length,
+      items: group.items,
+      totalCount: categoryCountMap.get(group.cat.id) ?? group.items.length,
     }))
-    .filter((group) => group.items.length > 0 || visibleSkillEntries.length === 0);
+    .filter((group) => group.items.length > 0 || skillTotal === 0);
 
   const selectSkillScope = (token: string) => {
     setSelection(token);
@@ -1009,13 +1070,13 @@ export function Skills() {
           <CxPagination
             page={currentSkillPage}
             pageSize={skillPageSize}
-            totalItems={visibleSkillEntries.length}
+            totalItems={skillTotal}
             onPageChange={setSkillPage}
             onPageSizeChange={(nextPageSize) => {
               setSkillPageSize(nextPageSize);
               setSkillPage(1);
             }}
-            pageSizeOptions={[12, 24, 48, 96]}
+            pageSizeOptions={[10, 20, 50]}
             isZh={isZh}
           />
         </div>

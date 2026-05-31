@@ -5,6 +5,15 @@ import { MessageSettings } from './MessageSettings'
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 
+const wrapMessages = (items: any[]) => ({
+  items,
+  total: items.length,
+  limit: 10,
+  offset: 0,
+  published_count: items.filter((item) => item.is_published).length,
+  total_read_count: items.reduce((sum, item) => sum + (item.read_count || 0), 0),
+})
+
 vi.mock('../../api/client', () => ({
   api: {
     get: (...args: any[]) => mockGet(...args),
@@ -29,9 +38,9 @@ describe('MessageSettings', () => {
   })
 
   it('renders messages after loading', async () => {
-    mockGet.mockResolvedValue([
+    mockGet.mockResolvedValue(wrapMessages([
       { id: 1, title: '通知1', content: '内容1', level: 'info', is_published: true, read_count: 5, created_at: '2025-01-01T00:00:00Z' },
-    ])
+    ]))
     render(<MessageSettings />)
     await waitFor(() => {
       expect(screen.getByText('通知1')).toBeInTheDocument()
@@ -40,7 +49,7 @@ describe('MessageSettings', () => {
   })
 
   it('shows empty state when no messages', async () => {
-    mockGet.mockResolvedValue([])
+    mockGet.mockResolvedValue(wrapMessages([]))
     render(<MessageSettings />)
     await waitFor(() => {
       expect(screen.getByText(/还没有发布过系统消息/)).toBeInTheDocument()
@@ -48,7 +57,7 @@ describe('MessageSettings', () => {
   })
 
   it('shows validation error when submitting empty form', async () => {
-    mockGet.mockResolvedValue([])
+    mockGet.mockResolvedValue(wrapMessages([]))
     render(<MessageSettings />)
     await waitFor(() => screen.getByText(/发布消息/))
     fireEvent.click(screen.getByRole('button', { name: /发布消息/ }))
@@ -58,7 +67,7 @@ describe('MessageSettings', () => {
   })
 
   it('submits message form successfully', async () => {
-    mockGet.mockResolvedValue([])
+    mockGet.mockResolvedValue(wrapMessages([]))
     mockPost.mockResolvedValue({ id: 1, title: '新通知', content: '新内容', level: 'info', is_published: true, read_count: 0, created_at: '2025-01-01T00:00:00Z' })
     render(<MessageSettings />)
     await waitFor(() => screen.getByPlaceholderText(/本周系统维护安排/))

@@ -11,10 +11,26 @@ import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
 
 const DOC_GRID = '54px minmax(260px,1fr) 92px 82px 74px'
 const DOC_TABLE_MIN_WIDTH = 760
-const DOC_PAGE_SIZE = 20
+const DOC_PAGE_SIZE = 10
 
 const CATEGORY_ORDER = ['all', 'research', 'interview', 'technical', 'methodology', 'weekly', 'general', 'consulting', 'templates']
 const UPLOAD_CATEGORIES = ['general', 'research', 'consulting', 'templates']
+
+interface KnowledgeCategoryCount {
+  category: string
+  count: number
+}
+
+interface KnowledgeDocumentListResponse {
+  items: KnowledgeDocument[]
+  total: number
+  limit: number
+  offset: number
+  categories: KnowledgeCategoryCount[]
+  recent: KnowledgeDocument[]
+  indexed_count: number
+  total_size: number
+}
 
 function isZhLanguage(language?: string) {
   return !language || language.startsWith('zh')
@@ -107,6 +123,11 @@ export function Knowledge() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
+  const [documentTotal, setDocumentTotal] = useState(0)
+  const [categoryCounts, setCategoryCounts] = useState<KnowledgeCategoryCount[]>([])
+  const [recentDocuments, setRecentDocuments] = useState<KnowledgeDocument[]>([])
+  const [indexedCount, setIndexedCount] = useState(0)
+  const [totalSize, setTotalSize] = useState(0)
   const [stats, setStats] = useState<KnowledgeStats>({ document_count: 0, total_vectors: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -125,13 +146,25 @@ export function Knowledge() {
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (silent) setRefreshing(true)
     else setLoading(true)
-    setError(null)
+      setError(null)
     try {
       const [docsData, statsData] = await Promise.all([
-        api.get<KnowledgeDocument[]>('/knowledge/documents'),
+        api.get<KnowledgeDocumentListResponse>('/knowledge/documents/list', {
+          params: {
+            search: searchQuery.trim(),
+            category: selectedCategory,
+            limit: documentPageSize,
+            offset: (documentPage - 1) * documentPageSize,
+          },
+        }),
         api.get<KnowledgeStats>('/knowledge/stats'),
       ])
-      setDocuments([...docsData].sort(sortDocuments))
+      setDocuments(docsData.items)
+      setDocumentTotal(docsData.total)
+      setCategoryCounts(docsData.categories)
+      setRecentDocuments(docsData.recent)
+      setIndexedCount(docsData.indexed_count)
+      setTotalSize(docsData.total_size)
       setStats(statsData)
     } catch (err) {
       console.error('Failed to fetch knowledge data:', err)
@@ -144,30 +177,17 @@ export function Knowledge() {
 
   useEffect(() => {
     void fetchData()
-  }, [])
+  }, [documentPage, documentPageSize, searchQuery, selectedCategory])
 
   const categories = useMemo(() => {
-    const present = new Set(documents.map((doc) => normalizeCategory(doc.category)))
+    const present = new Set(categoryCounts.map((item) => normalizeCategory(item.category)))
     const ordered = CATEGORY_ORDER.filter((category) => category === 'all' || present.has(category))
     const extra = [...present].filter((category) => !ordered.includes(category)).sort()
     return [...ordered, ...extra]
-  }, [documents])
+  }, [categoryCounts])
 
-  const filteredDocuments = useMemo(
-    () =>
-      documents.filter((doc) => {
-        if (!docMatches(doc, searchQuery)) return false
-        if (selectedCategory === 'all') return true
-        return normalizeCategory(doc.category) === selectedCategory
-      }),
-    [documents, searchQuery, selectedCategory],
-  )
-  const documentPageCount = Math.max(1, Math.ceil(filteredDocuments.length / documentPageSize))
+  const documentPageCount = Math.max(1, Math.ceil(documentTotal / documentPageSize))
   const currentDocumentPage = Math.min(documentPage, documentPageCount)
-  const paginatedDocuments = useMemo(() => {
-    const start = (currentDocumentPage - 1) * documentPageSize
-    return filteredDocuments.slice(start, start + documentPageSize)
-  }, [currentDocumentPage, documentPageSize, filteredDocuments])
 
   useEffect(() => {
     setDocumentPage(1)
@@ -178,19 +198,13 @@ export function Knowledge() {
   }, [documentPageCount])
 
   const distribution = useMemo(() => {
-    const counts = new Map<string, number>()
-    documents.forEach((doc) => {
-      const category = normalizeCategory(doc.category)
-      counts.set(category, (counts.get(category) || 0) + 1)
-    })
-    return [...counts.entries()]
+    return categoryCounts
+      .map((item) => [normalizeCategory(item.category), item.count] as [string, number])
       .sort((left, right) => right[1] - left[1])
       .slice(0, 6)
-  }, [documents])
+  }, [categoryCounts])
 
-  const indexedCount = documents.filter((doc) => doc.vector_status === 'synced').length
-  const totalSize = documents.reduce((sum, doc) => sum + (doc.size_bytes || 0), 0)
-  const latestDoc = documents[0]
+  const latestDoc = recentDocuments[0]
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -270,8 +284,8 @@ export function Knowledge() {
                 </h1>
                 <p style={{ margin: '8px 0 0', fontSize: 13.5, color: 'var(--color-codex-ink-mute)' }}>
                   {isZh
-                    ? `${stats.document_count || documents.length} 份文档 · ${formatFileSize(totalSize)} 已索引 · ${latestDoc ? formatRelativeTime(latestDoc.uploaded_at, isZh) + '同步' : '等待入库'}`
-                    : `${stats.document_count || documents.length} docs · ${formatFileSize(totalSize)} indexed · ${latestDoc ? 'Synced ' + formatRelativeTime(latestDoc.uploaded_at, isZh) : 'Waiting for ingest'}`}
+                    ? `${stats.document_count || documentTotal} 份文档 · ${formatFileSize(totalSize)} 已索引 · ${latestDoc ? formatRelativeTime(latestDoc.uploaded_at, isZh) + '同步' : '等待入库'}`
+                    : `${stats.document_count || documentTotal} docs · ${formatFileSize(totalSize)} indexed · ${latestDoc ? 'Synced ' + formatRelativeTime(latestDoc.uploaded_at, isZh) : 'Waiting for ingest'}`}
                 </p>
               </div>
 
@@ -290,7 +304,10 @@ export function Knowledge() {
                   <Search size={13} strokeWidth={1.5} aria-hidden="true" />
                   <input
                     value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value)
+                      setDocumentPage(1)
+                    }}
                     placeholder={isZh ? '搜索文档 / 标签' : 'Search docs / tags'}
                     className="codex-input min-w-0 flex-1 bg-transparent outline-none"
                     style={{ color: 'var(--color-codex-ink)', fontSize: 13 }}
@@ -299,7 +316,10 @@ export function Knowledge() {
                   {searchQuery ? (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => {
+                        setSearchQuery('')
+                        setDocumentPage(1)
+                      }}
                       className="cx-no-hover inline-flex items-center"
                       style={{ color: 'var(--color-codex-ink-faint)' }}
                       aria-label={isZh ? '清空搜索' : 'Clear search'}
@@ -355,9 +375,16 @@ export function Knowledge() {
                 <FilterPill
                   key={category}
                   active={selectedCategory === category}
-                  count={category === 'all' ? documents.length : documents.filter((doc) => normalizeCategory(doc.category) === category).length}
+                  count={
+                    category === 'all'
+                      ? stats.document_count || categoryCounts.reduce((sum, item) => sum + item.count, 0)
+                      : categoryCounts.find((item) => normalizeCategory(item.category) === category)?.count || 0
+                  }
                   label={categoryLabel(category, isZh)}
-                  onClick={() => setSelectedCategory(category)}
+                  onClick={() => {
+                    setSelectedCategory(category)
+                    setDocumentPage(1)
+                  }}
                 />
               ))}
             </div>
@@ -397,19 +424,20 @@ export function Knowledge() {
                     <span />
                   </div>
 
-                  {filteredDocuments.length === 0 ? (
+                  {documentTotal === 0 ? (
                     <KnowledgeEmptyState
                       hasSearch={Boolean(searchQuery.trim()) || selectedCategory !== 'all'}
                       isZh={isZh}
                       onClear={() => {
                         setSearchQuery('')
                         setSelectedCategory('all')
+                        setDocumentPage(1)
                       }}
                       onUpload={() => fileInputRef.current?.click()}
                     />
                   ) : (
                     <>
-                      {paginatedDocuments.map((doc) => (
+                      {documents.map((doc) => (
                         <KnowledgeRow
                           key={doc.id}
                           doc={doc}
@@ -420,13 +448,14 @@ export function Knowledge() {
                       <CxPagination
                         page={currentDocumentPage}
                         pageSize={documentPageSize}
-                        totalItems={filteredDocuments.length}
+                        totalItems={documentTotal}
                         onPageChange={setDocumentPage}
                         onPageSizeChange={(nextPageSize) => {
                           setDocumentPageSize(nextPageSize)
                           setDocumentPage(1)
                         }}
                         isZh={isZh}
+                        pageSizeOptions={[10, 20, 50]}
                       />
                     </>
                   )}
@@ -439,14 +468,14 @@ export function Knowledge() {
             <RailHeading>{isZh ? '索引状态' : 'Index status'}</RailHeading>
             <div style={{ marginBottom: 24 }}>
               <div className="codex-num" style={{ fontSize: 36, color: 'var(--color-codex-ink)', lineHeight: 1, fontWeight: 500 }}>
-                {stats.document_count || documents.length}
+                {stats.document_count || documentTotal}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--color-codex-ink-mute)', marginTop: 6 }}>
                 {isZh ? `份文档 · ${formatFileSize(totalSize)}` : `documents · ${formatFileSize(totalSize)}`}
               </div>
               <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
-                <CxStatus tone={indexedCount === documents.length && documents.length > 0 ? 'good' : 'warn'}>
-                  {indexedCount === documents.length && documents.length > 0 ? (isZh ? '已同步' : 'Synced') : isZh ? '索引中' : 'Indexing'}
+                <CxStatus tone={indexedCount === (stats.document_count || documentTotal) && (stats.document_count || documentTotal) > 0 ? 'good' : 'warn'}>
+                  {indexedCount === (stats.document_count || documentTotal) && (stats.document_count || documentTotal) > 0 ? (isZh ? '已同步' : 'Synced') : isZh ? '索引中' : 'Indexing'}
                 </CxStatus>
                 <span style={{ color: 'var(--color-codex-ink-faint)', fontSize: 11 }}>
                   {latestDoc ? formatRelativeTime(latestDoc.uploaded_at, isZh) : '—'}
@@ -489,13 +518,13 @@ export function Knowledge() {
 
             <RailHeading>{isZh ? '最近入库' : 'Recent ingest'}</RailHeading>
             <div>
-              {documents.slice(0, 5).map((doc) => (
+              {recentDocuments.map((doc) => (
                 <div key={doc.id} className="flex gap-3" style={{ padding: '6px 0', fontSize: 12, color: 'var(--color-codex-ink-soft)' }}>
                   <span className="min-w-0 flex-1 truncate">{doc.name}</span>
                   <span style={{ color: 'var(--color-codex-ink-faint)' }}>{formatRelativeTime(doc.uploaded_at, isZh)}</span>
                 </div>
               ))}
-              {documents.length === 0 ? (
+              {recentDocuments.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>{isZh ? '暂无入库记录' : 'No ingest records'}</p>
               ) : null}
             </div>

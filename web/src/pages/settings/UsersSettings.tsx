@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Users,
@@ -33,6 +33,13 @@ interface UserFormData {
   display_name: string
   is_admin: boolean
   password?: string
+}
+
+interface UserListResponse {
+  items: UserItem[]
+  total: number
+  limit: number
+  offset: number
 }
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -140,6 +147,7 @@ export function UsersSettings() {
   const { t, i18n } = useTranslation()
   const isZh = !i18n?.language || i18n.language.startsWith('zh')
   const [users, setUsers] = useState<UserItem[]>([])
+  const [userTotal, setUserTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -164,14 +172,22 @@ export function UsersSettings() {
 
   useEffect(() => {
     loadUsers()
-  }, [])
+  }, [searchQuery, userPage, userPageSize])
 
-  const loadUsers = async () => {
+  const loadUsers = async (options: { page?: number } = {}) => {
     try {
       setLoading(true)
       setError('')
-      const data = await api.get<UserItem[]>('/auth/users')
-      setUsers(data)
+      const page = options.page ?? userPage
+      const data = await api.get<UserListResponse>('/auth/users/list', {
+        params: {
+          search: searchQuery.trim(),
+          limit: userPageSize,
+          offset: (page - 1) * userPageSize,
+        },
+      })
+      setUsers(data.items)
+      setUserTotal(data.total)
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load users')
     } finally {
@@ -200,7 +216,7 @@ export function UsersSettings() {
       setShowAddDialog(false)
       setUserPage(1)
       resetForm()
-      await loadUsers()
+      await loadUsers({ page: 1 })
 
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err: any) {
@@ -316,21 +332,8 @@ export function UsersSettings() {
     })
   }
 
-  const filteredUsers = useMemo(
-    () =>
-      users.filter(
-        (user) =>
-          user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          user.display_name.toLowerCase().includes(searchQuery.toLowerCase()),
-      ),
-    [searchQuery, users],
-  )
-  const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / userPageSize))
+  const userPageCount = Math.max(1, Math.ceil(userTotal / userPageSize))
   const currentUserPage = Math.min(userPage, userPageCount)
-  const paginatedUsers = useMemo(() => {
-    const start = (currentUserPage - 1) * userPageSize
-    return filteredUsers.slice(start, start + userPageSize)
-  }, [currentUserPage, filteredUsers, userPageSize])
 
   useEffect(() => {
     setUserPage(1)
@@ -459,13 +462,16 @@ export function UsersSettings() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              setUserPage(1)
+            }}
             placeholder={t('users.search') || '搜索用户...'}
             style={{ ...INPUT_STYLE, paddingLeft: 32 }}
           />
         </div>
         <button
-          onClick={loadUsers}
+          onClick={() => void loadUsers()}
           disabled={loading}
           className="flex items-center justify-center px-3 py-2 transition-colors disabled:opacity-50"
           style={GHOST_BUTTON_STYLE}
@@ -477,7 +483,7 @@ export function UsersSettings() {
 
       {/* User list */}
       <div className="space-y-2">
-        {paginatedUsers.map((user) => (
+        {users.map((user) => (
           <div
             key={user.id}
             className="flex items-center justify-between"
@@ -609,23 +615,24 @@ export function UsersSettings() {
         ))}
       </div>
 
-      {filteredUsers.length > 0 ? (
+      {userTotal > 0 ? (
         <CxPagination
           page={currentUserPage}
           pageSize={userPageSize}
-          totalItems={filteredUsers.length}
+          totalItems={userTotal}
           onPageChange={setUserPage}
           onPageSizeChange={(nextPageSize) => {
             setUserPageSize(nextPageSize)
             setUserPage(1)
           }}
           isZh={isZh}
+          pageSizeOptions={[10, 20, 50]}
           style={{ marginTop: 10 }}
         />
       ) : null}
 
       {/* Empty state */}
-      {filteredUsers.length === 0 && !loading && (
+      {userTotal === 0 && !loading && (
         <div
           className="text-center"
           style={{

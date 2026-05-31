@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
@@ -15,12 +15,21 @@ import type {
 } from "../../types/api";
 import { CxPanel } from "./ProjectOverviewPanels";
 import { downloadProjectFile } from "./downloadProjectFile";
-import { formatDateOnly, parseAppDateTime } from "../../utils/timezone";
+import { formatDateOnly } from "../../utils/timezone";
 
 interface ProjectDocumentsTabProps {
   projectDetail: ProjectDetailType;
   projectId: string;
   onUpdate: () => void;
+}
+
+interface ProjectFileListResponse {
+  items: ProjectFile[];
+  total: number;
+  limit: number;
+  offset: number;
+  source_counts: Record<Exclude<FilterKey, "all">, number>;
+  recent: ProjectFile[];
 }
 
 type FilterKey = "all" | "manual" | "knowledge" | "skill" | "auto";
@@ -78,30 +87,44 @@ export function ProjectDocumentsTab({
   const toast = useToast();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [uploading, setUploading] = useState(false);
+  const [files, setFiles] = useState<ProjectFile[]>(projectDetail.files);
+  const [documentTotal, setDocumentTotal] = useState(projectDetail.files.length);
+  const [sourceCounts, setSourceCounts] = useState<Record<Exclude<FilterKey, "all">, number>>({
+    manual: 0,
+    knowledge: 0,
+    skill: 0,
+    auto: 0,
+  });
+  const [recentFiles, setRecentFiles] = useState<ProjectFile[]>([]);
   const [documentPage, setDocumentPage] = useState(1);
   const [documentPageSize, setDocumentPageSize] = useState(PROJECT_DOCUMENT_PAGE_SIZE);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const filesSorted = useMemo(
-    () =>
-      [...projectDetail.files].sort(
-        (a, b) =>
-          parseAppDateTime(b.uploaded_at).getTime() -
-          parseAppDateTime(a.uploaded_at).getTime(),
-      ),
-    [projectDetail.files],
-  );
+  const loadDocuments = async () => {
+    try {
+      const data = await api.get<ProjectFileListResponse>(`/projects/${projectId}/files/list`, {
+        params: {
+          origin: filter,
+          limit: documentPageSize,
+          offset: (documentPage - 1) * documentPageSize,
+        },
+      });
+      setFiles(data.items);
+      setDocumentTotal(data.total);
+      setSourceCounts(data.source_counts);
+      setRecentFiles(data.recent);
+    } catch (error) {
+      console.error("Failed to load project documents:", error);
+    }
+  };
 
-  const filtered = useMemo(
-    () => (filter === "all" ? filesSorted : filesSorted.filter((file) => originOf(file) === filter)),
-    [filesSorted, filter],
-  );
-  const documentPageCount = Math.max(1, Math.ceil(filtered.length / documentPageSize));
+  useEffect(() => {
+    void loadDocuments();
+  }, [documentPage, documentPageSize, filter, projectDetail.files, projectId]);
+
+  const allDocumentCount = Object.values(sourceCounts).reduce((sum, value) => sum + value, 0);
+  const documentPageCount = Math.max(1, Math.ceil(documentTotal / documentPageSize));
   const currentDocumentPage = Math.min(documentPage, documentPageCount);
-  const paginatedFiles = useMemo(() => {
-    const start = (currentDocumentPage - 1) * documentPageSize;
-    return filtered.slice(start, start + documentPageSize);
-  }, [currentDocumentPage, documentPageSize, filtered]);
 
   useEffect(() => {
     setDocumentPage(1);
@@ -110,21 +133,6 @@ export function ProjectDocumentsTab({
   useEffect(() => {
     setDocumentPage((current) => Math.min(current, documentPageCount));
   }, [documentPageCount]);
-
-  const sourceCounts = useMemo(() => {
-    const map: Record<Exclude<FilterKey, "all">, number> = {
-      manual: 0,
-      knowledge: 0,
-      skill: 0,
-      auto: 0,
-    };
-    for (const file of filesSorted) {
-      map[originOf(file)]++;
-    }
-    return map;
-  }, [filesSorted]);
-
-  const recentFiles = filesSorted.slice(0, 3);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -136,6 +144,7 @@ export function ProjectDocumentsTab({
         await api.post(`/projects/${projectId}/files`, form);
       }
       onUpdate();
+      await loadDocuments();
       toast.success(isZh ? "上传完成" : "Upload complete");
     } catch (error) {
       console.error("Upload failed:", error);
@@ -177,7 +186,7 @@ export function ProjectDocumentsTab({
                 letterSpacing: "-0.015em",
               }}
             >
-              {isZh ? `文档 · ${filesSorted.length} 份` : `Documents · ${filesSorted.length}`}
+              {isZh ? `文档 · ${allDocumentCount} 份` : `Documents · ${allDocumentCount}`}
             </h2>
             <p
               style={{
@@ -245,13 +254,15 @@ export function ProjectDocumentsTab({
         <div className="flex flex-wrap" style={{ gap: 6 }}>
           {(["all", "manual", "knowledge", "skill", "auto"] as const).map((key) => {
             const active = filter === key;
-            const count =
-              key === "all" ? filesSorted.length : sourceCounts[key];
+            const count = key === "all" ? allDocumentCount : sourceCounts[key];
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => setFilter(key)}
+                onClick={() => {
+                  setFilter(key);
+                  setDocumentPage(1);
+                }}
                 className="inline-flex items-center transition-colors"
                 style={{
                   gap: 6,
@@ -285,7 +296,7 @@ export function ProjectDocumentsTab({
 
         {/* Doc list */}
         <div>
-          {filtered.length === 0 ? (
+          {documentTotal === 0 ? (
             <div
               style={{
                 padding: "32px 8px",
@@ -307,7 +318,7 @@ export function ProjectDocumentsTab({
             </div>
           ) : (
             <>
-              {paginatedFiles.map((file) => (
+              {files.map((file) => (
                 <button
                   key={file.id}
                   type="button"
@@ -411,13 +422,14 @@ export function ProjectDocumentsTab({
               <CxPagination
                 page={currentDocumentPage}
                 pageSize={documentPageSize}
-                totalItems={filtered.length}
+                totalItems={documentTotal}
                 onPageChange={setDocumentPage}
                 onPageSizeChange={(nextPageSize) => {
                   setDocumentPageSize(nextPageSize);
                   setDocumentPage(1);
                 }}
                 isZh={isZh}
+                pageSizeOptions={[10, 20, 50]}
               />
             </>
           )}

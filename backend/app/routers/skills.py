@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -150,6 +150,128 @@ class SkillSummary(BaseModel):
     updated_at: Optional[str] = None
 
 
+class SkillCategoryCount(BaseModel):
+    id: str
+    count: int
+
+
+class SkillSummaryListResponse(BaseModel):
+    items: list[SkillSummary]
+    total: int
+    limit: int
+    offset: int
+    categories: list[SkillCategoryCount]
+
+
+def _category_key(category: str) -> str:
+    normalized = (category or "").replace("?", "").strip().lower()
+    known = {
+        "consulting_scoping",
+        "consulting_delivery",
+        "consulting_review",
+        "consulting_learning",
+        "common",
+        "market",
+        "org",
+        "digital",
+        "strategy",
+        "operations",
+        "finance",
+        "risk",
+        "manda",
+        "data",
+        "other",
+        "all",
+        "audit",
+        "assurance",
+        "tax",
+    }
+    if normalized in known:
+        return normalized
+    if any(token in normalized for token in ("proposal", "delivery", "deep task", "deep_task", "quick tool", "quick_tool", "guided workflow", "guided_workflow", "提案", "交付")):
+        return "common"
+    if "strategy" in normalized or "战略" in normalized:
+        return "strategy"
+    if any(token in normalized for token in ("market", "customer", "市场", "客户")):
+        return "market"
+    if "finance" in normalized or "财务" in normalized:
+        return "finance"
+    if any(token in normalized for token in ("risk", "compliance", "风险", "合规")):
+        return "risk"
+    if any(token in normalized for token in ("digital", "technology", "数字化", "技术")):
+        return "digital"
+    if any(token in normalized for token in ("operation", "efficiency", "运营", "效能")):
+        return "operations"
+    if any(token in normalized for token in ("org", "talent", "组织", "人才")):
+        return "org"
+    if any(token in normalized for token in ("m&a", "transactions", "并购", "交易")):
+        return "manda"
+    if "data" in normalized or "数据" in normalized:
+        return "data"
+    if "audit" in normalized or "审计" in normalized:
+        return "audit"
+    if "assurance" in normalized or "鉴证" in normalized:
+        return "assurance"
+    if "tax" in normalized or "税务" in normalized or "税" in normalized:
+        return "tax"
+    return "other"
+
+
+def _is_digital_capability_skill(skill: SkillSummary) -> bool:
+    base_key = _category_key(skill.category)
+    if base_key in {"audit", "assurance", "tax"}:
+        return False
+    category = (skill.category or "").replace("?", "").strip().lower()
+    text = f"{skill.name} {skill.description}".lower()
+    if any(token in category for token in ("数字化", "digital", "technology")):
+        return True
+    signals = [
+        "ai 用例",
+        "ai应用",
+        "数字化",
+        "数字技术",
+        "企业架构",
+        "数据治理",
+        "流程数字化",
+        "行业数字化",
+        "数字化转型",
+        "数字化项目",
+        "数字化方案",
+        "技术架构",
+        "数据平台",
+        "ai 应用场景",
+    ]
+    return any(signal in text for signal in signals)
+
+
+def _skill_category_key(skill: SkillSummary) -> str:
+    base_key = _category_key(skill.category)
+    if _is_digital_capability_skill(skill):
+        return "digital"
+    if base_key != "common":
+        return base_key
+    text = f"{skill.name} {skill.description}".lower()
+    if any(token in text for token in ("启动", "brief", "scoping", "kickoff")):
+        return "consulting_scoping"
+    if any(token in text for token in ("复盘", "retro", "learning", "沉淀")):
+        return "consulting_learning"
+    if any(token in text for token in ("挑战", "审查", "review", "challenge", "quality")):
+        return "consulting_review"
+    return "consulting_delivery"
+
+
+def _skill_to_summary(skill: Skill) -> SkillSummary:
+    return SkillSummary(
+        id=skill.id,
+        name=skill.name,
+        category=skill.category,
+        description=skill.description,
+        estimated_time=skill.estimated_time,
+        created_at=None,
+        updated_at=None,
+    )
+
+
 @router.get("")
 def list_skills(category: Optional[str] = None, session: Session = Depends(get_session)):
     cache_key = f"list:{category or ''}"
@@ -196,6 +318,41 @@ def list_skill_summaries(category: Optional[str] = None, session: Session = Depe
     ]
     _skills_cache.set(cache_key, result, _SKILLS_TTL)
     return result
+
+
+@router.get("/meta/list", response_model=SkillSummaryListResponse)
+def list_skill_summaries_paginated(
+    category_keys: str = "",
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    cache_key = "summary:list:all"
+    summaries = _skills_cache.get(cache_key)
+    if summaries is None:
+        skills = session.exec(select(Skill)).all()
+        summaries = [_skill_to_summary(skill) for skill in skills]
+        _skills_cache.set(cache_key, summaries, _SKILLS_TTL)
+
+    counts: dict[str, int] = {}
+    for skill in summaries:
+        key = _skill_category_key(skill)
+        counts[key] = counts.get(key, 0) + 1
+
+    requested_keys = {item.strip() for item in category_keys.split(",") if item.strip()}
+    filtered = [
+        skill
+        for skill in summaries
+        if not requested_keys or _skill_category_key(skill) in requested_keys
+    ]
+    filtered.sort(key=lambda skill: (_skill_category_key(skill), skill.name.lower()))
+    return SkillSummaryListResponse(
+        items=filtered[offset : offset + limit],
+        total=len(filtered),
+        limit=limit,
+        offset=offset,
+        categories=[SkillCategoryCount(id=key, count=count) for key, count in sorted(counts.items())],
+    )
 
 
 @router.get("/{skill_id}")

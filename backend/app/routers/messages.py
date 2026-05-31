@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -61,6 +61,15 @@ class MessageAdminOut(BaseModel):
     created_by_user_id: Optional[int] = None
     created_by_display_name: str = ""
     read_count: int = 0
+
+
+class MessageAdminListResponse(BaseModel):
+    items: list[MessageAdminOut]
+    total: int
+    limit: int
+    offset: int
+    published_count: int
+    total_read_count: int
 
 
 def _validate_level(level: str) -> str:
@@ -228,6 +237,51 @@ def admin_list_messages(
         )
         for message in messages
     ]
+
+
+@router.get("/admin/list", response_model=MessageAdminListResponse)
+def admin_list_messages_paginated(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    messages = session.exec(select(SystemMessage).order_by(SystemMessage.created_at.desc())).all()
+    user_ids = {message.created_by_user_id for message in messages if message.created_by_user_id}
+    user_map = {}
+    if user_ids:
+        users = session.exec(select(User).where(User.id.in_(user_ids))).all()
+        user_map = {user.id: user.display_name for user in users}
+
+    read_counts: dict[int, int] = {}
+    reads = session.exec(select(SystemMessageRead)).all() if messages else []
+    for read in reads:
+        read_counts[read.message_id] = read_counts.get(read.message_id, 0) + 1
+
+    page_messages = messages[offset : offset + limit]
+    return MessageAdminListResponse(
+        items=[
+            MessageAdminOut(
+                id=message.id,
+                title=message.title,
+                content=message.content,
+                level=message.level,
+                link=message.link,
+                is_published=message.is_published,
+                created_at=message.created_at,
+                updated_at=message.updated_at,
+                created_by_user_id=message.created_by_user_id,
+                created_by_display_name=user_map.get(message.created_by_user_id or 0, ""),
+                read_count=read_counts.get(message.id, 0),
+            )
+            for message in page_messages
+        ],
+        total=len(messages),
+        limit=limit,
+        offset=offset,
+        published_count=sum(1 for message in messages if message.is_published),
+        total_read_count=sum(read_counts.values()),
+    )
 
 
 @router.post("/admin", response_model=MessageAdminOut)

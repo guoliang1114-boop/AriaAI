@@ -17,9 +17,8 @@ import { CxPagination } from '../../components/codex'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
   ClientMemoryJob,
-  ClientMemoryJobsResponse,
+  MemoryOperationsSummaryResponse,
   ProjectMemoryJob,
-  ProjectMemoryJobsResponse,
 } from '../../types/api'
 
 type BudgetInfo = {
@@ -30,7 +29,7 @@ type BudgetInfo = {
 
 type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client' } & ClientMemoryJob)
 
-const API_FAILURE_PAGE_SIZE = 6
+const API_FAILURE_PAGE_SIZE = 10
 
 type FailureItem =
   | {
@@ -269,9 +268,12 @@ export function ApiLimitsSettings() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [jobs, setJobs] = useState<CombinedJob[]>([])
+  const [retryingJobsTotal, setRetryingJobsTotal] = useState(0)
   const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
   const [clientBudget, setClientBudget] = useState<BudgetInfo | null>(null)
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
+  const [failureTotal, setFailureTotal] = useState(0)
+  const [rateLimitTotal, setRateLimitTotal] = useState(0)
   const [failurePage, setFailurePage] = useState(1)
   const [failurePageSize, setFailurePageSize] = useState(API_FAILURE_PAGE_SIZE)
 
@@ -283,22 +285,23 @@ export function ApiLimitsSettings() {
         setLoading(true)
       }
       setError('')
-      const [projectData, clientData] = await Promise.all([
-        api.get<ProjectMemoryJobsResponse>('/projects/memory/jobs'),
-        api.get<ClientMemoryJobsResponse>('/clients/memory/jobs'),
-      ])
-      setJobs([
-        ...(projectData.jobs || []).map((job) => ({ ...job, scope: 'project' as const })),
-        ...(clientData.jobs || []).map((job) => ({ ...job, scope: 'client' as const })),
-      ])
-      setProjectBudget(projectData.budget ?? null)
-      setClientBudget(clientData.budget ?? null)
-      setRecentFailures(
-        [
-          ...((projectData.recent_failures as FailureItem[] | undefined) ?? []),
-          ...((clientData.recent_failures as FailureItem[] | undefined) ?? []),
-        ].sort((a, b) => (b.failed_at || '').localeCompare(a.failed_at || '')),
-      )
+      const summary = await api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
+        params: {
+          jobs_limit: 100,
+          jobs_offset: 0,
+          success_limit: 1,
+          success_offset: 0,
+          failure_limit: failurePageSize,
+          failure_offset: (failurePage - 1) * failurePageSize,
+        },
+      })
+      setJobs((summary.pages?.jobs?.items ?? []) as unknown as CombinedJob[])
+      setRetryingJobsTotal(summary.counts.retrying_jobs)
+      setProjectBudget(summary.budget.project ?? null)
+      setClientBudget(summary.budget.client ?? null)
+      setRecentFailures((summary.pages?.failures?.items ?? []) as FailureItem[])
+      setFailureTotal(summary.pages?.failures?.total ?? 0)
+      setRateLimitTotal(summary.failure_summary.category_counts.rate_limit ?? 0)
     } catch (err) {
       console.error('Failed to load API limit signals:', err)
       setError(isZh ? '加载 API 限流提醒失败，请稍后重试。' : 'Failed to load API limit signals. Please retry later.')
@@ -314,19 +317,16 @@ export function ApiLimitsSettings() {
       void loadLimits(true)
     }, 15000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [failurePage, failurePageSize])
 
-  const retryingJobs = useMemo(() => jobs.filter((job) => (job.retry_count ?? 0) > 0).length, [jobs])
+  const retryingJobs = retryingJobsTotal || jobs.filter((job) => (job.retry_count ?? 0) > 0).length
   const rateLimitFailures = useMemo(() => recentFailures.filter(isRateLimitFailure), [recentFailures])
   const modelPressureFailures = useMemo(() => recentFailures.filter(isModelPressureFailure), [recentFailures])
-  const latestFailures = rateLimitFailures.length > 0 ? rateLimitFailures : modelPressureFailures
-  const failurePageCount = Math.max(1, Math.ceil(latestFailures.length / failurePageSize))
+  const latestFailures = recentFailures
+  const failurePageCount = Math.max(1, Math.ceil(failureTotal / failurePageSize))
   const currentFailurePage = Math.min(failurePage, failurePageCount)
-  const paginatedFailures = useMemo(() => {
-    const start = (currentFailurePage - 1) * failurePageSize
-    return latestFailures.slice(start, start + failurePageSize)
-  }, [currentFailurePage, failurePageSize, latestFailures])
-  const hasPressure = rateLimitFailures.length > 0 || retryingJobs > 0 || isBudgetTight(projectBudget) || isBudgetTight(clientBudget)
+  const paginatedFailures = latestFailures
+  const hasPressure = rateLimitTotal > 0 || retryingJobs > 0 || isBudgetTight(projectBudget) || isBudgetTight(clientBudget)
 
   useEffect(() => {
     setFailurePage((current) => Math.min(current, failurePageCount))
@@ -437,9 +437,9 @@ export function ApiLimitsSettings() {
         <StatusCard
           icon={Gauge}
           title={isZh ? '限流告警' : 'Rate-limit alerts'}
-          value={rateLimitFailures.length}
+          value={rateLimitTotal}
           description={isZh ? '最近失败中识别到的 429 / rate limit' : 'Recent 429 / rate limit failures'}
-          tone={rateLimitFailures.length > 0 ? 'danger' : 'success'}
+          tone={rateLimitTotal > 0 ? 'danger' : 'success'}
         />
         <StatusCard
           icon={Clock3}
@@ -494,7 +494,7 @@ export function ApiLimitsSettings() {
                     lineHeight: 1.55,
                   }}
                 >
-                  {rateLimitFailures.length > 0
+                  {rateLimitTotal > 0
                     ? isZh
                       ? '这些任务已经被归类为 API 限流，建议稍后重试或降低批量预热节奏。'
                       : 'These jobs were classified as API rate limits. Retry later or slow batch warm-ups.'
@@ -530,7 +530,7 @@ export function ApiLimitsSettings() {
             </div>
           </div>
 
-          {latestFailures.length === 0 ? (
+          {failureTotal === 0 ? (
             <div
               className="text-center"
               style={{
@@ -677,13 +677,13 @@ export function ApiLimitsSettings() {
               <CxPagination
                 page={currentFailurePage}
                 pageSize={failurePageSize}
-                totalItems={latestFailures.length}
+                totalItems={failureTotal}
                 onPageChange={setFailurePage}
                 onPageSizeChange={(nextPageSize) => {
                   setFailurePageSize(nextPageSize)
                   setFailurePage(1)
                 }}
-                pageSizeOptions={[6, 12, 24]}
+                pageSizeOptions={[10, 20, 50]}
                 isZh={isZh}
               />
             </div>

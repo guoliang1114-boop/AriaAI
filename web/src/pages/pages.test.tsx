@@ -8,7 +8,30 @@ import zh from '../i18n/locales/zh.json'
 
 vi.mock('../api/client', () => ({
   api: {
-    get: vi.fn(() => Promise.resolve([])),
+    get: vi.fn((url: string) => {
+      if (url === '/clients/list') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0, stats: { total: 0, active: 0, watch: 0, dormant: 0 } })
+      }
+      if (url === '/contacts') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0, clients: [], partial_failures: 0 })
+      }
+      if (url === '/knowledge/documents/list') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0, categories: [], recent: [], indexed_count: 0, total_size: 0 })
+      }
+      if (url === '/knowledge/stats') {
+        return Promise.resolve({ document_count: 0, total_vectors: 0 })
+      }
+      if (url === '/skills/meta/list') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0, categories: [] })
+      }
+      if (url === '/auth/users/list') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0 })
+      }
+      if (url === '/messages/admin/list') {
+        return Promise.resolve({ items: [], total: 0, limit: 10, offset: 0, published_count: 0, total_read_count: 0 })
+      }
+      return Promise.resolve([])
+    }),
     post: vi.fn(() => Promise.resolve({})),
     put: vi.fn(() => Promise.resolve({})),
     patch: vi.fn(() => Promise.resolve({})),
@@ -115,4 +138,3 @@ describe('MessagesPage smoke test', () => {
     })
   })
 })
-

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight, Check, Loader2, Mail, Phone, Plus, Search, UserRound, X } from 'lucide-react'
@@ -27,12 +27,21 @@ interface ContactRecord {
   stakeholder: ClientStakeholder
 }
 
+interface ContactListResponse {
+  items: ContactRecord[]
+  total: number
+  limit: number
+  offset: number
+  clients: ClientListItem[]
+  partial_failures: number
+}
+
 type ContactLevel = 'decision' | 'influence' | 'execution'
 type FilterKey = 'all' | ContactLevel | 'recent' | 'unreached'
 
 const CONTACT_GRID = 'minmax(220px,1fr) minmax(170px,.8fr) minmax(90px,.55fr) minmax(82px,.45fr) minmax(82px,.45fr) minmax(118px,.6fr) 16px'
 const CONTACT_TABLE_MIN_WIDTH = 860
-const CONTACT_PAGE_SIZE = 20
+const CONTACT_PAGE_SIZE = 10
 
 function safeText(value: string | null | undefined) {
   return value?.trim() ?? ''
@@ -156,6 +165,7 @@ export function Contacts() {
 
   const [clients, setClients] = useState<ClientListItem[]>([])
   const [contacts, setContacts] = useState<ContactRecord[]>([])
+  const [contactTotal, setContactTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
   const [loading, setLoading] = useState(true)
@@ -176,37 +186,27 @@ export function Contacts() {
 
   const [partialFailures, setPartialFailures] = useState(0)
 
-  const loadDirectory = async () => {
+  const loadDirectory = async (options: { page?: number } = {}) => {
     setLoading(true)
     setError(null)
     setPartialFailures(0)
     try {
-      const clientList = await api.get<ClientListItem[]>('/clients')
-      let failedClients = 0
-      const stakeholderLists = await Promise.all(
-        clientList.map(async (client) => {
-          try {
-            const stakeholders = await api.get<ClientStakeholder[]>(`/clients/${client.id}/stakeholders`)
-            return stakeholders.map((stakeholder) => ({ client, stakeholder }))
-          } catch (err) {
-            // N+1 fan-out: one client's stakeholder fetch failing used to
-            // disappear silently and the directory looked incomplete. Count
-            // failures so the banner below can surface "N clients failed,
-            // contacts may be incomplete" without breaking the rest of
-            // the page.
-            console.error(`Failed to fetch stakeholders for client ${client.id}:`, err)
-            failedClients += 1
-            return []
-          }
-        }),
-      )
-      const records = stakeholderLists.flat().sort(sortContacts)
-      setClients(clientList)
-      setContacts(records)
-      setPartialFailures(failedClients)
+      const page = options.page ?? contactPage
+      const data = await api.get<ContactListResponse>('/contacts', {
+        params: {
+          search: search.trim(),
+          filter: activeFilter,
+          limit: contactPageSize,
+          offset: (page - 1) * contactPageSize,
+        },
+      })
+      setClients(data.clients)
+      setContacts(data.items)
+      setContactTotal(data.total)
+      setPartialFailures(data.partial_failures || 0)
       setDraft((current) => ({
         ...current,
-        clientId: current.clientId || String(clientList[0]?.id ?? ''),
+        clientId: current.clientId || String(data.clients[0]?.id ?? ''),
       }))
     } catch {
       setError(isZh ? '联系人目录加载失败' : 'Failed to load contact directory')
@@ -217,7 +217,7 @@ export function Contacts() {
 
   useEffect(() => {
     void loadDirectory()
-  }, [])
+  }, [activeFilter, contactPage, contactPageSize, search])
 
   const filterOptions: Array<{ key: FilterKey; label: string }> = [
     { key: 'all', label: isZh ? '全部' : 'All' },
@@ -228,23 +228,8 @@ export function Contacts() {
     { key: 'unreached', label: isZh ? '未直接接触' : 'No direct contact' },
   ]
 
-  const filteredContacts = useMemo(
-    () =>
-      contacts.filter((record) => {
-        if (!matchesContact(record, search)) return false
-        if (activeFilter === 'all') return true
-        if (activeFilter === 'recent') return isRecentContact(record.stakeholder)
-        if (activeFilter === 'unreached') return !hasDirectContact(record.stakeholder)
-        return getContactLevel(record.stakeholder) === activeFilter
-      }),
-    [activeFilter, contacts, search],
-  )
-  const contactPageCount = Math.max(1, Math.ceil(filteredContacts.length / contactPageSize))
+  const contactPageCount = Math.max(1, Math.ceil(contactTotal / contactPageSize))
   const currentContactPage = Math.min(contactPage, contactPageCount)
-  const paginatedContacts = useMemo(() => {
-    const start = (currentContactPage - 1) * contactPageSize
-    return filteredContacts.slice(start, start + contactPageSize)
-  }, [contactPageSize, currentContactPage, filteredContacts])
 
   useEffect(() => {
     setContactPage(1)
@@ -277,7 +262,7 @@ export function Contacts() {
     setCreating(true)
     setCreateError(null)
     try {
-      const stakeholder = await api.post<ClientStakeholder>(`/clients/${client.id}/stakeholders`, {
+      await api.post<ClientStakeholder>(`/clients/${client.id}/stakeholders`, {
         name: draft.name.trim(),
         role: draft.role.trim(),
         organization_level: draft.organizationLevel.trim(),
@@ -291,10 +276,10 @@ export function Contacts() {
           note: '',
         } as ClientStakeholder),
       })
-      setContacts((current) => [{ client, stakeholder }, ...current].sort(sortContacts))
       setContactPage(1)
       setShowCreateModal(false)
       resetCreateForm()
+      await loadDirectory({ page: 1 })
     } catch {
       setCreateError(isZh ? '联系人创建失败，请稍后重试。' : 'Failed to create contact. Please try again.')
     } finally {
@@ -333,7 +318,7 @@ export function Contacts() {
                 {isZh ? '联系人' : 'Contacts'}
               </h1>
               <p style={{ margin: '8px 0 0', fontSize: 13.5, color: 'var(--color-codex-ink-mute)' }}>
-                {isZh ? `跨客户的联系人通讯录 · ${contacts.length} 人` : `Cross-client contact directory · ${contacts.length} people`}
+                {isZh ? `跨客户的联系人通讯录 · ${contactTotal} 人` : `Cross-client contact directory · ${contactTotal} people`}
               </p>
             </div>
 
@@ -354,7 +339,10 @@ export function Contacts() {
                 <Search size={13} strokeWidth={1.5} aria-hidden="true" />
                 <input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setContactPage(1)
+                  }}
                   placeholder={isZh ? '搜索姓名 / 客户' : 'Search name / client'}
                   className="codex-input min-w-0 flex-1 bg-transparent outline-none"
                   style={{ color: 'var(--color-codex-ink)', fontSize: 13 }}
@@ -386,7 +374,10 @@ export function Contacts() {
                 key={filter.key}
                 active={activeFilter === filter.key}
                 label={filter.label}
-                onClick={() => setActiveFilter(filter.key)}
+                onClick={() => {
+                  setActiveFilter(filter.key)
+                  setContactPage(1)
+                }}
               />
             ))}
           </div>
@@ -461,11 +452,18 @@ export function Contacts() {
                   <span />
                 </div>
 
-                {filteredContacts.length === 0 ? (
-                  <ContactsEmptyState hasSearch={Boolean(search.trim())} isZh={isZh} onClear={() => setSearch('')} />
+                {contactTotal === 0 ? (
+                  <ContactsEmptyState
+                    hasSearch={Boolean(search.trim())}
+                    isZh={isZh}
+                    onClear={() => {
+                      setSearch('')
+                      setContactPage(1)
+                    }}
+                  />
                 ) : (
                   <>
-                    {paginatedContacts.map((record) => (
+                    {contacts.map((record) => (
                       <ContactRow
                         key={`${record.client.id}-${record.stakeholder.id}`}
                         isZh={isZh}
@@ -476,13 +474,14 @@ export function Contacts() {
                     <CxPagination
                       page={currentContactPage}
                       pageSize={contactPageSize}
-                      totalItems={filteredContacts.length}
+                      totalItems={contactTotal}
                       onPageChange={setContactPage}
                       onPageSizeChange={(nextPageSize) => {
                         setContactPageSize(nextPageSize)
                         setContactPage(1)
                       }}
                       isZh={isZh}
+                      pageSizeOptions={[10, 20, 50]}
                     />
                   </>
                 )}

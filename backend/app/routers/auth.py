@@ -4,7 +4,7 @@ import uuid
 import bcrypt
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -130,6 +130,13 @@ class UserOut(BaseModel):
 class LoginResponse(BaseModel):
     token: str
     user: UserOut
+
+
+class UserListResponse(BaseModel):
+    items: list[UserOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class CreateUserRequest(BaseModel):
@@ -291,6 +298,41 @@ def list_users(
         )
         for u in users
     ]
+
+
+@router.get("/users/list", response_model=UserListResponse)
+def list_users_paginated(
+    search: str = "",
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    users = session.exec(select(User)).all()
+    keyword = search.strip().lower()
+    if keyword:
+        users = [
+            user
+            for user in users
+            if keyword in user.email.lower() or keyword in user.display_name.lower()
+        ]
+    users.sort(key=lambda user: (not user.is_active, not user.is_admin, user.display_name.lower(), user.email.lower()))
+    page_items = users[offset : offset + limit]
+    return UserListResponse(
+        items=[
+            UserOut(
+                id=user.id,
+                email=user.email,
+                display_name=user.display_name,
+                is_admin=user.is_admin,
+                is_active=user.is_active,
+            )
+            for user in page_items
+        ],
+        total=len(users),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/users/simple", response_model=list[UserSimpleOut])

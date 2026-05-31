@@ -7,6 +7,13 @@ const mockPost = vi.fn()
 const mockPatch = vi.fn()
 const mockDelete = vi.fn()
 
+const wrapUsers = (items: any[]) => ({
+  items,
+  total: items.length,
+  limit: 10,
+  offset: 0,
+})
+
 vi.mock('../../api/client', () => ({
   api: {
     get: (...args: any[]) => mockGet(...args),
@@ -35,10 +42,10 @@ describe('UsersSettings', () => {
   })
 
   it('renders users after loading', async () => {
-    mockGet.mockResolvedValue([
+    mockGet.mockResolvedValue(wrapUsers([
       { id: 1, email: 'a@example.com', display_name: 'Alice', is_admin: true, is_active: true },
       { id: 2, email: 'b@example.com', display_name: 'Bob', is_admin: false, is_active: true },
-    ])
+    ]))
     render(<UsersSettings />)
     await waitFor(() => {
       expect(screen.getByText('Alice')).toBeInTheDocument()
@@ -47,22 +54,28 @@ describe('UsersSettings', () => {
   })
 
   it('filters users by search query', async () => {
-    mockGet.mockResolvedValue([
+    const users = [
       { id: 1, email: 'alice@example.com', display_name: 'Alice', is_admin: false, is_active: true },
       { id: 2, email: 'bob@example.com', display_name: 'Bob', is_admin: false, is_active: true },
-    ])
+    ]
+    mockGet.mockImplementation((_url: string, config?: any) => {
+      const keyword = config?.params?.search?.toLowerCase()
+      return Promise.resolve(wrapUsers(keyword ? users.filter((user) => user.display_name.toLowerCase().includes(keyword) || user.email.toLowerCase().includes(keyword)) : users))
+    })
     render(<UsersSettings />)
     await waitFor(() => screen.getByText('Alice'))
     const searchInput = screen.getByPlaceholderText(/search/i) || screen.getAllByRole('textbox')[0]
     fireEvent.change(searchInput, { target: { value: 'Bob' } })
-    expect(screen.queryByText('Alice')).not.toBeInTheDocument()
-    expect(screen.getByText('Bob')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Alice')).not.toBeInTheDocument()
+      expect(screen.getByText('Bob')).toBeInTheDocument()
+    })
   })
 
   it('deletes a user', async () => {
-    mockGet.mockResolvedValue([
+    mockGet.mockResolvedValue(wrapUsers([
       { id: 1, email: 'a@example.com', display_name: 'Alice', is_admin: false, is_active: true },
-    ])
+    ]))
     mockDelete.mockResolvedValue({})
     render(<UsersSettings />)
     await waitFor(() => screen.getByText('Alice'))

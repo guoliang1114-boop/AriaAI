@@ -421,6 +421,26 @@ export interface MemoryOperationsSummaryResponse {
   }
   recent_failures: Array<Record<string, unknown>>
   recent_successes: Array<Record<string, unknown>>
+  pages?: {
+    jobs?: {
+      items: Array<Record<string, unknown>>
+      total: number
+      limit: number
+      offset: number
+    }
+    failures?: {
+      items: Array<Record<string, unknown>>
+      total: number
+      limit: number
+      offset: number
+    }
+    successes?: {
+      items: Array<Record<string, unknown>>
+      total: number
+      limit: number
+      offset: number
+    }
+  }
 }
 
 export interface BudgetShape {

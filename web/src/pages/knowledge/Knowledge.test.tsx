@@ -6,6 +6,23 @@ const mockGet = vi.fn()
 const mockPost = vi.fn()
 const mockDelete = vi.fn()
 
+const wrapDocuments = (items: any[]) => ({
+  items,
+  total: items.length,
+  limit: 10,
+  offset: 0,
+  categories: Object.entries(
+    items.reduce<Record<string, number>>((counts, item) => {
+      const key = item.category || 'uncategorized'
+      counts[key] = (counts[key] || 0) + 1
+      return counts
+    }, {}),
+  ).map(([category, count]) => ({ category, count })),
+  recent: items,
+  indexed_count: items.filter((item) => item.vector_status === 'synced').length,
+  total_size: items.reduce((sum, item) => sum + (item.size_bytes || item.size || 0), 0),
+})
+
 vi.mock('../../api/client', () => ({
   api: {
     get: (...args: any[]) => mockGet(...args),
@@ -32,12 +49,12 @@ describe('Knowledge', () => {
   })
 
   it('renders documents after loading', async () => {
-    mockGet.mockImplementation((url: string) => {
-      if (url === '/knowledge/documents') {
-        return Promise.resolve([
+    mockGet.mockImplementation((url: string, config?: any) => {
+      if (url === '/knowledge/documents/list') {
+        return Promise.resolve(wrapDocuments([
           { id: 1, name: 'doc1.pdf', file_type: 'pdf', path: '/docs/1.pdf', category: 'general', vector_status: 'synced', uploaded_at: '2025-01-01', size: 102400 },
           { id: 2, name: 'doc2.docx', file_type: 'docx', path: '/docs/2.docx', category: 'research', vector_status: 'pending', uploaded_at: '2025-01-02', size: 51200 },
-        ])
+        ]))
       }
       if (url === '/knowledge/stats') {
         return Promise.resolve({ document_count: 2, total_vectors: 100 })
@@ -53,7 +70,7 @@ describe('Knowledge', () => {
 
   it('shows empty state when no documents', async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/knowledge/documents') return Promise.resolve([])
+      if (url === '/knowledge/documents/list') return Promise.resolve(wrapDocuments([]))
       if (url === '/knowledge/stats') return Promise.resolve({ document_count: 0, total_vectors: 0 })
       return Promise.resolve([])
     })
@@ -65,12 +82,14 @@ describe('Knowledge', () => {
   })
 
   it('filters documents by search', async () => {
-    mockGet.mockImplementation((url: string) => {
-      if (url === '/knowledge/documents') {
-        return Promise.resolve([
+    mockGet.mockImplementation((url: string, config?: any) => {
+      if (url === '/knowledge/documents/list') {
+        const docs = [
           { id: 1, name: 'report.pdf', file_type: 'pdf', path: '/docs/1.pdf', category: 'general', vector_status: 'synced', uploaded_at: '2025-01-01', size: 102400 },
           { id: 2, name: 'notes.txt', file_type: 'txt', path: '/docs/2.txt', category: 'research', vector_status: 'synced', uploaded_at: '2025-01-02', size: 51200 },
-        ])
+        ]
+        const keyword = config?.params?.search
+        return Promise.resolve(wrapDocuments(keyword ? docs.filter((doc) => doc.name.includes(keyword)) : docs))
       }
       if (url === '/knowledge/stats') return Promise.resolve({ document_count: 2, total_vectors: 100 })
       return Promise.resolve([])
@@ -88,10 +107,10 @@ describe('Knowledge', () => {
 
   it('deletes a document via the confirm dialog', async () => {
     mockGet.mockImplementation((url: string) => {
-      if (url === '/knowledge/documents') {
-        return Promise.resolve([
+      if (url === '/knowledge/documents/list') {
+        return Promise.resolve(wrapDocuments([
           { id: 1, name: 'doc1.pdf', file_type: 'pdf', path: '/docs/1.pdf', category: 'general', vector_status: 'synced', uploaded_at: '2025-01-01', size: 102400 },
-        ])
+        ]))
       }
       if (url === '/knowledge/stats') return Promise.resolve({ document_count: 1, total_vectors: 50 })
       return Promise.resolve([])

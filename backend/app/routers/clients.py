@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -33,6 +34,77 @@ from app.routers.clients_deps import (
 )
 
 router = APIRouter(prefix="/clients", tags=["clients"])
+
+
+class ClientListStats(BaseModel):
+    total: int
+    active: int
+    watch: int
+    dormant: int
+
+
+class ClientListResponse(BaseModel):
+    items: list[ClientOut]
+    total: int
+    limit: int
+    offset: int
+    stats: ClientListStats
+
+
+def _client_health(client: ClientOut) -> str:
+    if client.project_names:
+        return "active"
+    if (
+        client.document_count > 0
+        or bool((client.contact or "").strip())
+        or bool((client.notes or "").strip())
+        or client.client_memory_version > 0
+    ):
+        return "watch"
+    return "dormant"
+
+
+def _client_matches_search(client: ClientOut, search: str) -> bool:
+    keyword = search.strip().lower()
+    if not keyword:
+        return True
+    haystack = [
+        client.name,
+        client.industry,
+        client.contact,
+        client.notes,
+        *client.project_names,
+    ]
+    return any(keyword in str(value or "").lower() for value in haystack)
+
+
+def _client_sort_key(client: ClientOut) -> tuple[int, int, int, str]:
+    rank = {"active": 3, "watch": 2, "dormant": 1}
+    return (
+        -rank[_client_health(client)],
+        -len(client.project_names),
+        -client.document_count,
+        client.name.lower(),
+    )
+
+
+def _build_all_client_rows(session: Session) -> list[ClientOut]:
+    clients = session.exec(select(ClientRecord).order_by(ClientRecord.name)).all()
+    all_docs = session.exec(select(KnowledgeDocument)).all()
+    all_projects = session.exec(select(Project)).all()
+
+    docs_by_client: dict[int, list] = {}
+    for document in all_docs:
+        if document.client_id is not None:
+            docs_by_client.setdefault(document.client_id, []).append(document)
+
+    projects_by_name: dict[str, list[str]] = {}
+    for project in all_projects:
+        key = _normalized_name(project.client)
+        if key:
+            projects_by_name.setdefault(key, []).append(project.name)
+
+    return [_build_client_out(client, docs_by_client, projects_by_name) for client in clients]
 
 
 @router.get("", response_model=list[ClientOut])
@@ -59,6 +131,35 @@ def list_clients(session: Session = Depends(get_session)):
     result = [_build_client_out(client, docs_by_client, projects_by_name) for client in clients]
     clients_cache.set(_CLIENTS_KEY, result, _CLIENTS_TTL)
     return result
+
+
+@router.get("/list", response_model=ClientListResponse)
+def list_clients_paginated(
+    search: str = "",
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    rows = _build_all_client_rows(session)
+    stats_counts = {"active": 0, "watch": 0, "dormant": 0}
+    for row in rows:
+        stats_counts[_client_health(row)] += 1
+
+    filtered = [row for row in rows if _client_matches_search(row, search)]
+    filtered.sort(key=_client_sort_key)
+    page_items = filtered[offset : offset + limit]
+    return ClientListResponse(
+        items=page_items,
+        total=len(filtered),
+        limit=limit,
+        offset=offset,
+        stats=ClientListStats(
+            total=len(rows),
+            active=stats_counts["active"],
+            watch=stats_counts["watch"],
+            dormant=stats_counts["dormant"],
+        ),
+    )
 
 
 @router.post("", response_model=ClientOut)

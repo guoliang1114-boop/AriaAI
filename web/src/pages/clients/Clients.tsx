@@ -31,11 +31,19 @@ interface ClientSuggestion {
   notes: string;
 }
 
+interface ClientListResponse {
+  items: Client[];
+  total: number;
+  limit: number;
+  offset: number;
+  stats: { total: number; active: number; watch: number; dormant: number };
+}
+
 type ClientHealth = "active" | "watch" | "dormant";
 
 const CLIENT_GRID = "minmax(260px,1.8fr) minmax(110px,.7fr) minmax(90px,.6fr) minmax(70px,.55fr) minmax(110px,.75fr) 100px 20px";
 const CLIENT_TABLE_MIN_WIDTH = 820;
-const CLIENT_PAGE_SIZE = 20;
+const CLIENT_PAGE_SIZE = 10;
 
 function safeText(value: string | null | undefined) {
   return value?.trim() ?? "";
@@ -146,6 +154,8 @@ export function Clients() {
 
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientTotal, setClientTotal] = useState(0);
+  const [stats, setStats] = useState({ total: 0, active: 0, watch: 0, dormant: 0 });
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -163,8 +173,16 @@ export function Clients() {
     try {
       setLoading(true);
       setFetchError(null);
-      const data = await api.get<Client[]>("/clients");
-      setClients(data);
+      const data = await api.get<ClientListResponse>("/clients/list", {
+        params: {
+          search: searchQuery.trim(),
+          limit: clientPageSize,
+          offset: (clientPage - 1) * clientPageSize,
+        },
+      });
+      setClients(data.items);
+      setClientTotal(data.total);
+      setStats(data.stats);
     } catch (error) {
       console.error("Failed to fetch clients:", error);
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -176,7 +194,7 @@ export function Clients() {
 
   useEffect(() => {
     void fetchClients();
-  }, []);
+  }, [clientPage, clientPageSize, searchQuery]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -221,23 +239,8 @@ export function Clients() {
     }
   };
 
-  const stats = useMemo(() => {
-    const active = clients.filter((client) => getClientHealth(client) === "active").length;
-    const watch = clients.filter((client) => getClientHealth(client) === "watch").length;
-    const dormant = clients.filter((client) => getClientHealth(client) === "dormant").length;
-    return { total: clients.length, active, watch, dormant };
-  }, [clients]);
-
-  const filteredClients = useMemo(
-    () => clients.filter((client) => matchesClient(client, searchQuery, isZh)).sort(sortClients),
-    [clients, isZh, searchQuery],
-  );
-  const clientPageCount = Math.max(1, Math.ceil(filteredClients.length / clientPageSize));
+  const clientPageCount = Math.max(1, Math.ceil(clientTotal / clientPageSize));
   const currentClientPage = Math.min(clientPage, clientPageCount);
-  const paginatedClients = useMemo(() => {
-    const start = (currentClientPage - 1) * clientPageSize;
-    return filteredClients.slice(start, start + clientPageSize);
-  }, [currentClientPage, clientPageSize, filteredClients]);
 
   useEffect(() => {
     setClientPage(1);
@@ -379,7 +382,7 @@ export function Clients() {
             ) : null}
 
             <section aria-label={isZh ? "客户列表" : "Client directory"}>
-              {filteredClients.length === 0 ? (
+              {clientTotal === 0 ? (
                 <EmptyClientsState
                   isZh={isZh}
                   hasSearch={Boolean(searchQuery.trim())}
@@ -408,7 +411,7 @@ export function Clients() {
                     <span />
                   </div>
                   <div style={{ minWidth: CLIENT_TABLE_MIN_WIDTH }}>
-                    {paginatedClients.map((client) => (
+                    {clients.map((client) => (
                       <ClientTableRow
                         key={client.id}
                         client={client}
@@ -419,13 +422,14 @@ export function Clients() {
                     <CxPagination
                       page={currentClientPage}
                       pageSize={clientPageSize}
-                      totalItems={filteredClients.length}
+                      totalItems={clientTotal}
                       onPageChange={setClientPage}
                       onPageSizeChange={(nextPageSize) => {
                         setClientPageSize(nextPageSize);
                         setClientPage(1);
                       }}
                       isZh={isZh}
+                      pageSizeOptions={[10, 20, 50]}
                     />
                   </div>
                 </div>
