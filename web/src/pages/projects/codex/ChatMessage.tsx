@@ -18,10 +18,8 @@ import { formatUpdatedRelative } from './useProjectsApi'
  *   - artifacts[]        → file-style cards with size / type badge
  *   - references[]       → numbered [N] citation chips
  *
- * Bottom of each Aria message: hover-only action chips. Per scope
- * decision we only ship the two that have real backend support today
- * (复制 + 沉淀到项目记忆). 重新生成 / 加到笔记 / 固定为锚点 will
- * land in a follow-up when their backends exist.
+ * Bottom of each Aria message: hover-only action chips. Just two —
+ * 复制 and 沉淀到项目记忆.
  */
 
 interface ReferenceRef {
@@ -399,12 +397,9 @@ function ReferenceChips({ refs }: { refs: ReferenceRef[] }) {
 }
 
 /* ────────────────────────────────────────────────────────────────
- * Aria action chips — hover-revealed pill row. Two wired actions:
- *   - 复制      → copy message content to clipboard
- *   - 沉淀到记忆 → POST /projects/:id/memory/rebuild (debounced)
- * Other chips in the design (重新生成 / 加到笔记 / 固定为锚点) need
- * backend endpoints that don't exist yet; we leave them out rather
- * than ship dead buttons.
+ * Aria action chips — hover-revealed pill row. Two actions:
+ *   - 复制       → copy message content to clipboard
+ *   - 沉淀到记忆 → POST /projects/:id/memory/rebuild
  * ──────────────────────────────────────────────────────────────── */
 function AriaActionChips({
   content,
