@@ -10,9 +10,9 @@ import { useToast } from '../../../../contexts/ToastContext'
 import { CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
-import { CxStatus } from '../CxPrimitives'
 import { CxConversationRenameDialog } from '../CxConversationActions'
 import { ProjectChatMessage } from '../ChatMessage'
+import { useChatStream } from '../useChatStream'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -35,7 +35,6 @@ interface ChatProps {
 export function CxProjectChat({ projectId, detail }: ChatProps) {
   const { project, files, folders } = detail
   const toast = useToast()
-  const navigate = useNavigate()
   const { data: conversations, loading, error, refetch } = useProjectConversations(projectId)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
@@ -56,12 +55,14 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
       const conv = await api.post<Conversation>('/chat/conversations', {
         project_id: projectId,
       })
-      navigate(`/chat?conversation=${conv.id}&project=${projectId}`)
+      await refetch()
+      setSelectedId(conv.id)
     } catch (err) {
       toast.error({
         title: '创建失败',
         description: err instanceof Error ? err.message : '请稍后重试',
       })
+    } finally {
       setCreating(false)
     }
   }
@@ -359,6 +360,41 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
   const { data: messages, loading, error } = useConversationMessages(conversationId)
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  // Messages sent during this mount, layered on top of the server
+  // fetch. ThreadView is keyed on `conversationId` from the parent so
+  // this state resets cleanly when you switch conversations.
+  const [pending, setPending] = useState<Message[]>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const { status, streamingContent, statusMessage, send } = useChatStream({
+    projectId,
+    conversationId,
+    onUserMessage: (m) => {
+      setPending((prev) => [...prev, m])
+      // Defer scroll until the new bubble is in the DOM.
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: 'smooth',
+        })
+      }, 0)
+    },
+    onAssistantMessage: (m) => setPending((prev) => [...prev, m]),
+    onError: (msg) =>
+      toast.error({ title: '发送失败', description: msg }),
+  })
+
+  // Auto-scroll as the streaming reply grows. Cheap to do every
+  // render because the scroll container is small and the diff is
+  // append-only.
+  useEffect(() => {
+    if (status === 'streaming' || status === 'sending') {
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'auto',
+      })
+    }
+  }, [status, streamingContent])
 
   const handleDelete = async () => {
     if (deleting) return
@@ -376,6 +412,9 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
       setDeleting(false)
     }
   }
+
+  const allMessages = pending.length ? [...messages, ...pending] : messages
+  const busy = status === 'sending' || status === 'streaming'
 
   return (
     <>
@@ -431,6 +470,7 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
 
       {/* Messages */}
       <div
+        ref={scrollRef}
         style={{
           flex: 1,
           padding: '28px 56px',
@@ -461,7 +501,7 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           <div style={{ fontSize: 13, color: 'var(--bad)' }}>{error}</div>
         )}
 
-        {!loading && !error && messages.length === 0 && (
+        {!loading && !error && allMessages.length === 0 && !busy && (
           <div
             style={{
               textAlign: 'center',
@@ -473,68 +513,22 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           >
             这段对话还没有消息。
             <br />
-            点右上「打开」前往对话页发送第一条。
+            在下方输入框开始第一条。
           </div>
         )}
 
         {!loading &&
           !error &&
-          messages.map((m) => (
+          allMessages.map((m) => (
             <ProjectChatMessage key={m.id} message={m} projectId={projectId} />
           ))}
+
+        {busy && <StreamingBubble content={streamingContent} status={statusMessage} />}
       </div>
 
-      {/* Composer placeholder */}
+      {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
-        <button
-          type="button"
-          onClick={() => navigate(`/chat?conversation=${conversationId}&project=${projectId}`)}
-          style={{
-            width: '100%',
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-md)',
-            padding: '14px 16px',
-            textAlign: 'left',
-            cursor: 'pointer',
-          }}
-        >
-          <div
-            className="ui"
-            style={{ fontSize: 14, color: 'var(--ink-faint)', minHeight: 24 }}
-          >
-            继续向 Aria 提问…
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginTop: 8,
-              paddingTop: 8,
-              borderTop: '1px solid var(--line-soft)',
-              fontSize: 12,
-              color: 'var(--ink-mute)',
-            }}
-          >
-            <CxStatus tone="mute">在对话页继续</CxStatus>
-            <span
-              style={{
-                padding: '4px 12px',
-                background: 'var(--accent)',
-                color: 'var(--bg-elev)',
-                borderRadius: 'var(--r-sm)',
-                fontSize: 12.5,
-                fontWeight: 500,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-              }}
-            >
-              打开 <CxIcon name="arrow-right" size={11} stroke={1.8} />
-            </span>
-          </div>
-        </button>
+        <Composer onSend={send} disabled={busy} />
       </div>
     </>
   )
@@ -678,6 +672,190 @@ function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: Conver
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────
+ * Composer — autosizing textarea + send button. Enter sends,
+ * Shift+Enter inserts a newline. Disabled while a stream is in
+ * flight. Intentionally minimal: no Skill picker, no @-mention, no
+ * file attach — those live on /chat and aren't part of the
+ * "直接沟通" MVP for the project chat tab.
+ * ──────────────────────────────────────────────────────────────── */
+function Composer({
+  onSend,
+  disabled,
+}: {
+  onSend: (text: string) => void | Promise<void>
+  disabled: boolean
+}) {
+  const [value, setValue] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const autosize = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`
+  }
+
+  useEffect(() => {
+    autosize()
+  }, [value])
+
+  const submit = () => {
+    const text = value.trim()
+    if (!text || disabled) return
+    setValue('')
+    void onSend(text)
+  }
+
+  return (
+    <div
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '12px 14px',
+        opacity: disabled ? 0.85 : 1,
+        transition: 'opacity 120ms',
+      }}
+    >
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+        placeholder={disabled ? 'Aria 正在回复…' : '继续向 Aria 提问…'}
+        rows={1}
+        disabled={disabled}
+        style={{
+          width: '100%',
+          minHeight: 24,
+          maxHeight: 220,
+          padding: 0,
+          fontSize: 14,
+          lineHeight: 1.6,
+          color: 'var(--ink)',
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          resize: 'none',
+          fontFamily: 'inherit',
+        }}
+      />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: '1px solid var(--line-soft)',
+        }}
+      >
+        <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+          Enter 发送 · Shift+Enter 换行
+        </span>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={disabled || !value.trim()}
+          style={{
+            padding: '5px 14px',
+            background: 'var(--accent)',
+            color: 'var(--bg-elev)',
+            borderRadius: 'var(--r-sm)',
+            fontSize: 12.5,
+            fontWeight: 500,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            opacity: disabled || !value.trim() ? 0.5 : 1,
+            cursor: disabled || !value.trim() ? 'not-allowed' : 'pointer',
+          }}
+        >
+          发送 <CxIcon name="arrow-right" size={11} stroke={1.8} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────
+ * StreamingBubble — placeholder Aria bubble shown while a reply
+ * is in flight. Renders raw markdown of the partial content (no
+ * progress / artifact / reference parsing since none of that is
+ * available until the 'done' event lands).
+ * ──────────────────────────────────────────────────────────────── */
+function StreamingBubble({
+  content,
+  status,
+}: {
+  content: string
+  status: string | null
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      <span
+        style={{
+          width: 30,
+          height: 30,
+          marginTop: 3,
+          borderRadius: 'var(--r-sm)',
+          background: 'var(--accent-bg)',
+          color: 'var(--accent)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <CxIcon name="sparkle" size={14} />
+      </span>
+      <div style={{ flex: 1, paddingTop: 3, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 11.5,
+            color: 'var(--ink-mute)',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span style={{ color: 'var(--accent-ink)', fontWeight: 500 }}>Aria</span>
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 99,
+              background: 'var(--accent)',
+              animation: 'pulse 1.2s ease-in-out infinite',
+            }}
+          />
+          <span>{status || '生成中…'}</span>
+        </div>
+        {content && (
+          <div
+            style={{
+              fontSize: 14,
+              lineHeight: 1.75,
+              color: 'var(--ink)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {content}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
