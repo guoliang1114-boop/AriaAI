@@ -27,9 +27,12 @@ const LABEL_STYLE = {
   fontWeight: 500,
 } as const
 
+/** "Owner" is conferred when the project is created — there's only
+ * one owner per project, and the invite flow shouldn't be used to
+ * create a second one. Use the upcoming transfer-ownership flow when
+ * we need to change owners. */
 const ROLE_OPTIONS = [
-  { value: 'owner', label: 'Owner · 全部权限' },
-  { value: 'editor', label: 'Editor · 读写' },
+  { value: 'editor', label: 'Editor · 可读写' },
   { value: 'viewer', label: 'Viewer · 只读' },
 ]
 
@@ -151,12 +154,31 @@ export function CxMemberInviteDialog({
           <div>
             <label style={LABEL_STYLE}>用户</label>
             {loadingUsers ? (
-              <div style={{ fontSize: 12.5, color: 'var(--color-codex-ink-faint)' }}>
-                加载中…
+              <div
+                style={{
+                  ...INPUT_STYLE,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: 'var(--color-codex-ink-faint)',
+                  cursor: 'default',
+                }}
+              >
+                加载用户列表…
               </div>
             ) : candidates.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--color-codex-ink-faint)' }}>
-                没有可邀请的用户(其他用户已是成员或系统暂无其它用户)。
+              <div
+                style={{
+                  ...INPUT_STYLE,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: 'var(--color-codex-ink-faint)',
+                  cursor: 'default',
+                  lineHeight: 1.5,
+                  height: 'auto',
+                  minHeight: 36,
+                }}
+              >
+                没有可邀请的用户
               </div>
             ) : (
               <select

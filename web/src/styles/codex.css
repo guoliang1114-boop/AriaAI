@@ -512,6 +512,35 @@
   caret-color: var(--color-codex-ink);
 }
 
+/* Native <select> chrome reset — strip the OS dropdown so codex
+ * dialogs render selects with the same hairline border + radius as
+ * inputs, then paint a custom chevron via background-image. Without
+ * this the macOS/Chrome dropdowns sit on top of the dialog with their
+ * own rounded corners + arrow + font, looking "weird" compared to
+ * inputs in the same form. */
+.theme-codex select.codex-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8270' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+.theme-codex.dark select.codex-input {
+  /* Same chevron, lighter stroke so it reads against the dark bg. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b5ac97' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+}
+.theme-codex select.codex-input::-ms-expand {
+  display: none;
+}
+.theme-codex select.codex-input option {
+  background: var(--color-codex-bg-elev);
+  color: var(--color-codex-ink);
+}
+
 /* Login shell — kept as explicit CSS so fullscreen layout cannot be
    accidentally changed by generic flex/grid utility classes. */
 .theme-codex.codex-login-outer {
