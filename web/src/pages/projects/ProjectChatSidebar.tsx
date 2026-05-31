@@ -370,30 +370,46 @@ export function ProjectChatSidebar({
           ) : null}
         </div>
 
-        {/* Tabs */}
-        <div className="flex rounded-md bg-codex-bg-tint p-0.5">
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-[12px] font-medium leading-4 transition-all ${
-              activeTab === "chat"
-                ? "bg-white text-codex-ink shadow-sm"
-                : "text-codex-ink-mute hover:text-codex-ink-soft"
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            {isZh ? "对话" : "Chat"}
-          </button>
-          <button
-            onClick={() => setActiveTab("space")}
-            className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-[12px] font-medium leading-4 transition-all ${
-              activeTab === "space"
-                ? "bg-white text-codex-ink shadow-sm"
-                : "text-codex-ink-mute hover:text-codex-ink-soft"
-            }`}
-          >
-            <FolderKanban className="w-3.5 h-3.5" />
-            {isZh ? "空间" : "Space"}
-          </button>
+        {/* Tabs — flat bottom-border style to match the project shell */}
+        <div
+          className="flex items-stretch"
+          style={{ borderBottom: "1px solid var(--color-codex-line-soft)" }}
+        >
+          {(
+            [
+              { key: "chat" as const, icon: MessageSquare, label: isZh ? "对话" : "Chat" },
+              { key: "space" as const, icon: FolderKanban, label: isZh ? "空间" : "Space" },
+            ]
+          ).map((tab) => {
+            const active = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className="inline-flex flex-1 items-center justify-center transition-colors"
+                style={{
+                  gap: 6,
+                  padding: "8px 0",
+                  fontSize: 12.5,
+                  lineHeight: 1.35,
+                  fontWeight: active ? 500 : 400,
+                  color: active
+                    ? "var(--color-codex-ink)"
+                    : "var(--color-codex-ink-mute)",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: `2px solid ${
+                    active ? "var(--color-codex-accent)" : "transparent"
+                  }`,
+                  marginBottom: -1,
+                }}
+              >
+                <tab.icon className="h-3.5 w-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -628,6 +644,51 @@ export function ProjectChatSidebar({
                 </span>
               </div>
             </div>
+
+            {/* Drop zone — matches direction-codex-project-chat.jsx
+             * "拖入文件或点击上传" affordance. Click opens the file
+             * picker; native drag-and-drop also routes through the
+             * existing onUploadFiles handler. */}
+            {onUploadFiles ? (
+              <button
+                type="button"
+                onClick={() => openUploadPicker(folderList[0]?.id ?? null)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const dropped = event.dataTransfer.files;
+                  if (dropped && dropped.length > 0) {
+                    onUploadFiles(dropped, folderList[0]?.id ?? null);
+                  }
+                }}
+                disabled={isUploadingFile}
+                className="mb-3 flex w-full flex-col items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  gap: 4,
+                  padding: "12px 10px",
+                  fontSize: 11.5,
+                  color: "var(--color-codex-ink-mute)",
+                  background: "transparent",
+                  border: "1px dashed var(--color-codex-line-strong, var(--color-codex-line))",
+                  borderRadius: "var(--codex-r-sm, 6px)",
+                  textAlign: "center",
+                  lineHeight: 1.45,
+                }}
+              >
+                {isUploadingFile ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--color-codex-accent)" }} />
+                ) : null}
+                <span style={{ color: "var(--color-codex-ink-soft, var(--color-codex-ink))" }}>
+                  {isZh ? "拖入文件或点击上传" : "Drop files or click to upload"}
+                </span>
+                <span style={{ fontSize: 10.5, color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>
+                  PDF / DOC / MD / TXT · ≤ 50 MB
+                </span>
+              </button>
+            ) : null}
 
             <div className="space-y-1">
               {folderList.map((folder) => {
