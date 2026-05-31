@@ -55,20 +55,16 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
     if (rebuilding) return
     setRebuilding(true)
     try {
-      await api.post(`/projects/${projectId}/memory/rebuild`, {})
+      // Backend's /memory/rebuild is synchronous: it runs the LLM
+      // across every slot then returns. Default axios timeout is 15s
+      // which is well under the typical 30–90s LLM round-trip, so we
+      // bump per-call to 3min and refetch the briefing afterward.
+      await api.post(`/projects/${projectId}/memory/rebuild`, {}, { timeout: 180000 })
       toast.success({
-        title: '正在重建项目记忆',
-        description: '简报将在几秒后自动刷新',
+        title: '项目记忆已重建',
+        description: '简报即将刷新',
       })
-      // The rebuild is async on the backend; refetch after a short
-      // delay so we don't paint the old data forever, then again to
-      // catch the slower jobs.
-      setTimeout(() => {
-        void refetch()
-      }, 3000)
-      setTimeout(() => {
-        void refetch()
-      }, 9000)
+      await refetch()
     } catch (err) {
       toast.error({
         title: '重建失败',
@@ -99,6 +95,9 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
           language: i18n.language,
           force_refresh: forceRefresh,
         },
+        // LLM refine endpoint commonly takes 20-60s, well past the
+        // 15s default. Bumping per-call to 2min.
+        { timeout: 120000 },
       )
       setScript(res.content)
       toast.success({

@@ -22,10 +22,13 @@ export function CxMemoryRebuildButton({ projectId, onTriggered }: RebuildButtonP
     if (busy) return
     setBusy(true)
     try {
-      await api.post(`/projects/${projectId}/memory/rebuild`, {})
+      // Backend's /memory/rebuild is synchronous (runs the LLM across
+      // every slot before returning); default 15s axios timeout would
+      // fire before the model finishes. Bump per-call to 3min.
+      await api.post(`/projects/${projectId}/memory/rebuild`, {}, { timeout: 180000 })
       toast.success({
-        title: '重建已排队',
-        description: '后台正在汇总最新对话与文档',
+        title: '项目记忆已重建',
+        description: '页面会自动刷新最新内容',
       })
       await onTriggered()
     } catch (err) {
