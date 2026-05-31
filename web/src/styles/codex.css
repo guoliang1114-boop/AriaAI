@@ -120,17 +120,76 @@
 }
 .theme-codex,
 .theme-codex.radius-soft {
-  --codex-r-sm: 6px;
-  --codex-r-md: 10px;
-  --codex-r-lg: 14px;
+  --codex-r-sm: 3px;
+  --codex-r-md: 6px;
+  --codex-r-lg: 10px;
   --codex-r-pill: 999px;
 }
 .theme-codex.radius-round {
-  --codex-r-sm: 16px;
-  --codex-r-md: 22px;
-  --codex-r-lg: 30px;
+  --codex-r-sm: 6px;
+  --codex-r-md: 10px;
+  --codex-r-lg: 16px;
   --codex-r-pill: 999px;
 }
+
+/* ----------------------------------------------------------------
+   Unprefixed token aliases — the project-module handoff JSX uses
+   bare `var(--bg)`, `var(--ink)`, `var(--r-md)`, etc. in inline
+   styles. We mirror the prefixed tokens onto unprefixed names here
+   so design files port over 1:1 inside any `.theme-codex` subtree.
+   ---------------------------------------------------------------- */
+.theme-codex {
+  --bg: var(--color-codex-bg);
+  --bg-elev: var(--color-codex-bg-elev);
+  --bg-sunken: var(--color-codex-bg-sunken);
+  --bg-tint: var(--color-codex-bg-tint);
+  --ink: var(--color-codex-ink);
+  --ink-soft: var(--color-codex-ink-soft);
+  --ink-mute: var(--color-codex-ink-mute);
+  --ink-faint: var(--color-codex-ink-faint);
+  --line: var(--color-codex-line);
+  --line-soft: var(--color-codex-line-soft);
+  --line-strong: var(--color-codex-line-strong);
+  --accent: var(--color-codex-accent);
+  --accent-soft: var(--color-codex-accent-soft);
+  --accent-ink: var(--color-codex-accent-ink);
+  --accent-bg: var(--color-codex-accent-bg);
+  --good: var(--color-codex-good);
+  --warn: var(--color-codex-warn);
+  --bad: var(--color-codex-bad);
+  --info: var(--color-codex-info);
+  --r-sm: var(--codex-r-sm);
+  --r-md: var(--codex-r-md);
+  --r-lg: var(--codex-r-lg);
+  --r-pill: var(--codex-r-pill);
+  --font-ui: "Inter", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+}
+
+/* Quiet hairlines + tree-pre helper used by docs / memory layouts. */
+.theme-codex .rule-h { border-top: 1px solid var(--color-codex-line); height: 1px; }
+.theme-codex .rule-soft { border-top: 1px solid var(--color-codex-line-soft); height: 1px; }
+.theme-codex .tree-pre {
+  font-family: var(--font-mono);
+  color: var(--color-codex-ink-faint);
+  letter-spacing: -0.01em;
+  user-select: none;
+  white-space: pre;
+}
+.theme-codex .ui { font-family: var(--font-ui); }
+.theme-codex .mono { font-family: var(--font-mono); font-feature-settings: "ss01", "ss02", "calt", "zero"; }
+.theme-codex .num { font-variant-numeric: tabular-nums; }
+
+/* Streaming-cursor helper — design JSX uses bare `cursor-blink`. */
+.theme-codex .cursor-blink::after {
+  content: "▍";
+  color: var(--color-codex-accent);
+  margin-left: 1px;
+  animation: codex-blink 1s steps(2) infinite;
+}
+
+/* Quiet pulse — design JSX uses bare `dot-pulse`. */
+.theme-codex .dot-pulse { animation: codex-pulse 2s ease-in-out infinite; }
 
 /* ----------------------------------------------------------------
    Density variants — applies ``zoom`` to the React mount point so
