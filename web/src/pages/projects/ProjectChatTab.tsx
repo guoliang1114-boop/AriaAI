@@ -963,9 +963,13 @@ export function ProjectChatTab({
     <div
       className={
         isFullscreen
-          ? "flex h-screen w-screen min-h-0 overflow-hidden border-0 bg-white shadow-none"
-          : "flex h-full min-h-0 overflow-hidden rounded-lg border border-codex-line bg-white shadow-sm"
+          ? "flex h-screen w-screen min-h-0 overflow-hidden border-0 shadow-none"
+          : "flex h-full min-h-0 overflow-hidden rounded-md border shadow-none"
       }
+      style={{
+        background: "var(--color-codex-bg-elev)",
+        borderColor: "var(--color-codex-line)",
+      }}
     >
       <ProjectChatSidebar
         activeConvId={activeConvId}
@@ -994,7 +998,10 @@ export function ProjectChatTab({
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
       />
 
-      <div className="flex min-w-0 flex-1 bg-codex-bg-tint">
+      <div
+        className="flex min-w-0 flex-1"
+        style={{ background: "var(--color-codex-bg)" }}
+      >
         <div className="flex min-w-0 flex-1">
           <ProjectChatMainPanel
             activeConversation={activeConversation}

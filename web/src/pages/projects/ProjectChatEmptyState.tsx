@@ -1,4 +1,4 @@
-import { Bot } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type { ProjectQuickPrompt } from "./projectChatCopy";
 
 interface ProjectChatEmptyStateProps {
@@ -15,23 +15,80 @@ export function ProjectChatEmptyState({
   startConversationLabel,
 }: ProjectChatEmptyStateProps) {
   return (
-    <div className="flex w-full flex-col items-center justify-center text-codex-ink-mute">
-      <div className="w-16 h-16 rounded-2xl bg-primary/5 flex items-center justify-center mb-4 border border-primary/10">
-        <Bot className="w-8 h-8 text-primary/40" />
+    <div
+      className="flex w-full flex-col items-center justify-center"
+      style={{ color: "var(--color-codex-ink-mute)" }}
+    >
+      <div
+        className="mb-4 flex items-center justify-center"
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: "var(--codex-r-sm, 6px)",
+          background: "var(--color-codex-accent-bg)",
+          color: "var(--color-codex-accent)",
+          border: "1px solid var(--color-codex-line)",
+        }}
+      >
+        <Sparkles className="h-5 w-5" />
       </div>
-      <p className="text-base font-semibold text-codex-ink mb-2">{startConversationLabel}</p>
-      <p className="text-sm text-codex-ink-mute mb-6 max-w-xs text-center">{choosePromptLabel}</p>
-      <div className="grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
+      <p
+        className="mb-2"
+        style={{
+          fontSize: 15,
+          fontWeight: 500,
+          color: "var(--color-codex-ink)",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {startConversationLabel}
+      </p>
+      <p
+        className="mb-6 max-w-xs text-center"
+        style={{
+          fontSize: 13,
+          color: "var(--color-codex-ink-mute)",
+          lineHeight: 1.55,
+        }}
+      >
+        {choosePromptLabel}
+      </p>
+      <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
         {quickPrompts.map((prompt) => (
           <button
             key={prompt.key}
+            type="button"
             onClick={() => onQuickPrompt(prompt.prompt)}
-            className="flex items-center gap-2 p-3 bg-white border border-codex-line hover:border-primary/30 hover:bg-primary/5 rounded-xl text-left transition-all shadow-sm hover:shadow"
+            className="flex items-center text-left transition-colors"
+            style={{
+              gap: 10,
+              padding: "10px 12px",
+              background: "var(--color-codex-bg-elev)",
+              border: "1px solid var(--color-codex-line)",
+              borderRadius: "var(--codex-r-sm, 6px)",
+            }}
           >
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <prompt.icon className="w-4 h-4 text-codex-accent" />
-            </div>
-            <span className="text-sm font-medium text-codex-ink-soft">{prompt.label}</span>
+            <span
+              className="inline-flex flex-shrink-0 items-center justify-center"
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: "var(--codex-r-sm, 6px)",
+                background: "var(--color-codex-accent-bg)",
+                color: "var(--color-codex-accent)",
+              }}
+            >
+              <prompt.icon className="h-3.5 w-3.5" />
+            </span>
+            <span
+              style={{
+                fontSize: 13,
+                color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+                fontWeight: 500,
+              }}
+            >
+              {prompt.label}
+            </span>
           </button>
         ))}
       </div>
