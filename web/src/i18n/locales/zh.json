@@ -388,6 +388,7 @@
     "server": "服务器",
     "language": "语言",
     "users": "用户管理",
+    "systemSettings": "系统设置",
     "about": "系统版本",
     "messages": "消息中心",
     "signOut": "退出登录",

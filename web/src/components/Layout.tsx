@@ -438,6 +438,7 @@ export function Layout() {
                         { to: '/settings/appearance', icon: Palette, label: t('settings.appearance', { defaultValue: isZh ? '外观样式' : 'Appearance' }) },
                         { to: '/settings/preferences', icon: Settings, label: t('settings.preferences', { defaultValue: isZh ? '个人偏好' : 'Preferences' }) },
                         { to: '/messages', icon: Bell, label: t('settings.messages', { defaultValue: isZh ? '消息中心' : 'Message Center' }) },
+                        { to: '/settings', icon: Settings, label: t('settings.systemSettings', { defaultValue: isZh ? '系统设置' : 'System Settings' }) },
                         { to: '/settings/about', icon: HelpCircle, label: t('settings.about', { defaultValue: isZh ? '系统版本' : 'System Version' }) },
                       ].map((entry) => (
                         <NavLink

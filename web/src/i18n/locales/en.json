@@ -389,6 +389,7 @@
     "server": "Server",
     "language": "Language",
     "users": "Users",
+    "systemSettings": "System Settings",
     "about": "System Version",
     "messages": "Message Center",
     "signOut": "Sign Out",
