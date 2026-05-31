@@ -30,10 +30,6 @@ vi.mock('./ProjectMilestonesTab', () => ({
   ProjectMilestonesTab: () => <div data-testid="project-milestones-tab">Milestones</div>,
 }))
 
-vi.mock('./ProjectTodosTab', () => ({
-  ProjectTodosTab: () => <div data-testid="project-todos-tab">Todos</div>,
-}))
-
 vi.mock('./ProjectFinancialsTab', () => ({
   ProjectFinancialsTab: () => <div data-testid="project-financials-tab">Financials</div>,
 }))
