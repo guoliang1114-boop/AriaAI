@@ -112,6 +112,33 @@ function LazyPage({ children }: { children: React.ReactNode }) {
   )
 }
 
+function SettingsRouteFallback() {
+  return (
+    <div
+      className="theme-codex"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1,
+        background: 'var(--color-codex-bg)',
+        color: 'var(--color-codex-ink)',
+      }}
+    >
+      <CxTopProgress />
+    </div>
+  )
+}
+
+function SettingsLazyPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<SettingsRouteFallback />}>{children}</Suspense>
+    </ErrorBoundary>
+  )
+}
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
   if (!isAuthenticated) {
@@ -322,58 +349,58 @@ function AppRoutes() {
           <Route
             index
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <ProfileSettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="preferences"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <PreferenceSettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="appearance"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <AppearanceSettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="ai"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <AISettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="memory"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <ProjectMemorySettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="client-memory"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <ClientMemorySettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="memory-ops"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <MemoryOperationsSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
@@ -381,9 +408,9 @@ function AppRoutes() {
             path="api-limits"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <ApiLimitsSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
@@ -391,9 +418,9 @@ function AppRoutes() {
             path="migrations"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <MigrationSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
@@ -401,9 +428,9 @@ function AppRoutes() {
             path="users"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <UsersSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
@@ -411,9 +438,9 @@ function AppRoutes() {
             path="messages"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <MessageSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
@@ -421,34 +448,34 @@ function AppRoutes() {
             path="server"
             element={
               <AdminGuard>
-                <LazyPage>
+                <SettingsLazyPage>
                   <ServerSettings />
-                </LazyPage>
+                </SettingsLazyPage>
               </AdminGuard>
             }
           />
           <Route
             path="language"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <LanguageSettings />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
           <Route
             path="about"
             element={
-              <LazyPage>
-              <AboutSettings />
-            </LazyPage>
-          }
-        />
+              <SettingsLazyPage>
+                <AboutSettings />
+              </SettingsLazyPage>
+            }
+          />
           <Route
             path="*"
             element={
-              <LazyPage>
+              <SettingsLazyPage>
                 <NotFound />
-              </LazyPage>
+              </SettingsLazyPage>
             }
           />
         </Route>

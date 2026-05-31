@@ -205,7 +205,7 @@ export function SettingsLayout() {
         {/* Right column. Each settings page brings its own ``<h1>``,
             so the shell just provides the padding scaffold. */}
         <div
-          className="min-w-0 flex-1 overflow-hidden"
+          className="relative min-w-0 flex-1 overflow-hidden"
           style={{ padding: '32px 48px 40px' }}
         >
           <Outlet />
