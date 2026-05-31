@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowRight, Building2, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 
 import { api } from "../../api/client";
-import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from "../../components/codex";
+import { CxPagination, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from "../../components/codex";
 import { PageTitle } from "../../components/PageTitle";
 import { useToast } from "../../contexts/ToastContext";
 import { formatDateOnly, getResolvedAppTimeZone, parseAppDateTime } from "../../utils/timezone";
@@ -35,6 +35,7 @@ type ClientHealth = "active" | "watch" | "dormant";
 
 const CLIENT_GRID = "minmax(260px,1.8fr) minmax(110px,.7fr) minmax(90px,.6fr) minmax(70px,.55fr) minmax(110px,.75fr) 100px 20px";
 const CLIENT_TABLE_MIN_WIDTH = 820;
+const CLIENT_PAGE_SIZE = 20;
 
 function safeText(value: string | null | undefined) {
   return value?.trim() ?? "";
@@ -150,6 +151,8 @@ export function Clients() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", industry: "", contact: "", notes: "" });
+  const [clientPage, setClientPage] = useState(1);
+  const [clientPageSize, setClientPageSize] = useState(CLIENT_PAGE_SIZE);
 
   const [aiQuery, setAiQuery] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -229,6 +232,20 @@ export function Clients() {
     () => clients.filter((client) => matchesClient(client, searchQuery, isZh)).sort(sortClients),
     [clients, isZh, searchQuery],
   );
+  const clientPageCount = Math.max(1, Math.ceil(filteredClients.length / clientPageSize));
+  const currentClientPage = Math.min(clientPage, clientPageCount);
+  const paginatedClients = useMemo(() => {
+    const start = (currentClientPage - 1) * clientPageSize;
+    return filteredClients.slice(start, start + clientPageSize);
+  }, [currentClientPage, clientPageSize, filteredClients]);
+
+  useEffect(() => {
+    setClientPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setClientPage((current) => Math.min(current, clientPageCount));
+  }, [clientPageCount]);
 
   return (
     <>
@@ -391,7 +408,7 @@ export function Clients() {
                     <span />
                   </div>
                   <div style={{ minWidth: CLIENT_TABLE_MIN_WIDTH }}>
-                    {filteredClients.map((client) => (
+                    {paginatedClients.map((client) => (
                       <ClientTableRow
                         key={client.id}
                         client={client}
@@ -399,6 +416,17 @@ export function Clients() {
                         onOpen={() => navigate(`/clients/${client.id}`)}
                       />
                     ))}
+                    <CxPagination
+                      page={currentClientPage}
+                      pageSize={clientPageSize}
+                      totalItems={filteredClients.length}
+                      onPageChange={setClientPage}
+                      onPageSizeChange={(nextPageSize) => {
+                        setClientPageSize(nextPageSize);
+                        setClientPage(1);
+                      }}
+                      isZh={isZh}
+                    />
                   </div>
                 </div>
               )}

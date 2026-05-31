@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
@@ -7,6 +7,7 @@ import {
   Plus,
 } from "lucide-react";
 import { api } from "../../api/client";
+import { CxPagination } from "../../components/codex";
 import { useToast } from "../../contexts/ToastContext";
 import type {
   ProjectDetail as ProjectDetailType,
@@ -39,6 +40,8 @@ const FILTER_LABEL_EN: Record<FilterKey, string> = {
   skill: "Skill output",
   auto: "Auto-generated",
 };
+
+const PROJECT_DOCUMENT_PAGE_SIZE = 10;
 
 function originOf(file: ProjectFile): Exclude<FilterKey, "all"> {
   const origin = (file.origin || "").toLowerCase();
@@ -75,6 +78,8 @@ export function ProjectDocumentsTab({
   const toast = useToast();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [uploading, setUploading] = useState(false);
+  const [documentPage, setDocumentPage] = useState(1);
+  const [documentPageSize, setDocumentPageSize] = useState(PROJECT_DOCUMENT_PAGE_SIZE);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const filesSorted = useMemo(
@@ -91,6 +96,20 @@ export function ProjectDocumentsTab({
     () => (filter === "all" ? filesSorted : filesSorted.filter((file) => originOf(file) === filter)),
     [filesSorted, filter],
   );
+  const documentPageCount = Math.max(1, Math.ceil(filtered.length / documentPageSize));
+  const currentDocumentPage = Math.min(documentPage, documentPageCount);
+  const paginatedFiles = useMemo(() => {
+    const start = (currentDocumentPage - 1) * documentPageSize;
+    return filtered.slice(start, start + documentPageSize);
+  }, [currentDocumentPage, documentPageSize, filtered]);
+
+  useEffect(() => {
+    setDocumentPage(1);
+  }, [filter]);
+
+  useEffect(() => {
+    setDocumentPage((current) => Math.min(current, documentPageCount));
+  }, [documentPageCount]);
 
   const sourceCounts = useMemo(() => {
     const map: Record<Exclude<FilterKey, "all">, number> = {
@@ -287,107 +306,120 @@ export function ProjectDocumentsTab({
                   : "No documents matching this filter."}
             </div>
           ) : (
-            filtered.map((file) => (
-              <button
-                key={file.id}
-                type="button"
-                onClick={() => void handleDownload(file)}
-                className="grid w-full transition-colors hover:[background:var(--color-codex-bg-tint)]"
-                style={{
-                  gridTemplateColumns: "50px 1fr 100px 90px 14px",
-                  padding: "14px 8px",
-                  gap: 14,
-                  alignItems: "flex-start",
-                  borderBottom: "1px solid var(--color-codex-line-soft)",
-                  borderRadius: "var(--codex-r-sm, 6px)",
-                  background: "transparent",
-                  border: "none",
-                  textAlign: "left",
-                  cursor: "pointer",
-                }}
-              >
-                <span
+            <>
+              {paginatedFiles.map((file) => (
+                <button
+                  key={file.id}
+                  type="button"
+                  onClick={() => void handleDownload(file)}
+                  className="grid w-full transition-colors hover:[background:var(--color-codex-bg-tint)]"
                   style={{
-                    fontSize: 10,
-                    color: "var(--color-codex-ink-mute)",
-                    padding: "3px 8px",
-                    border: "1px solid var(--color-codex-line)",
+                    gridTemplateColumns: "50px 1fr 100px 90px 14px",
+                    padding: "14px 8px",
+                    gap: 14,
+                    alignItems: "flex-start",
+                    borderBottom: "1px solid var(--color-codex-line-soft)",
                     borderRadius: "var(--codex-r-sm, 6px)",
-                    textAlign: "center",
-                    letterSpacing: "0.04em",
-                    justifySelf: "start",
-                    fontFamily:
-                      'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                    background: "transparent",
+                    border: "none",
+                    textAlign: "left",
+                    cursor: "pointer",
                   }}
                 >
-                  {typeBadge(file)}
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    className="truncate"
+                  <span
                     style={{
-                      fontSize: 14,
-                      color: "var(--color-codex-ink)",
-                      fontWeight: 500,
+                      fontSize: 10,
+                      color: "var(--color-codex-ink-mute)",
+                      padding: "3px 8px",
+                      border: "1px solid var(--color-codex-line)",
+                      borderRadius: "var(--codex-r-sm, 6px)",
+                      textAlign: "center",
+                      letterSpacing: "0.04em",
+                      justifySelf: "start",
+                      fontFamily:
+                        'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
                     }}
                   >
-                    {file.name}
-                  </div>
-                  {file.summary ? (
-                    <p
-                      className="line-clamp-2"
+                    {typeBadge(file)}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      className="truncate"
                       style={{
-                        margin: "3px 0 6px",
-                        fontSize: 12.5,
-                        color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
-                        lineHeight: 1.55,
+                        fontSize: 14,
+                        color: "var(--color-codex-ink)",
+                        fontWeight: 500,
                       }}
                     >
-                      {file.summary}
-                    </p>
-                  ) : null}
-                  <div
-                    className="flex flex-wrap items-center"
+                      {file.name}
+                    </div>
+                    {file.summary ? (
+                      <p
+                        className="line-clamp-2"
+                        style={{
+                          margin: "3px 0 6px",
+                          fontSize: 12.5,
+                          color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        {file.summary}
+                      </p>
+                    ) : null}
+                    <div
+                      className="flex flex-wrap items-center"
+                      style={{
+                        gap: 8,
+                        fontSize: 11,
+                        color: "var(--color-codex-ink-mute)",
+                        marginTop: file.summary ? 0 : 6,
+                      }}
+                    >
+                      <span>
+                        {isZh
+                          ? FILTER_LABEL_ZH[originOf(file)]
+                          : FILTER_LABEL_EN[originOf(file)]}
+                      </span>
+                      <span style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>·</span>
+                      <span>{formatDateOnly(file.uploaded_at)}</span>
+                    </div>
+                  </div>
+                  <span
                     style={{
-                      gap: 8,
-                      fontSize: 11,
+                      fontFamily:
+                        'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                      fontSize: 11.5,
                       color: "var(--color-codex-ink-mute)",
-                      marginTop: file.summary ? 0 : 6,
                     }}
                   >
-                    <span>
-                      {isZh
-                        ? FILTER_LABEL_ZH[originOf(file)]
-                        : FILTER_LABEL_EN[originOf(file)]}
-                    </span>
-                    <span style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>·</span>
-                    <span>{formatDateOnly(file.uploaded_at)}</span>
-                  </div>
-                </div>
-                <span
-                  style={{
-                    fontFamily:
-                      'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
-                    fontSize: 11.5,
-                    color: "var(--color-codex-ink-mute)",
-                  }}
-                >
-                  {formatFileSize(file.size)}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
-                  }}
-                >
-                  {file.file_type || "—"}
-                </span>
-                <ArrowRight
-                  className="h-3 w-3"
-                  style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}
-                />
-              </button>
-            ))
+                    {formatFileSize(file.size)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11.5,
+                      color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
+                    }}
+                  >
+                    {file.file_type || "—"}
+                  </span>
+                  <ArrowRight
+                    className="h-3 w-3"
+                    style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}
+                  />
+                </button>
+              ))}
+              <CxPagination
+                page={currentDocumentPage}
+                pageSize={documentPageSize}
+                totalItems={filtered.length}
+                onPageChange={setDocumentPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setDocumentPageSize(nextPageSize);
+                  setDocumentPage(1);
+                }}
+                isZh={isZh}
+              />
+            </>
           )}
         </div>
       </div>

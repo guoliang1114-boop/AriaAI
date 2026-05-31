@@ -170,7 +170,7 @@
 .theme-codex .rule-h { border-top: 1px solid var(--color-codex-line); height: 1px; }
 .theme-codex .rule-soft { border-top: 1px solid var(--color-codex-line-soft); height: 1px; }
 .theme-codex .tree-pre {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--color-codex-ink-faint);
   letter-spacing: -0.01em;
   user-select: none;
@@ -456,7 +456,7 @@
 }
 
 .theme-codex .codex-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   /* JetBrains Mono is preferred but optional — the existing
      ``--font-mono`` stack already includes SF Mono / Cascadia
      Code / Roboto Mono, which all render the design correctly. */
@@ -575,7 +575,7 @@
 
 /* Tree connector helper — used by the project chat "空间" left rail. */
 .theme-codex .codex-tree-pre {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--color-codex-ink-faint);
   letter-spacing: -0.01em;
   user-select: none;
@@ -684,6 +684,155 @@
 .theme-codex .cx-primary-action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+/* Compact pagination — mirrors the supplied Codex pagination prototype.
+ * It is intentionally quiet: one hairline top rule, 30px controls, and
+ * mono numerals so long tables do not gain another visual panel. */
+.theme-codex .cx-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 13px 6px;
+  border-top: 1px solid var(--color-codex-line);
+}
+
+.theme-codex .cx-pagination--mini {
+  justify-content: flex-end;
+  padding: 10px 0 0;
+  border-top: 0;
+}
+
+.theme-codex .cx-pagination__summary {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-codex-ink-mute);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.theme-codex .cx-pagination__summary strong {
+  color: var(--color-codex-ink-soft);
+  font-weight: 500;
+}
+
+.theme-codex .cx-pagination__controls,
+.theme-codex .cx-pagination__pages,
+.theme-codex .cx-pagination__size {
+  display: inline-flex;
+  align-items: center;
+}
+
+.theme-codex .cx-pagination__controls {
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.theme-codex .cx-pagination__pages {
+  gap: 5px;
+}
+
+.theme-codex .cx-pagination__button {
+  min-width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--color-codex-line);
+  border-radius: var(--codex-r-sm, 3px);
+  background: var(--color-codex-bg-elev);
+  color: var(--color-codex-ink-soft);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.theme-codex .cx-pagination__button:not(:disabled):hover {
+  background: var(--color-codex-bg-tint);
+  border-color: var(--color-codex-line-strong);
+  color: var(--color-codex-ink);
+}
+
+.theme-codex .cx-pagination__button--active,
+.theme-codex .cx-pagination__button--active:disabled {
+  background: var(--color-codex-ink);
+  border-color: var(--color-codex-ink);
+  color: var(--color-codex-bg-elev);
+  font-weight: 500;
+  cursor: default;
+  opacity: 1;
+}
+
+.theme-codex .cx-pagination__button:disabled:not(.cx-pagination__button--active) {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.theme-codex .cx-pagination__ellipsis {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-codex-ink-faint);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  user-select: none;
+}
+
+.theme-codex .cx-pagination__size {
+  gap: 6px;
+  color: var(--color-codex-ink-mute);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.theme-codex .cx-pagination__select {
+  height: 30px;
+  min-width: 62px;
+  padding: 0 24px 0 9px;
+  border: 1px solid var(--color-codex-line);
+  border-radius: var(--codex-r-sm, 3px);
+  background: var(--color-codex-bg-elev);
+  color: var(--color-codex-ink-soft);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+}
+
+.theme-codex .cx-pagination__mini-label {
+  min-width: 88px;
+  color: var(--color-codex-ink-mute);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .theme-codex .cx-pagination {
+    align-items: stretch;
+  }
+
+  .theme-codex .cx-pagination__controls,
+  .theme-codex .cx-pagination__pages {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .theme-codex .cx-pagination__pages {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
 }
 
 /* `cx-prompt-card` — the chat empty-state suggestion cards. Idle is

@@ -16,6 +16,12 @@ export { CxFormRow } from "./CxFormRow";
 export { CxSkeleton } from "./CxSkeleton";
 export { CxTopProgress } from "./CxTopProgress";
 export {
+  CxPagination,
+  getCxPageItems,
+  type CxPaginationVariant,
+  type CxPageItem,
+} from "./CxPagination";
+export {
   CxDialog,
   CxConfirmDialog,
   type CxDialogTone,

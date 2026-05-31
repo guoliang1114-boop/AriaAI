@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 import { api } from "../../api/client";
-import { CxSkeleton, CxTopProgress } from "../../components/codex";
+import { CxPagination, CxSkeleton, CxTopProgress } from "../../components/codex";
 import { PageTitle } from "../../components/PageTitle";
 import type { Skill, SkillSummary } from "../../types/api";
 
@@ -493,6 +493,8 @@ export function Skills() {
   // ``line:<id>`` filters to one practice line; ``cat:<id>`` filters
   // to a single sub-category.
   const [selection, setSelection] = useState<string>("all");
+  const [skillPage, setSkillPage] = useState(1);
+  const [skillPageSize, setSkillPageSize] = useState(SKILLS_PAGE_SIZE);
 
   if (loading) return <SkillsLoading title={t("skills.title")} />;
   if (error) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;
@@ -607,6 +609,29 @@ export function Skills() {
     },
     items: skillsByCategoryKey.get(key) ?? [],
   }));
+  const visibleSkillEntries = visibleGroups.flatMap((group) =>
+    group.items.map((skill) => ({ cat: group.cat, skill })),
+  );
+  const skillPageCount = Math.max(1, Math.ceil(visibleSkillEntries.length / skillPageSize));
+  const currentSkillPage = Math.min(skillPage, skillPageCount);
+  const paginatedSkillEntries = visibleSkillEntries.slice(
+    (currentSkillPage - 1) * skillPageSize,
+    currentSkillPage * skillPageSize,
+  );
+  const paginatedVisibleGroups = visibleGroups
+    .map((group) => ({
+      cat: group.cat,
+      items: paginatedSkillEntries
+        .filter((entry) => entry.cat.id === group.cat.id)
+        .map((entry) => entry.skill),
+      totalCount: group.items.length,
+    }))
+    .filter((group) => group.items.length > 0 || visibleSkillEntries.length === 0);
+
+  const selectSkillScope = (token: string) => {
+    setSelection(token);
+    setSkillPage(1);
+  };
 
   const sidebarLinkStyle = (active: boolean): React.CSSProperties => ({
     display: "flex",
@@ -655,7 +680,7 @@ export function Skills() {
             type="button"
             className="row-hov cx-no-hover w-full text-left"
             style={sidebarLinkStyle(selection === "all")}
-            onClick={() => setSelection("all")}
+            onClick={() => selectSkillScope("all")}
           >
             <span>{allCategoryLabel}</span>
             <span
@@ -695,7 +720,7 @@ export function Skills() {
                     cursor: "pointer",
                     fontWeight: lineActive ? 600 : 500,
                   }}
-                  onClick={() => setSelection(`line:${line.lineId}`)}
+                  onClick={() => selectSkillScope(`line:${line.lineId}`)}
                 >
                   <span>{line.lineLabel}</span>
                   <span
@@ -721,7 +746,7 @@ export function Skills() {
                         // reads at a glance.
                         paddingLeft: 20,
                       }}
-                      onClick={() => setSelection(`cat:${sub.id}`)}
+                      onClick={() => selectSkillScope(`cat:${sub.id}`)}
                     >
                       <span>{sub.label}</span>
                       <span
@@ -805,7 +830,7 @@ export function Skills() {
                   borderRadius: "var(--codex-r-sm, 3px)",
                   whiteSpace: "nowrap",
                 }}
-                onClick={() => setSelection(entry.token)}
+                onClick={() => selectSkillScope(entry.token)}
               >
                 {entry.label}{" "}
                 <span
@@ -869,7 +894,7 @@ export function Skills() {
             </div>
           </header>
 
-          {visibleGroups.map(({ cat, items }) => (
+          {paginatedVisibleGroups.map(({ cat, items, totalCount }) => (
             <section key={cat.id} style={{ marginBottom: 28 }}>
               <div
                 className="flex items-baseline justify-between"
@@ -890,7 +915,7 @@ export function Skills() {
                   className="font-mono"
                   style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
                 >
-                  {items.length} {isZh ? "项" : "items"}
+                  {totalCount} {isZh ? "项" : "items"}
                 </span>
               </div>
 
@@ -981,6 +1006,18 @@ export function Skills() {
               )}
             </section>
           ))}
+          <CxPagination
+            page={currentSkillPage}
+            pageSize={skillPageSize}
+            totalItems={visibleSkillEntries.length}
+            onPageChange={setSkillPage}
+            onPageSizeChange={(nextPageSize) => {
+              setSkillPageSize(nextPageSize);
+              setSkillPage(1);
+            }}
+            pageSizeOptions={[12, 24, 48, 96]}
+            isZh={isZh}
+          />
         </div>
       </div>
     </>
@@ -1801,4 +1838,3 @@ function buildUsageSteps(skill: Skill | null, isZh: boolean) {
         "Refine the result in chat, then save it as a project note or document when useful.",
       ];
 }
-

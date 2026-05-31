@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ArrowRight, Check, Loader2, Mail, Phone, Plus, Search, UserRound, X } from 'lucide-react'
 
 import { api } from '../../api/client'
-import { CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
+import { CxPagination, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { ClientStakeholder } from '../../types/api'
 
@@ -32,6 +32,7 @@ type FilterKey = 'all' | ContactLevel | 'recent' | 'unreached'
 
 const CONTACT_GRID = 'minmax(220px,1fr) minmax(170px,.8fr) minmax(90px,.55fr) minmax(82px,.45fr) minmax(82px,.45fr) minmax(118px,.6fr) 16px'
 const CONTACT_TABLE_MIN_WIDTH = 860
+const CONTACT_PAGE_SIZE = 20
 
 function safeText(value: string | null | undefined) {
   return value?.trim() ?? ''
@@ -162,6 +163,8 @@ export function Contacts() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [contactPage, setContactPage] = useState(1)
+  const [contactPageSize, setContactPageSize] = useState(CONTACT_PAGE_SIZE)
   const [draft, setDraft] = useState({
     clientId: '',
     name: '',
@@ -236,6 +239,20 @@ export function Contacts() {
       }),
     [activeFilter, contacts, search],
   )
+  const contactPageCount = Math.max(1, Math.ceil(filteredContacts.length / contactPageSize))
+  const currentContactPage = Math.min(contactPage, contactPageCount)
+  const paginatedContacts = useMemo(() => {
+    const start = (currentContactPage - 1) * contactPageSize
+    return filteredContacts.slice(start, start + contactPageSize)
+  }, [contactPageSize, currentContactPage, filteredContacts])
+
+  useEffect(() => {
+    setContactPage(1)
+  }, [activeFilter, search])
+
+  useEffect(() => {
+    setContactPage((current) => Math.min(current, contactPageCount))
+  }, [contactPageCount])
 
   const resetCreateForm = () => {
     setDraft({
@@ -275,6 +292,7 @@ export function Contacts() {
         } as ClientStakeholder),
       })
       setContacts((current) => [{ client, stakeholder }, ...current].sort(sortContacts))
+      setContactPage(1)
       setShowCreateModal(false)
       resetCreateForm()
     } catch {
@@ -446,14 +464,27 @@ export function Contacts() {
                 {filteredContacts.length === 0 ? (
                   <ContactsEmptyState hasSearch={Boolean(search.trim())} isZh={isZh} onClear={() => setSearch('')} />
                 ) : (
-                  filteredContacts.map((record) => (
-                    <ContactRow
-                      key={`${record.client.id}-${record.stakeholder.id}`}
+                  <>
+                    {paginatedContacts.map((record) => (
+                      <ContactRow
+                        key={`${record.client.id}-${record.stakeholder.id}`}
+                        isZh={isZh}
+                        record={record}
+                        onClick={() => navigate(`/contacts/${record.stakeholder.id}`)}
+                      />
+                    ))}
+                    <CxPagination
+                      page={currentContactPage}
+                      pageSize={contactPageSize}
+                      totalItems={filteredContacts.length}
+                      onPageChange={setContactPage}
+                      onPageSizeChange={(nextPageSize) => {
+                        setContactPageSize(nextPageSize)
+                        setContactPage(1)
+                      }}
                       isZh={isZh}
-                      record={record}
-                      onClick={() => navigate(`/contacts/${record.stakeholder.id}`)}
                     />
-                  ))
+                  </>
                 )}
               </div>
             </div>

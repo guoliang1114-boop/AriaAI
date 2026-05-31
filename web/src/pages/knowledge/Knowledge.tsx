@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next'
 import { Database, FileText, Loader2, Search, Trash2, Upload, X } from 'lucide-react'
 
 import { api } from '../../api/client'
-import { CxConfirmDialog, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
+import { CxConfirmDialog, CxPagination, CxSkeleton, CxStatus, CxTopProgress, type CxStatusTone } from '../../components/codex'
 import { PageTitle } from '../../components/PageTitle'
 import type { KnowledgeDocument, KnowledgeStats } from '../../types/api'
 import { formatDateOnly, parseAppDateTime } from '../../utils/timezone'
 
 const DOC_GRID = '54px minmax(260px,1fr) 92px 82px 74px'
 const DOC_TABLE_MIN_WIDTH = 760
+const DOC_PAGE_SIZE = 20
 
 const CATEGORY_ORDER = ['all', 'research', 'interview', 'technical', 'methodology', 'weekly', 'general', 'consulting', 'templates']
 const UPLOAD_CATEGORIES = ['general', 'research', 'consulting', 'templates']
@@ -112,6 +113,8 @@ export function Knowledge() {
   const [uploadCategory, setUploadCategory] = useState('general')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [documentPage, setDocumentPage] = useState(1)
+  const [documentPageSize, setDocumentPageSize] = useState(DOC_PAGE_SIZE)
   // Pending delete confirmation: the id of the document the user is
   // about to delete, or null when the dialog is closed. We hold the id
   // (not the document) so the dialog survives an upstream refresh.
@@ -159,6 +162,20 @@ export function Knowledge() {
       }),
     [documents, searchQuery, selectedCategory],
   )
+  const documentPageCount = Math.max(1, Math.ceil(filteredDocuments.length / documentPageSize))
+  const currentDocumentPage = Math.min(documentPage, documentPageCount)
+  const paginatedDocuments = useMemo(() => {
+    const start = (currentDocumentPage - 1) * documentPageSize
+    return filteredDocuments.slice(start, start + documentPageSize)
+  }, [currentDocumentPage, documentPageSize, filteredDocuments])
+
+  useEffect(() => {
+    setDocumentPage(1)
+  }, [searchQuery, selectedCategory])
+
+  useEffect(() => {
+    setDocumentPage((current) => Math.min(current, documentPageCount))
+  }, [documentPageCount])
 
   const distribution = useMemo(() => {
     const counts = new Map<string, number>()
@@ -391,14 +408,27 @@ export function Knowledge() {
                       onUpload={() => fileInputRef.current?.click()}
                     />
                   ) : (
-                    filteredDocuments.map((doc) => (
-                      <KnowledgeRow
-                        key={doc.id}
-                        doc={doc}
+                    <>
+                      {paginatedDocuments.map((doc) => (
+                        <KnowledgeRow
+                          key={doc.id}
+                          doc={doc}
+                          isZh={isZh}
+                          onDelete={() => setPendingDeleteId(doc.id)}
+                        />
+                      ))}
+                      <CxPagination
+                        page={currentDocumentPage}
+                        pageSize={documentPageSize}
+                        totalItems={filteredDocuments.length}
+                        onPageChange={setDocumentPage}
+                        onPageSizeChange={(nextPageSize) => {
+                          setDocumentPageSize(nextPageSize)
+                          setDocumentPage(1)
+                        }}
                         isZh={isZh}
-                        onDelete={() => setPendingDeleteId(doc.id)}
                       />
-                    ))
+                    </>
                   )}
                 </div>
               </div>
