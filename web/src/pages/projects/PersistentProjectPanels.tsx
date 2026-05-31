@@ -5,7 +5,7 @@ import type {
   ProjectDetail as ProjectDetailType,
 } from "../../types/api";
 import { ProjectChatTab } from "./ProjectChatTab";
-import { ProjectNotesTab } from "./ProjectNotesTab";
+import { ProjectDocumentsTab } from "./ProjectDocumentsTab";
 import type { ProjectDetailTabId } from "./projectDetailTabs";
 
 // The persistent-panel optimisation keeps the chat and documents
@@ -74,11 +74,9 @@ function buildPersistentPanelConfig({
     {
       id: "documents",
       element: (
-        <ProjectNotesTab
+        <ProjectDocumentsTab
+          projectDetail={projectDetail}
           projectId={projectId}
-          projectName={project.name}
-          files={projectDetail.files}
-          folders={projectDetail.folders}
           onUpdate={onRefresh}
         />
       ),

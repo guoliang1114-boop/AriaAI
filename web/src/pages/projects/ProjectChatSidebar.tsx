@@ -24,7 +24,7 @@ import {
 } from "../../utils/timezone";
 import { useAppTimeZone } from "../../hooks/useAppTimeZone";
 import { getProjectChatCopy } from "./projectChatCopy";
-import { ProjectSpaceFileIcon } from "./ProjectNotesFolderTree";
+import { ProjectSpaceFileIcon } from "./projectFileIcon";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
