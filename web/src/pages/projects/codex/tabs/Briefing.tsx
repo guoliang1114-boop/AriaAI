@@ -41,16 +41,22 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const [refining, setRefining] = useState(false)
   const [script, setScript] = useState<string | null>(null)
 
-  const generateScript = async () => {
+  // The refine endpoint is cached per (project, meeting_type, language,
+  // memory_version). First click renders the cached or freshly-built
+  // script; explicit re-clicks pass force_refresh=true so the backend
+  // actually re-runs the LLM instead of returning the same content.
+  const generateScript = async (forceRefresh: boolean) => {
     if (refining) return
     setRefining(true)
     try {
-      const res = await api.post<{ content: string }>(
+      const res = await api.post<{ content: string; cached?: boolean }>(
         `/projects/${projectId}/briefing/refine`,
-        { meeting_type: 'progress' },
+        { meeting_type: 'progress', force_refresh: forceRefresh },
       )
       setScript(res.content)
-      toast.success({ title: '话术已生成' })
+      toast.success({
+        title: forceRefresh ? '话术已重新生成' : '话术已生成',
+      })
     } catch (err) {
       toast.error({
         title: '生成失败',
@@ -138,6 +144,7 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                     <button
                       type="button"
                       onClick={refetch}
+                      title="按当前项目记忆 + 待办 + 文档重新拉取简报"
                       style={{
                         padding: '7px 12px',
                         fontSize: 12.5,
@@ -150,7 +157,20 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                         gap: 6,
                       }}
                     >
-                      <CxIcon name="sparkle" size={12} /> 重新生成
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.6}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 12a9 9 0 1 1-3-6.7" />
+                        <path d="M21 3v6h-6" />
+                      </svg>{' '}
+                      刷新
                     </button>
                   </div>
                 </div>
@@ -248,7 +268,7 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                 action={
                   <button
                     type="button"
-                    onClick={generateScript}
+                    onClick={() => generateScript(script != null)}
                     disabled={refining}
                     style={{
                       fontSize: 12,
