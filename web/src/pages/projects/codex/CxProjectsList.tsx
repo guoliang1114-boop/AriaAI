@@ -1,25 +1,36 @@
-import { useState, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { Project } from '../../../types/api'
 import { CxIcon } from './CxIcons'
 import { CxStatus } from './CxPrimitives'
-import { PIPELINE_PROJECTS, PIPELINE_STAGES, type CxPipelineCard } from './mockData'
+import { PIPELINE_STAGES } from './mockData'
+import {
+  firstGlyph,
+  formatAmountWan,
+  formatUpdatedRelative,
+  useProjectsList,
+} from './useProjectsApi'
 
 type CategoryKey = 'presale' | 'delivery'
 
-const fmtAmt = (a: number) => (a > 0 ? `¥${a}万` : '—')
-const sumAmt = (list: CxPipelineCard[]) => {
-  const t = list.reduce((s, p) => s + (p.amt || 0), 0)
-  return t > 0 ? `¥${t.toLocaleString()}万` : '—'
+/** Backend status → pipeline stage column. Backend only stores 5
+ * statuses, while the design has 5 sub-stage columns inside 商务阶段.
+ * Until the project table grows a `sub_stage` field we collapse:
+ *   lead        → lead column
+ *   opportunity → qualify column (lumped)
+ *   won         → contract column
+ *   proposal / negotiation stay empty (rendered as "—") */
+function presaleStageOf(status: Project['status']): string | null {
+  if (status === 'lead') return 'lead'
+  if (status === 'opportunity') return 'qualify'
+  if (status === 'won') return 'contract'
+  return null
 }
-const pct = (p: CxPipelineCard) => Math.round(((p.done || 0) / (p.total || 1)) * 100)
 
-const HEALTH_MAP: Record<NonNullable<CxPipelineCard['health']>, [string, 'good' | 'warn' | 'bad']> = {
-  ok: ['正常', 'good'],
-  watch: ['需关注', 'warn'],
-  risk: ['风险', 'bad'],
+const sumWan = (list: Project[]) => {
+  const total = list.reduce((s, p) => s + (p.contract_amount || 0), 0)
+  return total > 0 ? formatAmountWan(total) : '—'
 }
-const healthColor = (h?: CxPipelineCard['health']) =>
-  h === 'risk' ? 'var(--bad)' : h === 'watch' ? 'var(--warn)' : 'var(--good)'
 
 const DELIVERY_GRID: CSSProperties = {
   display: 'grid',
@@ -29,27 +40,42 @@ const DELIVERY_GRID: CSSProperties = {
 }
 
 /**
- * Project list (项目空间). 商务阶段 = 5-stage pipeline kanban;
- * 交付阶段 = single list split into 交付中 + 已归档. Visual port of
- * direction-codex-projects.jsx from the design handoff.
+ * Project list — fetches `/projects` and renders 商务阶段 (5-column
+ * pipeline) or 交付阶段 (single list split into 交付中 / 已归档).
  */
 export function CxProjectsList() {
   const [cat, setCat] = useState<CategoryKey>('presale')
   const navigate = useNavigate()
-  const goDetail = () => navigate('/projects/DH-2026-001/overview')
+  const { data, loading, error } = useProjectsList()
+  const projects = data ?? []
 
-  const inCat = (c: CategoryKey) => PIPELINE_PROJECTS.filter((p) => p.cat === c)
-  const presaleStageList = (k: string) =>
-    PIPELINE_PROJECTS.filter((p) => p.cat === 'presale' && p.stage === k)
-  const active = PIPELINE_PROJECTS.filter((p) => p.cat === 'delivery' && p.stage === 'live')
-  const archived = PIPELINE_PROJECTS.filter(
-    (p) => p.cat === 'delivery' && p.stage === 'archived',
+  const presale = useMemo(
+    () => projects.filter((p) => p.status === 'lead' || p.status === 'opportunity' || p.status === 'won'),
+    [projects],
   )
-  const pipeAmt = PIPELINE_PROJECTS.filter((p) => p.cat === 'presale').reduce(
-    (s, p) => s + p.amt,
-    0,
+  const active = useMemo(() => projects.filter((p) => p.status === 'delivering'), [projects])
+  const archived = useMemo(() => projects.filter((p) => p.status === 'archived'), [projects])
+  const presaleStaleCount = useMemo(
+    () => projects.filter((p) => p.memory_stale).length,
+    [projects],
   )
-  const staleN = PIPELINE_PROJECTS.filter((p) => p.stale).length
+  const presaleTotal = useMemo(
+    () => presale.reduce((s, p) => s + (p.contract_amount || 0), 0),
+    [presale],
+  )
+
+  const presaleByStage = useMemo(() => {
+    const map: Record<string, Project[]> = {}
+    for (const p of presale) {
+      const key = presaleStageOf(p.status)
+      if (!key) continue
+      ;(map[key] ||= []).push(p)
+    }
+    return map
+  }, [presale])
+
+  const goDetail = (id: number) => navigate(`/projects/${id}/overview`)
+  const inCatCount = (k: CategoryKey) => (k === 'presale' ? presale.length : active.length + archived.length)
 
   return (
     <div
@@ -106,12 +132,12 @@ export function CxProjectsList() {
                 gap: 9,
               }}
             >
-              <span>{active.length + inCat('presale').length} 个活跃项目</span>
+              <span>{presale.length + active.length} 个活跃项目</span>
               <span style={{ color: 'var(--ink-faint)' }}>·</span>
               <span>
                 在谈管线{' '}
                 <span className="num" style={{ color: 'var(--ink-soft)' }}>
-                  ¥{pipeAmt.toLocaleString()}万
+                  {formatAmountWan(presaleTotal)}
                 </span>
               </span>
               <span style={{ color: 'var(--ink-faint)' }}>·</span>
@@ -131,7 +157,7 @@ export function CxProjectsList() {
                     background: 'currentColor',
                   }}
                 />
-                {staleN} 个记忆待刷新
+                {presaleStaleCount} 个记忆待刷新
               </span>
             </div>
           </div>
@@ -198,7 +224,7 @@ export function CxProjectsList() {
           }}
         >
           {(['presale', 'delivery'] as const).map((k) => {
-            const c = inCat(k).length
+            const c = inCatCount(k)
             const tone = k === 'presale' ? 'var(--accent)' : 'var(--good)'
             const label = k === 'presale' ? '商务阶段' : '交付阶段'
             return (
@@ -257,7 +283,7 @@ export function CxProjectsList() {
           {cat === 'presale' ? (
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <span className="num" style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
-                {sumAmt(inCat('presale'))}
+                {sumWan(presale)}
               </span>
               <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>在谈金额</span>
             </span>
@@ -275,15 +301,6 @@ export function CxProjectsList() {
               <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <span
                   className="num"
-                  style={{ fontSize: 14, color: 'var(--bad)', fontWeight: 500 }}
-                >
-                  {active.filter((p) => p.health === 'risk').length}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>风险</span>
-              </span>
-              <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span
-                  className="num"
                   style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}
                 >
                   {archived.length}
@@ -294,8 +311,36 @@ export function CxProjectsList() {
           )}
         </div>
 
-        {/* Content */}
-        {cat === 'presale' ? (
+        {loading && (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--ink-mute)',
+              fontSize: 13,
+            }}
+          >
+            正在加载项目…
+          </div>
+        )}
+        {error && !loading && (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--bad)',
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && cat === 'presale' && (
           <div
             style={{
               flex: 1,
@@ -307,7 +352,7 @@ export function CxProjectsList() {
             }}
           >
             {PIPELINE_STAGES.map((s) => {
-              const list = presaleStageList(s.key)
+              const list = presaleByStage[s.key] ?? []
               return (
                 <div
                   key={s.key}
@@ -384,7 +429,7 @@ export function CxProjectsList() {
                         className="num"
                         style={{ fontSize: 10.5, color: 'var(--ink-mute)', flexShrink: 0 }}
                       >
-                        {sumAmt(list)}
+                        {sumWan(list)}
                       </span>
                     </div>
                   </div>
@@ -399,7 +444,9 @@ export function CxProjectsList() {
                     }}
                   >
                     {list.length ? (
-                      list.map((p, i) => <PipelineCard key={i} p={p} onClick={goDetail} />)
+                      list.map((p) => (
+                        <PipelineCard key={p.id} p={p} onClick={() => goDetail(p.id)} />
+                      ))
                     ) : (
                       <div
                         style={{
@@ -417,7 +464,9 @@ export function CxProjectsList() {
               )
             })}
           </div>
-        ) : (
+        )}
+
+        {!loading && !error && cat === 'delivery' && (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '12px 0 26px' }}>
             {/* 交付中 */}
             <div
@@ -448,7 +497,7 @@ export function CxProjectsList() {
               </span>
               <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
               <span className="num" style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
-                {sumAmt(active)}
+                {sumWan(active)}
               </span>
             </div>
             <div
@@ -464,156 +513,119 @@ export function CxProjectsList() {
               <span>进度</span>
               <span>健康</span>
               <span>金额</span>
-              <span>下一里程碑</span>
+              <span>更新</span>
             </div>
-            {active.map((p, i) => {
-              const [hl, ht] = HEALTH_MAP[p.health ?? 'ok']
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={goDetail}
-                  className="row-hov"
-                  style={{
-                    ...DELIVERY_GRID,
-                    padding: '12px 14px',
-                    borderBottom: '1px solid var(--line-soft)',
-                    borderRadius: 'var(--r-md)',
-                    cursor: 'pointer',
-                    width: '100%',
-                    textAlign: 'left',
-                    background: 'transparent',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <span
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 9,
-                        background: 'var(--bg-tint)',
-                        border: '1px solid var(--line)',
-                        color: 'var(--ink-soft)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {p.client.slice(0, 1)}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span
-                          className="ui"
-                          style={{
-                            fontSize: 13.5,
-                            fontWeight: 500,
-                            color: 'var(--ink)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {p.name}
-                        </span>
-                        {p.stale && (
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: 99,
-                              background: 'var(--warn)',
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                      </div>
-                      <div
+            {active.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: 12,
+                  color: 'var(--ink-faint)',
+                  padding: '24px 0',
+                }}
+              >
+                — 暂无交付中项目 —
+              </div>
+            )}
+            {active.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => goDetail(p.id)}
+                className="row-hov"
+                style={{
+                  ...DELIVERY_GRID,
+                  padding: '12px 14px',
+                  borderBottom: '1px solid var(--line-soft)',
+                  borderRadius: 'var(--r-md)',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 9,
+                      background: 'var(--bg-tint)',
+                      border: '1px solid var(--line)',
+                      color: 'var(--ink-soft)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {firstGlyph(p.client)}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <span
+                        className="ui"
                         style={{
-                          fontSize: 11.5,
-                          color: 'var(--ink-mute)',
-                          marginTop: 2,
+                          fontSize: 13.5,
+                          fontWeight: 500,
+                          color: 'var(--ink)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {p.client} · {p.owner}
-                      </div>
+                        {p.name}
+                      </span>
+                      {p.memory_stale && (
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 99,
+                            background: 'var(--warn)',
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
+                      {p.client || '—'}
                     </div>
                   </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      padding: '3px 10px',
-                      borderRadius: 99,
-                      color: 'var(--good)',
-                      background: 'color-mix(in oklch, var(--good) 13%, transparent)',
-                      justifySelf: 'start',
-                    }}
-                  >
-                    交付中
-                  </span>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: 10.5,
-                      }}
-                    >
-                      <span className="num" style={{ color: 'var(--ink-soft)' }}>
-                        {p.done}/{p.total}
-                      </span>
-                      <span className="num" style={{ color: 'var(--ink-faint)' }}>
-                        {pct(p)}%
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        height: 5,
-                        borderRadius: 99,
-                        background: 'var(--bg-tint)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: 'block',
-                          height: '100%',
-                          width: `${pct(p)}%`,
-                          background: healthColor(p.health),
-                          borderRadius: 99,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <CxStatus tone={ht}>{hl}</CxStatus>
-                  <span className="num" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                    {fmtAmt(p.amt)}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--ink-soft)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    <span style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
-                      下一里程碑{' '}
-                    </span>
-                    {p.ms}
-                    <span className="num" style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>
-                      {' '}
-                      · {p.msdate}
-                    </span>
-                  </span>
-                </button>
-              )
-            })}
+                </div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    padding: '3px 10px',
+                    borderRadius: 99,
+                    color: 'var(--good)',
+                    background: 'color-mix(in oklch, var(--good) 13%, transparent)',
+                    justifySelf: 'start',
+                  }}
+                >
+                  交付中
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>—</span>
+                <CxStatus tone="good">正常</CxStatus>
+                <span className="num" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                  {formatAmountWan(p.contract_amount)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink-soft)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatUpdatedRelative(p.updated_at)}
+                </span>
+              </button>
+            ))}
 
             {/* 已归档 */}
             <div
@@ -650,93 +662,97 @@ export function CxProjectsList() {
               </span>
               <span style={{ flex: 1, height: 1, background: 'var(--line)' }} />
             </div>
-            {archived.map((p, i) => {
-              const won = p.outcome === 'won'
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={goDetail}
-                  className="row-hov"
-                  style={{
-                    ...DELIVERY_GRID,
-                    padding: '12px 14px',
-                    borderBottom: '1px solid var(--line-soft)',
-                    borderRadius: 'var(--r-md)',
-                    cursor: 'pointer',
-                    opacity: 0.8,
-                    width: '100%',
-                    textAlign: 'left',
-                    background: 'transparent',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <span
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 9,
-                        background: 'var(--bg-tint)',
-                        border: '1px solid var(--line)',
-                        color: 'var(--ink-soft)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {p.client.slice(0, 1)}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        className="ui"
-                        style={{
-                          fontSize: 13.5,
-                          fontWeight: 500,
-                          color: 'var(--ink)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {p.name}
-                      </div>
-                      <div
-                        style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}
-                      >
-                        {p.client} · {p.owner}
-                      </div>
-                    </div>
-                  </div>
+            {archived.length === 0 && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: 12,
+                  color: 'var(--ink-faint)',
+                  padding: '16px 0',
+                }}
+              >
+                — 暂无已归档项目 —
+              </div>
+            )}
+            {archived.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => goDetail(p.id)}
+                className="row-hov"
+                style={{
+                  ...DELIVERY_GRID,
+                  padding: '12px 14px',
+                  borderBottom: '1px solid var(--line-soft)',
+                  borderRadius: 'var(--r-md)',
+                  cursor: 'pointer',
+                  opacity: 0.8,
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                   <span
                     style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      padding: '3px 10px',
-                      borderRadius: 99,
-                      justifySelf: 'start',
-                      color: won ? 'var(--good)' : 'var(--ink-mute)',
-                      background: won
-                        ? 'color-mix(in oklch, var(--good) 13%, transparent)'
-                        : 'var(--bg-tint)',
+                      width: 36,
+                      height: 36,
+                      borderRadius: 9,
+                      background: 'var(--bg-tint)',
+                      border: '1px solid var(--line)',
+                      color: 'var(--ink-soft)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      flexShrink: 0,
                     }}
                   >
-                    {won ? '赢单交付' : '输单流失'}
+                    {firstGlyph(p.client)}
                   </span>
-                  <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>已归档</span>
-                  <span />
-                  <span className="num" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-                    {fmtAmt(p.amt)}
-                  </span>
-                  <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-                    <span style={{ color: 'var(--ink-faint)', fontSize: 10.5 }}>结案 </span>
-                    {p.closed}
-                  </span>
-                </button>
-              )
-            })}
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      className="ui"
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 500,
+                        color: 'var(--ink)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {p.name}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
+                      {p.client || '—'}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    padding: '3px 10px',
+                    borderRadius: 99,
+                    justifySelf: 'start',
+                    color: 'var(--ink-mute)',
+                    background: 'var(--bg-tint)',
+                  }}
+                >
+                  已归档
+                </span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>已归档</span>
+                <span />
+                <span className="num" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+                  {formatAmountWan(p.contract_amount)}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                  {formatUpdatedRelative(p.updated_at)}
+                </span>
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -744,7 +760,7 @@ export function CxProjectsList() {
   )
 }
 
-function PipelineCard({ p, onClick }: { p: CxPipelineCard; onClick: () => void }) {
+function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -778,7 +794,7 @@ function PipelineCard({ p, onClick }: { p: CxPipelineCard; onClick: () => void }
         >
           {p.name}
         </span>
-        {p.stale && (
+        {p.memory_stale && (
           <span
             style={{
               width: 6,
@@ -818,7 +834,7 @@ function PipelineCard({ p, onClick }: { p: CxPipelineCard; onClick: () => void }
             flexShrink: 0,
           }}
         >
-          {p.client.slice(0, 1)}
+          {firstGlyph(p.client)}
         </span>
         <span
           style={{
@@ -827,7 +843,7 @@ function PipelineCard({ p, onClick }: { p: CxPipelineCard; onClick: () => void }
             whiteSpace: 'nowrap',
           }}
         >
-          {p.owner} · {p.updated}
+          {p.client || '—'} · {formatUpdatedRelative(p.updated_at)}
         </span>
       </div>
       <div
@@ -846,22 +862,10 @@ function PipelineCard({ p, onClick }: { p: CxPipelineCard; onClick: () => void }
           style={{
             fontSize: 13.5,
             fontWeight: 500,
-            color: p.amt ? 'var(--ink)' : 'var(--ink-faint)',
+            color: p.contract_amount ? 'var(--ink)' : 'var(--ink-faint)',
           }}
         >
-          {fmtAmt(p.amt)}
-        </span>
-        <span
-          style={{
-            fontSize: 11,
-            color: 'var(--ink-mute)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            textAlign: 'right',
-          }}
-        >
-          {p.next}
+          {formatAmountWan(p.contract_amount)}
         </span>
       </div>
     </button>

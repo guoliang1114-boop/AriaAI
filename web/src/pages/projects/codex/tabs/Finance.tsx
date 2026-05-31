@@ -1,53 +1,38 @@
+import type { ProjectDetail as ProjectDetailType, ProjectPayment } from '../../../../types/api'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
+import { formatAmountWan } from '../useProjectsApi'
 
 interface FinanceProps {
-  projectId: string
+  projectId: number
+  detail: ProjectDetailType
 }
 
-const KPIS = [
-  { l: '合同总额', v: '¥280', u: '万', tone: 'neutral' as const, sub: '含税 · 一次签订' },
-  { l: '已回款', v: '¥84', u: '万', tone: 'good' as const, sub: '30% · 预付款' },
-  { l: '应收余额', v: '¥196', u: '万', tone: 'accent' as const, sub: '70% 待收' },
-  { l: '预估毛利率', v: '42', u: '%', tone: 'neutral' as const, sub: '毛利 ¥118 万' },
-]
+const SCHED_GRID = '1.4fr 80px 110px 110px 90px'
 
-const SCHEDULE = [
-  { node: '预付款', pctp: '30%', amt: '¥84 万', due: '2026-04-20', state: 'received' as const, inv: '已开票' },
-  { node: 'POC 验收款', pctp: '30%', amt: '¥84 万', due: '2026-06-30', state: 'invoiced' as const, inv: '已开票' },
-  { node: '方案交付款', pctp: '25%', amt: '¥70 万', due: '2026-08-15', state: 'pending' as const, inv: '待开票' },
-  { node: '尾款', pctp: '15%', amt: '¥42 万', due: '2026-09-30', state: 'pending' as const, inv: '待开票' },
-]
-
-const STATE_MAP: Record<'received' | 'invoiced' | 'pending', [string, CxTone]> = {
+const PAYMENT_LABEL: Record<ProjectPayment['payment_type'], [string, CxTone]> = {
   received: ['已回款', 'good'],
-  invoiced: ['待回款', 'warn'],
-  pending: ['未到期', 'neutral'],
+  invoiced: ['已开票待回款', 'warn'],
+  milestone_payment: ['里程碑收款', 'accent'],
+  expense: ['支出', 'mute'],
 }
 
-const COSTS: Array<[string, string]> = [
-  ['顾问人天', '320 人天'],
-  ['人力成本', '¥138 万'],
-  ['差旅 / 其他', '¥24 万'],
-  ['成本合计', '¥162 万'],
-]
+export function CxProjectFinance({ projectId, detail }: FinanceProps) {
+  const { project, financials } = detail
+  const contract = financials.contract_amount || project.contract_amount || 0
+  const received = financials.total_received || 0
+  const uncollected = financials.uncollected || 0
+  const remaining = financials.remaining || 0
+  const totalExpense = financials.total_expense || 0
 
-const INVOICES = [
-  { code: 'INV-2026-0418', amt: '¥84 万', date: '2026-04-18', status: '已回款', tone: 'good' as const },
-  {
-    code: 'INV-2026-0605',
-    amt: '¥84 万',
-    date: '2026-06-05',
-    status: '待回款 · 25 天',
-    tone: 'warn' as const,
-  },
-]
+  const pctReceived = contract ? Math.min(100, Math.round((received / contract) * 100)) : 0
+  const pctInvoiced = contract ? Math.min(100 - pctReceived, Math.round((uncollected / contract) * 100)) : 0
 
-const SCHED_GRID = '1.4fr 60px 90px 110px 90px'
+  const incoming = financials.payments.filter((p) => p.payment_type !== 'expense')
+  const expenses = financials.payments.filter((p) => p.payment_type === 'expense')
 
-export function CxProjectFinance({ projectId }: FinanceProps) {
   return (
-    <CxProjectShell activeTab="finance" projectId={projectId}>
+    <CxProjectShell activeTab="finance" projectId={projectId} project={project}>
       <div
         style={{
           height: '100%',
@@ -60,100 +45,85 @@ export function CxProjectFinance({ projectId }: FinanceProps) {
         }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
-          {KPIS.map((k) => (
-            <div
-              key={k.l}
-              style={{
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--r-md)',
-                padding: '16px 18px',
-              }}
-            >
-              <div style={{ fontSize: 12, color: 'var(--ink-mute)' }}>{k.l}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 8 }}>
-                <span
-                  className="num"
-                  style={{
-                    fontSize: 26,
-                    fontWeight: 500,
-                    lineHeight: 1,
-                    color:
-                      k.tone === 'good'
-                        ? 'var(--good)'
-                        : k.tone === 'accent'
-                          ? 'var(--accent-ink)'
-                          : 'var(--ink)',
-                  }}
-                >
-                  {k.v}
-                </span>
-                <span className="num" style={{ fontSize: 13, color: 'var(--ink-mute)' }}>
-                  {k.u}
-                </span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 7 }}>{k.sub}</div>
-            </div>
-          ))}
+          <KpiCard label="合同总额" value={formatAmountWan(contract)} tone="neutral" sub="项目签订金额" />
+          <KpiCard
+            label="已回款"
+            value={formatAmountWan(received)}
+            tone="good"
+            sub={contract ? `${pctReceived}% 完成` : '—'}
+          />
+          <KpiCard
+            label="已开票待回款"
+            value={formatAmountWan(uncollected)}
+            tone="warn"
+            sub={contract ? `${pctInvoiced}% 待收` : '—'}
+          />
+          <KpiCard
+            label="剩余应收"
+            value={formatAmountWan(remaining)}
+            tone="accent"
+            sub="未到收款节点"
+          />
         </div>
 
-        <CxPanel title="回款进度" subtitle="已回款 ¥84 万 / 合同 ¥280 万 · 30%">
-          <div
-            style={{
-              display: 'flex',
-              height: 10,
-              borderRadius: 99,
-              overflow: 'hidden',
-              background: 'var(--bg-tint)',
-              marginTop: 2,
-            }}
-          >
-            <div style={{ width: '30%', background: 'var(--good)' }} />
-            <div
-              style={{
-                width: '30%',
-                background: 'color-mix(in oklch, var(--warn) 60%, transparent)',
-              }}
-            />
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 18,
-              marginTop: 12,
-              fontSize: 11.5,
-              color: 'var(--ink-mute)',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--good)' }} />
-              已回款 30%
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
+        <CxPanel
+          title="回款进度"
+          subtitle={`已回款 ${formatAmountWan(received)} / 合同 ${formatAmountWan(contract)}`}
+        >
+          {contract === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--ink-faint)' }}>
+              尚未录入合同金额。
+            </div>
+          ) : (
+            <>
+              <div
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 2,
-                  background: 'color-mix(in oklch, var(--warn) 60%, transparent)',
+                  display: 'flex',
+                  height: 10,
+                  borderRadius: 99,
+                  overflow: 'hidden',
+                  background: 'var(--bg-tint)',
+                  marginTop: 2,
                 }}
-              />
-              已开票待回款 30%
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--bg-tint)' }} />
-              未到期 40%
-            </span>
-          </div>
+              >
+                <div style={{ width: `${pctReceived}%`, background: 'var(--good)' }} />
+                <div
+                  style={{
+                    width: `${pctInvoiced}%`,
+                    background: 'color-mix(in oklch, var(--warn) 60%, transparent)',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 18,
+                  marginTop: 12,
+                  fontSize: 11.5,
+                  color: 'var(--ink-mute)',
+                }}
+              >
+                <LegendDot label={`已回款 ${pctReceived}%`} color="var(--good)" />
+                <LegendDot
+                  label={`已开票待回款 ${pctInvoiced}%`}
+                  color="color-mix(in oklch, var(--warn) 60%, transparent)"
+                />
+                <LegendDot
+                  label={`未到期 ${Math.max(0, 100 - pctReceived - pctInvoiced)}%`}
+                  color="var(--bg-tint)"
+                />
+              </div>
+            </>
+          )}
         </CxPanel>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, minWidth: 0 }}>
           <CxPanel
-            title="收款计划"
-            subtitle="按里程碑节点收款"
+            title="收款记录"
+            subtitle={`${incoming.length} 笔`}
             action={
               <button type="button" style={{ fontSize: 12, color: 'var(--accent)' }}>
-                导出对账单
+                + 添加收款
               </button>
             }
           >
@@ -168,76 +138,74 @@ export function CxProjectFinance({ projectId }: FinanceProps) {
                 borderBottom: '1px solid var(--line-soft)',
               }}
             >
-              <span>付款节点</span>
-              <span>比例</span>
+              <span>说明</span>
+              <span>类型</span>
               <span>金额</span>
-              <span>计划日期</span>
+              <span>日期</span>
               <span>状态</span>
             </div>
-            {SCHEDULE.map((r, i) => {
-              const [sl, st] = STATE_MAP[r.state]
-              return (
-                <div
-                  key={r.node}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: SCHED_GRID,
-                    gap: 12,
-                    padding: '12px 4px',
-                    alignItems: 'center',
-                    borderBottom:
-                      i === SCHEDULE.length - 1 ? 'none' : '1px solid var(--line-soft)',
-                  }}
-                >
-                  <div>
-                    <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                      {r.node}
+            {incoming.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '14px 4px' }}>
+                还没有收款记录。
+              </div>
+            ) : (
+              incoming.map((r, i) => {
+                const [label, tone] = PAYMENT_LABEL[r.payment_type]
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: SCHED_GRID,
+                      gap: 12,
+                      padding: '12px 4px',
+                      alignItems: 'center',
+                      borderBottom:
+                        i === incoming.length - 1 ? 'none' : '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <div
+                      className="ui"
+                      style={{
+                        fontSize: 13,
+                        color: 'var(--ink)',
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {r.note || '—'}
                     </div>
-                    <div style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 2 }}>
-                      {r.inv}
-                    </div>
+                    <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>{label}</span>
+                    <span className="num" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                      {formatAmountWan(r.amount)}
+                    </span>
+                    <span className="num" style={{ fontSize: 12, color: 'var(--ink-mute)' }}>
+                      {r.payment_date}
+                    </span>
+                    <CxStatus tone={tone}>{label}</CxStatus>
                   </div>
-                  <span className="num" style={{ fontSize: 12, color: 'var(--ink-mute)' }}>
-                    {r.pctp}
-                  </span>
-                  <span className="num" style={{ fontSize: 13, color: 'var(--ink)' }}>
-                    {r.amt}
-                  </span>
-                  <span className="num" style={{ fontSize: 12, color: 'var(--ink-mute)' }}>
-                    {r.due}
-                  </span>
-                  <CxStatus tone={st}>{sl}</CxStatus>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </CxPanel>
 
           <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <CxPanel title="成本与毛利">
+            <CxPanel title="成本与支出">
               <div style={{ fontSize: 12.5 }}>
-                {COSTS.map(([k, v], i) => (
-                  <div
-                    key={k}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '7px 0',
-                      borderBottom: i === COSTS.length - 1 ? 'none' : '1px solid var(--line-soft)',
-                      fontWeight: i === COSTS.length - 1 ? 500 : 400,
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: i === COSTS.length - 1 ? 'var(--ink)' : 'var(--ink-mute)',
-                      }}
-                    >
-                      {k}
-                    </span>
-                    <span className="num" style={{ color: 'var(--ink)' }}>
-                      {v}
-                    </span>
-                  </div>
-                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0' }}>
+                  <span style={{ color: 'var(--ink-mute)' }}>累计支出</span>
+                  <span className="num" style={{ color: 'var(--ink)' }}>
+                    {formatAmountWan(totalExpense)}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0' }}>
+                  <span style={{ color: 'var(--ink-mute)' }}>累计开票</span>
+                  <span className="num" style={{ color: 'var(--ink)' }}>
+                    {formatAmountWan(financials.total_invoiced)}
+                  </span>
+                </div>
               </div>
               <div
                 style={{
@@ -250,47 +218,105 @@ export function CxProjectFinance({ projectId }: FinanceProps) {
                   alignItems: 'center',
                 }}
               >
-                <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>预估毛利</span>
+                <span style={{ fontSize: 12, color: 'var(--accent-ink)' }}>已回款 / 合同</span>
                 <span
                   className="num"
                   style={{ fontSize: 15, fontWeight: 500, color: 'var(--accent-ink)' }}
                 >
-                  ¥118 万 · 42%
+                  {pctReceived}%
                 </span>
               </div>
             </CxPanel>
 
-            <CxPanel title="开票记录">
-              {INVOICES.map((iv, i) => (
-                <div
-                  key={iv.code}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '9px 0',
-                    borderBottom:
-                      i === INVOICES.length - 1 ? 'none' : '1px solid var(--line-soft)',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="num" style={{ fontSize: 12, color: 'var(--ink)' }}>
-                      {iv.code}
+            <CxPanel title="支出记录">
+              {expenses.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>暂无支出记录。</div>
+              ) : (
+                expenses.map((e, i) => (
+                  <div
+                    key={e.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '9px 0',
+                      borderBottom:
+                        i === expenses.length - 1 ? 'none' : '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ui" style={{ fontSize: 12.5, color: 'var(--ink)' }}>
+                        {e.note || '—'}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
+                        {e.payment_date}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
-                      {iv.date}
-                    </div>
+                    <span className="num" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                      {formatAmountWan(e.amount)}
+                    </span>
                   </div>
-                  <span className="num" style={{ fontSize: 13, color: 'var(--ink)' }}>
-                    {iv.amt}
-                  </span>
-                  <CxStatus tone={iv.tone}>{iv.status}</CxStatus>
-                </div>
-              ))}
+                ))
+              )}
             </CxPanel>
           </aside>
         </div>
       </div>
     </CxProjectShell>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  tone,
+  sub,
+}: {
+  label: string
+  value: string
+  tone: 'neutral' | 'good' | 'warn' | 'accent'
+  sub: string
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '16px 18px',
+      }}
+    >
+      <div style={{ fontSize: 12, color: 'var(--ink-mute)' }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 8 }}>
+        <span
+          className="num"
+          style={{
+            fontSize: 26,
+            fontWeight: 500,
+            lineHeight: 1,
+            color:
+              tone === 'good'
+                ? 'var(--good)'
+                : tone === 'warn'
+                  ? 'var(--warn)'
+                  : tone === 'accent'
+                    ? 'var(--accent-ink)'
+                    : 'var(--ink)',
+          }}
+        >
+          {value}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 7 }}>{sub}</div>
+    </div>
+  )
+}
+
+function LegendDot({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+      {label}
+    </span>
   )
 }

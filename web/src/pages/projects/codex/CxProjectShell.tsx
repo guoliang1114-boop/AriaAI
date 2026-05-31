@@ -1,25 +1,32 @@
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import type { Project } from '../../../types/api'
 import { CxIcon } from './CxIcons'
 import { CxStatus } from './CxPrimitives'
-import { DEMO_PROJECT, PROJECT_TAB_ORDER, type CxProjectTabKey } from './mockData'
+import { PROJECT_TAB_ORDER, type CxProjectTabKey } from './mockData'
+import { STATUS_LABEL, STATUS_TONE, firstGlyph, formatUpdatedRelative } from './useProjectsApi'
 
 /**
  * Single unified top bar for the project-detail screens.
  *
- * Mirrors the design's `CxProjectShell` exactly: 56px header with
- * back-chip + project name dropdown + tab nav + bell + avatar. No
- * global side nav; the project detail route hides the app Layout
- * chrome (see Layout.tsx isProjectDetailRoute).
+ * The CxProjectDetail wrapper fetches the project once and threads
+ * the `project` prop in; we keep the shell stateless so swapping a
+ * tab doesn't re-fetch.
  */
 interface CxProjectShellProps {
   activeTab: CxProjectTabKey
-  projectId: string
+  projectId: number | string
+  project: Project | null
   children: ReactNode
 }
 
-export function CxProjectShell({ activeTab, projectId, children }: CxProjectShellProps) {
+export function CxProjectShell({ activeTab, projectId, project, children }: CxProjectShellProps) {
   const navigate = useNavigate()
+  const name = project?.name ?? '加载中…'
+  const status = project?.status ?? null
+  const memoryV = project?.memory_version ?? null
+  const memoryStale = !!project?.memory_stale
+  const memoryUpdated = formatUpdatedRelative(project?.memory_updated_at ?? null)
   return (
     <div
       className="theme-codex frame-codex"
@@ -85,7 +92,7 @@ export function CxProjectShell({ activeTab, projectId, children }: CxProjectShel
                 fontWeight: 500,
               }}
             >
-              鼎
+              {firstGlyph(project?.client || project?.name)}
             </span>
             <span style={{ textAlign: 'left', lineHeight: 1.2 }}>
               <span
@@ -96,9 +103,13 @@ export function CxProjectShell({ activeTab, projectId, children }: CxProjectShel
                   color: 'var(--ink)',
                   fontWeight: 500,
                   letterSpacing: '-0.005em',
+                  maxWidth: 360,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                {DEMO_PROJECT.name}
+                {name}
               </span>
               <span
                 style={{
@@ -110,13 +121,22 @@ export function CxProjectShell({ activeTab, projectId, children }: CxProjectShel
                   gap: 6,
                 }}
               >
-                <CxStatus tone="warn" pulse>
-                  {DEMO_PROJECT.statusLabel}
-                </CxStatus>
-                <span style={{ color: 'var(--ink-faint)' }}>·</span>
-                <span>
-                  记忆 v{DEMO_PROJECT.memoryVersion} · {DEMO_PROJECT.memoryUpdated}
-                </span>
+                {status && (
+                  <CxStatus
+                    tone={STATUS_TONE[status]}
+                    pulse={status === 'opportunity' || status === 'delivering'}
+                  >
+                    {STATUS_LABEL[status]}
+                  </CxStatus>
+                )}
+                {memoryV != null && (
+                  <>
+                    <span style={{ color: 'var(--ink-faint)' }}>·</span>
+                    <span style={{ color: memoryStale ? 'var(--warn)' : undefined }}>
+                      记忆 v{memoryV} · {memoryUpdated}
+                    </span>
+                  </>
+                )}
               </span>
             </span>
             <CxIcon

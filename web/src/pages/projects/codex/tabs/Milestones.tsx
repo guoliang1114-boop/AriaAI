@@ -1,39 +1,47 @@
+import { useMemo } from 'react'
+import type { Milestone, ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
+import { firstGlyph } from '../useProjectsApi'
 
 interface MilestonesProps {
-  projectId: string
+  projectId: number
+  detail: ProjectDetailType
 }
 
-const MILESTONES = [
-  { d: '04/12', t: '项目立项', s: 'done', owner: '陈悦', note: '客户对齐项目目标与边界' },
-  { d: '04/26', t: '需求调研完成', s: 'done', owner: '林宥', note: '完成 8 次客户访谈' },
-  { d: '05/15', t: '方案 V1 提交', s: 'done', owner: '陈悦', note: '客户初步反馈积极' },
-  { d: '06/03', t: '客户例会 · 进展同步', s: 'next', owner: '陈悦', note: '本次准备会前简报' },
-  { d: '06/30', t: 'POC 评估报告', s: 'in-progress', owner: '苏明', note: '数据治理 POC 阶段性结论' },
-  { d: '07/14', t: '方案 V2 提交', s: 'planned', owner: '陈悦', note: '纳入 POC 反馈后修订' },
-  { d: '07/28', t: '客户决策评审', s: 'planned', owner: '—', note: 'CTO + COO 双签' },
-  { d: '08/31', t: '正式签约', s: 'planned', owner: '—', note: '目标日期' },
-] as const
-
-const TODOS = [
-  { t: '整理鼎和保险周三例会准备材料', who: '陈悦', due: '今天 17:00', pri: 'high' as const },
-  { t: '准备 POC 评估指标定义文档', who: '苏明', due: '明天', pri: 'high' as const },
-  { t: '回复 CTO 关于灰度计划的问题', who: '陈悦', due: '今天', pri: 'med' as const },
-  { t: '联系客户法务确认脱敏方案', who: '林宥', due: '本周', pri: 'med' as const },
-  { t: '更新方案 V2 的组织变革章节', who: '陈悦', due: '下周二', pri: 'low' as const },
-]
-
-const STATUS_COLOR: Record<string, string> = {
-  done: 'var(--good)',
-  'in-progress': 'var(--accent)',
-  next: 'var(--accent)',
-  planned: 'var(--line-strong)',
+function dueColor(due: string | null | undefined) {
+  if (!due) return 'var(--ink-mute)'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const d = new Date(due)
+  if (Number.isNaN(d.getTime())) return 'var(--ink-mute)'
+  d.setHours(0, 0, 0, 0)
+  const diff = d.getTime() - today.getTime()
+  if (diff < 0) return 'var(--bad)'
+  if (diff < 86400000) return 'var(--warn)'
+  if (diff < 7 * 86400000) return 'var(--accent)'
+  return 'var(--ink-mute)'
 }
 
-export function CxProjectMilestones({ projectId }: MilestonesProps) {
+export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
+  const { project, milestones, todos } = detail
+
+  const sortedMs = useMemo(() => {
+    return [...milestones].sort((a, b) => {
+      const da = a.due_date ? new Date(a.due_date).getTime() : 0
+      const db = b.due_date ? new Date(b.due_date).getTime() : 0
+      return da - db
+    })
+  }, [milestones])
+
+  const done = sortedMs.filter((m) => m.is_done).length
+  const total = sortedMs.length
+
+  const openTodos = todos.filter((t) => !t.is_done)
+  const doneTodos = todos.filter((t) => t.is_done)
+
   return (
-    <CxProjectShell activeTab="milestones" projectId={projectId}>
+    <CxProjectShell activeTab="milestones" projectId={projectId} project={project}>
       <div
         style={{
           height: '100%',
@@ -58,25 +66,13 @@ export function CxProjectMilestones({ projectId }: MilestonesProps) {
                   letterSpacing: '-0.015em',
                 }}
               >
-                里程碑 · 3 / 8 完成
+                里程碑 · {done} / {total} 完成
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--ink-mute)' }}>
-                预计签约 2026-08-31 · 进度符合预期
+                按计划日期排序 · 项目对话中可自动抽取
               </p>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                type="button"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  color: 'var(--ink-soft)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 'var(--r-sm)',
-                }}
-              >
-                导出甘特
-              </button>
               <button
                 type="button"
                 style={{
@@ -97,291 +93,206 @@ export function CxProjectMilestones({ projectId }: MilestonesProps) {
               background: 'var(--bg-elev)',
               border: '1px solid var(--line)',
               borderRadius: 'var(--r-md)',
-              padding: '18px 20px',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <span
-                  className="num"
-                  style={{ fontSize: 22, color: 'var(--ink)', fontWeight: 500 }}
-                >
-                  37%
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--ink-mute)', marginLeft: 8 }}>
-                  整体进度
-                </span>
-              </div>
-              <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
-                4/12 → 8/31 · 共 141 天 · 已过 52 天
-              </span>
-            </div>
-            <div
-              style={{
-                height: 8,
-                background: 'var(--bg-sunken)',
-                borderRadius: 99,
-                overflow: 'hidden',
-                display: 'flex',
-              }}
-            >
-              <div style={{ width: '37%', background: 'var(--accent)' }} />
-              <div style={{ width: '8%', background: 'var(--accent-bg)' }} />
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: 'var(--bg-elev)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-md)',
               padding: '20px 24px',
             }}
           >
-            <div style={{ position: 'relative', paddingLeft: 22 }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 6,
-                  top: 8,
-                  bottom: 8,
-                  width: 1,
-                  background: 'var(--line)',
-                }}
-              />
-              {MILESTONES.map((m, i) => {
-                const c = STATUS_COLOR[m.s]
-                return (
+            {sortedMs.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                还没有里程碑。点击右上「+ 添加里程碑」开始。
+              </div>
+            ) : (
+              <div style={{ position: 'relative', paddingLeft: 22 }}>
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 6,
+                    top: 8,
+                    bottom: 8,
+                    width: 1,
+                    background: 'var(--line)',
+                  }}
+                />
+                {sortedMs.map((m, i) => (
+                  <MilestoneRow key={m.id} m={m} last={i === sortedMs.length - 1} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <CxPanel
+            title="待办"
+            subtitle={`${openTodos.length} 项进行中 · ${doneTodos.length} 项已完成`}
+          >
+            {openTodos.length === 0 && doneTodos.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                还没有待办。
+              </div>
+            ) : (
+              <>
+                {openTodos.map((t, i) => (
                   <div
-                    key={i}
+                    key={t.id}
+                    className="row-hov"
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '60px 1fr auto',
-                      gap: 18,
-                      padding: '11px 0',
-                      borderBottom:
-                        i === MILESTONES.length - 1 ? 'none' : '1px solid var(--line-soft)',
+                      gridTemplateColumns: '20px 1fr 100px 100px',
+                      gap: 12,
+                      padding: '10px 8px',
+                      margin: '0 -8px',
+                      borderRadius: 'var(--r-sm)',
                       alignItems: 'center',
-                      position: 'relative',
+                      borderBottom:
+                        i === openTodos.length - 1 ? 'none' : '1px solid var(--line-soft)',
                     }}
                   >
                     <span
                       style={{
-                        position: 'absolute',
-                        left: -22,
-                        top: 17,
                         width: 13,
                         height: 13,
-                        borderRadius: 99,
-                        background:
-                          m.s === 'done' || m.s === 'in-progress' ? c : 'var(--bg-elev)',
-                        border: `1.5px solid ${c}`,
-                        boxShadow:
-                          m.s === 'next'
-                            ? `0 0 0 4px color-mix(in oklch, ${c} 20%, transparent)`
-                            : 'none',
+                        borderRadius: 3,
+                        border: '1.5px solid var(--line-strong)',
+                        flexShrink: 0,
                       }}
                     />
-                    <span
-                      className="num"
-                      style={{
-                        fontSize: 12.5,
-                        color:
-                          m.s === 'next' || m.s === 'in-progress'
-                            ? 'var(--accent)'
-                            : 'var(--ink-mute)',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {m.d}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        className="ui"
-                        style={{
-                          fontSize: 14,
-                          color: 'var(--ink)',
-                          fontWeight:
-                            m.s === 'done' || m.s === 'next' || m.s === 'in-progress' ? 500 : 400,
-                        }}
-                      >
-                        {m.t}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
-                        负责人 {m.owner} · {m.note}
-                      </div>
+                    <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
+                      {t.content}
                     </div>
-                    {m.s === 'done' && <CxStatus tone="good">已完成</CxStatus>}
-                    {m.s === 'in-progress' && (
-                      <CxStatus tone="accent" pulse>
-                        进行中
-                      </CxStatus>
-                    )}
-                    {m.s === 'next' && <CxStatus tone="accent">下一个</CxStatus>}
-                    {m.s === 'planned' && <CxStatus tone="mute">计划</CxStatus>}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: 'var(--bg-elev)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-md)',
-              padding: '16px 20px',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <h3
-                  className="ui"
-                  style={{ margin: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}
-                >
-                  本周待办 · 5
-                </h3>
-                <CxStatus tone="warn">2 项高优</CxStatus>
-                <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
-                  · 由项目对话自动抽取
-                </span>
-              </div>
-            </div>
-            {TODOS.map((t, i) => {
-              const dueColor =
-                t.due === '今天' || t.due.startsWith('今天')
-                  ? 'var(--warn)'
-                  : t.due === '明天'
-                    ? 'var(--accent)'
-                    : 'var(--ink-mute)'
-              return (
-                <div
-                  key={i}
-                  className="row-hov"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '20px 1fr 80px 80px',
-                    gap: 12,
-                    padding: '10px 8px',
-                    margin: '0 -8px',
-                    borderRadius: 'var(--r-sm)',
-                    alignItems: 'center',
-                    borderBottom: i === TODOS.length - 1 ? 'none' : '1px solid var(--line-soft)',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 13,
-                      height: 13,
-                      borderRadius: 3,
-                      border: `1.5px solid ${
-                        t.pri === 'high' ? 'var(--accent)' : 'var(--line-strong)'
-                      }`,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
-                    {t.t}
-                  </div>
-                  <span style={{ fontSize: 11.5, color: dueColor }}>{t.due}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span
-                      style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: 99,
-                        background: 'var(--accent-bg)',
-                        color: 'var(--accent-ink)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 10,
-                      }}
-                    >
-                      {t.who[0]}
+                    <span style={{ fontSize: 11.5, color: dueColor(t.due_date) }}>
+                      {t.due_date ?? '—'}
                     </span>
-                    <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>{t.who}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t.assigned_user && (
+                        <>
+                          <span
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: 99,
+                              background: 'var(--accent-bg)',
+                              color: 'var(--accent-ink)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 10,
+                            }}
+                          >
+                            {firstGlyph(t.assigned_user.display_name)}
+                          </span>
+                          <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
+                            {t.assigned_user.display_name}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                ))}
+                {doneTodos.length > 0 && (
+                  <div
+                    style={{
+                      paddingTop: 12,
+                      marginTop: 8,
+                      borderTop: '1px solid var(--line-soft)',
+                      fontSize: 11,
+                      color: 'var(--ink-faint)',
+                    }}
+                  >
+                    已完成 {doneTodos.length} 项
+                  </div>
+                )}
+              </>
+            )}
+          </CxPanel>
         </div>
 
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <CxPanel title="风险预警">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div
-                style={{
-                  padding: '10px 12px',
-                  background: 'color-mix(in oklch, var(--warn) 8%, transparent)',
-                  border: '1px solid color-mix(in oklch, var(--warn) 25%, transparent)',
-                  borderRadius: 'var(--r-sm)',
-                }}
-              >
-                <div style={{ fontSize: 12, color: 'var(--warn)', fontWeight: 500, marginBottom: 3 }}>
-                  ○ POC 报告可能延期
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-                  客户脱敏数据尚未到位,影响 6/30 节点
-                </div>
+          <CxPanel title="速度指标">
+            <div style={{ fontSize: 12.5, lineHeight: 1.85 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>里程碑数</span>
+                <span className="num">{total}</span>
               </div>
-              <div
-                style={{
-                  padding: '10px 12px',
-                  background: 'color-mix(in oklch, var(--bad) 8%, transparent)',
-                  border: '1px solid color-mix(in oklch, var(--bad) 25%, transparent)',
-                  borderRadius: 'var(--r-sm)',
-                }}
-              >
-                <div style={{ fontSize: 12, color: 'var(--bad)', fontWeight: 500, marginBottom: 3 }}>
-                  ● 决策评审排期紧
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-                  7/28 评审 · 需提前 2 周对齐 CFO
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>已完成</span>
+                <span className="num" style={{ color: 'var(--good)' }}>
+                  {done}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>进行中待办</span>
+                <span className="num">{openTodos.length}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>已完成待办</span>
+                <span className="num">{doneTodos.length}</span>
               </div>
             </div>
           </CxPanel>
 
-          <CxPanel title="速度指标">
-            <div style={{ fontSize: 12.5, lineHeight: 1.85 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>计划周期</span>
-                <span className="num">141 天</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>已用</span>
-                <span className="num">52 天 (37%)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>平均里程碑间隔</span>
-                <span className="num">17 天</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>预测交付偏差</span>
-                <span className="num" style={{ color: 'var(--warn)' }}>
-                  +3 天
-                </span>
-              </div>
+          <CxPanel title="风险预警">
+            <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+              基于待办与里程碑自动生成 — 暂未启用。
             </div>
           </CxPanel>
         </aside>
       </div>
     </CxProjectShell>
+  )
+}
+
+function MilestoneRow({ m, last }: { m: Milestone; last: boolean }) {
+  const color = m.is_done ? 'var(--good)' : 'var(--accent)'
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '90px 1fr auto',
+        gap: 18,
+        padding: '11px 0',
+        borderBottom: last ? 'none' : '1px solid var(--line-soft)',
+        alignItems: 'center',
+        position: 'relative',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          left: -22,
+          top: 17,
+          width: 13,
+          height: 13,
+          borderRadius: 99,
+          background: m.is_done ? color : 'var(--bg-elev)',
+          border: `1.5px solid ${color}`,
+        }}
+      />
+      <span
+        className="num"
+        style={{
+          fontSize: 12.5,
+          color: m.is_done ? 'var(--ink-mute)' : 'var(--accent)',
+          fontWeight: 500,
+        }}
+      >
+        {m.due_date ?? '—'}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div
+          className="ui"
+          style={{
+            fontSize: 14,
+            color: 'var(--ink)',
+            fontWeight: 500,
+            textDecoration: m.is_done ? 'line-through' : 'none',
+            textDecorationColor: 'var(--ink-faint)',
+          }}
+        >
+          {m.title}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
+          优先级 {m.priority || '—'}
+        </div>
+      </div>
+      {m.is_done ? <CxStatus tone="good">已完成</CxStatus> : <CxStatus tone="accent">进行中</CxStatus>}
+    </div>
   )
 }

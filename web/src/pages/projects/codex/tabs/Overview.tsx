@@ -1,45 +1,44 @@
+import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
-import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
-import { DEMO_PROJECT } from '../mockData'
+import { CxPanel } from '../CxPrimitives'
+import {
+  STATUS_LABEL,
+  firstGlyph,
+  formatAmountWan,
+  formatUpdatedRelative,
+} from '../useProjectsApi'
 
 interface OverviewProps {
-  projectId: string
+  projectId: number
+  detail: ProjectDetailType
 }
 
-const KEY_FACTS: Array<[string, string]> = [
-  ['客户', DEMO_PROJECT.client],
-  ['行业', DEMO_PROJECT.industry],
-  ['地区', DEMO_PROJECT.region],
-  ['合同金额', `${DEMO_PROJECT.amountText} · 预估`],
-  ['开始', DEMO_PROJECT.start],
-  ['预计签约', DEMO_PROJECT.expectedClose],
-  ['负责人', DEMO_PROJECT.owner],
-]
+export function CxProjectOverview({ projectId, detail }: OverviewProps) {
+  const { project, members, todos, milestones, financials } = detail
+  const ownerName = members.find((m) => m.role === 'owner')?.user.display_name ?? '—'
+  const milestoneDone = milestones.filter((m) => m.is_done).length
+  const milestoneTotal = milestones.length
 
-const STAKEHOLDERS: Array<{ n: string; r: string; lvl: string; tone: CxTone }> = [
-  { n: '王浩', r: 'CTO · 技术拍板', lvl: '决策', tone: 'accent' },
-  { n: '张丽', r: 'COO · 业务背书', lvl: '决策', tone: 'accent' },
-  { n: '王凯', r: '数字化办公室', lvl: '影响', tone: 'neutral' },
-]
+  const KEY_FACTS: Array<[string, string]> = [
+    ['客户', project.client || '—'],
+    ['状态', STATUS_LABEL[project.status] ?? project.status],
+    ['合同金额', formatAmountWan(project.contract_amount)],
+    ['更新时间', formatUpdatedRelative(project.updated_at)],
+    ['创建时间', formatUpdatedRelative(project.created_at)],
+    ['负责人', ownerName],
+  ]
 
-const TIMELINE: Array<{ t: string; who: string; what: string; tone: 'accent' | 'good' | 'warn' | 'neutral' }> = [
-  { t: '14:18', who: '陈悦', what: '更新了项目记忆 v12 · 调整核心痛点描述', tone: 'accent' },
-  { t: '11:02', who: 'Aria', what: '调用 会前简报 Skill · 生成例会卡', tone: 'good' },
-  { t: '09:30', who: '林宥', what: '上传 2 份文档 · 客户访谈纪要 V3', tone: 'neutral' },
-  { t: '昨天', who: 'Aria', what: '完成项目记忆增量索引 · 新增 7 条片段', tone: 'neutral' },
-  { t: '昨天', who: '苏明', what: '添加锚点 · 续保转化率指标待客户确认', tone: 'warn' },
-]
+  // Memory summary slot list — pulled from project.context_memory_json if
+  // present (object with arbitrary slot keys), else show a single
+  // context_summary line, else empty.
+  const memorySlots = readMemorySlots(project.context_memory_json)
 
-const SNAPSHOT_TILES: Array<{ l: string; v: string; icon: string }> = [
-  { l: '下一动作', v: 'Q3 第一周提交 POC 报告', icon: 'arrow-right' },
-  { l: '关键决策人', v: 'CTO 王浩 · COO 张丽', icon: 'user' },
-  { l: '记忆状态', v: '已同步 · v12 · 完整', icon: 'check' },
-]
+  const openTodos = todos.filter((t) => !t.is_done)
+  const recentTodos = openTodos.slice(0, 4)
 
-export function CxProjectOverview({ projectId }: OverviewProps) {
   return (
-    <CxProjectShell activeTab="overview" projectId={projectId}>
+    <CxProjectShell activeTab="overview" projectId={projectId} project={project}>
       <div
         style={{
           height: '100%',
@@ -54,32 +53,22 @@ export function CxProjectOverview({ projectId }: OverviewProps) {
         {/* Main column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
           <CxPanel
-            title="AI 项目快照"
-            subtitle="基于最近 3 次会议与 2 份文档自动生成 · 14 分钟前"
-            action={
-              <button
-                type="button"
-                style={{
-                  fontSize: 12,
-                  color: 'var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                <CxIcon name="sparkle" size={11} /> 重新生成
-              </button>
+            title="项目快照"
+            subtitle={
+              project.context_summary
+                ? `自动生成 · ${formatUpdatedRelative(project.memory_updated_at)}`
+                : '尚未生成快照'
             }
           >
             <p
               className="ui"
               style={{ margin: '0 0 14px', fontSize: 14, color: 'var(--ink)', lineHeight: 1.75 }}
             >
-              {DEMO_PROJECT.oneLiner} 客户内部已有 Q3 数字化目标共识,我方建议先以续保数据闭环作为切入点,同时
-              <span style={{ color: 'var(--warn)', borderBottom: '1px dotted var(--warn)' }}>
-                注意理赔系统改造涉及核心交易,需谨慎评估
-              </span>
-              。
+              {project.context_summary || project.description || (
+                <span style={{ color: 'var(--ink-faint)' }}>
+                  暂无描述。可在「项目记忆」中补充背景与目标,自动生成快照。
+                </span>
+              )}
             </p>
             <div
               style={{
@@ -90,198 +79,190 @@ export function CxProjectOverview({ projectId }: OverviewProps) {
                 borderTop: '1px solid var(--line-soft)',
               }}
             >
-              {SNAPSHOT_TILES.map((b) => (
-                <div key={b.l} style={{ display: 'flex', gap: 10 }}>
-                  <span
-                    style={{
-                      width: 26,
-                      height: 26,
-                      borderRadius: 'var(--r-sm)',
-                      background: 'var(--accent-bg)',
-                      color: 'var(--accent)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <CxIcon name={b.icon} size={12} />
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginBottom: 2 }}>
-                      {b.l}
-                    </div>
-                    <div
-                      className="ui"
-                      style={{
-                        fontSize: 13,
-                        color: 'var(--ink)',
-                        fontWeight: 500,
-                        lineHeight: 1.45,
-                      }}
-                    >
-                      {b.v}
-                    </div>
-                  </div>
-                </div>
-              ))}
+              <SnapshotTile
+                label="里程碑进度"
+                value={`${milestoneDone} / ${milestoneTotal || '—'}`}
+                icon="check"
+              />
+              <SnapshotTile
+                label="合同金额"
+                value={formatAmountWan(project.contract_amount)}
+                icon="target"
+              />
+              <SnapshotTile
+                label="待办"
+                value={`${openTodos.length} 项待处理`}
+                icon="arrow-right"
+              />
             </div>
           </CxPanel>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <CxPanel
               title="项目记忆摘要"
-              subtitle="结构化沉淀 · v12"
+              subtitle={
+                project.memory_version != null
+                  ? `v${project.memory_version} · ${
+                      project.memory_stale ? '需刷新' : '已同步'
+                    }`
+                  : '尚未建立记忆'
+              }
               action={
-                <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
+                <a
+                  style={{ fontSize: 11.5, color: 'var(--accent)' }}
+                  href={`/projects/${projectId}/memory`}
+                >
                   查看完整 →
                 </a>
               }
             >
-              {(
-                [
-                  ['客户背景', '深圳总部 · 3 万员工 · 2025 总保费 480 亿'],
-                  ['核心痛点', '续保转化下滑 · 数据散落 5 系统'],
-                  ['我方方案', '三层框架,先做续保 + 理赔数据闭环'],
-                  ['下一步', 'Q3 W1 POC 报告 · W3 提案 V2'],
-                ] as Array<[string, string]>
-              ).map(([k, v]) => (
-                <div
-                  key={k}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '75px 1fr',
-                    padding: '8px 0',
-                    borderBottom: '1px solid var(--line-soft)',
-                    gap: 12,
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>{k}</div>
-                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>{v}</div>
+              {memorySlots.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                  暂无结构化记忆。在「项目记忆」中编辑槽位后会出现摘要。
                 </div>
-              ))}
+              ) : (
+                memorySlots.map(([k, v]) => (
+                  <div
+                    key={k}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '85px 1fr',
+                      padding: '8px 0',
+                      borderBottom: '1px solid var(--line-soft)',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>{k}</div>
+                    <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>{v}</div>
+                  </div>
+                ))
+              )}
             </CxPanel>
 
             <CxPanel
-              title="会前 30 秒卡"
-              subtitle="下次例会前自动准备"
+              title="近期待办"
+              subtitle={`${openTodos.length} 项待处理`}
               action={
-                <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
-                  详细 →
+                <a
+                  style={{ fontSize: 11.5, color: 'var(--accent)' }}
+                  href={`/projects/${projectId}/milestones`}
+                >
+                  全部 →
                 </a>
               }
             >
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-                {(
-                  [
-                    { l: '建议说', v: '聚焦续保的 Q3 试点目标与 KPI', tone: 'good' },
-                    { l: '避开', v: '理赔系统改造的具体范围', tone: 'warn' },
-                    { l: '确认', v: '客户能否在 6 月前提供历史数据', tone: 'neutral' },
-                  ] as Array<{ l: string; v: string; tone: 'good' | 'warn' | 'neutral' }>
-                ).map((b, i) => (
+              {recentTodos.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                  当前没有未完成的待办。
+                </div>
+              ) : (
+                recentTodos.map((t, i) => (
                   <div
-                    key={b.l}
+                    key={t.id}
                     style={{
                       display: 'flex',
-                      gap: 12,
-                      padding: '8px 0',
-                      borderBottom: i === 2 ? 'none' : '1px solid var(--line-soft)',
+                      gap: 10,
+                      padding: '9px 0',
+                      borderBottom:
+                        i === recentTodos.length - 1 ? 'none' : '1px solid var(--line-soft)',
                     }}
                   >
                     <span
                       style={{
-                        width: 36,
-                        color:
-                          b.tone === 'good'
-                            ? 'var(--good)'
-                            : b.tone === 'warn'
-                              ? 'var(--warn)'
-                              : 'var(--ink-mute)',
-                        fontSize: 11.5,
-                        fontWeight: 500,
-                        paddingTop: 1,
+                        width: 13,
+                        height: 13,
+                        marginTop: 3,
+                        borderRadius: 3,
+                        border: '1.5px solid var(--line-strong)',
                         flexShrink: 0,
                       }}
-                    >
-                      {b.l}
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
-                      {b.v}
-                    </span>
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.45 }}>
+                        {t.content}
+                      </div>
+                      {t.assigned_user && (
+                        <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
+                          {t.assigned_user.display_name}
+                          {t.due_date ? ` · ${t.due_date}` : ''}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
+                ))
+              )}
             </CxPanel>
           </div>
 
           <CxPanel
-            title="最近动态"
-            subtitle="24 小时内"
+            title="最近里程碑"
+            subtitle={`${milestoneDone} / ${milestoneTotal} 完成`}
             action={
-              <a style={{ fontSize: 11.5, color: 'var(--ink-mute)' }} href="#">
+              <a
+                style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}
+                href={`/projects/${projectId}/milestones`}
+              >
                 全部 →
               </a>
             }
           >
-            <div style={{ position: 'relative', paddingLeft: 14 }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 4,
-                  top: 4,
-                  bottom: 4,
-                  width: 1,
-                  background: 'var(--line)',
-                }}
-              />
-              {TIMELINE.map((e, i) => (
+            {milestones.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                还没有里程碑。
+              </div>
+            ) : (
+              <div style={{ position: 'relative', paddingLeft: 14 }}>
                 <div
-                  key={i}
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: '56px auto 1fr',
-                    gap: 12,
-                    padding: '9px 0',
-                    alignItems: 'flex-start',
-                    position: 'relative',
+                    position: 'absolute',
+                    left: 4,
+                    top: 4,
+                    bottom: 4,
+                    width: 1,
+                    background: 'var(--line)',
                   }}
-                >
-                  <span
-                    style={{ fontSize: 11.5, color: 'var(--ink-mute)', paddingTop: 1 }}
-                  >
-                    {e.t}
-                  </span>
-                  <span
+                />
+                {milestones.slice(0, 5).map((m) => (
+                  <div
+                    key={m.id}
                     style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 99,
-                      background: 'var(--bg-elev)',
-                      border: `1.5px solid ${
-                        e.tone === 'accent'
-                          ? 'var(--accent)'
-                          : e.tone === 'good'
-                            ? 'var(--good)'
-                            : e.tone === 'warn'
-                              ? 'var(--warn)'
-                              : 'var(--ink-faint)'
-                      }`,
-                      marginTop: 6,
+                      display: 'grid',
+                      gridTemplateColumns: '74px auto 1fr',
+                      gap: 12,
+                      padding: '9px 0',
+                      alignItems: 'flex-start',
                       position: 'relative',
-                      left: -14,
-                      flexShrink: 0,
                     }}
-                  />
-                  <div style={{ marginLeft: -10 }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>
-                      <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{e.who}</span> ·{' '}
-                      {e.what}
+                  >
+                    <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', paddingTop: 1 }}>
+                      {m.due_date ?? '—'}
                     </span>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 99,
+                        background: m.is_done ? 'var(--good)' : 'var(--bg-elev)',
+                        border: `1.5px solid ${m.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
+                        marginTop: 6,
+                        position: 'relative',
+                        left: -14,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ marginLeft: -10 }}>
+                      <span style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 500 }}>
+                        {m.title}
+                      </span>
+                      <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginLeft: 8 }}>
+                        {m.is_done ? '已完成' : '进行中'}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CxPanel>
         </div>
 
@@ -323,109 +304,84 @@ export function CxProjectOverview({ projectId }: OverviewProps) {
           </CxPanel>
 
           <CxPanel
-            title="关键干系人"
+            title="项目财务"
+            subtitle={`合同 ${formatAmountWan(financials.contract_amount)}`}
             action={
-              <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
+              <a
+                style={{ fontSize: 11.5, color: 'var(--accent)' }}
+                href={`/projects/${projectId}/finance`}
+              >
                 详细 →
               </a>
             }
           >
-            {STAKEHOLDERS.map((p) => (
-              <div
-                key={p.n}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 0',
-                  borderBottom: '1px solid var(--line-soft)',
-                }}
-              >
-                <span
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 99,
-                    background: 'var(--accent-bg)',
-                    color: 'var(--accent-ink)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    flexShrink: 0,
-                  }}
-                >
-                  {p.n[0]}
+            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.85 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>已回款</span>
+                <span className="num" style={{ color: 'var(--good)' }}>
+                  {formatAmountWan(financials.total_received)}
                 </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    {p.n}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{p.r}</div>
-                </div>
-                <CxStatus tone={p.tone}>{p.lvl}</CxStatus>
               </div>
-            ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>已开票待回款</span>
+                <span className="num" style={{ color: 'var(--warn)' }}>
+                  {formatAmountWan(financials.uncollected)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-mute)' }}>剩余</span>
+                <span className="num" style={{ color: 'var(--ink)' }}>
+                  {formatAmountWan(financials.remaining)}
+                </span>
+              </div>
+            </div>
           </CxPanel>
 
           <CxPanel
             title="项目成员"
+            subtitle={`${members.length} 人`}
             action={
               <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
                 管理
               </a>
             }
           >
-            {DEMO_PROJECT.team.map((p) => (
-              <div
-                key={p.n}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}
-              >
-                <span
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 99,
-                    background: 'var(--bg-tint)',
-                    color: 'var(--ink-soft)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    flexShrink: 0,
-                  }}
-                >
-                  {p.n[0]}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <div className="ui" style={{ fontSize: 13, color: 'var(--ink)' }}>
-                    {p.n}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{p.r}</div>
-                </div>
+            {members.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                暂未邀请成员。
               </div>
-            ))}
-            <button
-              type="button"
-              style={{
-                width: '100%',
-                marginTop: 8,
-                padding: '7px 10px',
-                fontSize: 12,
-                color: 'var(--ink-mute)',
-                border: '1px dashed var(--line-strong)',
-                borderRadius: 'var(--r-sm)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-                background: 'transparent',
-              }}
-            >
-              <CxIcon name="plus" size={11} stroke={1.6} /> 添加 / 邀请成员
-            </button>
+            ) : (
+              members.map((p) => (
+                <div
+                  key={p.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}
+                >
+                  <span
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 99,
+                      background: 'var(--bg-tint)',
+                      color: 'var(--ink-soft)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {firstGlyph(p.user.display_name)}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div className="ui" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                      {p.user.display_name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{p.role ?? 'member'}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </CxPanel>
 
           <CxPanel title="项目管理">
@@ -488,4 +444,70 @@ export function CxProjectOverview({ projectId }: OverviewProps) {
       </div>
     </CxProjectShell>
   )
+}
+
+function SnapshotTile({ label, value, icon }: { label: string; value: string; icon: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10 }}>
+      <span
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: 'var(--r-sm)',
+          background: 'var(--accent-bg)',
+          color: 'var(--accent)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <CxIcon name={icon} size={12} />
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginBottom: 2 }}>{label}</div>
+        <div
+          className="ui"
+          style={{
+            fontSize: 13,
+            color: 'var(--ink)',
+            fontWeight: 500,
+            lineHeight: 1.45,
+          }}
+        >
+          {value}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Try to parse Project.context_memory_json into [key, value] string
+ * pairs. The shape stored varies by project; we only render values
+ * that turn into a readable scalar string. */
+function readMemorySlots(raw: string | null | undefined): Array<[string, string]> {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+    const out: Array<[string, string]> = []
+    for (const [k, v] of Object.entries(parsed)) {
+      const text = stringifyValue(v)
+      if (text) out.push([k, text])
+      if (out.length >= 6) break
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+function stringifyValue(v: unknown): string | null {
+  if (typeof v === 'string') return v.trim() || null
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (Array.isArray(v)) {
+    const parts = v.map(stringifyValue).filter((s): s is string => !!s)
+    return parts.length ? parts.join(' · ') : null
+  }
+  return null
 }
