@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import type {
+  ProjectDetail as ProjectDetailType,
+  ProjectMember,
+} from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel } from '../CxPrimitives'
@@ -8,6 +11,10 @@ import {
   CxDeleteProjectDialog,
   CxEditProjectDialog,
 } from '../CxProjectActions'
+import {
+  CxMemberInviteDialog,
+  CxMemberRemoveDialog,
+} from '../CxMemberActions'
 import {
   STATUS_LABEL,
   firstGlyph,
@@ -21,12 +28,20 @@ interface OverviewProps {
   refetch: () => Promise<void>
 }
 
-type DialogKey = 'edit' | 'archive' | 'delete' | null
+type DialogKey = 'archive' | 'delete' | null
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return iso.slice(0, 10)
+}
 
 export function CxProjectOverview({ detail, refetch }: OverviewProps) {
   const { project, members, todos, milestones, financials } = detail
   const projectId = project.id
   const [dialog, setDialog] = useState<DialogKey>(null)
+  const [editing, setEditing] = useState(false)
+  const [inviting, setInviting] = useState(false)
+  const [removingMember, setRemovingMember] = useState<ProjectMember | null>(null)
   const closeDialog = () => setDialog(null)
   const ownerName = members.find((m) => m.role === 'owner')?.user.display_name ?? '—'
   const milestoneDone = milestones.filter((m) => m.is_done).length
@@ -37,7 +52,7 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
     ['状态', STATUS_LABEL[project.status] ?? project.status],
     ['合同金额', formatAmountWan(project.contract_amount)],
     ['更新时间', formatUpdatedRelative(project.updated_at)],
-    ['创建时间', formatUpdatedRelative(project.created_at)],
+    ['创建时间', formatDate(project.created_at)],
     ['负责人', ownerName],
   ]
 
@@ -129,7 +144,7 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
               }
             >
               {memorySlots.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                <div style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '8px 0' }}>
                   暂无结构化记忆。在「项目记忆」中编辑槽位后会出现摘要。
                 </div>
               ) : (
@@ -138,15 +153,15 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
                     key={k}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '85px 1fr',
-                      padding: '8px 0',
+                      gridTemplateColumns: '90px 1fr',
+                      padding: '9px 0',
                       borderBottom: '1px solid var(--line-soft)',
                       gap: 12,
                       alignItems: 'flex-start',
                     }}
                   >
-                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>{k}</div>
-                    <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>{v}</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-mute)' }}>{k}</div>
+                    <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }}>{v}</div>
                   </div>
                 ))
               )}
@@ -285,20 +300,20 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
             action={
               <button
                 type="button"
-                onClick={() => setDialog('edit')}
+                onClick={() => setEditing(true)}
                 style={{
-                  fontSize: 12,
+                  fontSize: 12.5,
                   color: 'var(--accent)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
                 }}
               >
-                <CxIcon name="edit" size={11} /> 编辑
+                <CxIcon name="edit" size={12} /> 编辑
               </button>
             }
           >
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.85 }}>
+            <div style={{ fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.85 }}>
               {KEY_FACTS.map(([k, v]) => (
                 <div
                   key={k}
@@ -306,7 +321,7 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
                     display: 'flex',
                     justifyContent: 'space-between',
                     gap: 12,
-                    padding: '4px 0',
+                    padding: '5px 0',
                   }}
                 >
                   <span style={{ color: 'var(--ink-mute)' }}>{k}</span>
@@ -314,6 +329,30 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
                 </div>
               ))}
             </div>
+            {project.description?.trim() && (
+              <div
+                style={{
+                  marginTop: 10,
+                  paddingTop: 12,
+                  borderTop: '1px solid var(--line-soft)',
+                }}
+              >
+                <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginBottom: 6 }}>
+                  项目描述
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: 'var(--ink)',
+                    lineHeight: 1.7,
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {project.description}
+                </p>
+              </div>
+            )}
           </CxPanel>
 
           <CxPanel
@@ -328,7 +367,7 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
               </a>
             }
           >
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.85 }}>
+            <div style={{ fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.85 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--ink-mute)' }}>已回款</span>
                 <span className="num" style={{ color: 'var(--good)' }}>
@@ -354,44 +393,80 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
             title="项目成员"
             subtitle={`${members.length} 人`}
             action={
-              <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
-                管理
-              </a>
+              <button
+                type="button"
+                onClick={() => setInviting(true)}
+                style={{
+                  fontSize: 12,
+                  color: 'var(--accent)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <CxIcon name="plus" size={11} stroke={1.6} /> 邀请
+              </button>
             }
           >
             {members.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 0' }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '8px 0' }}>
                 暂未邀请成员。
               </div>
             ) : (
               members.map((p) => (
                 <div
                   key={p.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}
+                  className="row-hov"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '7px 6px',
+                    margin: '0 -6px',
+                    borderRadius: 'var(--r-sm)',
+                  }}
                 >
                   <span
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 28,
+                      height: 28,
                       borderRadius: 99,
                       background: 'var(--bg-tint)',
                       color: 'var(--ink-soft)',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 12,
+                      fontSize: 12.5,
                       fontWeight: 500,
                       flexShrink: 0,
                     }}
                   >
                     {firstGlyph(p.user.display_name)}
                   </span>
-                  <div style={{ flex: 1 }}>
-                    <div className="ui" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="ui" style={{ fontSize: 13.5, color: 'var(--ink)' }}>
                       {p.user.display_name}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{p.role ?? 'member'}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
+                      {p.role ?? 'member'}
+                    </div>
                   </div>
+                  {p.role !== 'owner' && (
+                    <button
+                      type="button"
+                      onClick={() => setRemovingMember(p)}
+                      title="移除"
+                      style={{
+                        padding: 4,
+                        color: 'var(--ink-faint)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <CxIcon name="trash" size={12} />
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -400,10 +475,9 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
           <CxPanel title="项目管理">
             {(
               [
-                { l: '编辑项目信息', d: '名称、客户、状态、合同金额', icon: 'edit', tone: 'soft', key: 'edit' },
                 { l: '归档项目', d: '移入归档,保留全部记忆', icon: 'archive', tone: 'soft', key: 'archive' },
                 { l: '删除项目', d: '不可恢复,谨慎操作', icon: 'trash', tone: 'bad', key: 'delete' },
-              ] as Array<{ l: string; d: string; icon: string; tone: 'soft' | 'bad'; key: DialogKey }>
+              ] as Array<{ l: string; d: string; icon: string; tone: 'soft' | 'bad'; key: Exclude<DialogKey, null> }>
             ).map((a, i) => (
               <button
                 key={a.l}
@@ -435,14 +509,14 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
                   <div
                     className="ui"
                     style={{
-                      fontSize: 13,
+                      fontSize: 13.5,
                       color: a.tone === 'bad' ? 'var(--bad)' : 'var(--ink)',
                       fontWeight: 500,
                     }}
                   >
                     {a.l}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 2 }}>
                     {a.d}
                   </div>
                 </div>
@@ -458,9 +532,9 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
       </div>
 
       <CxEditProjectDialog
-        open={dialog === 'edit'}
+        open={editing}
         project={project}
-        onClose={closeDialog}
+        onClose={() => setEditing(false)}
         onSaved={refetch}
       />
       <CxArchiveProjectDialog
@@ -473,6 +547,20 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
         open={dialog === 'delete'}
         project={project}
         onClose={closeDialog}
+      />
+      <CxMemberInviteDialog
+        open={inviting}
+        projectId={projectId}
+        existingMemberIds={new Set(members.map((m) => m.user_id))}
+        onClose={() => setInviting(false)}
+        onInvited={refetch}
+      />
+      <CxMemberRemoveDialog
+        open={removingMember !== null}
+        projectId={projectId}
+        member={removingMember}
+        onClose={() => setRemovingMember(null)}
+        onRemoved={refetch}
       />
     </CxProjectShell>
   )
@@ -514,32 +602,69 @@ function SnapshotTile({ label, value, icon }: { label: string; value: string; ic
   )
 }
 
-/** Try to parse Project.context_memory_json into [key, value] string
- * pairs. The shape stored varies by project; we only render values
- * that turn into a readable scalar string. */
+/** Friendly label + display order for the structured slots written by
+ * backend `_default_project_memory`. Keys not in this list are
+ * skipped (they're meta like `_coverage` / `stale` / `memory_version`
+ * — those are NOT user-facing memory slots and rendering "false" for
+ * `stale` was the bug the user spotted). */
+const SLOT_LABELS: Array<[string, string]> = [
+  ['project_brief', '项目概述'],
+  ['current_objective', '当前目标'],
+  ['recent_progress', '近期进展'],
+  ['key_risks', '关键风险'],
+  ['open_questions', '待确认问题'],
+  ['next_actions', '下一步'],
+  ['delivery_signals', '交付信号'],
+  ['financial_status', '财务状态'],
+]
+
 function readMemorySlots(raw: string | null | undefined): Array<[string, string]> {
   if (!raw) return []
+  let parsed: Record<string, unknown>
   try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
-    const out: Array<[string, string]> = []
-    for (const [k, v] of Object.entries(parsed)) {
-      const text = stringifyValue(v)
-      if (text) out.push([k, text])
-      if (out.length >= 6) break
-    }
-    return out
+    const data: unknown = JSON.parse(raw)
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return []
+    parsed = data as Record<string, unknown>
   } catch {
     return []
   }
+  const out: Array<[string, string]> = []
+  for (const [k, label] of SLOT_LABELS) {
+    const text = formatSlotValue(parsed[k])
+    if (text) out.push([label, text])
+    if (out.length >= 6) break
+  }
+  return out
 }
 
-function stringifyValue(v: unknown): string | null {
+/** Render a slot value into a human string. Handles:
+ *  - plain strings
+ *  - flat string lists (joins with " · ")
+ *  - the {ai, pinned} shape backend uses for risks / questions /
+ *    stakeholder notes (flattens both, dedupes empties)
+ *  Returns null for empties / unrenderable shapes so the caller can
+ *  hide the row entirely. */
+function formatSlotValue(v: unknown): string | null {
+  if (v == null) return null
   if (typeof v === 'string') return v.trim() || null
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'boolean') return null
   if (Array.isArray(v)) {
-    const parts = v.map(stringifyValue).filter((s): s is string => !!s)
-    return parts.length ? parts.join(' · ') : null
+    const items = v.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean)
+    return items.length ? items.join(' · ') : null
+  }
+  if (typeof v === 'object') {
+    const obj = v as Record<string, unknown>
+    const merged: string[] = []
+    for (const key of ['pinned', 'ai']) {
+      const list = obj[key]
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (typeof item === 'string' && item.trim()) merged.push(item.trim())
+        }
+      }
+    }
+    return merged.length ? merged.join(' · ') : null
   }
   return null
 }
