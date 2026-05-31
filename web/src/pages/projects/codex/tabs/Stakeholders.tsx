@@ -1,17 +1,20 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   ClientStakeholder,
   ProjectDetail as ProjectDetailType,
+  ProjectMember,
 } from '../../../../types/api'
 import { CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
 import { firstGlyph, useClientStakeholders } from '../useProjectsApi'
+import { CxMemberInviteDialog, CxMemberRemoveDialog } from '../CxMemberActions'
 
 interface StakeholdersProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
 interface NormalizedStakeholder {
@@ -64,10 +67,16 @@ function relColor(rel: NormalizedStakeholder['relationship']) {
 
 const GRID = '1.4fr 0.7fr 0.6fr 0.7fr 1.4fr 0.8fr 14px'
 
-export function CxProjectStakeholders({ projectId, detail }: StakeholdersProps) {
+export function CxProjectStakeholders({ projectId, detail, refetch }: StakeholdersProps) {
   const { project, members } = detail
   const { matchedClientId, matchedClientName, stakeholders, loading, error } =
     useClientStakeholders(project.client)
+  const [inviting, setInviting] = useState(false)
+  const [removing, setRemoving] = useState<ProjectMember | null>(null)
+  const existingMemberIds = useMemo(
+    () => new Set(members.map((m) => m.user_id)),
+    [members],
+  )
 
   const rows: NormalizedStakeholder[] = useMemo(
     () =>
@@ -499,9 +508,19 @@ export function CxProjectStakeholders({ projectId, detail }: StakeholdersProps) 
             title="项目团队"
             subtitle={`内部 ${members.length} 人`}
             action={
-              <a style={{ fontSize: 11.5, color: 'var(--accent)' }} href="#">
-                管理
-              </a>
+              <button
+                type="button"
+                onClick={() => setInviting(true)}
+                style={{
+                  fontSize: 11.5,
+                  color: 'var(--accent)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <CxIcon name="plus" size={11} stroke={1.6} /> 邀请
+              </button>
             }
           >
             {members.length === 0 ? (
@@ -512,7 +531,15 @@ export function CxProjectStakeholders({ projectId, detail }: StakeholdersProps) 
               members.map((m) => (
                 <div
                   key={m.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}
+                  className="row-hov"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '7px 6px',
+                    margin: '0 -6px',
+                    borderRadius: 'var(--r-sm)',
+                  }}
                 >
                   <span
                     style={{
@@ -539,6 +566,22 @@ export function CxProjectStakeholders({ projectId, detail }: StakeholdersProps) 
                       {m.role ?? 'member'}
                     </div>
                   </div>
+                  {m.role !== 'owner' && (
+                    <button
+                      type="button"
+                      onClick={() => setRemoving(m)}
+                      title="移除"
+                      style={{
+                        padding: 4,
+                        color: 'var(--ink-faint)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <CxIcon name="trash" size={12} />
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -588,6 +631,21 @@ export function CxProjectStakeholders({ projectId, detail }: StakeholdersProps) 
           </CxPanel>
         </aside>
       </div>
+
+      <CxMemberInviteDialog
+        open={inviting}
+        projectId={projectId}
+        existingMemberIds={existingMemberIds}
+        onClose={() => setInviting(false)}
+        onInvited={refetch}
+      />
+      <CxMemberRemoveDialog
+        open={removing !== null}
+        projectId={projectId}
+        member={removing}
+        onClose={() => setRemoving(null)}
+        onRemoved={refetch}
+      />
     </CxProjectShell>
   )
 }

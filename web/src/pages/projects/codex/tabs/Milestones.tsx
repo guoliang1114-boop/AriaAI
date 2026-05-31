@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { Milestone, ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import type {
+  Milestone,
+  ProjectDetail as ProjectDetailType,
+  ProjectTodo,
+} from '../../../../types/api'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
@@ -10,6 +14,11 @@ import {
   CxMilestoneFormDialog,
   toggleMilestoneDone,
 } from '../CxMilestoneActions'
+import {
+  CxTodoDeleteDialog,
+  CxTodoFormDialog,
+  toggleTodoDone,
+} from '../CxTodoActions'
 
 interface MilestonesProps {
   projectId: number
@@ -38,6 +47,27 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Milestone | null>(null)
   const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [todoEditing, setTodoEditing] = useState<ProjectTodo | null>(null)
+  const [todoCreating, setTodoCreating] = useState(false)
+  const [todoDeleting, setTodoDeleting] = useState<ProjectTodo | null>(null)
+  const [todoTogglingId, setTodoTogglingId] = useState<number | null>(null)
+
+  const toggleTodo = async (t: ProjectTodo) => {
+    if (todoTogglingId === t.id) return
+    setTodoTogglingId(t.id)
+    try {
+      await toggleTodoDone(projectId, t)
+      toast.success({ title: t.is_done ? '已标记为未完成' : '已标记完成' })
+      await refetch()
+    } catch (err) {
+      toast.error({
+        title: '更新失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setTodoTogglingId(null)
+    }
+  }
 
   const sortedMs = useMemo(() => {
     return [...milestones].sort((a, b) => {
@@ -164,6 +194,21 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
           <CxPanel
             title="待办"
             subtitle={`${openTodos.length} 项进行中 · ${doneTodos.length} 项已完成`}
+            action={
+              <button
+                type="button"
+                onClick={() => setTodoCreating(true)}
+                style={{
+                  fontSize: 12,
+                  color: 'var(--accent)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <CxIcon name="plus" size={11} stroke={1.6} /> 添加待办
+              </button>
+            }
           >
             {openTodos.length === 0 && doneTodos.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
@@ -172,61 +217,15 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
             ) : (
               <>
                 {openTodos.map((t, i) => (
-                  <div
+                  <TodoRow
                     key={t.id}
-                    className="row-hov"
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '20px 1fr 100px 100px',
-                      gap: 12,
-                      padding: '10px 8px',
-                      margin: '0 -8px',
-                      borderRadius: 'var(--r-sm)',
-                      alignItems: 'center',
-                      borderBottom:
-                        i === openTodos.length - 1 ? 'none' : '1px solid var(--line-soft)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 13,
-                        height: 13,
-                        borderRadius: 3,
-                        border: '1.5px solid var(--line-strong)',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div className="ui" style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
-                      {t.content}
-                    </div>
-                    <span style={{ fontSize: 11.5, color: dueColor(t.due_date) }}>
-                      {t.due_date ?? '—'}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {t.assigned_user && (
-                        <>
-                          <span
-                            style={{
-                              width: 18,
-                              height: 18,
-                              borderRadius: 99,
-                              background: 'var(--accent-bg)',
-                              color: 'var(--accent-ink)',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: 10,
-                            }}
-                          >
-                            {firstGlyph(t.assigned_user.display_name)}
-                          </span>
-                          <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
-                            {t.assigned_user.display_name}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                    t={t}
+                    last={i === openTodos.length - 1}
+                    busy={todoTogglingId === t.id}
+                    onToggle={() => toggleTodo(t)}
+                    onEdit={() => setTodoEditing(t)}
+                    onDelete={() => setTodoDeleting(t)}
+                  />
                 ))}
                 {doneTodos.length > 0 && (
                   <div
@@ -239,6 +238,19 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
                     }}
                   >
                     已完成 {doneTodos.length} 项
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column' }}>
+                      {doneTodos.slice(0, 5).map((t) => (
+                        <TodoRow
+                          key={t.id}
+                          t={t}
+                          last
+                          busy={todoTogglingId === t.id}
+                          onToggle={() => toggleTodo(t)}
+                          onEdit={() => setTodoEditing(t)}
+                          onDelete={() => setTodoDeleting(t)}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </>
@@ -292,7 +304,158 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
         onClose={() => setDeleting(null)}
         onDeleted={refetch}
       />
+      <CxTodoFormDialog
+        open={todoCreating}
+        projectId={projectId}
+        onClose={() => setTodoCreating(false)}
+        onSaved={refetch}
+      />
+      <CxTodoFormDialog
+        open={todoEditing !== null}
+        projectId={projectId}
+        todo={todoEditing}
+        onClose={() => setTodoEditing(null)}
+        onSaved={refetch}
+      />
+      <CxTodoDeleteDialog
+        open={todoDeleting !== null}
+        projectId={projectId}
+        todo={todoDeleting}
+        onClose={() => setTodoDeleting(null)}
+        onDeleted={refetch}
+      />
     </CxProjectShell>
+  )
+}
+
+interface TodoRowProps {
+  t: ProjectTodo
+  last: boolean
+  busy: boolean
+  onToggle: () => void
+  onEdit: () => void
+  onDelete: () => void
+}
+
+function TodoRow({ t, last, busy, onToggle, onEdit, onDelete }: TodoRowProps) {
+  return (
+    <div
+      className="row-hov"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '20px 1fr 90px 110px auto auto',
+        gap: 10,
+        padding: '10px 8px',
+        margin: '0 -8px',
+        borderRadius: 'var(--r-sm)',
+        alignItems: 'center',
+        borderBottom: last ? 'none' : '1px solid var(--line-soft)',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={busy}
+        title={t.is_done ? '标记为未完成' : '标记完成'}
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          border: `1.5px solid ${t.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
+          background: t.is_done ? 'var(--good)' : 'transparent',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: busy ? 'wait' : 'pointer',
+          opacity: busy ? 0.5 : 1,
+          flexShrink: 0,
+        }}
+      >
+        {t.is_done && (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        )}
+      </button>
+      <div
+        className="ui"
+        style={{
+          fontSize: 13,
+          color: t.is_done ? 'var(--ink-mute)' : 'var(--ink)',
+          lineHeight: 1.5,
+          textDecoration: t.is_done ? 'line-through' : 'none',
+          textDecorationColor: 'var(--ink-faint)',
+        }}
+      >
+        {t.content}
+      </div>
+      <span style={{ fontSize: 11.5, color: dueColor(t.due_date) }}>
+        {t.due_date ?? '—'}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+        {t.assigned_user ? (
+          <>
+            <span
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 99,
+                background: 'var(--accent-bg)',
+                color: 'var(--accent-ink)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 10,
+                flexShrink: 0,
+              }}
+            >
+              {firstGlyph(t.assigned_user.display_name)}
+            </span>
+            <span
+              style={{
+                fontSize: 11.5,
+                color: 'var(--ink-mute)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t.assigned_user.display_name}
+            </span>
+          </>
+        ) : (
+          <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>未指派</span>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onEdit}
+        title="编辑"
+        style={{
+          padding: 4,
+          color: 'var(--ink-mute)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CxIcon name="edit" size={12} />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        title="删除"
+        style={{
+          padding: 4,
+          color: 'var(--ink-faint)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CxIcon name="trash" size={12} />
+      </button>
+    </div>
   )
 }
 

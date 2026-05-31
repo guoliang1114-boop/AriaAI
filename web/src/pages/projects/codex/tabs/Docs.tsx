@@ -7,6 +7,7 @@ import type {
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import {
+  CxFileDeleteDialog,
   CxFolderCreateDialog,
   CxFolderDeleteDialog,
   CxUploadDropzone,
@@ -86,6 +87,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
   })
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [deletingFolder, setDeletingFolder] = useState<ProjectFolder | null>(null)
+  const [deletingFile, setDeletingFile] = useState<ProjectFile | null>(null)
 
   const toggle = (id: number) => setExpanded((e) => ({ ...e, [id]: !e[id] }))
   const cur = groups.find((g) => g.id === sel.folder) ?? groups[0]
@@ -262,14 +264,18 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
           ) : (
             <div>
               {cur.files.map((d, i) => (
-                <button
+                <div
                   key={d.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSel({ folder: cur.id, file: i })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') setSel({ folder: cur.id, file: i })
+                  }}
                   className="row-hov"
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '50px 1fr 100px 90px',
+                    gridTemplateColumns: '50px 1fr 100px 90px 22px',
                     padding: '14px 8px',
                     gap: 14,
                     alignItems: 'flex-start',
@@ -338,7 +344,25 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                   <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
                     {dateText(d.uploaded_at)}
                   </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeletingFile(d)
+                    }}
+                    title="删除"
+                    style={{
+                      padding: 4,
+                      color: 'var(--ink-faint)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      alignSelf: 'flex-start',
+                    }}
+                  >
+                    <CxIcon name="trash" size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -361,6 +385,13 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
             : 0
         }
         onClose={() => setDeletingFolder(null)}
+        onDeleted={refetch}
+      />
+      <CxFileDeleteDialog
+        open={deletingFile !== null}
+        projectId={projectId}
+        file={deletingFile}
+        onClose={() => setDeletingFile(null)}
         onDeleted={refetch}
       />
     </CxProjectShell>

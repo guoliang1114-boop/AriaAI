@@ -188,6 +188,55 @@ export function CxFolderDeleteDialog({
   )
 }
 
+interface FileDeleteDialogProps {
+  open: boolean
+  projectId: number
+  file: ProjectFile | null
+  onClose: () => void
+  onDeleted: () => void | Promise<void>
+}
+
+export function CxFileDeleteDialog({
+  open,
+  projectId,
+  file,
+  onClose,
+  onDeleted,
+}: FileDeleteDialogProps) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  if (!file) return null
+  const confirm = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.delete(`/projects/${projectId}/files/${file.id}`)
+      toast.success({ title: '文件已移入回收站' })
+      onClose()
+      await onDeleted()
+    } catch (err) {
+      toast.error({
+        title: '删除失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <CxConfirmDialog
+      open={open}
+      onClose={onClose}
+      onConfirm={confirm}
+      title={`删除「${file.name}」`}
+      description="文件会移入回收站,30 天内可在回收站恢复。"
+      confirmLabel="删除"
+      tone="danger"
+      busy={busy}
+    />
+  )
+}
+
 interface UploadDropzoneProps {
   projectId: number
   folderId?: number | null
