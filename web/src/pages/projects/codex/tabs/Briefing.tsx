@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { api } from '../../../../api/client'
@@ -44,6 +44,41 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const [refining, setRefining] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [script, setScript] = useState<string | null>(null)
+
+  // Persist the last generated script per memory_version in localStorage
+  // so the user doesn't see an empty placeholder on every revisit. The
+  // backend caches by (project, meeting_type, language, memory_version)
+  // too — this is just the UI-side mirror so we don't even have to ask.
+  // When memory_version bumps (someone clicked 重新生成), the stored
+  // script is dropped automatically.
+  const scriptStorageKey = `cx:briefing-script:${projectId}`
+  const currentMemoryVersion = briefing?.project.memory_version ?? null
+
+  useEffect(() => {
+    if (currentMemoryVersion == null) return
+    try {
+      const raw = localStorage.getItem(scriptStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as {
+        memory_version?: number
+        language?: string
+        content?: string
+      }
+      if (
+        parsed.memory_version === currentMemoryVersion &&
+        parsed.language === i18n.language &&
+        typeof parsed.content === 'string'
+      ) {
+        setScript(parsed.content)
+      } else if (parsed.memory_version !== currentMemoryVersion) {
+        // Memory has been rebuilt — old script no longer reflects it.
+        localStorage.removeItem(scriptStorageKey)
+        setScript(null)
+      }
+    } catch {
+      // Bad JSON in storage — just ignore it.
+    }
+  }, [scriptStorageKey, currentMemoryVersion, i18n.language])
 
   // "Regenerate briefing" is a heavier operation than the GET that
   // backs the page. The briefing is deterministic from the project
@@ -100,6 +135,21 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
         { timeout: 120000 },
       )
       setScript(res.content)
+      if (currentMemoryVersion != null) {
+        try {
+          localStorage.setItem(
+            scriptStorageKey,
+            JSON.stringify({
+              memory_version: currentMemoryVersion,
+              language: i18n.language,
+              content: res.content,
+              saved_at: Date.now(),
+            }),
+          )
+        } catch {
+          // Storage full / disabled — fine, we still have it in state.
+        }
+      }
       toast.success({
         title: forceRefresh ? '话术已重新生成' : '话术已生成',
       })
