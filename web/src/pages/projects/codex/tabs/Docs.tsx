@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../../api/client'
 import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { getApiBaseUrl } from '../../../../config/api'
+import { useToast } from '../../../../contexts/ToastContext'
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectFile,
@@ -471,6 +472,7 @@ function FilePreviewPane({
   onCancelEdit?: () => void
   onSaved?: () => void | Promise<void>
 }) {
+  const toast = useToast()
   const [preview, setPreview] = useState<PreviewState>({ status: 'idle' })
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -546,7 +548,7 @@ function FilePreviewPane({
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [file, projectId])
+  }, [file?.id, projectId])
 
   useEffect(() => {
     if (preview.status === 'ready' && preview.kind === 'markdown' && !editing) {
@@ -571,6 +573,7 @@ function FilePreviewPane({
         content: draft,
       })
       setPreview({ status: 'ready', kind: 'markdown', text: draft })
+      toast.success({ title: '文档已保存' })
       await onSaved?.()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : '保存失败，请稍后再试。')
@@ -621,12 +624,12 @@ function FilePreviewPane({
     >
       <div
         style={{
-          padding: '16px 18px',
+          padding: '10px 18px',
           borderBottom: '1px solid var(--line-soft)',
-          display: 'grid',
-          gridTemplateColumns: '50px 1fr',
-          gap: 14,
-          alignItems: 'start',
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          minHeight: 48,
         }}
       >
         <span
@@ -638,12 +641,21 @@ function FilePreviewPane({
             borderRadius: 'var(--r-sm)',
             textAlign: 'center',
             letterSpacing: '0.04em',
-            justifySelf: 'start',
+            flexShrink: 0,
           }}
         >
           {extOf(file)}
         </span>
-        <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            minWidth: 0,
+            flex: 1,
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 12,
+            overflow: 'hidden',
+          }}
+        >
           <h2
             className="ui"
             style={{
@@ -654,6 +666,8 @@ function FilePreviewPane({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
+              flexShrink: 1,
+              minWidth: 120,
             }}
           >
             {file.name}
@@ -661,19 +675,35 @@ function FilePreviewPane({
           <div
             style={{
               display: 'flex',
-              gap: 12,
-              marginTop: 6,
+              gap: 8,
               fontSize: 11.5,
               color: 'var(--ink-faint)',
-              flexWrap: 'wrap',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
             <span className="num">{sizeText(fileSize(file))}</span>
+            <span>·</span>
             <span>{dateText(file.uploaded_at)}</span>
-            {file.origin && <span>{file.origin}</span>}
+            {file.origin && (
+              <>
+                <span>·</span>
+                <span>{file.origin}</span>
+              </>
+            )}
           </div>
           {summary && (
-            <p style={{ margin: '10px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-soft)' }}>
+            <p
+              style={{
+                margin: 0,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontSize: 12,
+                color: 'var(--ink-mute)',
+              }}
+            >
               {summary}
             </p>
           )}
