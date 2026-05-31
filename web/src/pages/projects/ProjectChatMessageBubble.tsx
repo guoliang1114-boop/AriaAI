@@ -327,19 +327,54 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
                   ) : null,
                 )}
                 {references.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap" style={{ gap: 6 }}>
                     {references.map((ref, i) => (
                       <Link
                         key={`${ref.type}-${ref.id}-${i}`}
                         to={buildReferenceHref(ref)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-codex-bg-tint text-xs text-codex-ink-mute border border-codex-line hover:border-primary/30 hover:text-codex-accent"
+                        className="inline-flex items-center transition-colors"
+                        style={{
+                          gap: 5,
+                          padding: "2px 8px",
+                          fontSize: 11.5,
+                          color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+                          background: "var(--color-codex-bg-elev)",
+                          border: "1px solid var(--color-codex-line)",
+                          borderRadius: "var(--codex-r-sm, 6px)",
+                        }}
                       >
-                        {ref.type === "skill" && <Wrench className="w-3 h-3" />}
-                        {ref.type === "doc" && <BookOpen className="w-3 h-3" />}
-                        {ref.type === "file" && (
-                          <FileText className="w-3 h-3" />
+                        <span
+                          style={{
+                            fontFamily:
+                              'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                            fontSize: 10,
+                            color: "var(--color-codex-accent)",
+                            fontWeight: 500,
+                          }}
+                        >
+                          [{i + 1}]
+                        </span>
+                        {ref.type === "skill" && (
+                          <Wrench
+                            className="h-3 w-3"
+                            style={{ color: "var(--color-codex-ink-mute)" }}
+                          />
                         )}
-                        {ref.title}
+                        {ref.type === "doc" && (
+                          <BookOpen
+                            className="h-3 w-3"
+                            style={{ color: "var(--color-codex-ink-mute)" }}
+                          />
+                        )}
+                        {ref.type === "file" && (
+                          <FileText
+                            className="h-3 w-3"
+                            style={{ color: "var(--color-codex-ink-mute)" }}
+                          />
+                        )}
+                        <span className="truncate" style={{ maxWidth: 220 }}>
+                          {ref.title}
+                        </span>
                       </Link>
                     ))}
                   </div>
