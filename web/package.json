@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
-    "test:project-chat": "vitest run --config vitest.config.ts ProjectChatActionPreviewPanel.test.tsx ProjectChatMainPanel.test.tsx useProjectChatConversations.test.ts ProjectChatToolCallCard.test.tsx --run",
+    "test:project-chat": "vitest run --config vitest.config.ts src/stores/chatStreamStore.test.ts src/stores/runActivityReducer.test.ts src/types/chat.test.ts src/api/chatExport.test.ts src/components/MarkdownRenderer.test.tsx --run",
     "test:watch": "vitest --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
