@@ -673,6 +673,43 @@
   outline-offset: 2px;
 }
 
+.theme-codex .topbar-icon-button,
+.theme-codex .topbar-avatar-button {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.theme-codex .topbar-icon-button {
+  background: transparent;
+  color: var(--color-codex-ink-soft);
+  border-radius: var(--codex-r-sm, 3px);
+}
+
+.theme-codex .topbar-icon-button:hover,
+.theme-codex .topbar-icon-button.is-active {
+  background: var(--color-codex-bg-tint);
+  color: var(--color-codex-ink);
+  border-color: var(--color-codex-line-soft);
+}
+
+.theme-codex .topbar-avatar-button {
+  background: var(--color-codex-accent-bg);
+  color: var(--color-codex-accent-ink);
+  border-radius: var(--codex-r-pill, 999px);
+}
+
+.theme-codex .topbar-avatar-button:hover,
+.theme-codex .topbar-avatar-button[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--color-codex-accent-bg) 88%, var(--color-codex-accent) 12%);
+  border-color: color-mix(in oklab, var(--color-codex-accent) 24%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-codex-accent) 10%, transparent);
+}
+
 .theme-codex .cx-primary-action {
   display: inline-flex;
   align-items: center;

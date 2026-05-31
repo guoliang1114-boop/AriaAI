@@ -282,21 +282,13 @@ export function Layout() {
 
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => navigate('/messages')}
-                className="relative flex h-8 w-8 items-center justify-center transition-colors"
-                style={{
-                  color: 'var(--color-codex-ink-soft)',
-                  borderRadius: 'var(--codex-r-sm, 3px)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--color-codex-bg-tint)'
-                  e.currentTarget.style.color = 'var(--color-codex-ink)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.color = 'var(--color-codex-ink-soft)'
-                }}
-                title="Messages"
+                className={`topbar-icon-button cx-no-hover relative flex h-8 w-8 items-center justify-center ${
+                  location.pathname.startsWith('/messages') ? 'is-active' : ''
+                }`}
+                aria-label={isZh ? '消息中心' : 'Messages'}
+                title={isZh ? '消息中心' : 'Messages'}
               >
                 <Bell className="h-[15px] w-[15px]" />
                 {unreadCount > 0 ? (
@@ -320,14 +312,11 @@ export function Layout() {
 
               <div className="relative">
                 <button
+                  type="button"
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex h-7 w-7 items-center justify-center overflow-hidden"
-                  style={{
-                    background: 'var(--color-codex-accent-bg)',
-                    color: 'var(--color-codex-accent-ink)',
-                    borderRadius: 'var(--codex-r-pill, 999px)',
-                  }}
+                  className="topbar-avatar-button cx-no-hover flex h-8 w-8 items-center justify-center overflow-hidden"
                   aria-label="User menu"
+                  aria-expanded={showUserMenu}
                   title={user?.display_name || 'User'}
                 >
                   {initials ? (
