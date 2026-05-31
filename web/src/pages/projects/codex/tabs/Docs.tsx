@@ -6,10 +6,16 @@ import type {
 } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
+import {
+  CxFolderCreateDialog,
+  CxFolderDeleteDialog,
+  CxUploadDropzone,
+} from '../CxDocsActions'
 
 interface DocsProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
 const UNFILED_ID = -1
@@ -63,7 +69,7 @@ function dateText(iso: string | null | undefined): string {
   return iso.slice(0, 10)
 }
 
-export function CxProjectDocs({ projectId, detail }: DocsProps) {
+export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
   const { project, folders, files } = detail
   const groups = useMemo(() => buildGroups(folders, files), [folders, files])
   const totalFiles = groups.reduce((s, g) => s + g.files.length, 0)
@@ -78,6 +84,8 @@ export function CxProjectDocs({ projectId, detail }: DocsProps) {
     folder: initialFolderId,
     file: 0,
   })
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [deletingFolder, setDeletingFolder] = useState<ProjectFolder | null>(null)
 
   const toggle = (id: number) => setExpanded((e) => ({ ...e, [id]: !e[id] }))
   const cur = groups.find((g) => g.id === sel.folder) ?? groups[0]
@@ -118,42 +126,11 @@ export function CxProjectDocs({ projectId, detail }: DocsProps) {
             </span>
           </div>
           <div style={{ padding: '0 14px 8px' }}>
-            <div
-              style={{
-                padding: '9px 11px',
-                border: '1.5px dashed var(--line-strong)',
-                borderRadius: 'var(--r-sm)',
-                background: 'color-mix(in oklch, var(--accent) 4%, transparent)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-              }}
-            >
-              <span
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 'var(--r-sm)',
-                  background: 'var(--accent-bg)',
-                  color: 'var(--accent)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <CxIcon name="plus" size={13} stroke={1.6} />
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <div className="ui" style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>
-                  拖入或上传文件
-                </div>
-                <div style={{ fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 1 }}>
-                  PDF · DOC · MD · ≤ 50 MB
-                </div>
-              </div>
-            </div>
+            <CxUploadDropzone
+              projectId={projectId}
+              folderId={sel.folder === UNFILED_ID ? null : sel.folder}
+              onUploaded={refetch}
+            />
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: '4px 14px 14px' }}>
             <TreeRow depth={0} icon="folder" iconColor="var(--ink-soft)" label="全部文件" badge={totalFiles} />
@@ -233,9 +210,10 @@ export function CxProjectDocs({ projectId, detail }: DocsProps) {
                 </>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
                 type="button"
+                onClick={() => setCreatingFolder(true)}
                 style={{
                   padding: '6px 12px',
                   fontSize: 12,
@@ -246,18 +224,27 @@ export function CxProjectDocs({ projectId, detail }: DocsProps) {
               >
                 新建文件夹
               </button>
-              <button
-                type="button"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  background: 'var(--ink)',
-                  color: 'var(--bg-elev)',
-                  borderRadius: 'var(--r-sm)',
-                }}
-              >
-                + 上传
-              </button>
+              {cur && cur.id !== UNFILED_ID && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const folder = folders.find((f) => f.id === cur.id)
+                    if (folder) setDeletingFolder(folder)
+                  }}
+                  title="删除当前文件夹"
+                  style={{
+                    padding: 6,
+                    color: 'var(--ink-faint)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-sm)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CxIcon name="trash" size={12} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -357,6 +344,25 @@ export function CxProjectDocs({ projectId, detail }: DocsProps) {
           )}
         </div>
       </div>
+
+      <CxFolderCreateDialog
+        open={creatingFolder}
+        projectId={projectId}
+        onClose={() => setCreatingFolder(false)}
+        onSaved={refetch}
+      />
+      <CxFolderDeleteDialog
+        open={deletingFolder !== null}
+        projectId={projectId}
+        folder={deletingFolder}
+        fileCount={
+          deletingFolder
+            ? groups.find((g) => g.id === deletingFolder.id)?.files.length ?? 0
+            : 0
+        }
+        onClose={() => setDeletingFolder(null)}
+        onDeleted={refetch}
+      />
     </CxProjectShell>
   )
 }

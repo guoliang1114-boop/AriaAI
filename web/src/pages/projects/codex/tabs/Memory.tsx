@@ -1,12 +1,15 @@
+import { useState } from 'react'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
+import { CxMemoryRebuildButton, CxMemorySlotEditDialog } from '../CxMemoryActions'
 import { formatUpdatedRelative } from '../useProjectsApi'
 
 interface MemoryProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
 function readSlots(raw: string | null | undefined): Array<{ key: string; value: string }> {
@@ -44,10 +47,13 @@ function stringify(v: unknown): string | null {
   return null
 }
 
-export function CxProjectMemory({ projectId, detail }: MemoryProps) {
+export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const { project } = detail
   const slots = readSlots(project.context_memory_json)
   const stale = !!project.memory_stale
+  const [editingSlot, setEditingSlot] = useState<{ key: string; value: string } | null>(
+    null,
+  )
 
   return (
     <CxProjectShell activeTab="memory" projectId={projectId} project={project}>
@@ -93,21 +99,7 @@ export function CxProjectMemory({ projectId, detail }: MemoryProps) {
               )}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                type="button"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  color: 'var(--bg-elev)',
-                  background: 'var(--accent)',
-                  borderRadius: 'var(--r-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}
-              >
-                <CxIcon name="sparkle" size={11} /> 重新汇总
-              </button>
+              <CxMemoryRebuildButton projectId={projectId} onTriggered={refetch} />
             </div>
           </div>
 
@@ -201,7 +193,8 @@ export function CxProjectMemory({ projectId, detail }: MemoryProps) {
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       type="button"
-                      style={{ fontSize: 11.5, color: 'var(--ink-mute)', padding: '4px 8px' }}
+                      onClick={() => setEditingSlot(s)}
+                      style={{ fontSize: 11.5, color: 'var(--accent)', padding: '4px 8px' }}
                     >
                       编辑
                     </button>
@@ -268,6 +261,15 @@ export function CxProjectMemory({ projectId, detail }: MemoryProps) {
           </CxPanel>
         </aside>
       </div>
+
+      <CxMemorySlotEditDialog
+        open={editingSlot !== null}
+        projectId={projectId}
+        slotName={editingSlot?.key ?? null}
+        initialValue={editingSlot?.value ?? ''}
+        onClose={() => setEditingSlot(null)}
+        onSaved={refetch}
+      />
     </CxProjectShell>
   )
 }
