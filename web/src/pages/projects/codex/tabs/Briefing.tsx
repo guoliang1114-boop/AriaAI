@@ -3,6 +3,7 @@ import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxSkeleton } from '../../../../components/codex'
+import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
@@ -39,19 +40,61 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const { data: briefing, loading, error, refetch } = useProjectBriefing(projectId)
   const toast = useToast()
   const [refining, setRefining] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   const [script, setScript] = useState<string | null>(null)
+
+  // "Regenerate briefing" is a heavier operation than the GET that
+  // backs the page. The briefing is deterministic from the project
+  // memory + signals, so to actually change what shows up we kick a
+  // memory rebuild (POSTs to /projects/:id/memory/rebuild) and then
+  // refetch the briefing once the LLM has had a moment to write the
+  // new slot values.
+  const regenerateBriefing = async () => {
+    if (rebuilding) return
+    setRebuilding(true)
+    try {
+      await api.post(`/projects/${projectId}/memory/rebuild`, {})
+      toast.success({
+        title: '正在重建项目记忆',
+        description: '简报将在几秒后自动刷新',
+      })
+      // The rebuild is async on the backend; refetch after a short
+      // delay so we don't paint the old data forever, then again to
+      // catch the slower jobs.
+      setTimeout(() => {
+        void refetch()
+      }, 3000)
+      setTimeout(() => {
+        void refetch()
+      }, 9000)
+    } catch (err) {
+      toast.error({
+        title: '重建失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setRebuilding(false)
+    }
+  }
 
   // The refine endpoint is cached per (project, meeting_type, language,
   // memory_version). First click renders the cached or freshly-built
   // script; explicit re-clicks pass force_refresh=true so the backend
   // actually re-runs the LLM instead of returning the same content.
+  // language: 'zh' tells backend's normalize_summary_language to map
+  // to 中文 in the system prompt — without it the LLM defaults to
+  // English.
   const generateScript = async (forceRefresh: boolean) => {
     if (refining) return
     setRefining(true)
     try {
       const res = await api.post<{ content: string; cached?: boolean }>(
         `/projects/${projectId}/briefing/refine`,
-        { meeting_type: 'progress', force_refresh: forceRefresh },
+        {
+          meeting_type: 'status',
+          language: 'zh',
+          force_refresh: forceRefresh,
+        },
       )
       setScript(res.content)
       toast.success({
@@ -144,17 +187,17 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                     <button
                       type="button"
                       onClick={refetch}
-                      title="按当前项目记忆 + 待办 + 文档重新拉取简报"
+                      title="拉取最新的简报快照"
                       style={{
-                        padding: '7px 12px',
+                        padding: '7px 10px',
                         fontSize: 12.5,
-                        color: 'var(--ink-soft)',
-                        background: 'var(--bg-elev)',
+                        color: 'var(--ink-mute)',
+                        background: 'transparent',
                         border: '1px solid var(--line)',
                         borderRadius: 'var(--r-sm)',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 6,
+                        gap: 5,
                       }}
                     >
                       <svg
@@ -169,8 +212,30 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                       >
                         <path d="M21 12a9 9 0 1 1-3-6.7" />
                         <path d="M21 3v6h-6" />
-                      </svg>{' '}
+                      </svg>
                       刷新
+                    </button>
+                    <button
+                      type="button"
+                      onClick={regenerateBriefing}
+                      disabled={rebuilding}
+                      title="重新跑一次项目记忆汇总,几秒后简报会自动更新"
+                      style={{
+                        padding: '7px 12px',
+                        fontSize: 12.5,
+                        color: 'var(--bg-elev)',
+                        background: 'var(--accent)',
+                        border: '1px solid var(--accent)',
+                        borderRadius: 'var(--r-sm)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: rebuilding ? 'wait' : 'pointer',
+                        opacity: rebuilding ? 0.7 : 1,
+                      }}
+                    >
+                      <CxIcon name="sparkle" size={12} />{' '}
+                      {rebuilding ? '排队中…' : '重新生成'}
                     </button>
                   </div>
                 </div>
@@ -325,17 +390,18 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                   </div>
                 ) : (
                   <div
+                    className="theme-codex"
                     style={{
+                      background: 'var(--bg-elev)',
+                      borderLeft: '3px solid var(--accent)',
+                      padding: '6px 18px 6px 20px',
+                      borderRadius: '0 var(--r-sm) var(--r-sm) 0',
                       fontSize: 13.5,
-                      color: 'var(--ink)',
                       lineHeight: 1.8,
-                      background: 'var(--bg-tint)',
-                      padding: '14px 16px',
-                      borderRadius: 'var(--r-sm)',
-                      whiteSpace: 'pre-wrap',
+                      color: 'var(--ink)',
                     }}
                   >
-                    {script}
+                    <MarkdownRenderer content={script} />
                   </div>
                 )}
               </CxPanel>
