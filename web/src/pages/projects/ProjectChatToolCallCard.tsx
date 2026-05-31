@@ -6,7 +6,6 @@ import {
   Loader2,
   PanelRightOpen,
   TriangleAlert,
-  Wrench,
 } from "lucide-react";
 import type { ToolCallEvent } from "../../types/api";
 
@@ -253,43 +252,163 @@ export function ProjectChatToolCallCard({
     );
   }
 
+  // Standalone tool-call card. Codex design wants a compact one-liner
+  // summary ("[✓] 检索了 N 个数据源") with the message / error / details
+  // tucked behind a chevron — the auto-expansion rules above already
+  // handle the surface (running / error / confirmation forced open).
   return (
     <div
-      className={`rounded-lg border px-3 py-2.5 ${STATUS_STYLES[call.status]}`}
+      className={`rounded-md border ${STATUS_STYLES[call.status]}`}
+      style={{ background: "var(--color-codex-bg-elev)" }}
     >
-      <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-white/80">
-          <Wrench className="h-3.5 w-3.5" />
-        </div>
+      <button
+        type="button"
+        onClick={hasDetails ? toggleExpanded : undefined}
+        className="flex w-full items-center text-left transition-colors"
+        style={{
+          gap: 10,
+          padding: "8px 12px",
+          background: "transparent",
+          border: "none",
+          cursor: hasDetails ? "pointer" : "default",
+        }}
+        aria-expanded={hasDetails ? expanded : undefined}
+      >
+        <span
+          className="inline-flex flex-shrink-0 items-center justify-center"
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "var(--codex-r-sm, 6px)",
+            background:
+              call.status === "completed"
+                ? "color-mix(in oklch, var(--color-codex-good) 14%, transparent)"
+                : call.status === "error"
+                  ? "color-mix(in oklch, var(--color-codex-bad) 14%, transparent)"
+                  : "var(--color-codex-bg-tint)",
+            color:
+              call.status === "completed"
+                ? "var(--color-codex-good)"
+                : call.status === "error"
+                  ? "var(--color-codex-bad)"
+                  : "var(--color-codex-ink-mute)",
+          }}
+        >
+          <StatusIcon status={call.status} />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-[13px] font-semibold leading-5 text-codex-ink">
+          <div
+            className="flex flex-wrap items-baseline"
+            style={{ gap: 6 }}
+          >
+            <span
+              className="truncate"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: "var(--color-codex-ink)",
+              }}
+            >
               {toolDisplayName(call.tool_name, isZh)}
-            </p>
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium">
-              <StatusIcon status={call.status} />
-              {statusLabel(call.status, isZh)}
             </span>
+            {call.summary ? (
+              <span
+                className="truncate"
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-codex-ink-mute)",
+                }}
+              >
+                · {call.summary}
+              </span>
+            ) : null}
           </div>
-          {call.message ? (
-            <p className="mt-0.5 text-xs leading-5 text-codex-ink-soft">
+          {!call.summary && !expanded && call.message ? (
+            <div
+              className="truncate"
+              style={{
+                fontSize: 12,
+                color: "var(--color-codex-ink-mute)",
+                marginTop: 1,
+              }}
+            >
+              {call.message}
+            </div>
+          ) : null}
+        </div>
+        <span
+          className="inline-flex flex-shrink-0 items-center"
+          style={{
+            gap: 4,
+            fontSize: 11,
+            color:
+              call.status === "completed"
+                ? "var(--color-codex-good)"
+                : call.status === "error"
+                  ? "var(--color-codex-bad)"
+                  : "var(--color-codex-ink-mute)",
+            fontWeight: 500,
+          }}
+        >
+          {statusLabel(call.status, isZh)}
+        </span>
+        {hasDetails ? (
+          <ChevronDown
+            className="h-3.5 w-3.5 flex-shrink-0 transition-transform"
+            style={{
+              color: "var(--color-codex-ink-mute)",
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+            }}
+          />
+        ) : null}
+      </button>
+
+      {hasDetails && expanded ? (
+        <div
+          style={{
+            padding: "0 12px 10px",
+            borderTop: "1px solid var(--color-codex-line-soft)",
+            marginTop: 0,
+          }}
+        >
+          {call.message && call.summary ? (
+            <p
+              style={{
+                margin: "10px 0 0",
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+              }}
+            >
               {call.message}
             </p>
           ) : null}
-          {call.summary ? (
-            <p className="mt-0.5 text-xs leading-5 text-codex-ink-soft">
-              {call.summary}
+          {call.error ? (
+            <p
+              style={{
+                margin: "10px 0 0",
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: "var(--color-codex-bad)",
+              }}
+            >
+              {call.error}
             </p>
           ) : null}
-          {call.error ? (
-            <p className="mt-1 text-xs text-codex-bad">{call.error}</p>
-          ) : null}
           {call.details?.length ? (
-            <div className="mt-1.5 space-y-1 border-t border-white/70 pt-1.5">
+            <div
+              className="space-y-1"
+              style={{ paddingTop: 8 }}
+            >
               {call.details.map((detail, index) => (
                 <p
                   key={`${call.tool_name}-${index}`}
-                  className="text-xs leading-relaxed text-codex-ink-mute"
+                  style={{
+                    margin: 0,
+                    fontSize: 11.5,
+                    lineHeight: 1.55,
+                    color: "var(--color-codex-ink-mute)",
+                  }}
                 >
                   {detail}
                 </p>
@@ -297,7 +416,7 @@ export function ProjectChatToolCallCard({
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
