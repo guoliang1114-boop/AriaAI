@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Project } from '../../../types/api'
+import { CxSkeleton } from '../../../components/codex'
 import { CxIcon } from './CxIcons'
 import { CxStatus } from './CxPrimitives'
 import { PIPELINE_STAGES } from './mockData'
@@ -313,16 +314,78 @@ export function CxProjectsList() {
 
         {loading && (
           <div
+            aria-busy="true"
+            aria-label="加载项目列表中"
             style={{
               flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--ink-mute)',
-              fontSize: 13,
+              minHeight: 0,
+              display: 'grid',
+              gridTemplateColumns: cat === 'presale' ? 'repeat(5, 1fr)' : '1fr',
+              columnGap: 12,
+              padding: '10px 0 22px',
             }}
           >
-            正在加载项目…
+            {cat === 'presale'
+              ? Array.from({ length: 5 }).map((_, col) => (
+                  <div
+                    key={col}
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-md)',
+                      padding: 11,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 2px 8px' }}>
+                      <CxSkeleton w={7} h={7} radius={99} />
+                      <CxSkeleton w={70} h={11} />
+                    </div>
+                    {Array.from({ length: 3 }).map((__, row) => (
+                      <div
+                        key={row}
+                        style={{
+                          border: '1px solid var(--line-soft)',
+                          borderRadius: 'var(--r-md)',
+                          padding: '13px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                        }}
+                      >
+                        <CxSkeleton w="80%" h={11} />
+                        <CxSkeleton w="55%" h={9} />
+                        <CxSkeleton w={60} h={11} />
+                      </div>
+                    ))}
+                  </div>
+                ))
+              : Array.from({ length: 6 }).map((_, row) => (
+                  <div
+                    key={row}
+                    style={{
+                      ...DELIVERY_GRID,
+                      padding: '14px 14px',
+                      borderBottom: '1px solid var(--line-soft)',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <CxSkeleton w={36} h={36} radius={9} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <CxSkeleton w={180} h={11} />
+                        <CxSkeleton w={120} h={9} />
+                      </div>
+                    </div>
+                    <CxSkeleton w={56} h={11} />
+                    <CxSkeleton w={100} h={11} />
+                    <CxSkeleton w={56} h={11} />
+                    <CxSkeleton w={60} h={11} />
+                    <CxSkeleton w={130} h={11} />
+                  </div>
+                ))}
           </div>
         )}
         {error && !loading && (

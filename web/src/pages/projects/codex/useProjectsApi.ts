@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../api/client'
-import type { Project, ProjectDetail as ProjectDetailType } from '../../../types/api'
+import type {
+  ClientStakeholder,
+  Project,
+  ProjectDetail as ProjectDetailType,
+} from '../../../types/api'
 
 /** Thin wrapper around the projects endpoints — used by the codex
  * redesign pages. We keep these isolated from the legacy
@@ -128,4 +132,95 @@ export function formatUpdatedRelative(iso: string | null | undefined): string {
 export function firstGlyph(name: string | null | undefined): string {
   if (!name) return '—'
   return name.trim().slice(0, 1) || '—'
+}
+
+interface ClientStakeholdersState {
+  matchedClientId: number | null
+  matchedClientName: string | null
+  stakeholders: ClientStakeholder[]
+  loading: boolean
+  /** A null error after loading still means "no matched client" — the
+   * caller renders an empty state with guidance to link the client. */
+  error: string | null
+}
+
+interface ClientListItem {
+  id: number
+  name: string
+}
+
+const normalizeClientName = (v: string) => v.trim().toLowerCase()
+
+/** Resolve client-side stakeholders for a project: match `project.client`
+ * (free-text name) against `/clients` to find the linked client_id,
+ * then load `/clients/:id/stakeholders`. Mirrors the legacy
+ * ProjectStakeholdersTab approach. */
+export function useClientStakeholders(clientName: string | null | undefined): ClientStakeholdersState {
+  const [state, setState] = useState<ClientStakeholdersState>({
+    matchedClientId: null,
+    matchedClientName: null,
+    stakeholders: [],
+    loading: true,
+    error: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    const trimmed = clientName?.trim() ?? ''
+    if (!trimmed) {
+      setState({
+        matchedClientId: null,
+        matchedClientName: null,
+        stakeholders: [],
+        loading: false,
+        error: null,
+      })
+      return
+    }
+    setState((s) => ({ ...s, loading: true, error: null }))
+    ;(async () => {
+      try {
+        const clients = await api.get<ClientListItem[]>('/clients')
+        if (cancelled) return
+        const match = clients.find(
+          (item) => normalizeClientName(item.name) === normalizeClientName(trimmed),
+        )
+        if (!match) {
+          setState({
+            matchedClientId: null,
+            matchedClientName: null,
+            stakeholders: [],
+            loading: false,
+            error: null,
+          })
+          return
+        }
+        const stakeholders = await api.get<ClientStakeholder[]>(
+          `/clients/${match.id}/stakeholders`,
+        )
+        if (cancelled) return
+        setState({
+          matchedClientId: match.id,
+          matchedClientName: match.name,
+          stakeholders,
+          loading: false,
+          error: null,
+        })
+      } catch (err) {
+        if (cancelled) return
+        setState({
+          matchedClientId: null,
+          matchedClientName: null,
+          stakeholders: [],
+          loading: false,
+          error: readError(err),
+        })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [clientName])
+
+  return state
 }
