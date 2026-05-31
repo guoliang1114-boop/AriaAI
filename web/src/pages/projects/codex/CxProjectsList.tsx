@@ -34,6 +34,39 @@ const sumWan = (list: Project[]) => {
   return total > 0 ? formatAmountWan(total) : '—'
 }
 
+const stageAmount = (list: Project[]) =>
+  list.reduce((s, p) => s + (p.contract_amount || 0), 0)
+
+/** Read the project's "下一步" (next step) from the structured memory
+ * if present. The shape is either a flat list of strings or the
+ * {ai, pinned} dict; we pinch the first non-empty entry, with pinned
+ * taking precedence. Falls back to null so the caller can render —. */
+function readNextStep(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const value = (parsed as Record<string, unknown>).next_actions
+    if (Array.isArray(value)) {
+      const found = value.find((x) => typeof x === 'string' && x.trim())
+      return typeof found === 'string' ? found.trim() : null
+    }
+    if (value && typeof value === 'object') {
+      const obj = value as Record<string, unknown>
+      for (const key of ['pinned', 'ai']) {
+        const list = obj[key]
+        if (Array.isArray(list)) {
+          const found = list.find((x) => typeof x === 'string' && x.trim())
+          if (typeof found === 'string') return found.trim()
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 const DELIVERY_GRID: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'minmax(220px,2.4fr) 84px minmax(120px,1.3fr) 84px 92px minmax(150px,1.6fr)',
@@ -593,19 +626,34 @@ export function CxProjectsList() {
           </div>
         )}
 
-        {!loading && !error && cat === 'presale' && (
+        {!loading && !error && cat === 'presale' && (() => {
+          // Dynamic column widths: empty columns collapse to 200px so
+          // they don't hog 1/5 of the row, content columns share the
+          // remainder. This gives the funnel its "wide-to-narrow"
+          // shape automatically once the late stages are empty.
+          const stageLists = PIPELINE_STAGES.map((s) => ({
+            stage: s,
+            list: presaleByStage[s.key] ?? [],
+          }))
+          const stageAmounts = stageLists.map((g) => stageAmount(g.list))
+          const maxStageAmount = Math.max(0, ...stageAmounts)
+          const gridTemplateColumns = stageLists
+            .map((g) => (g.list.length === 0 ? '200px' : 'minmax(0, 1fr)'))
+            .join(' ')
+          return (
           <div
             style={{
               flex: 1,
               minHeight: 0,
               display: 'grid',
-              gridTemplateColumns: 'repeat(5, 1fr)',
+              gridTemplateColumns,
               columnGap: 12,
               padding: '10px 0 22px',
             }}
           >
-            {PIPELINE_STAGES.map((s) => {
-              const list = presaleByStage[s.key] ?? []
+            {stageLists.map(({ stage: s, list }, idx) => {
+              const amt = stageAmounts[idx]
+              const ratio = maxStageAmount > 0 ? Math.round((amt / maxStageAmount) * 100) : 0
               return (
                 <div
                   key={s.key}
@@ -680,11 +728,40 @@ export function CxProjectsList() {
                       </span>
                       <span
                         className="num"
-                        style={{ fontSize: 10.5, color: 'var(--ink-mute)', flexShrink: 0 }}
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--ink-soft)',
+                          flexShrink: 0,
+                          fontFamily: 'var(--font-mono)',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
                       >
                         {sumWan(list)}
                       </span>
                     </div>
+                    {ratio > 0 && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          marginLeft: 15,
+                          height: 2,
+                          background: 'var(--bg-tint)',
+                          borderRadius: 99,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'block',
+                            height: '100%',
+                            width: `${ratio}%`,
+                            background: 'var(--accent)',
+                            borderRadius: 99,
+                            transition: 'width 200ms ease',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                   <div
                     style={{
@@ -703,13 +780,22 @@ export function CxProjectsList() {
                     ) : (
                       <div
                         style={{
-                          fontSize: 11.5,
-                          color: 'var(--ink-faint)',
-                          textAlign: 'center',
-                          padding: '18px 0',
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '20px 8px',
                         }}
                       >
-                        —
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--ink-faint)',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          暂无项目
+                        </span>
                       </div>
                     )}
                   </div>
@@ -717,7 +803,8 @@ export function CxProjectsList() {
               )
             })}
           </div>
-        )}
+          )
+        })()}
 
         {!loading && !error && cat === 'delivery' && (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '12px 0 26px' }}>
@@ -1014,23 +1101,29 @@ export function CxProjectsList() {
 }
 
 function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
+  const [hover, setHover] = useState(false)
+  const nextStep = readNextStep(p.context_memory_json)
   return (
     <button
       type="button"
       onClick={onClick}
-      className="row-hov"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         display: 'block',
         background: 'var(--bg)',
-        border: '1px solid var(--line)',
+        border: `1px solid ${hover ? 'var(--line-strong)' : 'var(--line)'}`,
         borderRadius: 'var(--r-md)',
         padding: '13px 14px',
         cursor: 'pointer',
         textDecoration: 'none',
         textAlign: 'left',
         width: '100%',
+        transform: hover ? 'translateY(-1px)' : 'none',
+        transition: 'transform 120ms ease, border-color 120ms ease',
       }}
     >
+      {/* Row 1: title + stale dot */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <span
           className="ui"
@@ -1043,12 +1136,15 @@ function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical' as CSSProperties['WebkitBoxOrient'],
+            flex: 1,
+            minWidth: 0,
           }}
         >
           {p.name}
         </span>
         {p.memory_stale && (
           <span
+            title="记忆待刷新"
             style={{
               width: 6,
               height: 6,
@@ -1061,6 +1157,8 @@ function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
           />
         )}
       </div>
+
+      {/* Row 2: avatar + client · updated */}
       <div
         style={{
           display: 'flex',
@@ -1077,20 +1175,21 @@ function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
             height: 18,
             borderRadius: 99,
             background: 'var(--bg-tint)',
-            border: '1px solid var(--line)',
-            color: 'var(--ink-mute)',
+            color: 'var(--ink-soft)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 9.5,
+            fontSize: 10,
             fontWeight: 600,
             flexShrink: 0,
           }}
         >
-          {firstGlyph(p.client)}
+          {firstGlyph(p.client || p.name)}
         </span>
         <span
           style={{
+            flex: 1,
+            minWidth: 0,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -1099,26 +1198,44 @@ function PipelineCard({ p, onClick }: { p: Project; onClick: () => void }) {
           {p.client || '—'} · {formatUpdatedRelative(p.updated_at)}
         </span>
       </div>
+
+      {/* Row 3 (footer): amount left, next-step right */}
       <div
         style={{
           display: 'flex',
           alignItems: 'baseline',
           justifyContent: 'space-between',
           gap: 10,
-          marginTop: 12,
-          paddingTop: 11,
+          marginTop: 10,
+          paddingTop: 9,
           borderTop: '1px solid var(--line-soft)',
         }}
       >
         <span
-          className="num"
           style={{
-            fontSize: 13.5,
+            fontSize: 15,
             fontWeight: 500,
             color: p.contract_amount ? 'var(--ink)' : 'var(--ink-faint)',
+            fontFamily: 'var(--font-mono)',
+            fontVariantNumeric: 'tabular-nums',
+            flexShrink: 0,
           }}
         >
           {formatAmountWan(p.contract_amount)}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--ink-mute)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            textAlign: 'right',
+            minWidth: 0,
+          }}
+          title={nextStep ?? undefined}
+        >
+          {nextStep ?? '—'}
         </span>
       </div>
     </button>
