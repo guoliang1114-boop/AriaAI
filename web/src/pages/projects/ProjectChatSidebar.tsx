@@ -656,7 +656,8 @@ export function ProjectChatSidebar({
           </div>
         ) : (
           /* Project Space */
-          <div className="h-full overflow-y-auto px-3 py-3">
+          <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             <div className="mb-2.5 flex w-full items-center justify-between rounded-lg px-1 text-left text-[12px] font-semibold leading-4 text-codex-ink-mute">
               <span>{isZh ? "项目空间" : "Project Space"}</span>
               <div className="flex items-center gap-1">
@@ -1012,8 +1013,56 @@ export function ProjectChatSidebar({
               ) : null}
             </div>
           </div>
+
+          {/* Storage usage footer — matches the design's bottom strip.
+           * No quota endpoint yet, so we show used size + file count
+           * rather than the "23 MB / 1 GB" bar. The bar visual flips on
+           * once the backend reports a quota. */}
+          <div
+            className="flex items-center justify-between"
+            style={{
+              padding: "8px 12px",
+              fontSize: 11,
+              color: "var(--color-codex-ink-mute)",
+              borderTop: "1px solid var(--color-codex-line-soft)",
+              background: "var(--color-codex-bg-elev)",
+            }}
+          >
+            <span
+              className="inline-flex items-center"
+              style={{ gap: 6 }}
+            >
+              <FolderKanban
+                className="h-3 w-3"
+                style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}
+              />
+              <span
+                style={{
+                  fontFamily:
+                    'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                  color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+                }}
+              >
+                {formatStorageSize(
+                  files.reduce((sum, file) => sum + (file.size || 0), 0),
+                )}
+              </span>
+              <span style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>
+                · {files.length} {isZh ? "份" : "files"}
+              </span>
+            </span>
+          </div>
+          </div>
         )}
       </div>
     </div>
   );
+}
+
+function formatStorageSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
