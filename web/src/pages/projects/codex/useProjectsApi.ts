@@ -4,6 +4,7 @@ import type {
   ClientStakeholder,
   Project,
   ProjectDetail as ProjectDetailType,
+  ProjectMeetingBriefing,
 } from '../../../types/api'
 
 /** Thin wrapper around the projects endpoints — used by the codex
@@ -166,6 +167,87 @@ interface ClientListItem {
 }
 
 const normalizeClientName = (v: string) => v.trim().toLowerCase()
+
+/** Project meeting briefing — single fetch on mount + a manual
+ * refresh trigger so the briefing tab can re-pull after the user
+ * clicks "重新生成". */
+interface BriefingState {
+  data: ProjectMeetingBriefing | null
+  loading: boolean
+  error: string | null
+  refetch: () => Promise<void>
+}
+
+export function useProjectBriefing(projectId: number | null): BriefingState {
+  const [data, setData] = useState<ProjectMeetingBriefing | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchOnce = useCallback(async () => {
+    if (projectId == null || Number.isNaN(projectId)) {
+      setData(null)
+      setLoading(false)
+      setError('项目 id 无效')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const fresh = await api.get<ProjectMeetingBriefing>(`/projects/${projectId}/briefing`)
+      setData(fresh)
+    } catch (err) {
+      setError(readError(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void fetchOnce()
+  }, [fetchOnce])
+
+  const refetch = useCallback(async () => {
+    await fetchOnce()
+  }, [fetchOnce])
+
+  return { data, loading, error, refetch }
+}
+
+/** Lightweight clients list — used by the project list filter
+ * dropdown and elsewhere. Cached per-mount, not globally. */
+interface ClientsListItem {
+  id: number
+  name: string
+}
+
+interface ClientsListState {
+  data: ClientsListItem[]
+  loading: boolean
+}
+
+export function useClientsList(): ClientsListState {
+  const [data, setData] = useState<ClientsListItem[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api
+      .get<ClientsListItem[]>('/clients')
+      .then((rows) => {
+        if (!cancelled) setData(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setData([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return { data, loading }
+}
 
 /** Resolve client-side stakeholders for a project: match `project.client`
  * (free-text name) against `/clients` to find the linked client_id,

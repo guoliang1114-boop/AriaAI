@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Project } from '../../../types/api'
 import { CxSkeleton } from '../../../components/codex'
@@ -9,6 +9,7 @@ import {
   firstGlyph,
   formatAmountWan,
   formatUpdatedRelative,
+  useClientsList,
   useProjectsList,
 } from './useProjectsApi'
 
@@ -46,9 +47,45 @@ const DELIVERY_GRID: CSSProperties = {
  */
 export function CxProjectsList() {
   const [cat, setCat] = useState<CategoryKey>('presale')
+  const [search, setSearch] = useState('')
+  const [clientFilter, setClientFilter] = useState<string | null>(null)
+  const [clientMenuOpen, setClientMenuOpen] = useState(false)
+  const [clientSearch, setClientSearch] = useState('')
+  const clientMenuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { data, loading, error } = useProjectsList()
-  const projects = data ?? []
+  const { data: clients } = useClientsList()
+  const rawProjects = data ?? []
+
+  // Click-outside handler for the client filter dropdown.
+  useEffect(() => {
+    if (!clientMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (!clientMenuRef.current?.contains(e.target as Node)) {
+        setClientMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [clientMenuOpen])
+
+  const projects = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return rawProjects.filter((p) => {
+      if (clientFilter && p.client !== clientFilter) return false
+      if (!term) return true
+      return (
+        p.name.toLowerCase().includes(term) ||
+        (p.client || '').toLowerCase().includes(term)
+      )
+    })
+  }, [rawProjects, search, clientFilter])
+
+  // Filtered client options ranked alphabetically + search-filtered.
+  const filteredClients = useMemo(() => {
+    const term = clientSearch.trim().toLowerCase()
+    return clients.filter((c) => !term || c.name.toLowerCase().includes(term))
+  }, [clients, clientSearch])
 
   const presale = useMemo(
     () => projects.filter((p) => p.status === 'lead' || p.status === 'opportunity' || p.status === 'won'),
@@ -163,22 +200,146 @@ export function CxProjectsList() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 11px',
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--r-sm)',
-                fontSize: 12.5,
-                color: 'var(--ink-soft)',
-              }}
-            >
-              <CxIcon name="building" size={13} style={{ color: 'var(--ink-mute)' }} /> 全部客户{' '}
-              <CxIcon name="chevron-down" size={10} style={{ color: 'var(--ink-faint)' }} />
-            </button>
+            <div ref={clientMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setClientMenuOpen((v) => !v)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 11px',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-sm)',
+                  fontSize: 12.5,
+                  color: clientFilter ? 'var(--ink)' : 'var(--ink-soft)',
+                  background: clientFilter ? 'var(--bg-tint)' : 'transparent',
+                }}
+              >
+                <CxIcon name="building" size={13} style={{ color: 'var(--ink-mute)' }} />
+                <span
+                  style={{
+                    maxWidth: 140,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {clientFilter ?? '全部客户'}
+                </span>
+                <CxIcon name="chevron-down" size={10} style={{ color: 'var(--ink-faint)' }} />
+              </button>
+              {clientMenuOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    minWidth: 240,
+                    maxWidth: 320,
+                    background: 'var(--bg-elev)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-sm)',
+                    boxShadow: '0 8px 24px -8px color-mix(in oklch, var(--ink) 18%, transparent)',
+                    zIndex: 30,
+                    padding: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 8px',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-sm)',
+                    }}
+                  >
+                    <CxIcon name="search" size={11} style={{ color: 'var(--ink-faint)' }} />
+                    <input
+                      autoFocus
+                      type="text"
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                      placeholder="搜索客户"
+                      className="codex-input"
+                      style={{
+                        flex: 1,
+                        fontSize: 12.5,
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        color: 'var(--ink)',
+                      }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClientFilter(null)
+                      setClientMenuOpen(false)
+                    }}
+                    className="row-hov"
+                    style={{
+                      textAlign: 'left',
+                      padding: '6px 8px',
+                      fontSize: 12.5,
+                      color: clientFilter == null ? 'var(--accent)' : 'var(--ink-soft)',
+                      borderRadius: 'var(--r-sm)',
+                      fontWeight: clientFilter == null ? 500 : 400,
+                    }}
+                  >
+                    全部客户
+                  </button>
+                  <div
+                    style={{
+                      maxHeight: 240,
+                      overflow: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    {filteredClients.length === 0 ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--ink-faint)',
+                          padding: '8px 8px',
+                        }}
+                      >
+                        没有匹配的客户
+                      </div>
+                    ) : (
+                      filteredClients.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setClientFilter(c.name)
+                            setClientMenuOpen(false)
+                          }}
+                          className="row-hov"
+                          style={{
+                            textAlign: 'left',
+                            padding: '6px 8px',
+                            fontSize: 12.5,
+                            color:
+                              clientFilter === c.name ? 'var(--accent)' : 'var(--ink-soft)',
+                            borderRadius: 'var(--r-sm)',
+                            fontWeight: clientFilter === c.name ? 500 : 400,
+                          }}
+                        >
+                          {c.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div
               style={{
                 display: 'flex',
@@ -188,12 +349,41 @@ export function CxProjectsList() {
                 fontSize: 12.5,
                 border: '1px solid var(--line)',
                 borderRadius: 'var(--r-sm)',
-                color: 'var(--ink-faint)',
-                width: 160,
+                color: 'var(--ink-mute)',
+                width: 200,
               }}
             >
               <CxIcon name="search" size={12} />
-              <span>搜索项目</span>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索项目"
+                className="codex-input"
+                style={{
+                  flex: 1,
+                  fontSize: 12.5,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'var(--ink)',
+                }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  title="清除"
+                  style={{
+                    color: 'var(--ink-faint)',
+                    fontSize: 12,
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              )}
             </div>
             <button
               type="button"

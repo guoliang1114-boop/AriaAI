@@ -1,16 +1,66 @@
+import { useState, type CSSProperties } from 'react'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import { api } from '../../../../api/client'
+import { useToast } from '../../../../contexts/ToastContext'
+import { CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
-import { CxPanel } from '../CxPrimitives'
-import { formatUpdatedRelative } from '../useProjectsApi'
+import { CxPanel, CxStatus } from '../CxPrimitives'
+import { firstGlyph, formatUpdatedRelative, useProjectBriefing } from '../useProjectsApi'
 
 interface BriefingProps {
   projectId: number
   detail: ProjectDetailType
 }
 
+const CARD_KEYS = [
+  { key: 'say' as const, title: '建议说什么', en: 'Say', tone: 'good' as const },
+  { key: 'avoid' as const, title: '尽量避开', en: 'Avoid', tone: 'warn' as const },
+  { key: 'confirm' as const, title: '需要确认', en: 'Confirm', tone: 'neutral' as const },
+  { key: 'experience' as const, title: '历史经验', en: 'Lessons', tone: 'info' as const },
+]
+
+const TONE_COLOR = {
+  good: 'var(--good)',
+  warn: 'var(--warn)',
+  neutral: 'var(--ink-soft)',
+  info: 'var(--info)',
+} as const
+
+const TWO_COL: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 320px',
+  gap: 20,
+  minWidth: 0,
+}
+
 export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const { project } = detail
+  const { data: briefing, loading, error, refetch } = useProjectBriefing(projectId)
+  const toast = useToast()
+  const [refining, setRefining] = useState(false)
+  const [script, setScript] = useState<string | null>(null)
+
+  const generateScript = async () => {
+    if (refining) return
+    setRefining(true)
+    try {
+      const res = await api.post<{ content: string }>(
+        `/projects/${projectId}/briefing/refine`,
+        { meeting_type: 'progress' },
+      )
+      setScript(res.content)
+      toast.success({ title: '话术已生成' })
+    } catch (err) {
+      toast.error({
+        title: '生成失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setRefining(false)
+    }
+  }
+
   return (
     <CxProjectShell activeTab="briefing" projectId={projectId} project={project}>
       <div
@@ -18,120 +68,458 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
           height: '100%',
           overflow: 'auto',
           padding: '24px 40px 32px',
-          display: 'grid',
-          gridTemplateColumns: '1fr 320px',
-          gap: 20,
-          minWidth: 0,
+          ...TWO_COL,
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
-          <div
-            style={{
-              background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-elev) 100%)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-md)',
-              padding: '20px 24px',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: 16,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginBottom: 6 }}>
-                  会前简报 · 自动生成 30 秒会前卡
-                </div>
-                <h2
-                  className="ui"
-                  style={{
-                    margin: 0,
-                    fontSize: 22,
-                    fontWeight: 500,
-                    color: 'var(--ink)',
-                    letterSpacing: '-0.02em',
-                  }}
-                >
-                  尚未生成本次简报
-                </h2>
-                <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--ink-soft)' }}>
-                  基于项目记忆 + 客户记忆 + 最近会议纪要,自动产出四张卡片(说什么、避开什么、确认什么、历史经验)与开场话术。
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  style={{
-                    padding: '7px 12px',
-                    fontSize: 12.5,
-                    background: 'var(--ink)',
-                    color: 'var(--bg-elev)',
-                    borderRadius: 'var(--r-sm)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <CxIcon name="sparkle" size={12} /> 生成简报
-                </button>
-              </div>
-            </div>
-          </div>
+        {loading && <BriefingSkeleton />}
 
-          <CxPanel title="为什么这里没有内容?" subtitle="生成条件">
-            <ul
+        {!loading && error && (
+          <CxPanel title="加载失败">
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--bad)' }}>{error}</p>
+            <button
+              type="button"
+              onClick={refetch}
               style={{
-                margin: 0,
-                paddingLeft: 18,
-                fontSize: 13,
-                color: 'var(--ink-soft)',
-                lineHeight: 1.85,
-              }}
-            >
-              <li>
-                项目记忆需有至少 1 个槽位 — 当前
-                {project.memory_version != null
-                  ? ` 版本 v${project.memory_version}(${
-                      project.memory_stale ? '需刷新' : '已同步'
-                    })`
-                  : ' 尚未建立'}
-              </li>
-              <li>需关联客户记忆,以引入决策链 / 偏好</li>
-              <li>建议先在「项目对话」中讨论几轮,系统会自动抽取要点</li>
-            </ul>
-          </CxPanel>
-        </div>
-
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <CxPanel title="资料依据" subtitle="生成时将引用">
-            <div
-              style={{
+                marginTop: 12,
+                padding: '6px 12px',
                 fontSize: 12.5,
                 color: 'var(--ink-soft)',
-                lineHeight: 1.85,
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-sm)',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>项目记忆</span>
-                <span className="num">
-                  {project.memory_version != null ? `v${project.memory_version}` : '—'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>记忆刷新</span>
-                <span className="num">{formatUpdatedRelative(project.memory_updated_at)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--ink-mute)' }}>项目文档</span>
-                <span className="num">{detail.files.filter((f) => !f.deleted_at).length} 份</span>
-              </div>
-            </div>
+              重试
+            </button>
           </CxPanel>
-        </aside>
+        )}
+
+        {!loading && !error && briefing && (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-elev) 100%)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-md)',
+                  padding: '20px 24px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginBottom: 6 }}>
+                      30 秒会前卡 · 自动生成于 {formatUpdatedRelative(briefing.generated_at)}
+                    </div>
+                    <h2
+                      className="ui"
+                      style={{
+                        margin: 0,
+                        fontSize: 22,
+                        fontWeight: 500,
+                        color: 'var(--ink)',
+                        letterSpacing: '-0.02em',
+                      }}
+                    >
+                      {briefing.memory.current_objective ||
+                        briefing.memory.project_brief ||
+                        '准备下次会议'}
+                    </h2>
+                    <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--ink-soft)' }}>
+                      打开就看四件事 — 说什么、避开什么、确认什么、过去的教训
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={refetch}
+                      style={{
+                        padding: '7px 12px',
+                        fontSize: 12.5,
+                        color: 'var(--ink-soft)',
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--r-sm)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <CxIcon name="sparkle" size={12} /> 重新生成
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {CARD_KEYS.map((c) => {
+                  const items = briefing.meeting_card[c.key] ?? []
+                  const color = TONE_COLOR[c.tone]
+                  return (
+                    <section
+                      key={c.key}
+                      style={{
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--r-md)',
+                        padding: '16px 18px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <span style={{ width: 7, height: 7, borderRadius: 99, background: color }} />
+                        <h3
+                          className="ui"
+                          style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}
+                        >
+                          {c.title}
+                        </h3>
+                        <span style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 4 }}>
+                          {c.en}
+                        </span>
+                      </div>
+                      {items.length === 0 ? (
+                        <div
+                          style={{
+                            fontSize: 12.5,
+                            color: 'var(--ink-faint)',
+                            padding: '6px 0',
+                          }}
+                        >
+                          暂无内容,补充项目记忆后将自动生成。
+                        </div>
+                      ) : (
+                        <ul
+                          style={{
+                            margin: 0,
+                            padding: 0,
+                            listStyle: 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                          }}
+                        >
+                          {items.map((item, i) => (
+                            <li
+                              key={i}
+                              style={{
+                                display: 'flex',
+                                gap: 10,
+                                fontSize: 13,
+                                color: 'var(--ink)',
+                                lineHeight: 1.6,
+                              }}
+                            >
+                              <span
+                                className="num"
+                                style={{
+                                  fontSize: 11,
+                                  color: color,
+                                  paddingTop: 2,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {String(i + 1).padStart(2, '0')}
+                              </span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  )
+                })}
+              </div>
+
+              <CxPanel
+                title="开场话术(AI 生成)"
+                subtitle="基于上面四张卡片 + 项目记忆"
+                action={
+                  <button
+                    type="button"
+                    onClick={generateScript}
+                    disabled={refining}
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--accent)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      cursor: refining ? 'wait' : 'pointer',
+                      opacity: refining ? 0.6 : 1,
+                    }}
+                  >
+                    <CxIcon name="sparkle" size={11} />{' '}
+                    {refining ? '生成中…' : script ? '重新生成' : '生成话术'}
+                  </button>
+                }
+              >
+                {!script ? (
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: 'var(--ink-faint)',
+                      padding: '14px 16px',
+                      background: 'var(--bg-tint)',
+                      borderRadius: 'var(--r-sm)',
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    点击右上「生成话术」,AI 会综合四张卡片 + 客户记忆 + 干系人偏好,产出一段可直接用于会议开场的脚本。
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      fontSize: 13.5,
+                      color: 'var(--ink)',
+                      lineHeight: 1.8,
+                      background: 'var(--bg-tint)',
+                      padding: '14px 16px',
+                      borderRadius: 'var(--r-sm)',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {script}
+                  </div>
+                )}
+              </CxPanel>
+            </div>
+
+            <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <CxPanel
+                title="关键干系人"
+                subtitle={`${briefing.stakeholders.length} 人`}
+              >
+                {briefing.stakeholders.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                    暂未录入。
+                  </div>
+                ) : (
+                  briefing.stakeholders.slice(0, 5).map((p, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        padding: '9px 0',
+                        borderBottom:
+                          i === briefing.stakeholders.length - 1
+                            ? 'none'
+                            : '1px solid var(--line-soft)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 99,
+                          background: 'var(--accent-bg)',
+                          color: 'var(--accent-ink)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {firstGlyph(p.name)}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            className="ui"
+                            style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}
+                          >
+                            {p.name || '—'}
+                          </span>
+                          {p.role && (
+                            <span style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
+                              · {p.role}
+                            </span>
+                          )}
+                        </div>
+                        {(p.concerns || p.communication_preference) && (
+                          <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 2 }}>
+                            {p.concerns || p.communication_preference}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CxPanel>
+
+              <CxPanel
+                title="近期节奏"
+                subtitle={`${briefing.signals.upcoming_milestones.length} 个里程碑`}
+              >
+                {briefing.signals.upcoming_milestones.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 0' }}>
+                    暂无即将到来的里程碑。
+                  </div>
+                ) : (
+                  briefing.signals.upcoming_milestones.slice(0, 5).map((m, i, arr) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: 'flex',
+                        gap: 10,
+                        padding: '8px 0',
+                        borderBottom: i === arr.length - 1 ? 'none' : '1px solid var(--line-soft)',
+                      }}
+                    >
+                      <span
+                        className="num"
+                        style={{
+                          fontSize: 11.5,
+                          color: i === 0 ? 'var(--accent)' : 'var(--ink-mute)',
+                          paddingTop: 1,
+                          minWidth: 60,
+                        }}
+                      >
+                        {m.due_date ?? '—'}
+                      </span>
+                      <div style={{ flex: 1 }}>
+                        <div
+                          className="ui"
+                          style={{
+                            fontSize: 13,
+                            color: 'var(--ink)',
+                            fontWeight: i === 0 ? 500 : 400,
+                          }}
+                        >
+                          {m.title}
+                        </div>
+                      </div>
+                      {i === 0 && (
+                        <CxStatus tone="accent" pulse>
+                          下次
+                        </CxStatus>
+                      )}
+                    </div>
+                  ))
+                )}
+              </CxPanel>
+
+              <CxPanel
+                title="资料依据"
+                subtitle={`${briefing.signals.recent_documents.length} 份近期文档`}
+              >
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    color: 'var(--ink-soft)',
+                    lineHeight: 1.85,
+                  }}
+                >
+                  <SourceRow label="项目记忆" value={`v${briefing.project.memory_version}`} />
+                  <SourceRow
+                    label="记忆刷新"
+                    value={formatUpdatedRelative(briefing.project.memory_updated_at)}
+                  />
+                  <SourceRow label="客户记忆" value={`v${briefing.client.memory_version}`} />
+                  <SourceRow
+                    label="文档"
+                    value={`${briefing.signals.recent_documents.length} 份`}
+                  />
+                  <SourceRow
+                    label="待办"
+                    value={`${briefing.signals.pending_todos.length} 项待跟进`}
+                  />
+                </div>
+              </CxPanel>
+            </aside>
+          </>
+        )}
       </div>
     </CxProjectShell>
+  )
+}
+
+function SourceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <span style={{ color: 'var(--ink-mute)' }}>{label}</span>
+      <span className="num">{value}</span>
+    </div>
+  )
+}
+
+function BriefingSkeleton() {
+  return (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div
+          style={{
+            background: 'linear-gradient(135deg, var(--accent-bg) 0%, var(--bg-elev) 100%)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-md)',
+            padding: '20px 24px',
+          }}
+        >
+          <CxSkeleton w={140} h={10} />
+          <div style={{ height: 8 }} />
+          <CxSkeleton w={300} h={20} />
+          <div style={{ height: 6 }} />
+          <CxSkeleton w={240} h={10} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-md)',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <CxSkeleton w={80} h={11} />
+              <CxSkeleton w="90%" h={10} />
+              <CxSkeleton w="75%" h={10} />
+              <CxSkeleton w="85%" h={10} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-md)',
+              padding: '18px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <CxSkeleton w={100} h={11} />
+            <CxSkeleton w={60} h={9} />
+            <div style={{ height: 6 }} />
+            <CxSkeleton w="90%" h={10} />
+            <CxSkeleton w="75%" h={10} />
+          </div>
+        ))}
+      </aside>
+    </>
   )
 }
