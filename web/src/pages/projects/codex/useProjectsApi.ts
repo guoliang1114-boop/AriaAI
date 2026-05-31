@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import type {
   ClientStakeholder,
+  Conversation,
+  Message,
   Project,
   ProjectDetail as ProjectDetailType,
   ProjectMeetingBriefing,
@@ -167,6 +169,92 @@ interface ClientListItem {
 }
 
 const normalizeClientName = (v: string) => v.trim().toLowerCase()
+
+/** Conversations for a project — used by the project Chat tab. The
+ * list is fetched once on mount; refetch() lets the new-conversation
+ * CTA refresh after creating one. */
+interface ConversationsState {
+  data: Conversation[]
+  loading: boolean
+  error: string | null
+  refetch: () => Promise<void>
+}
+
+export function useProjectConversations(projectId: number | null): ConversationsState {
+  const [data, setData] = useState<Conversation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchOnce = useCallback(async () => {
+    if (projectId == null || Number.isNaN(projectId)) {
+      setData([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const rows = await api.get<Conversation[]>(
+        `/chat/conversations?project_id=${projectId}`,
+      )
+      setData(rows)
+    } catch (err) {
+      setError(readError(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void fetchOnce()
+  }, [fetchOnce])
+
+  const refetch = useCallback(async () => {
+    await fetchOnce()
+  }, [fetchOnce])
+
+  return { data, loading, error, refetch }
+}
+
+interface MessagesState {
+  data: Message[]
+  loading: boolean
+  error: string | null
+}
+
+export function useConversationMessages(conversationId: number | null): MessagesState {
+  const [data, setData] = useState<Message[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (conversationId == null) {
+      setData([])
+      setLoading(false)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    api
+      .get<Message[]>(`/chat/conversations/${conversationId}/messages`)
+      .then((rows) => {
+        if (!cancelled) setData(rows)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(readError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [conversationId])
+
+  return { data, loading, error }
+}
 
 /** Project meeting briefing — single fetch on mount + a manual
  * refresh trigger so the briefing tab can re-pull after the user
