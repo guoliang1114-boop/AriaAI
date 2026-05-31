@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest a product, AI workflow, Skill, memory, or knowledge-base improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What professional-work problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: Describe the desired behavior or workflow.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Workspace
+        - Project memory
+        - Client memory
+        - Knowledge base
+        - Skill workflow
+        - Chat / Run harness
+        - Human approval
+        - Documentation
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Links, examples, screenshots, or related projects.
+    validations:
+      required: false
