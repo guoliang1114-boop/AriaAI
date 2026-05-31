@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
+import { CxPagination } from '../../components/codex'
 import { useToast } from '../../contexts/ToastContext'
 import type {
   Project,
@@ -21,6 +22,7 @@ import type {
   ProjectMemoryBatchWarmSummariesResponse,
   ProjectMemoryJob,
   ProjectMemoryJobsResponse,
+  ProjectMemoryListResponse,
   ProjectMemoryResponse,
 } from '../../types/api'
 import { dispatchProjectMemoryStateUpdated } from '../projects/useProjectDetailData'
@@ -84,6 +86,15 @@ export function ProjectMemorySettings() {
   const [loadingJobs, setLoadingJobs] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<MemoryFilter>('all')
+  const [projectPage, setProjectPage] = useState(1)
+  const [projectPageSize, setProjectPageSize] = useState(10)
+  const [projectTotal, setProjectTotal] = useState(0)
+  const [counts, setCounts] = useState<Record<MemoryFilter, number>>({
+    all: 0,
+    ready: 0,
+    stale: 0,
+    missing: 0,
+  })
   const [isRefreshingStale, setIsRefreshingStale] = useState(false)
   const [isGeneratingMissing, setIsGeneratingMissing] = useState(false)
   const [isWarmingSummaries, setIsWarmingSummaries] = useState(false)
@@ -93,8 +104,22 @@ export function ProjectMemorySettings() {
   const fetchProjects = async () => {
     try {
       setLoading(true)
-      const data = await api.get<Project[]>('/projects')
-      setProjects(data)
+      const data = await api.get<ProjectMemoryListResponse>('/projects/memory/list', {
+        params: {
+          search: searchQuery.trim() || undefined,
+          status: filter,
+          limit: projectPageSize,
+          offset: (projectPage - 1) * projectPageSize,
+        },
+      })
+      setProjects(data.items || [])
+      setProjectTotal(data.total || 0)
+      setCounts({
+        all: data.counts?.all ?? 0,
+        ready: data.counts?.ready ?? 0,
+        stale: data.counts?.stale ?? 0,
+        missing: data.counts?.missing ?? 0,
+      })
     } catch (error) {
       console.error('Failed to load projects for memory settings:', error)
       toast.error(isZh ? '加载项目记忆列表失败' : 'Failed to load project memories')
@@ -119,7 +144,11 @@ export function ProjectMemorySettings() {
   }
 
   useEffect(() => {
-    void Promise.all([fetchProjects(), fetchJobs()])
+    void fetchProjects()
+  }, [filter, projectPage, projectPageSize, searchQuery])
+
+  useEffect(() => {
+    void fetchJobs()
   }, [])
 
   useEffect(() => {
@@ -129,15 +158,12 @@ export function ProjectMemorySettings() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const counts = useMemo(
-    () => ({
-      all: projects.length,
-      ready: projects.filter((project) => getMemoryStatus(project) === 'ready').length,
-      stale: projects.filter((project) => getMemoryStatus(project) === 'stale').length,
-      missing: projects.filter((project) => getMemoryStatus(project) === 'missing').length,
-    }),
-    [projects],
-  )
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(projectTotal / projectPageSize))
+    if (projectPage > totalPages) {
+      setProjectPage(totalPages)
+    }
+  }, [projectPage, projectPageSize, projectTotal])
 
   const readyProjectIds = useMemo(
     () =>
@@ -146,19 +172,6 @@ export function ProjectMemorySettings() {
         .map((project) => project.id),
     [projects],
   )
-
-  const filteredProjects = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    return projects.filter((project) => {
-      const matchesFilter = filter === 'all' || getMemoryStatus(project) === filter
-      const matchesQuery =
-        !query ||
-        project.name.toLowerCase().includes(query) ||
-        project.client.toLowerCase().includes(query) ||
-        (project.context_summary && project.context_summary.toLowerCase().includes(query))
-      return matchesFilter && matchesQuery
-    })
-  }, [filter, projects, searchQuery])
 
   const applyProjectMemoryUpdate = (
     projectId: number,
@@ -272,10 +285,7 @@ export function ProjectMemorySettings() {
       silent?: boolean
     },
   ) => {
-    const targetProjects = projects.filter((project) =>
-      mode === 'stale' ? getMemoryStatus(project) === 'stale' : getMemoryStatus(project) === 'missing',
-    )
-    if (targetProjects.length === 0) return
+    if (counts[mode] === 0) return
 
     if (mode === 'stale') setIsRefreshingStale(true)
     else setIsGeneratingMissing(true)
@@ -284,8 +294,8 @@ export function ProjectMemorySettings() {
       const result = await api.post<ProjectMemoryBatchRebuildResponse>(
         '/projects/memory/rebuild-batch',
         {
-          project_ids: targetProjects.map((project) => project.id),
           stale_only: mode === 'stale',
+          missing_only: mode === 'missing',
         },
         { timeout: 120000 },
       )
@@ -333,7 +343,7 @@ export function ProjectMemorySettings() {
     } finally {
       if (mode === 'stale') setIsRefreshingStale(false)
       else setIsGeneratingMissing(false)
-      void fetchJobs(true)
+      void Promise.all([fetchProjects(), fetchJobs(true)])
     }
   }
 
@@ -784,7 +794,10 @@ export function ProjectMemorySettings() {
             <button
               key={option.key}
               type="button"
-              onClick={() => setFilter(option.key)}
+              onClick={() => {
+                setFilter(option.key)
+                setProjectPage(1)
+              }}
               className="px-4 py-3 text-left transition-colors"
               style={{
                 background: isActive
@@ -832,7 +845,10 @@ export function ProjectMemorySettings() {
         <input
           type="text"
           value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) => {
+            setSearchQuery(event.target.value)
+            setProjectPage(1)
+          }}
           placeholder={isZh ? '搜索项目名称、客户或摘要...' : 'Search by project, client, or summary...'}
           className="w-full outline-none"
           style={{
@@ -848,7 +864,22 @@ export function ProjectMemorySettings() {
 
       {/* Project list */}
       <div className="space-y-2">
-        {filteredProjects.map((project) => {
+        {projects.length === 0 ? (
+          <div
+            style={{
+              padding: '18px 16px',
+              background: 'var(--color-codex-bg-elev)',
+              border: '1px dashed var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+              color: 'var(--color-codex-ink-mute)',
+              fontSize: 13,
+            }}
+          >
+            {isZh ? '没有符合条件的项目记忆。' : 'No project memories match these filters.'}
+          </div>
+        ) : null}
+
+        {projects.map((project) => {
           const status = getMemoryStatus(project)
           const statusText =
             status === 'ready'
@@ -993,6 +1024,21 @@ export function ProjectMemorySettings() {
           )
         })}
       </div>
+
+      <CxPagination
+        page={projectPage}
+        pageSize={projectPageSize}
+        totalItems={projectTotal}
+        onPageChange={setProjectPage}
+        onPageSizeChange={(nextPageSize) => {
+          setProjectPageSize(nextPageSize)
+          setProjectPage(1)
+        }}
+        pageSizeOptions={[10, 20, 50]}
+        variant="full"
+        isZh={isZh}
+        style={{ marginTop: 16 }}
+      />
     </div>
   )
 }

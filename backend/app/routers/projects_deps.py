@@ -328,6 +328,7 @@ class ProjectMemorySlotUpdateRequest(BaseModel):
 class ProjectMemoryBatchRebuildRequest(BaseModel):
     project_ids: list[int] = []
     stale_only: bool = False
+    missing_only: bool = False
 
 
 class ProjectMemoryBatchWarmSummariesRequest(BaseModel):

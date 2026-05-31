@@ -91,6 +91,19 @@ export interface ProjectMemoryResponse {
   memory_rebuild_failed_at?: string | null
 }
 
+export interface ProjectMemoryListResponse {
+  items: Project[]
+  total: number
+  limit: number
+  offset: number
+  counts: {
+    all: number
+    ready: number
+    stale: number
+    missing: number
+  }
+}
+
 export interface ProjectMemoryBatchRebuildItem {
   project_id: number
   memory: ProjectMemory

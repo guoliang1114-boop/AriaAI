@@ -8,6 +8,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.config import (
@@ -76,7 +77,77 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["projects"])
 
 
+def _project_memory_search_conditions(search: str | None):
+    query = " ".join(str(search or "").strip().lower().split())
+    if not query:
+        return []
+    pattern = f"%{query}%"
+    return [
+        or_(
+            func.lower(Project.name).like(pattern),
+            func.lower(Project.client).like(pattern),
+            func.lower(Project.context_summary).like(pattern),
+        )
+    ]
+
+
+def _project_memory_status_conditions(status: str | None):
+    normalized = (status or "all").strip().lower()
+    if normalized == "ready":
+        return [Project.memory_version > 0, Project.memory_stale == False]
+    if normalized == "stale":
+        return [Project.memory_version > 0, Project.memory_stale == True]
+    if normalized == "missing":
+        return [Project.memory_version <= 0]
+    return []
+
+
+def _count_projects(session: Session, conditions: list) -> int:
+    value = session.exec(select(func.count(Project.id)).where(*conditions)).one()
+    return int(value or 0)
+
+
 # ── Generate project context summary ──────────────────────────────────────────
+
+
+@router.get("/memory/list")
+def list_project_memory_items(
+    search: str = "",
+    status: str = "all",
+    limit: int = 20,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+):
+    safe_limit = min(max(int(limit or 20), 1), 100)
+    safe_offset = max(int(offset or 0), 0)
+    search_conditions = _project_memory_search_conditions(search)
+    filtered_conditions = [
+        *search_conditions,
+        *_project_memory_status_conditions(status),
+    ]
+
+    items = session.exec(
+        select(Project)
+        .where(*filtered_conditions)
+        .order_by(Project.updated_at.desc(), Project.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+    ).all()
+
+    counts = {
+        "all": _count_projects(session, search_conditions),
+        "ready": _count_projects(session, [*search_conditions, *_project_memory_status_conditions("ready")]),
+        "stale": _count_projects(session, [*search_conditions, *_project_memory_status_conditions("stale")]),
+        "missing": _count_projects(session, [*search_conditions, *_project_memory_status_conditions("missing")]),
+    }
+
+    return {
+        "items": items,
+        "total": _count_projects(session, filtered_conditions),
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "counts": counts,
+    }
 
 
 @router.post("/{project_id}/generate-context")
@@ -214,7 +285,15 @@ async def rebuild_project_memory_batch(
         projects_to_process = [project_lookup[project_id] for project_id in requested_ids if project_id in project_lookup]
     elif body.stale_only:
         projects_to_process = session.exec(
-            select(Project).where(Project.memory_stale == True)
+            select(Project)
+            .where(Project.memory_version > 0, Project.memory_stale == True)
+            .order_by(Project.updated_at.desc(), Project.id.desc())
+        ).all()
+    elif body.missing_only:
+        projects_to_process = session.exec(
+            select(Project)
+            .where(Project.memory_version <= 0)
+            .order_by(Project.updated_at.desc(), Project.id.desc())
         ).all()
     else:
         projects_to_process = []
