@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../../api/client'
 import type {
   ClientStakeholder,
@@ -24,6 +24,10 @@ interface ListState {
 interface DetailState {
   data: ProjectDetailType | null
   loading: boolean
+  /** True while a background refetch is in flight after the initial
+   * load has resolved. UI that wants to show a subtle "saving" hint
+   * can listen to this without blanking the page. */
+  refreshing: boolean
   error: string | null
   refetch: () => Promise<void>
 }
@@ -63,7 +67,14 @@ export function useProjectsList(): ListState {
 export function useProjectDetail(projectId: number | null): DetailState {
   const [data, setData] = useState<ProjectDetailType | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // `loading` is the "first paint" gate that the detail wrapper uses
+  // to decide whether to show the full skeleton. Once we have any
+  // data on hand, subsequent fetches go through the `refreshing`
+  // flag instead so editing / toggling / adding doesn't blank the
+  // whole tab to a skeleton mid-flight.
+  const hasDataRef = useRef(false)
 
   const fetchOnce = useCallback(async () => {
     if (projectId == null || Number.isNaN(projectId)) {
@@ -72,20 +83,31 @@ export function useProjectDetail(projectId: number | null): DetailState {
       setError('项目 id 无效')
       return
     }
-    setLoading(true)
+    if (hasDataRef.current) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     try {
       const fresh = await api.get<ProjectDetailType>(`/projects/${projectId}/detail`)
       setData(fresh)
+      hasDataRef.current = true
       setError(null)
     } catch (err) {
       setError(readError(err))
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [projectId])
 
   useEffect(() => {
+    // Project id change means we navigated to a different project —
+    // reset the "have data" gate so the new project gets a proper
+    // first-paint skeleton again instead of inheriting the previous
+    // project's content.
+    hasDataRef.current = false
     let cancelled = false
     void (async () => {
       if (cancelled) return
@@ -100,7 +122,7 @@ export function useProjectDetail(projectId: number | null): DetailState {
     await fetchOnce()
   }, [fetchOnce])
 
-  return { data, loading, error, refetch }
+  return { data, loading, refreshing, error, refetch }
 }
 
 /** Friendly status label for top-bar chip. */
