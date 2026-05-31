@@ -34,11 +34,13 @@ describe("userMemoryPreferences helpers", () => {
         personal_info: { preferred_name: "Liang" },
         response_preferences: { language: "en", tone: "direct", format: "" },
         work_style: { ask_before_destructive: true },
+        collaboration_style: { proactive_care: "work_partner" },
       });
       expect(result).toEqual({
         personal_info: { preferred_name: "Liang", onboarding_seen: true },
         response_preferences: { language: "en", tone: "direct" },
         work_style: { ask_before_destructive: true },
+        collaboration_style: { proactive_care: "work_partner" },
       });
     });
   });
@@ -52,6 +54,11 @@ describe("userMemoryPreferences helpers", () => {
     it("ignores empty preferred_name", () => {
       const shape = readShape({ personal_info: { preferred_name: "" } });
       expect(shape.personal_info).toBeUndefined();
+    });
+
+    it("loads proactive care when present", () => {
+      const shape = readShape({ collaboration_style: { proactive_care: "gentle" } });
+      expect(shape).toEqual({ collaboration_style: { proactive_care: "gentle" } });
     });
   });
 });

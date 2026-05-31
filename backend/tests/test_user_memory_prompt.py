@@ -124,6 +124,16 @@ class FormatUserMemoryTest(unittest.TestCase):
         out = format_user_memory_for_prompt({"personal_info": {"onboarding_seen": True}})
         self.assertEqual(out, "")
 
+    def test_proactive_care_renders_as_behavior_guidance(self):
+        """``collaboration_style.proactive_care`` should reach the model as
+        behavior guidance, not as an opaque enum value."""
+        out = format_user_memory_for_prompt(
+            {"collaboration_style": {"proactive_care": "work_partner"}}
+        )
+        self.assertIn("主动关怀=工作型", out)
+        self.assertIn("下一步行动", out)
+        self.assertNotIn("collaboration_style.proactive_care: work_partner", out)
+
 
 class LoadUserMemoryFromDbTest(unittest.TestCase):
     def setUp(self):

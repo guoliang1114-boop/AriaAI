@@ -25,6 +25,24 @@ _MAX_PROMPT_CHARS = 1200  # safety cap for the entire injected section
 _MAX_BULLET_CHARS = 160   # one bullet's printed length cap
 _MAX_BULLETS = 16         # never inject more than this many bullets
 
+_PROACTIVE_CARE_PROMPTS = {
+    "off": (
+        "主动关怀=关闭。只在用户明确提出需要时回应，不主动提醒作息、情绪或节奏。"
+    ),
+    "work_partner": (
+        "主动关怀=工作型。仅在长时间工作、深夜收尾、任务过载或用户表达压力时，"
+        "轻量提醒节奏，并优先把事情整理成下一步行动。"
+    ),
+    "gentle": (
+        "主动关怀=温和型。当用户显得焦虑、疲惫或混乱时，先用一句克制的支持性回应，"
+        "再把问题拆成可执行步骤。"
+    ),
+    "active": (
+        "主动关怀=积极型。可以更主动地提醒工作节奏、风险、休息和下一步，"
+        "但仍保持专业边界，不做心理诊断或过度陪伴。"
+    ),
+}
+
 
 def load_user_memory_preferences(session: Session, user_id: int | None) -> dict[str, Any] | None:
     """Return the user's preferences dict, or ``None`` if there's no row /
@@ -71,6 +89,15 @@ def _format_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _format_preference_bullet(top_key: str, sub_key: str | None, value: Any) -> str:
+    if top_key == "collaboration_style" and sub_key == "proactive_care":
+        mapped = _PROACTIVE_CARE_PROMPTS.get(str(value).strip())
+        if mapped:
+            return mapped
+    dotted_key = f"{top_key}.{sub_key}" if sub_key else top_key
+    return f"{dotted_key}: {_format_value(value)}"
+
+
 def _extract_preferred_name(preferences: dict[str, Any]) -> str:
     """Return the user's preferred form of address (称呼) or empty string.
 
@@ -105,14 +132,14 @@ def _flatten_bullets(preferences: dict[str, Any]) -> list[str]:
                     continue  # promoted to lead line
                 if top_key == "personal_info" and sub_key == "onboarding_seen":
                     continue  # housekeeping flag, not a preference
-                line = f"{top_key}.{sub_key}: {_format_value(sub_val)}"
+                line = _format_preference_bullet(top_key, sub_key, sub_val)
                 if len(line) > _MAX_BULLET_CHARS:
                     line = line[: _MAX_BULLET_CHARS - 1] + "…"
                 bullets.append(line)
                 if len(bullets) >= _MAX_BULLETS:
                     return bullets
         else:
-            line = f"{top_key}: {_format_value(top_val)}"
+            line = _format_preference_bullet(top_key, None, top_val)
             if len(line) > _MAX_BULLET_CHARS:
                 line = line[: _MAX_BULLET_CHARS - 1] + "…"
             bullets.append(line)

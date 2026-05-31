@@ -60,6 +60,7 @@ describe("PreferenceOnboarding payload helpers", () => {
         tone: "direct",
         format: "",
         ask_before_destructive: "true",
+        proactive_care: "work_partner",
       },
     );
     expect(result.client_facts_should_not_appear).toBe("ok");
@@ -69,6 +70,7 @@ describe("PreferenceOnboarding payload helpers", () => {
     });
     expect(result.response_preferences).toEqual({ language: "zh", tone: "direct" });
     expect(result.work_style).toEqual({ ask_before_destructive: true });
+    expect(result.collaboration_style).toEqual({ proactive_care: "work_partner" });
   });
 
   it("buildPayloadFromDraft drops empty preferred_name but still stamps onboarding_seen", async () => {
@@ -81,11 +83,13 @@ describe("PreferenceOnboarding payload helpers", () => {
         tone: "",
         format: "",
         ask_before_destructive: "",
+        proactive_care: "",
       },
     );
     expect(result.personal_info).toEqual({ onboarding_seen: true });
     expect(result.response_preferences).toBeUndefined();
     expect(result.work_style).toBeUndefined();
+    expect(result.collaboration_style).toBeUndefined();
   });
 
   it("readDraftFromPreferences round-trips a saved payload back into the form shape", async () => {
@@ -94,6 +98,7 @@ describe("PreferenceOnboarding payload helpers", () => {
       personal_info: { preferred_name: "李总" },
       response_preferences: { language: "zh", tone: "direct", format: "free" },
       work_style: { ask_before_destructive: true },
+      collaboration_style: { proactive_care: "gentle" },
     });
     expect(draft).toEqual({
       preferred_name: "李总",
@@ -101,6 +106,7 @@ describe("PreferenceOnboarding payload helpers", () => {
       tone: "direct",
       format: "free",
       ask_before_destructive: "true",
+      proactive_care: "gentle",
     });
   });
 });
@@ -112,6 +118,7 @@ describe("PreferenceOnboarding rendered behaviour", () => {
     expect(screen.getByTestId("onb-language")).toBeInTheDocument();
     expect(screen.getByTestId("onb-tone")).toBeInTheDocument();
     expect(screen.getByTestId("onb-format")).toBeInTheDocument();
+    expect(screen.getByTestId("onb-proactive-care")).toBeInTheDocument();
     expect(screen.getByTestId("onb-ask")).toBeInTheDocument();
     expect(screen.getByTestId("preview-aria-reply")).toBeInTheDocument();
   });
@@ -151,6 +158,7 @@ describe("PreferenceOnboarding rendered behaviour", () => {
       target: { value: "李总" },
     });
     selectChip("onb-language", "中文");
+    selectChip("onb-proactive-care", "工作型");
     fireEvent.click(screen.getByTestId("complete-onboarding"));
 
     await waitFor(() => expect(apiPut).toHaveBeenCalled());
@@ -161,6 +169,7 @@ describe("PreferenceOnboarding rendered behaviour", () => {
       onboarding_seen: true,
     });
     expect(call[1].preferences.response_preferences).toEqual({ language: "zh" });
+    expect(call[1].preferences.collaboration_style).toEqual({ proactive_care: "work_partner" });
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
   });
 

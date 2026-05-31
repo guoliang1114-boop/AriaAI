@@ -25,6 +25,7 @@ export type Language = "" | "zh" | "en" | "auto";
 export type Tone = "" | "direct" | "friendly" | "formal";
 export type FormatShape = "" | "conclusion_first" | "bullet_list" | "free";
 export type ConfirmationPolicy = "" | "before_write" | "before_delete" | "all" | "none";
+export type ProactiveCare = "" | "off" | "work_partner" | "gentle" | "active";
 
 export interface UserMemoryResponse {
   preferences: Record<string, unknown>;
@@ -50,6 +51,9 @@ export interface PreferencesShape {
   work_style?: {
     ask_before_destructive?: boolean;
     confirmation_policy?: ConfirmationPolicy;
+  };
+  collaboration_style?: {
+    proactive_care?: ProactiveCare;
   };
   /**
    * Codex appearance — theme / accent / density / radius / warmth.
@@ -110,6 +114,10 @@ export function compactPreferences(prefs: PreferencesShape): Record<string, unkn
       compact.work_style.confirmation_policy = ws.confirmation_policy;
     }
   }
+  const cs = prefs.collaboration_style ?? {};
+  if (cs.proactive_care) {
+    compact.collaboration_style = { proactive_care: cs.proactive_care };
+  }
   if (prefs.appearance) compact.appearance = prefs.appearance;
   return compact as unknown as Record<string, unknown>;
 }
@@ -119,6 +127,7 @@ export function readShape(raw: Record<string, unknown> | undefined): Preferences
   const pi = (raw as { personal_info?: unknown }).personal_info;
   const rp = (raw as { response_preferences?: unknown }).response_preferences;
   const ws = (raw as { work_style?: unknown }).work_style;
+  const cs = (raw as { collaboration_style?: unknown }).collaboration_style;
   const out: PreferencesShape = {};
   if (pi && typeof pi === "object") {
     const block = pi as Partial<Record<string, unknown>>;
@@ -146,6 +155,15 @@ export function readShape(raw: Record<string, unknown> | undefined): Preferences
         ...(out.work_style ?? {}),
         confirmation_policy: policy,
       };
+    }
+  }
+  if (cs && typeof cs === "object") {
+    const block = cs as Partial<Record<string, unknown>>;
+    const proactiveCare = typeof block.proactive_care === "string"
+      ? (block.proactive_care as ProactiveCare)
+      : "";
+    if (["off", "work_partner", "gentle", "active"].includes(proactiveCare)) {
+      out.collaboration_style = { proactive_care: proactiveCare };
     }
   }
   const app = (raw as { appearance?: unknown }).appearance;

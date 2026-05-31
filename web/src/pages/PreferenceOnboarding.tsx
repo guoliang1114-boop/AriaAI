@@ -44,6 +44,7 @@ interface DraftPreferences {
   tone: PreviewTone;
   format: PreviewFormat;
   ask_before_destructive: "" | "true" | "false";
+  proactive_care: "" | "off" | "work_partner" | "gentle" | "active";
 }
 
 const EMPTY_DRAFT: DraftPreferences = {
@@ -52,6 +53,7 @@ const EMPTY_DRAFT: DraftPreferences = {
   tone: "",
   format: "",
   ask_before_destructive: "",
+  proactive_care: "",
 };
 
 // Chip option lists — short labels per the Codex prototype so they fit
@@ -61,6 +63,7 @@ type LangValue = Exclude<PreviewLanguage, "">;
 type ToneValue = Exclude<PreviewTone, "">;
 type FormatValue = Exclude<PreviewFormat, "">;
 type AskValue = "true" | "false";
+type ProactiveCareValue = "off" | "work_partner" | "gentle" | "active";
 
 interface Chip<T extends string> {
   value: T;
@@ -90,6 +93,13 @@ const ASK_CHIPS: Chip<AskValue>[] = [
   { value: "false", label_zh: "不必确认", label_en: "Never ask" },
 ];
 
+const PROACTIVE_CARE_CHIPS: Chip<ProactiveCareValue>[] = [
+  { value: "off", label_zh: "关闭", label_en: "Off" },
+  { value: "work_partner", label_zh: "工作型", label_en: "Work partner" },
+  { value: "gentle", label_zh: "温和型", label_en: "Gentle" },
+  { value: "active", label_zh: "积极型", label_en: "Active" },
+];
+
 function readDraftFromPreferences(preferences: Record<string, unknown>): DraftPreferences {
   const draft: DraftPreferences = { ...EMPTY_DRAFT };
   const personal = preferences.personal_info;
@@ -109,6 +119,18 @@ function readDraftFromPreferences(preferences: Record<string, unknown>): DraftPr
     const block = ws as Record<string, unknown>;
     if (typeof block.ask_before_destructive === "boolean") {
       draft.ask_before_destructive = block.ask_before_destructive ? "true" : "false";
+    }
+  }
+  const cs = preferences.collaboration_style;
+  if (cs && typeof cs === "object") {
+    const block = cs as Record<string, unknown>;
+    if (
+      block.proactive_care === "off" ||
+      block.proactive_care === "work_partner" ||
+      block.proactive_care === "gentle" ||
+      block.proactive_care === "active"
+    ) {
+      draft.proactive_care = block.proactive_care;
     }
   }
   return draft;
@@ -144,6 +166,12 @@ function buildPayloadFromDraft(
     next.work_style = { ask_before_destructive: false };
   } else {
     delete next.work_style;
+  }
+
+  if (draft.proactive_care) {
+    next.collaboration_style = { proactive_care: draft.proactive_care };
+  } else {
+    delete next.collaboration_style;
   }
 
   return next;
@@ -235,6 +263,15 @@ export function PreferenceOnboarding() {
               : draft.language === "en"
                 ? { k: "语言 · English", e: "Defaults to English replies" }
                 : null,
+          draft.proactive_care === "off"
+            ? { k: "主动关怀 · 关闭", e: "只在你明确提问时回应" }
+            : draft.proactive_care === "work_partner"
+              ? { k: "主动关怀 · 工作型", e: "长任务或深夜收尾时，帮你整理下一步" }
+              : draft.proactive_care === "gentle"
+                ? { k: "主动关怀 · 温和型", e: "压力大时先稳一下，再拆解任务" }
+                : draft.proactive_care === "active"
+                  ? { k: "主动关怀 · 积极型", e: "更主动提醒节奏、风险和下一步" }
+                  : null,
         ]
       : [
           draft.tone === "direct"
@@ -256,6 +293,15 @@ export function PreferenceOnboarding() {
               : draft.language === "en"
                 ? { k: "Language · English", e: "Defaults to English replies" }
                 : null,
+          draft.proactive_care === "off"
+            ? { k: "Proactive care · Off", e: "Only responds when you explicitly ask" }
+            : draft.proactive_care === "work_partner"
+              ? { k: "Proactive care · Work partner", e: "Wraps up long or late work into next steps" }
+              : draft.proactive_care === "gentle"
+                ? { k: "Proactive care · Gentle", e: "Steadies the moment, then structures the task" }
+                : draft.proactive_care === "active"
+                  ? { k: "Proactive care · Active", e: "More actively flags cadence, risks, and next steps" }
+                  : null,
         ]
   ).filter((row): row is { k: string; e: string } => row !== null);
 
@@ -424,6 +470,19 @@ export function PreferenceOnboarding() {
             options={FORMAT_CHIPS}
             onChange={(v) => setDraft((cur) => ({ ...cur, format: v as PreviewFormat }))}
             groupTestId="onb-format"
+          />
+          <PrefChips
+            label={isZh ? "主动关怀" : "Proactive care"}
+            isZh={isZh}
+            value={draft.proactive_care}
+            options={PROACTIVE_CARE_CHIPS}
+            onChange={(v) =>
+              setDraft((cur) => ({
+                ...cur,
+                proactive_care: v as DraftPreferences["proactive_care"],
+              }))
+            }
+            groupTestId="onb-proactive-care"
           />
           <PrefChips
             label={isZh ? "写入 / 删除前是否再次确认" : "Confirm before writing or deleting?"}

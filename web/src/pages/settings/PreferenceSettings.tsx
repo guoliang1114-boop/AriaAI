@@ -18,6 +18,7 @@ import {
   type ConfirmationPolicy,
   type FormatShape,
   type Language,
+  type ProactiveCare,
   type PreferencesShape,
   type Tone,
   type UserMemoryResponse,
@@ -68,6 +69,13 @@ const CONFIRMATION_CHOICES: Choice<ConfirmationPolicy>[] = [
   { value: "before_delete", label_zh: "删除前", label_en: "Before deletes" },
   { value: "all", label_zh: "都需要", label_en: "Both" },
   { value: "none", label_zh: "都不需要", label_en: "Never" },
+];
+
+const PROACTIVE_CARE_CHOICES: Choice<Exclude<ProactiveCare, "">>[] = [
+  { value: "off", label_zh: "关闭", label_en: "Off" },
+  { value: "work_partner", label_zh: "工作型", label_en: "Work partner" },
+  { value: "gentle", label_zh: "温和型", label_en: "Gentle" },
+  { value: "active", label_zh: "积极型", label_en: "Active" },
 ];
 
 function getConfirmationPolicy(prefs: PreferencesShape): ConfirmationPolicy {
@@ -136,6 +144,16 @@ export function PreferenceSettings() {
     }));
   };
 
+  const updateProactiveCare = (value: Exclude<ProactiveCare, "">) => {
+    changePrefs((cur) => ({
+      ...cur,
+      collaboration_style: {
+        ...(cur.collaboration_style ?? {}),
+        proactive_care: value,
+      },
+    }));
+  };
+
   const savePreferences = async () => {
     setSaving(true);
     setMsg(null);
@@ -186,6 +204,8 @@ export function PreferenceSettings() {
   const selectedTone = prefs.response_preferences?.tone || "direct";
   const selectedFormat = prefs.response_preferences?.format || "conclusion_first";
   const selectedConfirmation = getConfirmationPolicy(prefs);
+  const selectedProactiveCare: Exclude<ProactiveCare, ""> =
+    prefs.collaboration_style?.proactive_care || "off";
 
   return (
     <div
@@ -337,6 +357,27 @@ export function PreferenceSettings() {
                   value={selectedFormat}
                   options={FORMAT_CHOICES}
                   onChange={(value) => updateResponsePref("format", value as FormatShape)}
+                />
+              </PreferenceOption>
+            </PreferenceCard>
+
+            <SectionLabel>{isZh ? "协作方式" : "Collaboration"}</SectionLabel>
+            <PreferenceCard>
+              <PreferenceOption
+                title={isZh ? "主动关怀" : "Proactive care"}
+                description={
+                  isZh
+                    ? "允许 Aria 在你长时间工作、深夜收尾或表达压力时，适度提醒节奏，并帮你整理下一步。"
+                    : "Allow Aria to lightly check in during long work sessions, late wrap-ups, or moments of pressure, then help structure the next step."
+                }
+                divider={false}
+              >
+                <ChoiceGroup
+                  ariaLabel={isZh ? "主动关怀" : "Proactive care"}
+                  isZh={isZh}
+                  value={selectedProactiveCare}
+                  options={PROACTIVE_CARE_CHOICES}
+                  onChange={(value) => updateProactiveCare(value as Exclude<ProactiveCare, "">)}
                 />
               </PreferenceOption>
             </PreferenceCard>
