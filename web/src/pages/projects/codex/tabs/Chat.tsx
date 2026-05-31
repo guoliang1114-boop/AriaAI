@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
   Conversation,
@@ -379,103 +379,48 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
 
   return (
     <>
-      {/* Title strip */}
+      {/* Compact 48px title bar — mirrors /chat. Title only on the
+       * left, ⋯ menu on the right. The old meta line (项目对话 · N 条
+       * 消息 · 更新时间) and inline 重命名 / 删除 / 打开 buttons are
+       * gone; rename + delete now live in the menu, and the bottom
+       * composer already deep-links into /chat. */}
       <div
         style={{
-          padding: '18px 40px 14px',
-          borderBottom: '1px solid var(--line)',
+          height: 48,
+          padding: '0 28px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          gap: 12,
+          borderBottom: '1px solid var(--line)',
+          background: 'color-mix(in oklch, var(--bg-elev) 50%, var(--bg))',
           flexShrink: 0,
         }}
       >
-        <div style={{ minWidth: 0 }}>
-          <h2
-            className="ui"
-            style={{
-              margin: 0,
-              fontSize: 17,
-              fontWeight: 500,
-              color: 'var(--ink)',
-              letterSpacing: '-0.015em',
-            }}
-          >
-            {conversation?.title || `对话 #${conversationId}`}
-          </h2>
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--ink-mute)',
-              marginTop: 4,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <span>项目对话</span>
-            <span style={{ color: 'var(--ink-faint)' }}>·</span>
-            <span>{messages.length} 条消息</span>
-            {conversation?.updated_at && (
-              <>
-                <span style={{ color: 'var(--ink-faint)' }}>·</span>
-                <span>{formatUpdatedRelative(conversation.updated_at)}</span>
-              </>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            type="button"
-            onClick={() => setRenaming(true)}
-            title="重命名"
-            style={{
-              padding: '6px 12px',
-              fontSize: 12.5,
-              color: 'var(--ink-soft)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-sm)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-            }}
-          >
-            <CxIcon name="edit" size={11} /> 重命名
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            style={{
-              padding: '6px 12px',
-              fontSize: 12.5,
-              color: 'var(--bad)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-sm)',
-              cursor: deleting ? 'wait' : 'pointer',
-            }}
-          >
-            {deleting ? '删除中…' : '删除'}
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              navigate(`/chat?conversation=${conversationId}&project=${projectId}`)
-            }
-            style={{
-              padding: '6px 12px',
-              fontSize: 12.5,
-              color: 'var(--bg-elev)',
-              background: 'var(--ink)',
-              borderRadius: 'var(--r-sm)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-            }}
-          >
-            打开 <CxIcon name="arrow-right" size={11} />
-          </button>
-        </div>
+        <h2
+          className="ui"
+          style={{
+            margin: 0,
+            flex: 1,
+            minWidth: 0,
+            fontSize: 14.5,
+            fontWeight: 500,
+            color: 'var(--ink)',
+            letterSpacing: '-0.01em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {conversation?.title || `对话 #${conversationId}`}
+        </h2>
+        <ConversationMenu
+          onRename={() => setRenaming(true)}
+          onDelete={handleDelete}
+          onOpenInChat={() =>
+            navigate(`/chat?conversation=${conversationId}&project=${projectId}`)
+          }
+          deleting={deleting}
+        />
       </div>
       <CxConversationRenameDialog
         open={renaming}
@@ -592,6 +537,148 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
         </button>
       </div>
     </>
+  )
+}
+
+interface ConversationMenuProps {
+  onRename: () => void
+  onDelete: () => void
+  onOpenInChat: () => void
+  deleting: boolean
+}
+
+/** ⋯ dropdown for the conversation title bar. Click-outside +
+ * Escape close. Items: 在对话页打开 / 重命名 / (separator) / 删除. */
+function ConversationMenu({ onRename, onDelete, onOpenInChat, deleting }: ConversationMenuProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const itemStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 9,
+    padding: '7px 10px',
+    fontSize: 12.5,
+    color: 'var(--ink-soft)',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 'var(--r-sm)',
+    textAlign: 'left' as const,
+    width: '100%',
+    cursor: 'pointer',
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="对话菜单"
+        title="更多"
+        style={{
+          width: 30,
+          height: 30,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--ink-mute)',
+          background: open ? 'var(--bg-tint)' : 'transparent',
+          border: 'none',
+          borderRadius: 'var(--r-sm)',
+          cursor: 'pointer',
+        }}
+      >
+        <CxIcon name="more" size={14} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: '100%',
+            right: 0,
+            marginTop: 6,
+            minWidth: 160,
+            padding: 5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--line-strong)',
+            borderRadius: 'var(--r-md)',
+            boxShadow: '0 14px 34px -14px rgba(0,0,0,0.45)',
+            zIndex: 50,
+          }}
+        >
+          <button
+            type="button"
+            className="row-hov"
+            onClick={() => {
+              setOpen(false)
+              onOpenInChat()
+            }}
+            style={itemStyle}
+          >
+            <CxIcon name="arrow-up-right" size={12} stroke={1.5} />
+            在对话页打开
+          </button>
+          <button
+            type="button"
+            className="row-hov"
+            onClick={() => {
+              setOpen(false)
+              onRename()
+            }}
+            style={itemStyle}
+          >
+            <CxIcon name="edit" size={12} stroke={1.5} />
+            重命名
+          </button>
+          <span
+            aria-hidden="true"
+            style={{
+              height: 1,
+              margin: '4px 6px',
+              background: 'var(--line-soft)',
+            }}
+          />
+          <button
+            type="button"
+            className="row-hov"
+            onClick={() => {
+              setOpen(false)
+              onDelete()
+            }}
+            disabled={deleting}
+            style={{
+              ...itemStyle,
+              color: 'var(--bad)',
+              cursor: deleting ? 'wait' : 'pointer',
+            }}
+          >
+            <CxIcon name="trash" size={12} stroke={1.5} />
+            {deleting ? '删除中…' : '删除'}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
