@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type {
+  Milestone,
   ProjectDetail as ProjectDetailType,
+  ProjectFile,
   ProjectMember,
+  ProjectTodo,
 } from '../../../../types/api'
+import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel } from '../CxPrimitives'
@@ -87,16 +91,33 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
                 : '尚未生成快照'
             }
           >
-            <p
-              className="ui"
-              style={{ margin: '0 0 14px', fontSize: 14, color: 'var(--ink)', lineHeight: 1.75 }}
-            >
-              {project.context_summary || project.description || (
-                <span style={{ color: 'var(--ink-faint)' }}>
-                  暂无描述。可在「项目记忆」中补充背景与目标,自动生成快照。
-                </span>
-              )}
-            </p>
+            {project.context_summary || project.description ? (
+              <div
+                className="theme-codex"
+                style={{
+                  margin: '0 0 14px',
+                  fontSize: 14,
+                  color: 'var(--ink)',
+                  lineHeight: 1.75,
+                }}
+              >
+                <MarkdownRenderer
+                  content={project.context_summary || project.description || ''}
+                />
+              </div>
+            ) : (
+              <p
+                className="ui"
+                style={{
+                  margin: '0 0 14px',
+                  fontSize: 14,
+                  color: 'var(--ink-faint)',
+                  lineHeight: 1.75,
+                }}
+              >
+                暂无描述。可在「项目记忆」中补充背景与目标,自动生成快照。
+              </p>
+            )}
             <div
               style={{
                 display: 'grid',
@@ -222,75 +243,13 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
             </CxPanel>
           </div>
 
-          <CxPanel
-            title="最近里程碑"
-            subtitle={`${milestoneDone} / ${milestoneTotal} 完成`}
-            action={
-              <a
-                style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}
-                href={`/projects/${projectId}/milestones`}
-              >
-                全部 →
-              </a>
-            }
-          >
-            {milestones.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
-                还没有里程碑。
-              </div>
-            ) : (
-              <div style={{ position: 'relative', paddingLeft: 14 }}>
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 4,
-                    top: 4,
-                    bottom: 4,
-                    width: 1,
-                    background: 'var(--line)',
-                  }}
-                />
-                {milestones.slice(0, 5).map((m) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '74px auto 1fr',
-                      gap: 12,
-                      padding: '9px 0',
-                      alignItems: 'flex-start',
-                      position: 'relative',
-                    }}
-                  >
-                    <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', paddingTop: 1 }}>
-                      {m.due_date ?? '—'}
-                    </span>
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 99,
-                        background: m.is_done ? 'var(--good)' : 'var(--bg-elev)',
-                        border: `1.5px solid ${m.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
-                        marginTop: 6,
-                        position: 'relative',
-                        left: -14,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div style={{ marginLeft: -10 }}>
-                      <span style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 500 }}>
-                        {m.title}
-                      </span>
-                      <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginLeft: 8 }}>
-                        {m.is_done ? '已完成' : '进行中'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CxPanel>
+          <ActivityFeed
+            project={project}
+            milestones={milestones}
+            files={detail.files}
+            todos={todos}
+            projectId={projectId}
+          />
         </div>
 
         {/* Right rail */}
@@ -564,6 +523,282 @@ export function CxProjectOverview({ detail, refetch }: OverviewProps) {
       />
     </CxProjectShell>
   )
+}
+
+/** Synthesise a "最近动态" feed from the data we already have on
+ * detail — backend doesn't expose an activity log endpoint, but
+ * milestones, files, todos and memory_updated_at carry enough
+ * timestamped signal to reconstruct what changed in the last week.
+ * Each event has a tone tag (accent / good / warn / neutral) so the
+ * timeline color-codes like the design handoff. */
+interface FeedEvent {
+  id: string
+  ts: Date
+  tone: 'accent' | 'good' | 'warn' | 'neutral'
+  who: string
+  what: string
+  href?: string
+}
+
+function ActivityFeed({
+  project,
+  milestones,
+  files,
+  todos,
+  projectId,
+}: {
+  project: ProjectDetailType['project']
+  milestones: Milestone[]
+  files: ProjectFile[]
+  todos: ProjectTodo[]
+  projectId: number
+}) {
+  const events = useMemo<FeedEvent[]>(() => {
+    const out: FeedEvent[] = []
+
+    const parseDate = (iso: string | null | undefined): Date | null => {
+      if (!iso) return null
+      const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? iso : `${iso}Z`
+      const d = new Date(normalized)
+      return Number.isNaN(d.getTime()) ? null : d
+    }
+
+    // Memory rebuilds — memory_updated_at marks the last time the
+    // structured memory changed (manual edit or LLM rebuild).
+    const memTs = parseDate(project.memory_updated_at)
+    if (memTs) {
+      out.push({
+        id: `memory:${memTs.getTime()}`,
+        ts: memTs,
+        tone: 'accent',
+        who: 'Aria',
+        what: `项目记忆 v${project.memory_version ?? '—'} 已${project.memory_stale ? '需刷新' : '更新'}`,
+        href: `/projects/${projectId}/memory`,
+      })
+    }
+
+    // Milestone completions — we don't have a completed_at, so
+    // surface those with is_done + due_date as the timestamp anchor.
+    // For non-done milestones, use created_at as the "added" event.
+    for (const m of milestones) {
+      const created = parseDate(m.created_at)
+      if (created) {
+        out.push({
+          id: `milestone-added:${m.id}`,
+          ts: created,
+          tone: 'neutral',
+          who: '—',
+          what: `添加里程碑「${m.title}」`,
+          href: `/projects/${projectId}/milestones`,
+        })
+      }
+      if (m.is_done) {
+        // Use due_date as a proxy for "completed around"; if missing
+        // skip.
+        const done = parseDate(m.due_date)
+        if (done) {
+          out.push({
+            id: `milestone-done:${m.id}`,
+            ts: done,
+            tone: 'good',
+            who: '—',
+            what: `完成里程碑「${m.title}」`,
+            href: `/projects/${projectId}/milestones`,
+          })
+        }
+      }
+    }
+
+    // File uploads — uploaded_at + name. Skip soft-deleted files.
+    for (const f of files) {
+      if (f.deleted_at) continue
+      const ts = parseDate(f.uploaded_at)
+      if (!ts) continue
+      out.push({
+        id: `file:${f.id}`,
+        ts,
+        tone: 'neutral',
+        who: '—',
+        what: `上传文档「${f.name}」${f.summary ? ` · ${truncate(f.summary, 40)}` : ''}`,
+        href: `/projects/${projectId}/docs`,
+      })
+    }
+
+    // Recent todos — created_at for new, updated_at for completed
+    // (heuristic: if is_done and updated_at differs from created_at).
+    for (const t of todos) {
+      const created = parseDate(t.created_at)
+      if (created) {
+        out.push({
+          id: `todo-added:${t.id}`,
+          ts: created,
+          tone: 'neutral',
+          who: t.assigned_user?.display_name ?? '—',
+          what: `添加待办「${truncate(t.content, 36)}」`,
+          href: `/projects/${projectId}/milestones`,
+        })
+      }
+      if (t.is_done) {
+        const done = parseDate(t.updated_at)
+        if (done) {
+          out.push({
+            id: `todo-done:${t.id}`,
+            ts: done,
+            tone: 'good',
+            who: t.assigned_user?.display_name ?? '—',
+            what: `完成待办「${truncate(t.content, 36)}」`,
+            href: `/projects/${projectId}/milestones`,
+          })
+        }
+      }
+    }
+
+    // Last project edit signal — falls back to project.updated_at if
+    // nothing else recent has come in. Always lowest-priority.
+    const projUpdated = parseDate(project.updated_at)
+    if (projUpdated) {
+      out.push({
+        id: `project-updated:${projUpdated.getTime()}`,
+        ts: projUpdated,
+        tone: 'neutral',
+        who: '—',
+        what: '项目档案有更新',
+      })
+    }
+
+    // Sort newest-first, dedupe by id (in case of repeated timestamps).
+    const seen = new Set<string>()
+    return out
+      .filter((e) => {
+        if (seen.has(e.id)) return false
+        seen.add(e.id)
+        return true
+      })
+      .sort((a, b) => b.ts.getTime() - a.ts.getTime())
+      .slice(0, 8)
+  }, [project, milestones, files, todos, projectId])
+
+  return (
+    <CxPanel
+      title="最近动态"
+      subtitle={events.length === 0 ? '尚无动态' : '近期变更'}
+      action={
+        <a
+          style={{ fontSize: 12, color: 'var(--ink-mute)' }}
+          href={`/projects/${projectId}/milestones`}
+        >
+          全部 →
+        </a>
+      }
+    >
+      {events.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '8px 0' }}>
+          还没有变更记录。上传文档、添加里程碑或更新项目记忆后会出现在这里。
+        </div>
+      ) : (
+        <div style={{ position: 'relative', paddingLeft: 14 }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: 4,
+              top: 4,
+              bottom: 4,
+              width: 1,
+              background: 'var(--line)',
+            }}
+          />
+          {events.map((e) => (
+            <FeedRow key={e.id} event={e} />
+          ))}
+        </div>
+      )}
+    </CxPanel>
+  )
+}
+
+function FeedRow({ event }: { event: FeedEvent }) {
+  const color =
+    event.tone === 'accent'
+      ? 'var(--accent)'
+      : event.tone === 'good'
+        ? 'var(--good)'
+        : event.tone === 'warn'
+          ? 'var(--warn)'
+          : 'var(--ink-faint)'
+
+  const body = (
+    <>
+      <span style={{ fontSize: 12, color: 'var(--ink-mute)', paddingTop: 1 }}>
+        {formatFeedTime(event.ts)}
+      </span>
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 99,
+          background: 'var(--bg-elev)',
+          border: `1.5px solid ${color}`,
+          marginTop: 6,
+          position: 'relative',
+          left: -14,
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ marginLeft: -10, fontSize: 13, color: 'var(--ink-soft)' }}>
+        {event.who && event.who !== '—' && (
+          <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{event.who} · </span>
+        )}
+        {event.what}
+      </span>
+    </>
+  )
+
+  const rowStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '64px auto 1fr',
+    gap: 12,
+    padding: '9px 0',
+    alignItems: 'flex-start',
+    position: 'relative',
+    textDecoration: 'none',
+    color: 'inherit',
+  }
+
+  return event.href ? (
+    <a href={event.href} style={rowStyle} className="row-hov">
+      {body}
+    </a>
+  ) : (
+    <div style={rowStyle}>{body}</div>
+  )
+}
+
+function formatFeedTime(d: Date): string {
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const day = 86_400_000
+  const sameDay =
+    now.getFullYear() === d.getFullYear() &&
+    now.getMonth() === d.getMonth() &&
+    now.getDate() === d.getDate()
+  if (sameDay) {
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  }
+  if (diff < 2 * day) return '昨天'
+  if (diff < 7 * day) {
+    const days = Math.floor(diff / day)
+    return `${days} 天前`
+  }
+  return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n)
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, max - 1)}…`
 }
 
 function SnapshotTile({ label, value, icon }: { label: string; value: string; icon: string }) {
