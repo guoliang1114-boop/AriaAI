@@ -81,12 +81,26 @@ export function ProjectChatInput({
   }, []);
 
   return (
-    <div className="relative flex-shrink-0 border-t border-codex-line-soft bg-codex-bg-tint px-4 pb-4 pt-3">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-10 -translate-y-full bg-gradient-to-b from-transparent to-slate-50" />
+    <div
+      className="relative flex-shrink-0 px-4 pb-4 pt-3"
+      style={{
+        background: "var(--color-codex-bg-elev)",
+        borderTop: "1px solid var(--color-codex-line-soft)",
+      }}
+    >
       <div className={`mx-auto ${isFullscreen ? "max-w-5xl" : "max-w-4xl"}`}>
         {contextControls}
         {selectedSkillPanel}
-        <div className="relative flex items-end gap-2.5 rounded-xl bg-white px-3.5 py-2.5 shadow-[0_2px_14px_rgba(0,0,0,0.06)] ring-1 ring-black/[0.04] transition-all duration-200 focus-within:shadow-[0_4px_20px_rgba(0,63,177,0.09)] focus-within:ring-primary/20">
+        <div
+          className="relative flex items-end transition-colors focus-within:[border-color:var(--color-codex-accent)]"
+          style={{
+            gap: 10,
+            padding: "10px 12px",
+            background: "var(--color-codex-bg-elev)",
+            border: "1px solid var(--color-codex-line)",
+            borderRadius: "var(--codex-r-md, 8px)",
+          }}
+        >
           {mentionQuery !== null && projectId ? (
             <ProjectChatMentionPicker
               projectId={projectId}
@@ -128,9 +142,15 @@ export function ProjectChatInput({
               onKeyUp={checkMention}
               placeholder={placeholder}
               disabled={isLoading}
-              className="min-h-[34px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent py-1.5 text-[13.5px] leading-6 text-codex-ink-soft outline-none placeholder:text-codex-ink-faint disabled:opacity-50"
+              className="min-h-[34px] max-h-[180px] w-full resize-none overflow-hidden bg-transparent outline-none disabled:opacity-50"
               rows={1}
-              style={{ height: "auto" }}
+              style={{
+                height: "auto",
+                padding: "4px 0",
+                fontSize: 13.5,
+                lineHeight: 1.6,
+                color: "var(--color-codex-ink)",
+              }}
               onInput={(event) => {
                 const target = event.target as HTMLTextAreaElement;
                 target.style.height = "auto";
@@ -140,31 +160,63 @@ export function ProjectChatInput({
           </div>
           {onTogglePlanMode ? (
             <button
+              type="button"
               onClick={onTogglePlanMode}
               title={isPlanMode ? "Plan mode: ON" : "Plan mode: OFF"}
-              className={`mb-0.5 flex-shrink-0 rounded-lg p-2.5 transition-all ${
-                isPlanMode
-                  ? "bg-codex-accent-bg text-codex-accent shadow-sm shadow-indigo-500/20"
-                  : "bg-codex-bg-tint text-codex-ink-faint hover:bg-codex-bg-tint hover:text-codex-ink-soft"
-              }`}
+              aria-pressed={Boolean(isPlanMode)}
+              className="mb-0.5 inline-flex flex-shrink-0 items-center justify-center transition-colors"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "var(--codex-r-sm, 6px)",
+                color: isPlanMode
+                  ? "var(--color-codex-accent)"
+                  : "var(--color-codex-ink-mute)",
+                background: isPlanMode
+                  ? "var(--color-codex-accent-bg)"
+                  : "transparent",
+                border: isPlanMode
+                  ? "1px solid color-mix(in oklch, var(--color-codex-accent) 28%, transparent)"
+                  : "1px solid var(--color-codex-line)",
+              }}
             >
-              <ListChecks className="h-4 w-4" />
+              <ListChecks className="h-3.5 w-3.5" />
             </button>
           ) : null}
           {isLoading ? (
             <button
+              type="button"
               onClick={onStop}
-              className="mb-0.5 flex-shrink-0 rounded-lg bg-codex-bg-tint0 p-2.5 text-white shadow-sm shadow-red-500/20 transition-all hover:opacity-90 active:scale-95"
+              title="Stop"
+              className="mb-0.5 inline-flex flex-shrink-0 items-center justify-center transition-colors"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "var(--codex-r-sm, 6px)",
+                color: "var(--color-codex-bg-elev)",
+                background: "var(--color-codex-bad)",
+                border: "1px solid var(--color-codex-bad)",
+              }}
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-3.5 w-3.5" />
             </button>
           ) : (
             <button
+              type="button"
               onClick={onSend}
               disabled={!value.trim()}
-              className="mb-0.5 flex-shrink-0 rounded-lg bg-gradient-to-br from-primary to-indigo-500 p-2.5 text-white shadow-sm shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-25"
+              title="Send"
+              className="mb-0.5 inline-flex flex-shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "var(--codex-r-sm, 6px)",
+                color: "var(--color-codex-bg-elev)",
+                background: "var(--color-codex-ink)",
+                border: "1px solid var(--color-codex-ink)",
+              }}
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
