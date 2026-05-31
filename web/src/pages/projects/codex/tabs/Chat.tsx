@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Conversation, ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import type {
+  Conversation,
+  ProjectDetail as ProjectDetailType,
+  ProjectFile,
+} from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
 import { CxSkeleton } from '../../../../components/codex'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxStatus } from '../CxPrimitives'
+import { CxConversationRenameDialog } from '../CxConversationActions'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -27,12 +32,14 @@ interface ChatProps {
  * jumps you to the global chat page so the first message flows
  * through the proper stream. */
 export function CxProjectChat({ projectId, detail }: ChatProps) {
-  const { project } = detail
+  const { project, files, folders } = detail
   const toast = useToast()
   const navigate = useNavigate()
   const { data: conversations, loading, error, refetch } = useProjectConversations(projectId)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [showFiles, setShowFiles] = useState(false)
+  const [expandedFileId, setExpandedFileId] = useState<number | null>(null)
 
   // Auto-select the most recently-updated conversation when the list
   // arrives or refreshes. Don't overwrite the user's explicit pick.
@@ -64,7 +71,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: '260px 1fr',
+          gridTemplateColumns: showFiles ? '260px 1fr 340px' : '260px 1fr',
           minHeight: 0,
         }}
       >
@@ -93,12 +100,32 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               borderRadius: 'var(--r-sm)',
               fontSize: 13,
               fontWeight: 500,
-              marginBottom: 8,
               cursor: creating ? 'wait' : 'pointer',
               opacity: creating ? 0.6 : 1,
             }}
           >
             <CxIcon name="plus" size={13} /> {creating ? '创建中…' : '新建对话'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFiles((v) => !v)}
+            className="row-hov"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '7px 12px',
+              fontSize: 12.5,
+              color: showFiles ? 'var(--accent)' : 'var(--ink-mute)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              marginTop: 6,
+              marginBottom: 8,
+              background: showFiles ? 'var(--accent-bg)' : 'transparent',
+            }}
+          >
+            <CxIcon name="file" size={12} />
+            {showFiles ? '隐藏项目文件' : '查看项目文件'}
           </button>
 
           {loading && (
@@ -158,11 +185,23 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
                 setSelectedId(null)
                 await refetch()
               }}
+              onChanged={refetch}
             />
           ) : (
             <EmptyThread />
           )}
         </div>
+
+        {/* Optional files preview pane */}
+        {showFiles && (
+          <FilesPane
+            files={files}
+            folders={folders}
+            expandedFileId={expandedFileId}
+            onToggleFile={(id) => setExpandedFileId(expandedFileId === id ? null : id)}
+            onClose={() => setShowFiles(false)}
+          />
+        )}
       </div>
     </CxProjectShell>
   )
@@ -310,13 +349,15 @@ interface ThreadViewProps {
   conversationId: number
   conversation: Conversation | null
   onDeleted: () => Promise<void>
+  onChanged: () => Promise<void>
 }
 
-function ThreadView({ projectId, conversationId, conversation, onDeleted }: ThreadViewProps) {
+function ThreadView({ projectId, conversationId, conversation, onDeleted, onChanged }: ThreadViewProps) {
   const navigate = useNavigate()
   const toast = useToast()
   const { data: messages, loading, error } = useConversationMessages(conversationId)
   const [deleting, setDeleting] = useState(false)
+  const [renaming, setRenaming] = useState(false)
 
   const handleDelete = async () => {
     if (deleting) return
@@ -385,6 +426,23 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted }: Thre
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             type="button"
+            onClick={() => setRenaming(true)}
+            title="重命名"
+            style={{
+              padding: '6px 12px',
+              fontSize: 12.5,
+              color: 'var(--ink-soft)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-sm)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <CxIcon name="edit" size={11} /> 重命名
+          </button>
+          <button
+            type="button"
             onClick={handleDelete}
             disabled={deleting}
             style={{
@@ -418,6 +476,12 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted }: Thre
           </button>
         </div>
       </div>
+      <CxConversationRenameDialog
+        open={renaming}
+        conversation={conversation}
+        onClose={() => setRenaming(false)}
+        onSaved={onChanged}
+      />
 
       {/* Messages */}
       <div
@@ -523,6 +587,241 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted }: Thre
         </button>
       </div>
     </>
+  )
+}
+
+interface FilesPaneProps {
+  files: ProjectFile[]
+  folders: ProjectDetailType['folders']
+  expandedFileId: number | null
+  onToggleFile: (id: number) => void
+  onClose: () => void
+}
+
+/** Right-side files panel — variant of the chat-preview design. Shows
+ * project files grouped by folder; clicking a row expands its summary
+ * + metadata inline. */
+function FilesPane({ files, folders, expandedFileId, onToggleFile, onClose }: FilesPaneProps) {
+  const visible = files.filter((f) => !f.deleted_at)
+  const folderById = new Map(folders.map((f) => [f.id, f.name]))
+  const grouped: Array<{ id: number; name: string; files: ProjectFile[] }> = []
+  const seen = new Set<number>()
+  for (const f of [...folders].sort((a, b) => a.sort_order - b.sort_order)) {
+    const items = visible.filter((v) => v.folder_id === f.id)
+    if (items.length > 0) {
+      grouped.push({ id: f.id, name: f.name, files: items })
+      seen.add(f.id)
+    }
+  }
+  const unfiled = visible.filter((v) => v.folder_id == null || !folderById.has(v.folder_id))
+  if (unfiled.length > 0) {
+    grouped.push({ id: -1, name: '未分类', files: unfiled })
+  }
+
+  return (
+    <aside
+      style={{
+        borderLeft: '1px solid var(--line)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: 'var(--bg-elev)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '14px 16px',
+          borderBottom: '1px solid var(--line)',
+        }}
+      >
+        <div>
+          <h3 className="ui" style={{ margin: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>
+            项目文件
+          </h3>
+          <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
+            {visible.length} 份 · 点击展开摘要
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          title="关闭"
+          style={{
+            color: 'var(--ink-faint)',
+            fontSize: 16,
+            padding: 4,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 14px' }}>
+        {grouped.length === 0 ? (
+          <div
+            style={{
+              fontSize: 12.5,
+              color: 'var(--ink-faint)',
+              textAlign: 'center',
+              padding: '32px 12px',
+              lineHeight: 1.7,
+            }}
+          >
+            还没有上传任何文件。
+            <br />
+            前往「文档」Tab 上传。
+          </div>
+        ) : (
+          grouped.map((g) => (
+            <div key={g.id} style={{ marginBottom: 14 }}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: 'var(--ink-faint)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  padding: '4px 4px 6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <CxIcon name="folder" size={11} style={{ color: 'var(--ink-faint)' }} />
+                {g.name} · {g.files.length}
+              </div>
+              {g.files.map((f) => (
+                <FileEntry
+                  key={f.id}
+                  file={f}
+                  expanded={f.id === expandedFileId}
+                  onToggle={() => onToggleFile(f.id)}
+                />
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function FileEntry({
+  file,
+  expanded,
+  onToggle,
+}: {
+  file: ProjectFile
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const ext = (file.file_type || file.name.split('.').pop() || '').replace('.', '').toUpperCase().slice(0, 4) || '—'
+  const highlight = ext === 'MD' || ext === 'MEM'
+  const sizeKb = file.size ? Math.round(file.size / 1024) : 0
+  return (
+    <div
+      style={{
+        marginBottom: 6,
+        border: expanded ? '1px solid var(--accent)' : '1px solid var(--line-soft)',
+        borderRadius: 'var(--r-sm)',
+        background: expanded ? 'var(--bg)' : 'transparent',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="row-hov"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 10px',
+          width: '100%',
+          textAlign: 'left',
+          background: 'transparent',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: highlight ? 'var(--accent)' : 'var(--ink-mute)',
+            padding: '2px 5px',
+            border: `1px solid ${highlight ? 'var(--accent-bg)' : 'var(--line)'}`,
+            background: highlight ? 'var(--accent-bg)' : 'transparent',
+            borderRadius: 2,
+            flexShrink: 0,
+            letterSpacing: '0.04em',
+            minWidth: 28,
+            textAlign: 'center',
+          }}
+        >
+          {ext}
+        </span>
+        <span
+          className="ui"
+          style={{
+            flex: 1,
+            fontSize: 12.5,
+            color: 'var(--ink)',
+            fontWeight: expanded ? 500 : 400,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {file.name}
+        </span>
+        <CxIcon
+          name="chevron-down"
+          size={10}
+          style={{
+            color: 'var(--ink-faint)',
+            transform: expanded ? 'rotate(180deg)' : undefined,
+            transition: 'transform 120ms ease',
+          }}
+        />
+      </button>
+      {expanded && (
+        <div
+          style={{
+            padding: '0 12px 12px',
+            borderTop: '1px solid var(--line-soft)',
+          }}
+        >
+          {file.summary && (
+            <p
+              style={{
+                margin: '10px 0 8px',
+                fontSize: 12,
+                color: 'var(--ink-soft)',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {file.summary}
+            </p>
+          )}
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--ink-mute)',
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              paddingTop: file.summary ? 0 : 10,
+            }}
+          >
+            {sizeKb > 0 && <span className="num">{sizeKb} KB</span>}
+            {file.uploaded_at && <span>{file.uploaded_at.slice(0, 10)}</span>}
+            {file.origin && <span>{file.origin}</span>}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

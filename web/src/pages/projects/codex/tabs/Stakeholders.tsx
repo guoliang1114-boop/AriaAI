@@ -10,6 +10,7 @@ import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
 import { firstGlyph, useClientStakeholders } from '../useProjectsApi'
 import { CxMemberInviteDialog, CxMemberRemoveDialog } from '../CxMemberActions'
+import { CxStakeholderCreateDialog } from '../CxStakeholderActions'
 
 interface StakeholdersProps {
   projectId: number
@@ -69,10 +70,17 @@ const GRID = '1.4fr 0.7fr 0.6fr 0.7fr 1.4fr 0.8fr 14px'
 
 export function CxProjectStakeholders({ projectId, detail, refetch }: StakeholdersProps) {
   const { project, members } = detail
-  const { matchedClientId, matchedClientName, stakeholders, loading, error } =
-    useClientStakeholders(project.client)
+  const {
+    matchedClientId,
+    matchedClientName,
+    stakeholders,
+    loading,
+    error,
+    refetch: refetchStakeholders,
+  } = useClientStakeholders(project.client)
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<ProjectMember | null>(null)
+  const [creatingStakeholder, setCreatingStakeholder] = useState(false)
   const existingMemberIds = useMemo(
     () => new Set(members.map((m) => m.user_id)),
     [members],
@@ -149,19 +157,37 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               {matchedClientId && (
-                <a
-                  href={`/clients/${matchedClientId}`}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 12,
-                    color: 'var(--ink-soft)',
-                    border: '1px solid var(--line)',
-                    borderRadius: 'var(--r-sm)',
-                    textDecoration: 'none',
-                  }}
-                >
-                  到客户空间编辑 →
-                </a>
+                <>
+                  <a
+                    href={`/clients/${matchedClientId}`}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      color: 'var(--ink-soft)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-sm)',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    到客户空间编辑 →
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setCreatingStakeholder(true)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      background: 'var(--ink)',
+                      color: 'var(--bg-elev)',
+                      borderRadius: 'var(--r-sm)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                  >
+                    <CxIcon name="plus" size={11} stroke={1.6} /> 添加干系人
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -248,10 +274,11 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
                   lineHeight: 1.7,
                 }}
               >
-                客户档案已关联,但还没有录入干系人。在客户空间添加 CTO / COO / 业务负责人等关键人物后会自动汇总到此处。
+                客户档案已关联,还没有录入干系人。添加 CTO / COO / 业务负责人等关键人物后会同步存入客户记忆。
               </p>
-              <a
-                href={`/clients/${matchedClientId}`}
+              <button
+                type="button"
+                onClick={() => setCreatingStakeholder(true)}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -261,11 +288,10 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
                   background: 'var(--ink)',
                   color: 'var(--bg-elev)',
                   borderRadius: 'var(--r-sm)',
-                  textDecoration: 'none',
                 }}
               >
-                + 添加干系人 <CxIcon name="arrow-right" size={11} />
-              </a>
+                <CxIcon name="plus" size={11} stroke={1.6} /> 添加干系人
+              </button>
             </CxPanel>
           ) : (
             <>
@@ -645,6 +671,13 @@ export function CxProjectStakeholders({ projectId, detail, refetch }: Stakeholde
         member={removing}
         onClose={() => setRemoving(null)}
         onRemoved={refetch}
+      />
+      <CxStakeholderCreateDialog
+        open={creatingStakeholder}
+        clientId={matchedClientId}
+        clientName={matchedClientName}
+        onClose={() => setCreatingStakeholder(false)}
+        onCreated={refetchStakeholders}
       />
     </CxProjectShell>
   )

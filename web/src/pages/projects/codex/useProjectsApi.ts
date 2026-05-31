@@ -161,6 +161,7 @@ interface ClientStakeholdersState {
   /** A null error after loading still means "no matched client" — the
    * caller renders an empty state with guidance to link the client. */
   error: string | null
+  refetch: () => Promise<void>
 }
 
 interface ClientListItem {
@@ -342,71 +343,64 @@ export function useClientsList(): ClientsListState {
  * then load `/clients/:id/stakeholders`. Mirrors the legacy
  * ProjectStakeholdersTab approach. */
 export function useClientStakeholders(clientName: string | null | undefined): ClientStakeholdersState {
-  const [state, setState] = useState<ClientStakeholdersState>({
-    matchedClientId: null,
-    matchedClientName: null,
-    stakeholders: [],
-    loading: true,
-    error: null,
-  })
+  const [matchedClientId, setMatchedId] = useState<number | null>(null)
+  const [matchedClientName, setMatchedName] = useState<string | null>(null)
+  const [stakeholders, setStakeholders] = useState<ClientStakeholder[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchOnce = useCallback(async () => {
+    const trimmed = clientName?.trim() ?? ''
+    if (!trimmed) {
+      setMatchedId(null)
+      setMatchedName(null)
+      setStakeholders([])
+      setLoading(false)
+      setError(null)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const clients = await api.get<ClientListItem[]>('/clients')
+      const match = clients.find(
+        (item) => normalizeClientName(item.name) === normalizeClientName(trimmed),
+      )
+      if (!match) {
+        setMatchedId(null)
+        setMatchedName(null)
+        setStakeholders([])
+        setLoading(false)
+        return
+      }
+      const rows = await api.get<ClientStakeholder[]>(`/clients/${match.id}/stakeholders`)
+      setMatchedId(match.id)
+      setMatchedName(match.name)
+      setStakeholders(rows)
+    } catch (err) {
+      setMatchedId(null)
+      setMatchedName(null)
+      setStakeholders([])
+      setError(readError(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [clientName])
 
   useEffect(() => {
     let cancelled = false
-    const trimmed = clientName?.trim() ?? ''
-    if (!trimmed) {
-      setState({
-        matchedClientId: null,
-        matchedClientName: null,
-        stakeholders: [],
-        loading: false,
-        error: null,
-      })
-      return
-    }
-    setState((s) => ({ ...s, loading: true, error: null }))
-    ;(async () => {
-      try {
-        const clients = await api.get<ClientListItem[]>('/clients')
-        if (cancelled) return
-        const match = clients.find(
-          (item) => normalizeClientName(item.name) === normalizeClientName(trimmed),
-        )
-        if (!match) {
-          setState({
-            matchedClientId: null,
-            matchedClientName: null,
-            stakeholders: [],
-            loading: false,
-            error: null,
-          })
-          return
-        }
-        const stakeholders = await api.get<ClientStakeholder[]>(
-          `/clients/${match.id}/stakeholders`,
-        )
-        if (cancelled) return
-        setState({
-          matchedClientId: match.id,
-          matchedClientName: match.name,
-          stakeholders,
-          loading: false,
-          error: null,
-        })
-      } catch (err) {
-        if (cancelled) return
-        setState({
-          matchedClientId: null,
-          matchedClientName: null,
-          stakeholders: [],
-          loading: false,
-          error: readError(err),
-        })
-      }
+    void (async () => {
+      if (cancelled) return
+      await fetchOnce()
     })()
     return () => {
       cancelled = true
     }
-  }, [clientName])
+  }, [fetchOnce])
 
-  return state
+  const refetch = useCallback(async () => {
+    await fetchOnce()
+  }, [fetchOnce])
+
+  return { matchedClientId, matchedClientName, stakeholders, loading, error, refetch }
 }
