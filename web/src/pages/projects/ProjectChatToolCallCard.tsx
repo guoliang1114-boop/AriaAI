@@ -26,23 +26,32 @@ const STATUS_STYLES: Record<ToolCallEvent["status"], string> = {
 };
 
 const WORKFLOW_STEP_STYLES: Record<ToolCallEvent["status"], string> = {
-  pending: "border-codex-line bg-white",
-  running: "border-codex-line bg-codex-accent-bg/80",
-  completed: "border-codex-line bg-white",
+  pending: "border-codex-line bg-codex-bg-elev",
+  running: "border-codex-line bg-codex-accent-bg/65",
+  completed: "border-codex-line bg-codex-bg-elev",
   error: "border-codex-line bg-codex-bg-tint/70",
   blocked: "border-codex-line bg-codex-bg-tint/70",
   confirmation_required: "border-codex-line bg-codex-bg-tint/70",
   skipped: "border-codex-line bg-codex-bg-tint/70",
 };
 
+// Tone-tinted badges (background mix + tone ink) match the rest of the
+// redesign — overview chips, milestone status pills. No more white-on-
+// solid which read as the V0.0.5 indigo/violet pattern.
 const WORKFLOW_BADGE_STYLES: Record<ToolCallEvent["status"], string> = {
-  pending: "bg-codex-bg-tint text-codex-ink-soft",
-  running: "bg-codex-accent text-white",
-  completed: "bg-codex-good text-white",
-  error: "bg-codex-bad text-white",
-  blocked: "bg-codex-warn text-white",
-  confirmation_required: "bg-codex-warn text-white",
-  skipped: "bg-codex-line text-white",
+  pending:
+    "bg-codex-bg-tint text-codex-ink-soft",
+  running:
+    "bg-[color:color-mix(in_oklch,var(--color-codex-accent)_14%,transparent)] text-codex-accent",
+  completed:
+    "bg-[color:color-mix(in_oklch,var(--color-codex-good)_14%,transparent)] text-codex-good",
+  error:
+    "bg-[color:color-mix(in_oklch,var(--color-codex-bad)_14%,transparent)] text-codex-bad",
+  blocked:
+    "bg-[color:color-mix(in_oklch,var(--color-codex-warn)_14%,transparent)] text-codex-warn",
+  confirmation_required:
+    "bg-[color:color-mix(in_oklch,var(--color-codex-warn)_14%,transparent)] text-codex-warn",
+  skipped: "bg-codex-bg-tint text-codex-ink-mute",
 };
 
 const WORKFLOW_DETAIL_PREFERENCE_KEY =
@@ -152,24 +161,26 @@ export function ProjectChatToolCallCard({
       call.status === "error" && call.has_recoverable_task && onOpenTasks;
     return (
       <div
-        className={`rounded-xl border px-3 py-3 shadow-sm ${WORKFLOW_STEP_STYLES[call.status]}`}
+        className={`rounded-md border px-3 py-3 ${WORKFLOW_STEP_STYLES[call.status]}`}
       >
         <div className="flex items-start gap-2.5">
           <div
-            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tabular-nums shadow-sm ${WORKFLOW_BADGE_STYLES[call.status]}`}
+            className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums ${WORKFLOW_BADGE_STYLES[call.status]}`}
           >
             {call.step_index}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[13px] font-semibold leading-5 text-codex-ink">
+              <p className="text-[13px] font-medium leading-5 text-codex-ink">
                 {isZh
                   ? `步骤 ${call.step_index}/${call.step_total || 4}`
                   : `Step ${call.step_index}/${call.step_total || 4}`}
                 <span className="mx-1 text-codex-ink-faint">·</span>
                 {toolDisplayName(stepTitle, isZh)}
               </p>
-              <span className="inline-flex items-center gap-1 rounded-full border border-codex-line bg-white px-2 py-0.5 text-xs font-medium text-codex-ink-soft">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${WORKFLOW_BADGE_STYLES[call.status]}`}
+              >
                 <StatusIcon status={call.status} />
                 {statusLabel(call.status, isZh, true)}
               </span>
@@ -177,10 +188,10 @@ export function ProjectChatToolCallCard({
                 <button
                   type="button"
                   onClick={toggleExpanded}
-                  className="inline-flex items-center gap-1 rounded-full border border-codex-line bg-white px-2 py-0.5 text-xs font-medium text-codex-ink-mute transition hover:border-codex-line-strong hover:text-codex-ink-soft"
+                  className="inline-flex items-center gap-1 rounded-md border border-codex-line bg-codex-bg-elev px-2 py-0.5 text-xs text-codex-ink-mute transition hover:border-codex-line-strong hover:text-codex-ink-soft"
                 >
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+                    className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`}
                   />
                   {expanded
                     ? isZh
@@ -193,7 +204,7 @@ export function ProjectChatToolCallCard({
               ) : null}
             </div>
             {hasDetails && expanded ? (
-              <div className="mt-2 space-y-1.5 rounded-lg border border-white/70 bg-white/75 px-2.5 py-2">
+              <div className="mt-2 space-y-1.5 rounded-md border border-codex-line-soft bg-codex-bg-elev px-3 py-2">
                 {call.message ? (
                   <p className="text-xs leading-relaxed text-codex-ink-soft">
                     {call.message}
