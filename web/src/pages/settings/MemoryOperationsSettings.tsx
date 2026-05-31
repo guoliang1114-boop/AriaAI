@@ -280,6 +280,7 @@ export function MemoryOperationsSettings() {
   const toast = useToast()
 
   const [loading, setLoading] = useState(true)
+  const [listLoading, setListLoading] = useState(false)
   const [actionKey, setActionKey] = useState('')
   const [jobs, setJobs] = useState<CombinedJob[]>([])
   const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
@@ -318,8 +319,15 @@ export function MemoryOperationsSettings() {
   } | null>(null)
 
   const loadJobs = async (silent = false) => {
+    const isInitialLoad = !silent && loading && operationsSummary === null
     try {
-      if (!silent) setLoading(true)
+      if (!silent) {
+        if (isInitialLoad) {
+          setLoading(true)
+        } else {
+          setListLoading(true)
+        }
+      }
       const summaryData = await api.get<MemoryOperationsSummaryResponse>('/memory/operations/summary', {
         params: {
           search: searchQuery.trim(),
@@ -349,7 +357,13 @@ export function MemoryOperationsSettings() {
       console.error('Failed to load memory operations:', error)
       toast.error(isZh ? '加载记忆任务中心失败' : 'Failed to load memory operations')
     } finally {
-      if (!silent) setLoading(false)
+      if (!silent) {
+        if (isInitialLoad) {
+          setLoading(false)
+        } else {
+          setListLoading(false)
+        }
+      }
     }
   }
 
@@ -1188,7 +1202,7 @@ export function MemoryOperationsSettings() {
     )
   }
 
-  if (loading) {
+  if (loading && operationsSummary === null) {
     return (
       <div
         className="theme-codex flex min-h-[320px] items-center justify-center"
@@ -1250,7 +1264,7 @@ export function MemoryOperationsSettings() {
             borderRadius: 'var(--codex-r-sm, 3px)',
           }}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className={listLoading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
           {isZh ? '刷新任务' : 'Refresh jobs'}
         </button>
       </header>
@@ -1568,7 +1582,14 @@ export function MemoryOperationsSettings() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
-        <div className="space-y-3">
+        <div className="relative">
+          <div
+            className="space-y-3"
+            style={{
+              opacity: listLoading ? 0.48 : 1,
+              transition: 'opacity 140ms ease',
+            }}
+          >
           {!showFailuresOnly && filteredJobs.length === 0 ? (
             <div
               className="text-center"
@@ -1900,6 +1921,33 @@ export function MemoryOperationsSettings() {
                 isZh={isZh}
                 style={{ marginTop: 12 }}
               />
+            </div>
+          ) : null}
+          </div>
+          {listLoading ? (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-start justify-center"
+              style={{
+                paddingTop: 28,
+                background: 'color-mix(in oklch, var(--color-codex-bg) 50%, transparent)',
+                borderRadius: 'var(--codex-r-md, 6px)',
+              }}
+            >
+              <div
+                className="inline-flex items-center gap-2"
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--color-codex-bg-elev)',
+                  border: '1px solid var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-sm, 3px)',
+                  color: 'var(--color-codex-ink-soft)',
+                  fontSize: 12.5,
+                  boxShadow: '0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)',
+                }}
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {isZh ? '正在更新列表' : 'Updating list'}
+              </div>
             </div>
           ) : null}
         </div>

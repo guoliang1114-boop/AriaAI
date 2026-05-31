@@ -83,6 +83,7 @@ export function ProjectMemorySettings() {
   const [projects, setProjects] = useState<Project[]>([])
   const [jobs, setJobs] = useState<ProjectMemoryJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [projectsLoading, setProjectsLoading] = useState(false)
   const [loadingJobs, setLoadingJobs] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filter, setFilter] = useState<MemoryFilter>('all')
@@ -102,8 +103,13 @@ export function ProjectMemorySettings() {
   const [jobActionProjectId, setJobActionProjectId] = useState<number | null>(null)
 
   const fetchProjects = async () => {
+    const isInitialLoad = loading && projects.length === 0 && projectTotal === 0
     try {
-      setLoading(true)
+      if (isInitialLoad) {
+        setLoading(true)
+      } else {
+        setProjectsLoading(true)
+      }
       const data = await api.get<ProjectMemoryListResponse>('/projects/memory/list', {
         params: {
           search: searchQuery.trim() || undefined,
@@ -124,7 +130,11 @@ export function ProjectMemorySettings() {
       console.error('Failed to load projects for memory settings:', error)
       toast.error(isZh ? '加载项目记忆列表失败' : 'Failed to load project memories')
     } finally {
-      setLoading(false)
+      if (isInitialLoad) {
+        setLoading(false)
+      } else {
+        setProjectsLoading(false)
+      }
     }
   }
 
@@ -459,7 +469,7 @@ export function ProjectMemorySettings() {
     borderRadius: 'var(--codex-r-md, 6px)',
   }
 
-  if (loading) {
+  if (loading && projects.length === 0) {
     return (
       <div
         className="theme-codex flex min-h-[320px] items-center justify-center"
@@ -863,38 +873,45 @@ export function ProjectMemorySettings() {
       </div>
 
       {/* Project list */}
-      <div className="space-y-2">
-        {projects.length === 0 ? (
-          <div
-            style={{
-              padding: '18px 16px',
-              background: 'var(--color-codex-bg-elev)',
-              border: '1px dashed var(--color-codex-line)',
-              borderRadius: 'var(--codex-r-md, 6px)',
-              color: 'var(--color-codex-ink-mute)',
-              fontSize: 13,
-            }}
-          >
-            {isZh ? '没有符合条件的项目记忆。' : 'No project memories match these filters.'}
-          </div>
-        ) : null}
+      <div className="relative">
+        <div
+          style={{
+            opacity: projectsLoading ? 0.48 : 1,
+            transition: 'opacity 140ms ease',
+          }}
+        >
+          <div className="space-y-2">
+            {projects.length === 0 ? (
+              <div
+                style={{
+                  padding: '18px 16px',
+                  background: 'var(--color-codex-bg-elev)',
+                  border: '1px dashed var(--color-codex-line)',
+                  borderRadius: 'var(--codex-r-md, 6px)',
+                  color: 'var(--color-codex-ink-mute)',
+                  fontSize: 13,
+                }}
+              >
+                {isZh ? '没有符合条件的项目记忆。' : 'No project memories match these filters.'}
+              </div>
+            ) : null}
 
-        {projects.map((project) => {
-          const status = getMemoryStatus(project)
-          const statusText =
-            status === 'ready'
-              ? isZh
-                ? '可直接使用'
-                : 'Ready'
-              : status === 'stale'
-                ? isZh
-                  ? '建议更新'
-                  : 'Needs refresh'
-                : isZh
-                  ? '尚未整理'
-                  : 'Not prepared'
+            {projects.map((project) => {
+              const status = getMemoryStatus(project)
+              const statusText =
+                status === 'ready'
+                  ? isZh
+                    ? '可直接使用'
+                    : 'Ready'
+                  : status === 'stale'
+                    ? isZh
+                      ? '建议更新'
+                      : 'Needs refresh'
+                    : isZh
+                      ? '尚未整理'
+                      : 'Not prepared'
 
-          return (
+              return (
             <div
               key={project.id}
               style={{
@@ -1021,24 +1038,52 @@ export function ProjectMemorySettings() {
                 </div>
               </div>
             </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
 
-      <CxPagination
-        page={projectPage}
-        pageSize={projectPageSize}
-        totalItems={projectTotal}
-        onPageChange={setProjectPage}
-        onPageSizeChange={(nextPageSize) => {
-          setProjectPageSize(nextPageSize)
-          setProjectPage(1)
-        }}
-        pageSizeOptions={[10, 20, 50]}
-        variant="full"
-        isZh={isZh}
-        style={{ marginTop: 16 }}
-      />
+          <CxPagination
+            page={projectPage}
+            pageSize={projectPageSize}
+            totalItems={projectTotal}
+            onPageChange={setProjectPage}
+            onPageSizeChange={(nextPageSize) => {
+              setProjectPageSize(nextPageSize)
+              setProjectPage(1)
+            }}
+            pageSizeOptions={[10, 20, 50]}
+            variant="full"
+            isZh={isZh}
+            style={{ marginTop: 16 }}
+          />
+        </div>
+        {projectsLoading ? (
+          <div
+            className="pointer-events-none absolute inset-0 flex items-start justify-center"
+            style={{
+              paddingTop: 28,
+              background: 'color-mix(in oklch, var(--color-codex-bg) 50%, transparent)',
+              borderRadius: 'var(--codex-r-md, 6px)',
+            }}
+          >
+            <div
+              className="inline-flex items-center gap-2"
+              style={{
+                padding: '8px 12px',
+                background: 'var(--color-codex-bg-elev)',
+                border: '1px solid var(--color-codex-line)',
+                borderRadius: 'var(--codex-r-sm, 3px)',
+                color: 'var(--color-codex-ink-soft)',
+                fontSize: 12.5,
+                boxShadow: '0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)',
+              }}
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {isZh ? '正在更新列表' : 'Updating list'}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
