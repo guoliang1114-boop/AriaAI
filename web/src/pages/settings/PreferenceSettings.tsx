@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 
 import { api } from "../../api/client";
 import { CxConfirmDialog } from "../../components/codex";
+import { useToast } from "../../contexts/ToastContext";
 import {
   compactPreferences,
   readShape,
@@ -89,6 +90,7 @@ function getConfirmationPolicy(prefs: PreferencesShape): ConfirmationPolicy {
 
 export function PreferenceSettings() {
   const { i18n } = useTranslation();
+  const toast = useToast();
   const isZh = (i18n.language ?? "zh").startsWith("zh");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -187,6 +189,12 @@ export function PreferenceSettings() {
       setDirty(false);
       setClearConfirmOpen(false);
       setMsg({ type: "success", text: isZh ? "偏好已清除。" : "Preferences cleared." });
+      toast.success({
+        title: isZh ? "偏好已清除" : "Preferences cleared",
+        description: isZh
+          ? "AI 将按默认方式与你协作。"
+          : "Aria will collaborate with the default settings.",
+      });
       if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
       msgTimerRef.current = setTimeout(() => setMsg(null), 3000);
     } catch (err: any) {
