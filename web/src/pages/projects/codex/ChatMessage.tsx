@@ -58,9 +58,10 @@ function parseMeta(raw: string | undefined): ParsedMeta {
 interface MessageBubbleProps {
   message: Message
   projectId: number
+  onArtifactClick?: (artifact: GeneratedArtifact) => void
 }
 
-export function ProjectChatMessage({ message, projectId }: MessageBubbleProps) {
+export function ProjectChatMessage({ message, projectId, onArtifactClick }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const meta = useMemo(() => parseMeta(message.metadata_json), [message.metadata_json])
 
@@ -129,7 +130,11 @@ export function ProjectChatMessage({ message, projectId }: MessageBubbleProps) {
           <>
             {meta.progress.length > 0 && <SkillProgressPill steps={meta.progress} />}
             {meta.artifacts.map((a, i) => (
-              <ArtifactCard key={`${a.id ?? a.path}-${i}`} artifact={a} />
+              <ArtifactCard
+                key={`${a.id ?? a.path}-${i}`}
+                artifact={a}
+                onClick={onArtifactClick}
+              />
             ))}
             <div
               className="md-root"
@@ -268,27 +273,26 @@ function SkillProgressPill({ steps }: { steps: ProgressStep[] }) {
  * previewing requires the live conversation context that lives on
  * /chat, so the row deep-links there.
  * ──────────────────────────────────────────────────────────────── */
-function ArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
+function ArtifactCard({
+  artifact,
+  onClick,
+}: {
+  artifact: GeneratedArtifact
+  onClick?: (a: GeneratedArtifact) => void
+}) {
   const ext = (artifact.file_type || artifact.name.split('.').pop() || '')
     .replace('.', '')
     .toUpperCase()
     .slice(0, 4)
   const isMd = ext === 'MD'
   const sizeKb = artifact.size_bytes ? Math.round(artifact.size_bytes / 1024) : null
+  // Only previewable when the backend has actually saved a file row
+  // for this artifact — without project_file_id we have nothing to
+  // fetch.
+  const previewable = !!onClick && artifact.project_file_id != null
 
-  return (
-    <div
-      style={{
-        background: 'var(--bg-elev)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--r-sm)',
-        padding: '10px 12px',
-        marginBottom: 10,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-      }}
-    >
+  const body = (
+    <>
       <span
         style={{
           width: 36,
@@ -307,7 +311,7 @@ function ArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
       >
         {ext || 'FILE'}
       </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
         <div
           className="ui"
           style={{
@@ -326,8 +330,48 @@ function ArtifactCard({ artifact }: { artifact: GeneratedArtifact }) {
           {artifact.description || 'Aria 生成的产出'}
         </div>
       </div>
-    </div>
+      {previewable && (
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--accent)',
+            padding: '2px 8px',
+            background: 'var(--accent-bg)',
+            borderRadius: 'var(--r-sm)',
+            flexShrink: 0,
+          }}
+        >
+          预览 →
+        </span>
+      )}
+    </>
   )
+
+  const sharedStyle = {
+    background: 'var(--bg-elev)',
+    border: '1px solid var(--line)',
+    borderRadius: 'var(--r-sm)',
+    padding: '10px 12px',
+    marginBottom: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+  } as const
+
+  if (previewable) {
+    return (
+      <button
+        type="button"
+        className="row-hov"
+        onClick={() => onClick?.(artifact)}
+        style={{ ...sharedStyle, cursor: 'pointer' }}
+      >
+        {body}
+      </button>
+    )
+  }
+  return <div style={sharedStyle}>{body}</div>
 }
 
 /* ────────────────────────────────────────────────────────────────

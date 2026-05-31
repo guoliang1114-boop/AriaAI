@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
   Conversation,
+  GeneratedArtifact,
   Message,
   ProjectDetail as ProjectDetailType,
-  ProjectFile,
 } from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
@@ -13,7 +13,9 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxConversationRenameDialog } from '../CxConversationActions'
 import { ProjectChatMessage } from '../ChatMessage'
-import { useChatStream } from '../useChatStream'
+import { ChatArtifactPreview } from '../ChatArtifactPreview'
+import { ChatSpaceTree } from '../ChatSpaceTree'
+import { useChatStream, type ChatStreamStatus } from '../useChatStream'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -25,25 +27,57 @@ interface ChatProps {
   detail: ProjectDetailType
 }
 
-/** Project chat tab — read-only conversation list + thread view.
+/** Project chat tab — full two-way chat in the project shell.
  *
- * Sending new messages still goes through the global /chat page
- * because that's where the streaming pipeline + tool-call UI lives.
- * The composer here just deep-links you in with the conversation
- * preselected. New-conversation creates an empty conversation and
- * jumps you to the global chat page so the first message flows
- * through the proper stream. */
+ * Layout: 260px left rail (segmented 对话 / 空间) + 1fr thread +
+ * optional 380px artifact preview pane on the right. Messages,
+ * pending sends, and the SSE streaming hook all live here at the
+ * parent so the 空间 tree can read the same conversation's
+ * artifacts without re-fetching. ThreadView is now a pure renderer
+ * + composer that takes everything via props. */
 export function CxProjectChat({ projectId, detail }: ChatProps) {
-  const { project, files, folders } = detail
+  const { project } = detail
   const toast = useToast()
-  const { data: conversations, loading, error, refetch } = useProjectConversations(projectId)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [showFiles, setShowFiles] = useState(false)
-  const [expandedFileId, setExpandedFileId] = useState<number | null>(null)
+  const {
+    data: conversations,
+    loading: convsLoading,
+    error: convsError,
+    refetch: refetchConvs,
+  } = useProjectConversations(projectId)
 
-  // Auto-select the most recently-updated conversation when the list
-  // arrives or refreshes. Don't overwrite the user's explicit pick.
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [view, setView] = useState<'chats' | 'space'>('chats')
+  const [creating, setCreating] = useState(false)
+  const [openArtifact, setOpenArtifact] = useState<GeneratedArtifact | null>(null)
+
+  // Conversation messages — lifted out of ThreadView so the 空间
+  // tree can list 「本会话产出」 without a duplicate fetch. Pending
+  // messages (user + finalized assistant from useChatStream) are
+  // layered on top.
+  const {
+    data: serverMessages,
+    loading: msgsLoading,
+    error: msgsError,
+  } = useConversationMessages(selectedId)
+  const [pending, setPending] = useState<Message[]>([])
+  useEffect(() => {
+    setPending([])
+  }, [selectedId])
+  const allMessages = useMemo(
+    () => (pending.length ? [...serverMessages, ...pending] : serverMessages),
+    [serverMessages, pending],
+  )
+
+  const { status: streamStatus, streamingContent, statusMessage, send } = useChatStream({
+    projectId,
+    conversationId: selectedId,
+    onUserMessage: (m) => setPending((prev) => [...prev, m]),
+    onAssistantMessage: (m) => setPending((prev) => [...prev, m]),
+    onError: (msg) => toast.error({ title: '发送失败', description: msg }),
+  })
+
+  // Auto-select the most recently-updated conversation when the
+  // list arrives or refreshes. Don't overwrite the user's pick.
   useEffect(() => {
     if (selectedId != null) return
     if (conversations.length > 0) setSelectedId(conversations[0].id)
@@ -56,7 +90,7 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
       const conv = await api.post<Conversation>('/chat/conversations', {
         project_id: projectId,
       })
-      await refetch()
+      await refetchConvs()
       setSelectedId(conv.id)
     } catch (err) {
       toast.error({
@@ -68,110 +102,51 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
     }
   }
 
+  const showPreview = openArtifact != null
+  const selectedConv = conversations.find((c) => c.id === selectedId) ?? null
+
   return (
     <CxProjectShell activeTab="chat" projectId={projectId} project={project}>
       <div
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: showFiles ? '260px 1fr 340px' : '260px 1fr',
+          gridTemplateColumns: showPreview ? '260px 1fr 380px' : '260px 1fr',
           minHeight: 0,
         }}
       >
-        {/* Conversation list */}
+        {/* Left rail */}
         <aside
           style={{
             borderRight: '1px solid var(--line)',
-            padding: '20px 14px',
-            overflow: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
+            overflow: 'hidden',
           }}
         >
-          <button
-            type="button"
-            onClick={handleNewConversation}
-            disabled={creating}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '9px 12px',
-              background: 'var(--ink)',
-              color: 'var(--bg-elev)',
-              borderRadius: 'var(--r-sm)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: creating ? 'wait' : 'pointer',
-              opacity: creating ? 0.6 : 1,
-            }}
-          >
-            <CxIcon name="plus" size={13} /> {creating ? '创建中…' : '新建对话'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFiles((v) => !v)}
-            className="row-hov"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '7px 12px',
-              fontSize: 12.5,
-              color: showFiles ? 'var(--accent)' : 'var(--ink-mute)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-sm)',
-              marginTop: 6,
-              marginBottom: 8,
-              background: showFiles ? 'var(--accent-bg)' : 'transparent',
-            }}
-          >
-            <CxIcon name="file" size={12} />
-            {showFiles ? '隐藏项目文件' : '查看项目文件'}
-          </button>
-
-          {loading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 10px' }}>
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div
-                  key={i}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 0' }}
-                >
-                  <CxSkeleton w="80%" h={11} />
-                  <CxSkeleton w={60} h={9} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!loading && error && (
-            <div style={{ fontSize: 12, color: 'var(--bad)', padding: '8px 10px' }}>
-              {error}
-            </div>
-          )}
-
-          {!loading && !error && conversations.length === 0 && (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--ink-faint)',
-                padding: '24px 10px',
-                textAlign: 'center',
-                lineHeight: 1.6,
-              }}
-            >
-              还没有项目对话。
-              <br />
-              点击「新建对话」开始第一段。
-            </div>
-          )}
-
-          {!loading && !error && conversations.length > 0 && (
-            <ConversationGroups
+          <div style={{ padding: '12px 12px 0', flexShrink: 0 }}>
+            <SegmentedSwitcher
+              view={view}
+              setView={setView}
+              chatsCount={conversations.length}
+            />
+          </div>
+          {view === 'chats' ? (
+            <ChatsListView
+              creating={creating}
+              loading={convsLoading}
+              error={convsError}
               conversations={conversations}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onNew={handleNewConversation}
+            />
+          ) : (
+            <ChatSpaceTree
+              projectId={projectId}
+              detail={detail}
+              conversationMessages={allMessages}
+              onOpenArtifact={setOpenArtifact}
             />
           )}
         </aside>
@@ -183,30 +158,206 @@ export function CxProjectChat({ projectId, detail }: ChatProps) {
               key={selectedId}
               projectId={projectId}
               conversationId={selectedId}
-              conversation={conversations.find((c) => c.id === selectedId) ?? null}
+              conversation={selectedConv}
+              messages={allMessages}
+              messagesLoading={msgsLoading}
+              messagesError={msgsError}
+              streamStatus={streamStatus}
+              streamingContent={streamingContent}
+              streamStatusMessage={statusMessage}
+              onSend={send}
+              onOpenArtifact={setOpenArtifact}
               onDeleted={async () => {
                 setSelectedId(null)
-                await refetch()
+                await refetchConvs()
               }}
-              onChanged={refetch}
+              onChanged={refetchConvs}
             />
           ) : (
             <EmptyThread />
           )}
         </div>
 
-        {/* Optional files preview pane */}
-        {showFiles && (
-          <FilesPane
-            files={files}
-            folders={folders}
-            expandedFileId={expandedFileId}
-            onToggleFile={(id) => setExpandedFileId(expandedFileId === id ? null : id)}
-            onClose={() => setShowFiles(false)}
+        {/* Right preview pane */}
+        {showPreview && openArtifact && (
+          <ChatArtifactPreview
+            projectId={projectId}
+            artifact={openArtifact}
+            onClose={() => setOpenArtifact(null)}
           />
         )}
       </div>
     </CxProjectShell>
+  )
+}
+
+/** Segmented control swapping between the conversation list and the
+ * 空间 (project space) tree. Visual style: minimal pill switcher
+ * sitting flush at the top of the rail. */
+function SegmentedSwitcher({
+  view,
+  setView,
+  chatsCount,
+}: {
+  view: 'chats' | 'space'
+  setView: (v: 'chats' | 'space') => void
+  chatsCount: number
+}) {
+  const items: Array<{ k: 'chats' | 'space'; l: string; n: number | null }> = [
+    { k: 'chats', l: '对话', n: chatsCount },
+    { k: 'space', l: '空间', n: null },
+  ]
+  return (
+    <div
+      style={{
+        display: 'flex',
+        padding: 2,
+        background: 'var(--bg-tint)',
+        borderRadius: 'var(--r-sm)',
+        border: '1px solid var(--line-soft)',
+      }}
+    >
+      {items.map((t) => {
+        const active = view === t.k
+        return (
+          <button
+            key={t.k}
+            type="button"
+            onClick={() => setView(t.k)}
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              borderRadius: 'var(--r-sm)',
+              background: active ? 'var(--bg-elev)' : 'transparent',
+              border: active ? '1px solid var(--line)' : '1px solid transparent',
+              fontSize: 12.5,
+              color: active ? 'var(--ink)' : 'var(--ink-mute)',
+              fontWeight: active ? 500 : 400,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              cursor: 'pointer',
+            }}
+          >
+            {t.l}
+            {t.n != null && (
+              <span
+                className="num"
+                style={{
+                  fontSize: 10.5,
+                  color: active ? 'var(--accent)' : 'var(--ink-faint)',
+                }}
+              >
+                {t.n}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+interface ChatsListViewProps {
+  creating: boolean
+  loading: boolean
+  error: string | null
+  conversations: Conversation[]
+  selectedId: number | null
+  onSelect: (id: number) => void
+  onNew: () => void
+}
+
+/** The 对话 (conversations) view inside the left rail. Extracted so
+ * the segmented switcher's body can swap to ChatSpaceTree cleanly. */
+function ChatsListView({
+  creating,
+  loading,
+  error,
+  conversations,
+  selectedId,
+  onSelect,
+  onNew,
+}: ChatsListViewProps) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        overflow: 'auto',
+        padding: '10px 14px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onNew}
+        disabled={creating}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'var(--ink)',
+          color: 'var(--bg-elev)',
+          borderRadius: 'var(--r-sm)',
+          fontSize: 12.5,
+          fontWeight: 500,
+          cursor: creating ? 'wait' : 'pointer',
+          opacity: creating ? 0.6 : 1,
+          marginBottom: 6,
+        }}
+      >
+        <CxIcon name="plus" size={12} /> {creating ? '创建中…' : '新建对话'}
+        <span style={{ marginLeft: 'auto', fontSize: 10.5, opacity: 0.6 }}>⌘N</span>
+      </button>
+
+      {loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 4px' }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 0' }}
+            >
+              <CxSkeleton w="80%" h={11} />
+              <CxSkeleton w={60} h={9} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && error && (
+        <div style={{ fontSize: 12, color: 'var(--bad)', padding: '8px 4px' }}>
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && conversations.length === 0 && (
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--ink-faint)',
+            padding: '24px 4px',
+            textAlign: 'center',
+            lineHeight: 1.6,
+          }}
+        >
+          还没有项目对话。
+          <br />
+          点击「新建对话」开始第一段。
+        </div>
+      )}
+
+      {!loading && !error && conversations.length > 0 && (
+        <ConversationGroups
+          conversations={conversations}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+      )}
+    </div>
   )
 }
 
@@ -351,51 +502,58 @@ interface ThreadViewProps {
   projectId: number
   conversationId: number
   conversation: Conversation | null
+  messages: Message[]
+  messagesLoading: boolean
+  messagesError: string | null
+  streamStatus: ChatStreamStatus
+  streamingContent: string
+  streamStatusMessage: string | null
+  onSend: (text: string) => Promise<void>
+  onOpenArtifact: (artifact: GeneratedArtifact) => void
   onDeleted: () => Promise<void>
   onChanged: () => Promise<void>
 }
 
-function ThreadView({ projectId, conversationId, conversation, onDeleted, onChanged }: ThreadViewProps) {
+function ThreadView({
+  projectId,
+  conversationId,
+  conversation,
+  messages,
+  messagesLoading,
+  messagesError,
+  streamStatus,
+  streamingContent,
+  streamStatusMessage,
+  onSend,
+  onOpenArtifact,
+  onDeleted,
+  onChanged,
+}: ThreadViewProps) {
   const navigate = useNavigate()
   const toast = useToast()
-  const { data: messages, loading, error } = useConversationMessages(conversationId)
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
-  // Messages sent during this mount, layered on top of the server
-  // fetch. ThreadView is keyed on `conversationId` from the parent so
-  // this state resets cleanly when you switch conversations.
-  const [pending, setPending] = useState<Message[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { status, streamingContent, statusMessage, send } = useChatStream({
-    projectId,
-    conversationId,
-    onUserMessage: (m) => {
-      setPending((prev) => [...prev, m])
-      // Defer scroll until the new bubble is in the DOM.
-      setTimeout(() => {
-        scrollRef.current?.scrollTo({
-          top: scrollRef.current.scrollHeight,
-          behavior: 'smooth',
-        })
-      }, 0)
-    },
-    onAssistantMessage: (m) => setPending((prev) => [...prev, m]),
-    onError: (msg) =>
-      toast.error({ title: '发送失败', description: msg }),
-  })
-
-  // Auto-scroll as the streaming reply grows. Cheap to do every
-  // render because the scroll container is small and the diff is
-  // append-only.
+  // Auto-scroll while a reply is streaming. Cheap to do every
+  // render — the diff is append-only.
   useEffect(() => {
-    if (status === 'streaming' || status === 'sending') {
+    if (streamStatus === 'streaming' || streamStatus === 'sending') {
       scrollRef.current?.scrollTo({
         top: scrollRef.current.scrollHeight,
         behavior: 'auto',
       })
     }
-  }, [status, streamingContent])
+  }, [streamStatus, streamingContent])
+
+  // Also snap to bottom whenever the displayed messages count grows
+  // (new send, new conversation arrived, etc.).
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [messages.length])
 
   const handleDelete = async () => {
     if (deleting) return
@@ -414,8 +572,7 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
     }
   }
 
-  const allMessages = pending.length ? [...messages, ...pending] : messages
-  const busy = status === 'sending' || status === 'streaming'
+  const busy = streamStatus === 'sending' || streamStatus === 'streaming'
 
   return (
     <>
@@ -482,7 +639,7 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           width: '100%',
         }}
       >
-        {loading && (
+        {messagesLoading && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} style={{ display: 'flex', gap: 14 }}>
@@ -498,11 +655,11 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           </div>
         )}
 
-        {!loading && error && (
-          <div style={{ fontSize: 13, color: 'var(--bad)' }}>{error}</div>
+        {!messagesLoading && messagesError && (
+          <div style={{ fontSize: 13, color: 'var(--bad)' }}>{messagesError}</div>
         )}
 
-        {!loading && !error && allMessages.length === 0 && !busy && (
+        {!messagesLoading && !messagesError && messages.length === 0 && !busy && (
           <div
             style={{
               textAlign: 'center',
@@ -518,18 +675,23 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           </div>
         )}
 
-        {!loading &&
-          !error &&
-          allMessages.map((m) => (
-            <ProjectChatMessage key={m.id} message={m} projectId={projectId} />
+        {!messagesLoading &&
+          !messagesError &&
+          messages.map((m) => (
+            <ProjectChatMessage
+              key={m.id}
+              message={m}
+              projectId={projectId}
+              onArtifactClick={onOpenArtifact}
+            />
           ))}
 
-        {busy && <StreamingBubble content={streamingContent} status={statusMessage} />}
+        {busy && <StreamingBubble content={streamingContent} status={streamStatusMessage} />}
       </div>
 
       {/* Composer */}
       <div style={{ padding: '0 56px 22px', width: '100%' }}>
-        <Composer onSend={send} disabled={busy} />
+        <Composer onSend={onSend} disabled={busy} />
       </div>
     </>
   )
@@ -861,237 +1023,3 @@ function StreamingBubble({
   )
 }
 
-interface FilesPaneProps {
-  files: ProjectFile[]
-  folders: ProjectDetailType['folders']
-  expandedFileId: number | null
-  onToggleFile: (id: number) => void
-  onClose: () => void
-}
-
-/** Right-side files panel — variant of the chat-preview design. Shows
- * project files grouped by folder; clicking a row expands its summary
- * + metadata inline. */
-function FilesPane({ files, folders, expandedFileId, onToggleFile, onClose }: FilesPaneProps) {
-  const visible = files.filter((f) => !f.deleted_at)
-  const folderById = new Map(folders.map((f) => [f.id, f.name]))
-  const grouped: Array<{ id: number; name: string; files: ProjectFile[] }> = []
-  const seen = new Set<number>()
-  for (const f of [...folders].sort((a, b) => a.sort_order - b.sort_order)) {
-    const items = visible.filter((v) => v.folder_id === f.id)
-    if (items.length > 0) {
-      grouped.push({ id: f.id, name: f.name, files: items })
-      seen.add(f.id)
-    }
-  }
-  const unfiled = visible.filter((v) => v.folder_id == null || !folderById.has(v.folder_id))
-  if (unfiled.length > 0) {
-    grouped.push({ id: -1, name: '未分类', files: unfiled })
-  }
-
-  return (
-    <aside
-      style={{
-        borderLeft: '1px solid var(--line)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        background: 'var(--bg-elev)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 16px',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        <div>
-          <h3 className="ui" style={{ margin: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>
-            项目文件
-          </h3>
-          <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
-            {visible.length} 份 · 点击展开摘要
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          title="关闭"
-          style={{
-            color: 'var(--ink-faint)',
-            fontSize: 16,
-            padding: 4,
-            lineHeight: 1,
-          }}
-        >
-          ×
-        </button>
-      </div>
-
-      <div style={{ flex: 1, overflow: 'auto', padding: '12px 14px' }}>
-        {grouped.length === 0 ? (
-          <div
-            style={{
-              fontSize: 12.5,
-              color: 'var(--ink-faint)',
-              textAlign: 'center',
-              padding: '32px 12px',
-              lineHeight: 1.7,
-            }}
-          >
-            还没有上传任何文件。
-            <br />
-            前往「文档」Tab 上传。
-          </div>
-        ) : (
-          grouped.map((g) => (
-            <div key={g.id} style={{ marginBottom: 14 }}>
-              <div
-                style={{
-                  fontSize: 10.5,
-                  color: 'var(--ink-faint)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  padding: '4px 4px 6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <CxIcon name="folder" size={11} style={{ color: 'var(--ink-faint)' }} />
-                {g.name} · {g.files.length}
-              </div>
-              {g.files.map((f) => (
-                <FileEntry
-                  key={f.id}
-                  file={f}
-                  expanded={f.id === expandedFileId}
-                  onToggle={() => onToggleFile(f.id)}
-                />
-              ))}
-            </div>
-          ))
-        )}
-      </div>
-    </aside>
-  )
-}
-
-function FileEntry({
-  file,
-  expanded,
-  onToggle,
-}: {
-  file: ProjectFile
-  expanded: boolean
-  onToggle: () => void
-}) {
-  const ext = (file.file_type || file.name.split('.').pop() || '').replace('.', '').toUpperCase().slice(0, 4) || '—'
-  const highlight = ext === 'MD' || ext === 'MEM'
-  const sizeKb = file.size ? Math.round(file.size / 1024) : 0
-  return (
-    <div
-      style={{
-        marginBottom: 6,
-        border: expanded ? '1px solid var(--accent)' : '1px solid var(--line-soft)',
-        borderRadius: 'var(--r-sm)',
-        background: expanded ? 'var(--bg)' : 'transparent',
-        overflow: 'hidden',
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="row-hov"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 10px',
-          width: '100%',
-          textAlign: 'left',
-          background: 'transparent',
-        }}
-      >
-        <span
-          style={{
-            fontSize: 9,
-            color: highlight ? 'var(--accent)' : 'var(--ink-mute)',
-            padding: '2px 5px',
-            border: `1px solid ${highlight ? 'var(--accent-bg)' : 'var(--line)'}`,
-            background: highlight ? 'var(--accent-bg)' : 'transparent',
-            borderRadius: 2,
-            flexShrink: 0,
-            letterSpacing: '0.04em',
-            minWidth: 28,
-            textAlign: 'center',
-          }}
-        >
-          {ext}
-        </span>
-        <span
-          className="ui"
-          style={{
-            flex: 1,
-            fontSize: 12.5,
-            color: 'var(--ink)',
-            fontWeight: expanded ? 500 : 400,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {file.name}
-        </span>
-        <CxIcon
-          name="chevron-down"
-          size={10}
-          style={{
-            color: 'var(--ink-faint)',
-            transform: expanded ? 'rotate(180deg)' : undefined,
-            transition: 'transform 120ms ease',
-          }}
-        />
-      </button>
-      {expanded && (
-        <div
-          style={{
-            padding: '0 12px 12px',
-            borderTop: '1px solid var(--line-soft)',
-          }}
-        >
-          {file.summary && (
-            <p
-              style={{
-                margin: '10px 0 8px',
-                fontSize: 12,
-                color: 'var(--ink-soft)',
-                lineHeight: 1.6,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {file.summary}
-            </p>
-          )}
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--ink-mute)',
-              display: 'flex',
-              gap: 10,
-              flexWrap: 'wrap',
-              paddingTop: file.summary ? 0 : 10,
-            }}
-          >
-            {sizeKb > 0 && <span className="num">{sizeKb} KB</span>}
-            {file.uploaded_at && <span>{file.uploaded_at.slice(0, 10)}</span>}
-            {file.origin && <span>{file.origin}</span>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
