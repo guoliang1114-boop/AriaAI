@@ -10,6 +10,13 @@ import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
 import { firstGlyph } from '../useProjectsApi'
 import {
+  feedToneColor,
+  formatFeedTime,
+  groupFeedByDay,
+  synthesizeActivityFeed,
+  type FeedEvent,
+} from '../activityFeed'
+import {
   CxMilestoneDeleteDialog,
   CxMilestoneFormDialog,
   toggleMilestoneDone,
@@ -100,6 +107,24 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
     }
   }
 
+  // Build the expanded activity feed shown in the left column. Up to
+  // 50 events grouped by day; same synth as the Overview rail (memory
+  // updates, milestone add/done, file uploads, todo add/done, project
+  // edits) so the two views agree.
+  const feed = useMemo(
+    () =>
+      synthesizeActivityFeed({
+        project,
+        milestones,
+        files: detail.files,
+        todos,
+        projectId,
+        limit: 50,
+      }),
+    [project, milestones, detail.files, todos, projectId],
+  )
+  const grouped = useMemo(() => groupFeedByDay(feed), [feed])
+
   return (
     <CxProjectShell activeTab="milestones" projectId={projectId} project={project}>
       <div
@@ -108,70 +133,79 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
           overflow: 'auto',
           padding: '24px 40px 32px',
           display: 'grid',
-          gridTemplateColumns: '1fr 300px',
-          gap: 24,
+          gridTemplateColumns: '1fr 380px',
+          gap: 28,
           minWidth: 0,
         }}
       >
+        {/* LEFT — activity feed becomes the centerpiece */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-            <div>
-              <h2
-                className="ui"
-                style={{
-                  margin: 0,
-                  fontSize: 18,
-                  fontWeight: 500,
-                  color: 'var(--ink)',
-                  letterSpacing: '-0.015em',
-                }}
-              >
-                里程碑 · {done} / {total} 完成
-              </h2>
-              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--ink-mute)' }}>
-                按计划日期排序
+          <div>
+            <h2
+              className="ui"
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 500,
+                color: 'var(--ink)',
+                letterSpacing: '-0.015em',
+              }}
+            >
+              最近动态 · {feed.length}
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--ink-mute)' }}>
+              从对话、文档、里程碑、待办、项目记忆等数据自动汇总
+            </p>
+          </div>
+
+          {feed.length === 0 ? (
+            <CxPanel title="还没有动态">
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.7 }}>
+                上传文档、添加里程碑或更新项目记忆后会出现在这里。
               </p>
+            </CxPanel>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {grouped.map((g) => (
+                <DayGroup key={g.label} label={g.label} events={g.events} />
+              ))}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+          )}
+        </div>
+
+        {/* RIGHT — milestones + todos panels stacked */}
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+          <CxPanel
+            title="里程碑"
+            subtitle={`${done} / ${total} 完成`}
+            action={
               <button
                 type="button"
                 onClick={() => setCreating(true)}
                 style={{
-                  padding: '6px 12px',
                   fontSize: 12,
-                  background: 'var(--ink)',
-                  color: 'var(--bg-elev)',
-                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--accent)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 5,
+                  gap: 4,
                 }}
               >
-                <CxIcon name="plus" size={11} stroke={1.6} /> 添加里程碑
+                <CxIcon name="plus" size={11} stroke={1.6} /> 添加
               </button>
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: 'var(--bg-elev)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--r-md)',
-              padding: '20px 24px',
-            }}
+            }
           >
             {sortedMs.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
-                还没有里程碑。点击右上「添加里程碑」开始。
+                还没有里程碑。
               </div>
             ) : (
-              <div style={{ position: 'relative', paddingLeft: 22 }}>
+              <div style={{ position: 'relative', paddingLeft: 18 }}>
                 <div
                   style={{
                     position: 'absolute',
-                    left: 6,
-                    top: 8,
-                    bottom: 8,
+                    left: 4,
+                    top: 4,
+                    bottom: 4,
                     width: 1,
                     background: 'var(--line)',
                   }}
@@ -189,11 +223,11 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
                 ))}
               </div>
             )}
-          </div>
+          </CxPanel>
 
           <CxPanel
             title="待办"
-            subtitle={`${openTodos.length} 项进行中 · ${doneTodos.length} 项已完成`}
+            subtitle={`${openTodos.length} 进行中 · ${doneTodos.length} 完成`}
             action={
               <button
                 type="button"
@@ -206,7 +240,7 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
                   gap: 4,
                 }}
               >
-                <CxIcon name="plus" size={11} stroke={1.6} /> 添加待办
+                <CxIcon name="plus" size={11} stroke={1.6} /> 添加
               </button>
             }
           >
@@ -256,9 +290,7 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
               </>
             )}
           </CxPanel>
-        </div>
 
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <CxPanel title="速度指标">
             <div style={{ fontSize: 12.5, lineHeight: 1.85 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -576,5 +608,133 @@ function MilestoneRow({ m, last, busy, onToggle, onEdit, onDelete }: MilestoneRo
         <CxIcon name="trash" size={13} />
       </button>
     </div>
+  )
+}
+
+/** A day-bucket label (今天 / 昨天 / 2025-04-12) plus its event rows
+ * for the expanded activity feed. Matches the look of the per-day
+ * sections in the design's "活动" 视图 — sticky-feeling day header,
+ * then a vertical line with timestamps + colored dots + content. */
+function DayGroup({ label, events }: { label: string; events: FeedEvent[] }) {
+  return (
+    <section
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-md)',
+        padding: '14px 18px 4px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          marginBottom: 8,
+        }}
+      >
+        <h3
+          className="ui"
+          style={{
+            margin: 0,
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--ink)',
+            letterSpacing: '-0.005em',
+          }}
+        >
+          {label}
+        </h3>
+        <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+          · {events.length} 项变更
+        </span>
+      </div>
+      <div style={{ position: 'relative', paddingLeft: 14 }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: 4,
+            top: 4,
+            bottom: 4,
+            width: 1,
+            background: 'var(--line)',
+          }}
+        />
+        {events.map((e) => (
+          <ActivityRow key={e.id} event={e} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ActivityRow({ event }: { event: FeedEvent }) {
+  const color = feedToneColor(event.tone)
+  const body = (
+    <>
+      <span style={{ fontSize: 12, color: 'var(--ink-mute)', paddingTop: 1, fontVariantNumeric: 'tabular-nums' }}>
+        {formatFeedTime(event.ts)}
+      </span>
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 99,
+          background: 'var(--bg-elev)',
+          border: `1.5px solid ${color}`,
+          marginTop: 6,
+          position: 'relative',
+          left: -14,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          marginLeft: -10,
+          fontSize: 13,
+          color: 'var(--ink-soft)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
+          gap: 6,
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10.5,
+            padding: '1px 6px',
+            borderRadius: 'var(--r-pill)',
+            background: 'var(--bg-tint)',
+            color: 'var(--ink-mute)',
+            flexShrink: 0,
+            letterSpacing: '0.04em',
+          }}
+        >
+          {event.category}
+        </span>
+        {event.who && event.who !== '—' && (
+          <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{event.who}</span>
+        )}
+        <span style={{ color: 'var(--ink-soft)', lineHeight: 1.55 }}>{event.what}</span>
+      </span>
+    </>
+  )
+  const rowStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '60px auto 1fr',
+    gap: 12,
+    padding: '10px 0',
+    alignItems: 'flex-start',
+    position: 'relative',
+    textDecoration: 'none',
+    color: 'inherit',
+  }
+  return event.href ? (
+    <a href={event.href} style={rowStyle} className="row-hov">
+      {body}
+    </a>
+  ) : (
+    <div style={rowStyle}>{body}</div>
   )
 }
