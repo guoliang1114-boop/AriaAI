@@ -87,6 +87,7 @@ export function ProjectDocumentsTab({
   const toast = useToast();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [uploading, setUploading] = useState(false);
+  const [documentListLoading, setDocumentListLoading] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>(projectDetail.files);
   const [documentTotal, setDocumentTotal] = useState(projectDetail.files.length);
   const [sourceCounts, setSourceCounts] = useState<Record<Exclude<FilterKey, "all">, number>>({
@@ -101,6 +102,7 @@ export function ProjectDocumentsTab({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadDocuments = async () => {
+    setDocumentListLoading(true);
     try {
       const data = await api.get<ProjectFileListResponse>(`/projects/${projectId}/files/list`, {
         params: {
@@ -115,6 +117,8 @@ export function ProjectDocumentsTab({
       setRecentFiles(data.recent);
     } catch (error) {
       console.error("Failed to load project documents:", error);
+    } finally {
+      setDocumentListLoading(false);
     }
   };
 
@@ -295,144 +299,177 @@ export function ProjectDocumentsTab({
         </div>
 
         {/* Doc list */}
-        <div>
-          {documentTotal === 0 ? (
-            <div
-              style={{
-                padding: "32px 8px",
-                textAlign: "center",
-                color: "var(--color-codex-ink-mute)",
-                fontSize: 12.5,
-                background: "var(--color-codex-bg-elev)",
-                border: "1px dashed var(--color-codex-line-strong, var(--color-codex-line))",
-                borderRadius: "var(--codex-r-md, 8px)",
-              }}
-            >
-              {filter === "all"
-                ? isZh
-                  ? "暂无文档。点 + 上传 开始第一份。"
-                  : "No documents. Upload one to get started."
-                : isZh
-                  ? "当前筛选下没有文档。"
-                  : "No documents matching this filter."}
-            </div>
-          ) : (
-            <>
-              {files.map((file) => (
-                <button
-                  key={file.id}
-                  type="button"
-                  onClick={() => void handleDownload(file)}
-                  className="grid w-full transition-colors hover:[background:var(--color-codex-bg-tint)]"
-                  style={{
-                    gridTemplateColumns: "50px 1fr 100px 90px 14px",
-                    padding: "14px 8px",
-                    gap: 14,
-                    alignItems: "flex-start",
-                    borderBottom: "1px solid var(--color-codex-line-soft)",
-                    borderRadius: "var(--codex-r-sm, 6px)",
-                    background: "transparent",
-                    border: "none",
-                    textAlign: "left",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span
+        <div className="relative">
+          <div
+            style={{
+              opacity: documentListLoading ? 0.48 : 1,
+              transition: "opacity 140ms ease",
+            }}
+          >
+            {documentTotal === 0 ? (
+              <div
+                style={{
+                  padding: "32px 8px",
+                  textAlign: "center",
+                  color: "var(--color-codex-ink-mute)",
+                  fontSize: 12.5,
+                  background: "var(--color-codex-bg-elev)",
+                  border: "1px dashed var(--color-codex-line-strong, var(--color-codex-line))",
+                  borderRadius: "var(--codex-r-md, 8px)",
+                }}
+              >
+                {filter === "all"
+                  ? isZh
+                    ? "暂无文档。点 + 上传 开始第一份。"
+                    : "No documents. Upload one to get started."
+                  : isZh
+                    ? "当前筛选下没有文档。"
+                    : "No documents matching this filter."}
+              </div>
+            ) : (
+              <>
+                {files.map((file) => (
+                  <button
+                    key={file.id}
+                    type="button"
+                    onClick={() => void handleDownload(file)}
+                    className="grid w-full transition-colors hover:[background:var(--color-codex-bg-tint)]"
                     style={{
-                      fontSize: 10,
-                      color: "var(--color-codex-ink-mute)",
-                      padding: "3px 8px",
-                      border: "1px solid var(--color-codex-line)",
+                      gridTemplateColumns: "50px 1fr 100px 90px 14px",
+                      padding: "14px 8px",
+                      gap: 14,
+                      alignItems: "flex-start",
+                      borderBottom: "1px solid var(--color-codex-line-soft)",
                       borderRadius: "var(--codex-r-sm, 6px)",
-                      textAlign: "center",
-                      letterSpacing: "0.04em",
-                      justifySelf: "start",
-                      fontFamily:
-                        'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                      background: "transparent",
+                      border: "none",
+                      textAlign: "left",
+                      cursor: "pointer",
                     }}
                   >
-                    {typeBadge(file)}
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      className="truncate"
+                    <span
                       style={{
-                        fontSize: 14,
-                        color: "var(--color-codex-ink)",
-                        fontWeight: 500,
+                        fontSize: 10,
+                        color: "var(--color-codex-ink-mute)",
+                        padding: "3px 8px",
+                        border: "1px solid var(--color-codex-line)",
+                        borderRadius: "var(--codex-r-sm, 6px)",
+                        textAlign: "center",
+                        letterSpacing: "0.04em",
+                        justifySelf: "start",
+                        fontFamily:
+                          'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
                       }}
                     >
-                      {file.name}
-                    </div>
-                    {file.summary ? (
-                      <p
-                        className="line-clamp-2"
+                      {typeBadge(file)}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        className="truncate"
                         style={{
-                          margin: "3px 0 6px",
-                          fontSize: 12.5,
-                          color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
-                          lineHeight: 1.55,
+                          fontSize: 14,
+                          color: "var(--color-codex-ink)",
+                          fontWeight: 500,
                         }}
                       >
-                        {file.summary}
-                      </p>
-                    ) : null}
-                    <div
-                      className="flex flex-wrap items-center"
+                        {file.name}
+                      </div>
+                      {file.summary ? (
+                        <p
+                          className="line-clamp-2"
+                          style={{
+                            margin: "3px 0 6px",
+                            fontSize: 12.5,
+                            color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+                            lineHeight: 1.55,
+                          }}
+                        >
+                          {file.summary}
+                        </p>
+                      ) : null}
+                      <div
+                        className="flex flex-wrap items-center"
+                        style={{
+                          gap: 8,
+                          fontSize: 11,
+                          color: "var(--color-codex-ink-mute)",
+                          marginTop: file.summary ? 0 : 6,
+                        }}
+                      >
+                        <span>
+                          {isZh
+                            ? FILTER_LABEL_ZH[originOf(file)]
+                            : FILTER_LABEL_EN[originOf(file)]}
+                        </span>
+                        <span style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>·</span>
+                        <span>{formatDateOnly(file.uploaded_at)}</span>
+                      </div>
+                    </div>
+                    <span
                       style={{
-                        gap: 8,
-                        fontSize: 11,
+                        fontFamily:
+                          'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                        fontSize: 11.5,
                         color: "var(--color-codex-ink-mute)",
-                        marginTop: file.summary ? 0 : 6,
                       }}
                     >
-                      <span>
-                        {isZh
-                          ? FILTER_LABEL_ZH[originOf(file)]
-                          : FILTER_LABEL_EN[originOf(file)]}
-                      </span>
-                      <span style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}>·</span>
-                      <span>{formatDateOnly(file.uploaded_at)}</span>
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      fontFamily:
-                        'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
-                      fontSize: 11.5,
-                      color: "var(--color-codex-ink-mute)",
-                    }}
-                  >
-                    {formatFileSize(file.size)}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11.5,
-                      color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
-                    }}
-                  >
-                    {file.file_type || "—"}
-                  </span>
-                  <ArrowRight
-                    className="h-3 w-3"
-                    style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}
-                  />
-                </button>
-              ))}
-              <CxPagination
-                page={currentDocumentPage}
-                pageSize={documentPageSize}
-                totalItems={documentTotal}
-                onPageChange={setDocumentPage}
-                onPageSizeChange={(nextPageSize) => {
-                  setDocumentPageSize(nextPageSize);
-                  setDocumentPage(1);
+                      {formatFileSize(file.size)}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11.5,
+                        color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
+                      }}
+                    >
+                      {file.file_type || "—"}
+                    </span>
+                    <ArrowRight
+                      className="h-3 w-3"
+                      style={{ color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))" }}
+                    />
+                  </button>
+                ))}
+                <CxPagination
+                  page={currentDocumentPage}
+                  pageSize={documentPageSize}
+                  totalItems={documentTotal}
+                  onPageChange={setDocumentPage}
+                  onPageSizeChange={(nextPageSize) => {
+                    setDocumentPageSize(nextPageSize);
+                    setDocumentPage(1);
+                  }}
+                  isZh={isZh}
+                  pageSizeOptions={[10, 20, 50]}
+                />
+              </>
+            )}
+          </div>
+          {documentListLoading ? (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-start justify-center"
+              style={{
+                paddingTop: 28,
+                background: "color-mix(in oklch, var(--color-codex-bg) 50%, transparent)",
+                borderRadius: "var(--codex-r-md, 6px)",
+              }}
+            >
+              <div
+                className="inline-flex items-center gap-2"
+                style={{
+                  padding: "8px 12px",
+                  background: "var(--color-codex-bg-elev)",
+                  border: "1px solid var(--color-codex-line)",
+                  borderRadius: "var(--codex-r-sm, 3px)",
+                  color: "var(--color-codex-ink-soft)",
+                  fontSize: 12.5,
+                  boxShadow: "0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)",
                 }}
-                isZh={isZh}
-                pageSizeOptions={[10, 20, 50]}
-              />
-            </>
-          )}
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {isZh ? "正在更新列表" : "Updating list"}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 

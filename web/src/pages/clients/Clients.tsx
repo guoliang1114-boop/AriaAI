@@ -153,6 +153,8 @@ export function Clients() {
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [clientTotal, setClientTotal] = useState(0);
   const [stats, setStats] = useState({ total: 0, active: 0, watch: 0, dormant: 0 });
@@ -170,8 +172,13 @@ export function Clients() {
   const [aiError, setAiError] = useState<string | null>(null);
 
   const fetchClients = async () => {
+    const isInitialLoad = !hasLoaded;
     try {
-      setLoading(true);
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setListLoading(true);
+      }
       setFetchError(null);
       const data = await api.get<ClientListResponse>("/clients/list", {
         params: {
@@ -183,12 +190,17 @@ export function Clients() {
       setClients(data.items);
       setClientTotal(data.total);
       setStats(data.stats);
+      setHasLoaded(true);
     } catch (error) {
       console.error("Failed to fetch clients:", error);
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setFetchError(detail || (error instanceof Error ? error.message : "request failed"));
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+      } else {
+        setListLoading(false);
+      }
     }
   };
 
@@ -262,8 +274,8 @@ export function Clients() {
           lineHeight: 1.6,
         }}
       >
-        {loading ? <ClientsLoading title={isZh ? "客户" : "Clients"} /> : null}
-        {!loading ? (
+        {loading && !hasLoaded ? <ClientsLoading title={isZh ? "客户" : "Clients"} /> : null}
+        {!(loading && !hasLoaded) ? (
           <div style={{ padding: "32px clamp(24px, 4vw, 56px) 40px", minWidth: 0 }}>
             <header
               className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
@@ -381,59 +393,92 @@ export function Clients() {
               </div>
             ) : null}
 
-            <section aria-label={isZh ? "客户列表" : "Client directory"}>
-              {clientTotal === 0 ? (
-                <EmptyClientsState
-                  isZh={isZh}
-                  hasSearch={Boolean(searchQuery.trim())}
-                  onCreate={() => setShowCreateModal(true)}
-                  onClear={() => setSearchQuery("")}
-                />
-              ) : (
-                <div style={{ overflowX: "auto" }}>
+            <section aria-label={isZh ? "客户列表" : "Client directory"} className="relative">
+              <div
+                style={{
+                  opacity: listLoading ? 0.48 : 1,
+                  transition: "opacity 140ms ease",
+                }}
+              >
+                {clientTotal === 0 ? (
+                  <EmptyClientsState
+                    isZh={isZh}
+                    hasSearch={Boolean(searchQuery.trim())}
+                    onCreate={() => setShowCreateModal(true)}
+                    onClear={() => setSearchQuery("")}
+                  />
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <div
+                      className="hidden lg:grid"
+                      style={{
+                        minWidth: CLIENT_TABLE_MIN_WIDTH,
+                        gridTemplateColumns: CLIENT_GRID,
+                        gap: 12,
+                        padding: "10px 8px",
+                        fontSize: 11.5,
+                        color: "var(--color-codex-ink-faint)",
+                      }}
+                    >
+                      <span>{isZh ? "客户" : "Client"}</span>
+                      <span>{isZh ? "行业" : "Industry"}</span>
+                      <span>{isZh ? "地区" : "Region"}</span>
+                      <span>{isZh ? "项目数" : "Projects"}</span>
+                      <span>{isZh ? "最近更新" : "Last update"}</span>
+                      <span>{isZh ? "状态" : "Status"}</span>
+                      <span />
+                    </div>
+                    <div style={{ minWidth: CLIENT_TABLE_MIN_WIDTH }}>
+                      {clients.map((client) => (
+                        <ClientTableRow
+                          key={client.id}
+                          client={client}
+                          isZh={isZh}
+                          onOpen={() => navigate(`/clients/${client.id}`)}
+                        />
+                      ))}
+                      <CxPagination
+                        page={currentClientPage}
+                        pageSize={clientPageSize}
+                        totalItems={clientTotal}
+                        onPageChange={setClientPage}
+                        onPageSizeChange={(nextPageSize) => {
+                          setClientPageSize(nextPageSize);
+                          setClientPage(1);
+                        }}
+                        isZh={isZh}
+                        pageSizeOptions={[10, 20, 50]}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {listLoading ? (
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-start justify-center"
+                  style={{
+                    paddingTop: 28,
+                    background: "color-mix(in oklch, var(--color-codex-bg) 50%, transparent)",
+                    borderRadius: "var(--codex-r-md, 6px)",
+                  }}
+                >
                   <div
-                    className="hidden lg:grid"
+                    className="inline-flex items-center gap-2"
                     style={{
-                      minWidth: CLIENT_TABLE_MIN_WIDTH,
-                      gridTemplateColumns: CLIENT_GRID,
-                      gap: 12,
-                      padding: "10px 8px",
-                      fontSize: 11.5,
-                      color: "var(--color-codex-ink-faint)",
+                      padding: "8px 12px",
+                      background: "var(--color-codex-bg-elev)",
+                      border: "1px solid var(--color-codex-line)",
+                      borderRadius: "var(--codex-r-sm, 3px)",
+                      color: "var(--color-codex-ink-soft)",
+                      fontSize: 12.5,
+                      boxShadow: "0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)",
                     }}
                   >
-                    <span>{isZh ? "客户" : "Client"}</span>
-                    <span>{isZh ? "行业" : "Industry"}</span>
-                    <span>{isZh ? "地区" : "Region"}</span>
-                    <span>{isZh ? "项目数" : "Projects"}</span>
-                    <span>{isZh ? "最近更新" : "Last update"}</span>
-                    <span>{isZh ? "状态" : "Status"}</span>
-                    <span />
-                  </div>
-                  <div style={{ minWidth: CLIENT_TABLE_MIN_WIDTH }}>
-                    {clients.map((client) => (
-                      <ClientTableRow
-                        key={client.id}
-                        client={client}
-                        isZh={isZh}
-                        onOpen={() => navigate(`/clients/${client.id}`)}
-                      />
-                    ))}
-                    <CxPagination
-                      page={currentClientPage}
-                      pageSize={clientPageSize}
-                      totalItems={clientTotal}
-                      onPageChange={setClientPage}
-                      onPageSizeChange={(nextPageSize) => {
-                        setClientPageSize(nextPageSize);
-                        setClientPage(1);
-                      }}
-                      isZh={isZh}
-                      pageSizeOptions={[10, 20, 50]}
-                    />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {isZh ? "正在更新列表" : "Updating list"}
                   </div>
                 </div>
-              )}
+              ) : null}
             </section>
           </div>
         ) : null}

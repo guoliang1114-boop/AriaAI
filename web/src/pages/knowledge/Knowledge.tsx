@@ -122,6 +122,8 @@ export function Knowledge() {
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [documentListLoading, setDocumentListLoading] = useState(false)
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
   const [documentTotal, setDocumentTotal] = useState(0)
   const [categoryCounts, setCategoryCounts] = useState<KnowledgeCategoryCount[]>([])
@@ -144,9 +146,15 @@ export function Knowledge() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchData = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (silent) setRefreshing(true)
-    else setLoading(true)
-      setError(null)
+    const isInitialLoad = !silent && !hasLoaded
+    if (silent) {
+      setRefreshing(true)
+    } else if (isInitialLoad) {
+      setLoading(true)
+    } else {
+      setDocumentListLoading(true)
+    }
+    setError(null)
     try {
       const [docsData, statsData] = await Promise.all([
         api.get<KnowledgeDocumentListResponse>('/knowledge/documents/list', {
@@ -166,11 +174,16 @@ export function Knowledge() {
       setIndexedCount(docsData.indexed_count)
       setTotalSize(docsData.total_size)
       setStats(statsData)
+      setHasLoaded(true)
     } catch (err) {
       console.error('Failed to fetch knowledge data:', err)
       setError(isZh ? '知识库加载失败' : 'Failed to load knowledge base')
     } finally {
-      setLoading(false)
+      if (isInitialLoad) {
+        setLoading(false)
+      } else {
+        setDocumentListLoading(false)
+      }
       setRefreshing(false)
     }
   }
@@ -248,7 +261,7 @@ export function Knowledge() {
     }
   }
 
-  if (loading) {
+  if (loading && !hasLoaded) {
     return <KnowledgeLoading isZh={isZh} />
   }
 
@@ -404,63 +417,96 @@ export function Knowledge() {
               </div>
             ) : null}
 
-            <section aria-label={isZh ? '知识库文档' : 'Knowledge documents'}>
-              <div className="overflow-x-auto">
-                <div style={{ minWidth: DOC_TABLE_MIN_WIDTH }}>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: DOC_GRID,
-                      gap: 12,
-                      padding: '8px 6px',
-                      fontSize: 11.5,
-                      color: 'var(--color-codex-ink-faint)',
-                    }}
-                  >
-                    <span>{isZh ? '类型' : 'Type'}</span>
-                    <span>{isZh ? '标题与标签' : 'Title & tags'}</span>
-                    <span>{isZh ? '大小' : 'Size'}</span>
-                    <span>{isZh ? '更新' : 'Updated'}</span>
-                    <span />
-                  </div>
-
-                  {documentTotal === 0 ? (
-                    <KnowledgeEmptyState
-                      hasSearch={Boolean(searchQuery.trim()) || selectedCategory !== 'all'}
-                      isZh={isZh}
-                      onClear={() => {
-                        setSearchQuery('')
-                        setSelectedCategory('all')
-                        setDocumentPage(1)
+            <section aria-label={isZh ? '知识库文档' : 'Knowledge documents'} className="relative">
+              <div
+                style={{
+                  opacity: documentListLoading ? 0.48 : 1,
+                  transition: 'opacity 140ms ease',
+                }}
+              >
+                <div className="overflow-x-auto">
+                  <div style={{ minWidth: DOC_TABLE_MIN_WIDTH }}>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: DOC_GRID,
+                        gap: 12,
+                        padding: '8px 6px',
+                        fontSize: 11.5,
+                        color: 'var(--color-codex-ink-faint)',
                       }}
-                      onUpload={() => fileInputRef.current?.click()}
-                    />
-                  ) : (
-                    <>
-                      {documents.map((doc) => (
-                        <KnowledgeRow
-                          key={doc.id}
-                          doc={doc}
-                          isZh={isZh}
-                          onDelete={() => setPendingDeleteId(doc.id)}
-                        />
-                      ))}
-                      <CxPagination
-                        page={currentDocumentPage}
-                        pageSize={documentPageSize}
-                        totalItems={documentTotal}
-                        onPageChange={setDocumentPage}
-                        onPageSizeChange={(nextPageSize) => {
-                          setDocumentPageSize(nextPageSize)
+                    >
+                      <span>{isZh ? '类型' : 'Type'}</span>
+                      <span>{isZh ? '标题与标签' : 'Title & tags'}</span>
+                      <span>{isZh ? '大小' : 'Size'}</span>
+                      <span>{isZh ? '更新' : 'Updated'}</span>
+                      <span />
+                    </div>
+
+                    {documentTotal === 0 ? (
+                      <KnowledgeEmptyState
+                        hasSearch={Boolean(searchQuery.trim()) || selectedCategory !== 'all'}
+                        isZh={isZh}
+                        onClear={() => {
+                          setSearchQuery('')
+                          setSelectedCategory('all')
                           setDocumentPage(1)
                         }}
-                        isZh={isZh}
-                        pageSizeOptions={[10, 20, 50]}
+                        onUpload={() => fileInputRef.current?.click()}
                       />
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        {documents.map((doc) => (
+                          <KnowledgeRow
+                            key={doc.id}
+                            doc={doc}
+                            isZh={isZh}
+                            onDelete={() => setPendingDeleteId(doc.id)}
+                          />
+                        ))}
+                        <CxPagination
+                          page={currentDocumentPage}
+                          pageSize={documentPageSize}
+                          totalItems={documentTotal}
+                          onPageChange={setDocumentPage}
+                          onPageSizeChange={(nextPageSize) => {
+                            setDocumentPageSize(nextPageSize)
+                            setDocumentPage(1)
+                          }}
+                          isZh={isZh}
+                          pageSizeOptions={[10, 20, 50]}
+                        />
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
+              {documentListLoading ? (
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-start justify-center"
+                  style={{
+                    paddingTop: 28,
+                    background: 'color-mix(in oklch, var(--color-codex-bg) 50%, transparent)',
+                    borderRadius: 'var(--codex-r-md, 6px)',
+                  }}
+                >
+                  <div
+                    className="inline-flex items-center gap-2"
+                    style={{
+                      padding: '8px 12px',
+                      background: 'var(--color-codex-bg-elev)',
+                      border: '1px solid var(--color-codex-line)',
+                      borderRadius: 'var(--codex-r-sm, 3px)',
+                      color: 'var(--color-codex-ink-soft)',
+                      fontSize: 12.5,
+                      boxShadow: '0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)',
+                    }}
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {isZh ? '正在更新列表' : 'Updating list'}
+                  </div>
+                </div>
+              ) : null}
             </section>
           </div>
 

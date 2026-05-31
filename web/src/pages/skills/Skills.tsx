@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -16,6 +16,7 @@ import {
   DollarSign,
   FileText,
   LayoutGrid,
+  Loader2,
   MessageSquare,
   Receipt,
   RefreshCw,
@@ -440,12 +441,20 @@ function useSkillsData(
   const [categoryCounts, setCategoryCounts] = useState<SkillCategoryCount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const hasLoadedRef = useRef(false);
   const categoryKeyParam = categoryKeys.join(",");
 
   useEffect(() => {
     const fetchSkills = async () => {
+      const isInitialLoad = !hasLoadedRef.current;
       try {
-        setLoading(true);
+        if (isInitialLoad) {
+          setLoading(true);
+        } else {
+          setListLoading(true);
+        }
         setError(null);
         const data = await api.get<SkillSummaryListResponse>("/skills/meta/list", {
           params: {
@@ -457,12 +466,18 @@ function useSkillsData(
         setSkills(data.items);
         setTotal(data.total);
         setCategoryCounts(data.categories);
+        hasLoadedRef.current = true;
+        setHasLoaded(true);
       } catch (err) {
         console.error("Failed to fetch skills:", err);
         const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
         setError(detail || (err instanceof Error ? err.message : "request failed"));
       } finally {
-        setLoading(false);
+        if (isInitialLoad) {
+          setLoading(false);
+        } else {
+          setListLoading(false);
+        }
       }
     };
 
@@ -471,7 +486,16 @@ function useSkillsData(
 
   const categories = useMemo(() => buildCategoriesFromCounts(categoryCounts, allLabel, isZh), [allLabel, categoryCounts, isZh]);
 
-  return { categories, loading, skills, total, error, reload: () => setReloadKey((k) => k + 1) };
+  return {
+    categories,
+    error,
+    hasLoaded,
+    listLoading,
+    loading,
+    reload: () => setReloadKey((k) => k + 1),
+    skills,
+    total,
+  };
 }
 
 function useSkillDetail(skillId?: string) {
@@ -553,7 +577,16 @@ export function Skills() {
     if (selection.startsWith("cat:")) return [selection.slice("cat:".length)];
     return [];
   }, [selection]);
-  const { categories, loading, skills, total: skillTotal, error, reload } = useSkillsData(
+  const {
+    categories,
+    error,
+    hasLoaded,
+    listLoading,
+    loading,
+    reload,
+    skills,
+    total: skillTotal,
+  } = useSkillsData(
     t("skills.categories.all"),
     isZh,
     selectedCategoryKeys,
@@ -565,8 +598,8 @@ export function Skills() {
     setSkillPage((current) => Math.min(current, nextPageCount));
   }, [skillPageSize, skillTotal]);
 
-  if (loading) return <SkillsLoading title={t("skills.title")} />;
-  if (error) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;
+  if (loading && !hasLoaded) return <SkillsLoading title={t("skills.title")} />;
+  if (error && !hasLoaded) return <SkillsLoadError title={t("skills.title")} message={error} onRetry={reload} isZh={isZh} />;
 
   const filterCategories = categories.filter((cat) => cat.id !== "all");
   const allCategoryCount =
@@ -955,130 +988,182 @@ export function Skills() {
             </div>
           </header>
 
-          {paginatedVisibleGroups.map(({ cat, items, totalCount }) => (
-            <section key={cat.id} style={{ marginBottom: 28 }}>
-              <div
-                className="flex items-baseline justify-between"
-                style={{ marginBottom: 14 }}
-              >
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: "var(--color-codex-ink-mute)",
-                    letterSpacing: "0.01em",
-                  }}
-                >
-                  {cat.label}
-                </h3>
-                <span
-                  className="font-mono"
-                  style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
-                >
-                  {totalCount} {isZh ? "项" : "items"}
-                </span>
-              </div>
+          {error && hasLoaded ? (
+            <div
+              role="alert"
+              style={{
+                marginBottom: 16,
+                padding: "10px 12px",
+                background: "color-mix(in oklch, var(--color-codex-bad) 8%, transparent)",
+                border: "1px solid color-mix(in oklch, var(--color-codex-bad) 30%, transparent)",
+                borderRadius: "var(--codex-r-sm, 3px)",
+                color: "var(--color-codex-bad)",
+                fontSize: 12.5,
+              }}
+            >
+              {isZh ? "列表更新失败，当前仍显示上一次结果。" : "List update failed. Showing the previous results."}
+            </div>
+          ) : null}
 
-              {items.length === 0 ? (
-                <div
-                  style={{
-                    padding: "16px 8px",
-                    fontSize: 13,
-                    color: "var(--color-codex-ink-mute)",
-                  }}
-                >
-                  {isZh ? "这个分类暂时还没有 Skill。" : "No skills in this category yet."}
-                </div>
-              ) : (
-                items.map((skill, i) => (
-                  <button
-                    key={skill.id}
-                    type="button"
-                    onClick={() => navigate(`/skills/item/${skill.id}`)}
-                    className="codex-row-hov grid w-full items-center text-left"
-                    style={{
-                      gridTemplateColumns: "1fr 90px 80px 14px",
-                      columnGap: 16,
-                      padding: "14px 8px",
-                      borderBottom:
-                        i === items.length - 1
-                          ? "none"
-                          : "1px solid var(--color-codex-line-soft)",
-                    }}
+          <div className="relative">
+            <div
+              style={{
+                opacity: listLoading ? 0.48 : 1,
+                transition: "opacity 140ms ease",
+              }}
+            >
+              {paginatedVisibleGroups.map(({ cat, items, totalCount }) => (
+                <section key={cat.id} style={{ marginBottom: 28 }}>
+                  <div
+                    className="flex items-baseline justify-between"
+                    style={{ marginBottom: 14 }}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 15,
-                          fontWeight: 500,
-                          color: "var(--color-codex-ink)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {skill.name}
-                      </div>
-                      <div
-                        className="line-clamp-2"
-                        style={{
-                          marginTop: 3,
-                          fontSize: 12.5,
-                          lineHeight: 1.55,
-                          color: "var(--color-codex-ink-mute)",
-                        }}
-                      >
-                        {skill.description}
-                      </div>
-                    </div>
-                    <span
+                    <h3
                       style={{
-                        padding: "2px 8px",
-                        fontSize: 10.5,
-                        fontFamily:
-                          "var(--font-mono, ui-monospace, monospace)",
-                        background: "var(--color-codex-bg-tint)",
-                        color: "var(--color-codex-ink-soft)",
-                        borderRadius: "var(--codex-r-pill, 999px)",
-                        letterSpacing: "0.04em",
-                        textTransform: "uppercase",
-                        textAlign: "center",
+                        margin: 0,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: "var(--color-codex-ink-mute)",
+                        letterSpacing: "0.01em",
                       }}
                     >
                       {cat.label}
-                    </span>
+                    </h3>
                     <span
                       className="font-mono"
+                      style={{ fontSize: 11.5, color: "var(--color-codex-ink-faint)" }}
+                    >
+                      {totalCount} {isZh ? "项" : "items"}
+                    </span>
+                  </div>
+
+                  {items.length === 0 ? (
+                    <div
                       style={{
-                        fontSize: 12,
+                        padding: "16px 8px",
+                        fontSize: 13,
                         color: "var(--color-codex-ink-mute)",
                       }}
                     >
-                      {skill.estimated_time || "—"}
-                    </span>
-                    <ArrowRight
-                      className="h-3 w-3"
-                      aria-hidden="true"
-                      style={{ color: "var(--color-codex-ink-faint)" }}
-                    />
-                  </button>
-                ))
-              )}
-            </section>
-          ))}
-          <CxPagination
-            page={currentSkillPage}
-            pageSize={skillPageSize}
-            totalItems={skillTotal}
-            onPageChange={setSkillPage}
-            onPageSizeChange={(nextPageSize) => {
-              setSkillPageSize(nextPageSize);
-              setSkillPage(1);
-            }}
-            pageSizeOptions={[10, 20, 50]}
-            isZh={isZh}
-          />
+                      {isZh ? "这个分类暂时还没有 Skill。" : "No skills in this category yet."}
+                    </div>
+                  ) : (
+                    items.map((skill, i) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        onClick={() => navigate(`/skills/item/${skill.id}`)}
+                        className="codex-row-hov grid w-full items-center text-left"
+                        style={{
+                          gridTemplateColumns: "1fr 90px 80px 14px",
+                          columnGap: 16,
+                          padding: "14px 8px",
+                          borderBottom:
+                            i === items.length - 1
+                              ? "none"
+                              : "1px solid var(--color-codex-line-soft)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 500,
+                              color: "var(--color-codex-ink)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {skill.name}
+                          </div>
+                          <div
+                            className="line-clamp-2"
+                            style={{
+                              marginTop: 3,
+                              fontSize: 12.5,
+                              lineHeight: 1.55,
+                              color: "var(--color-codex-ink-mute)",
+                            }}
+                          >
+                            {skill.description}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            fontSize: 10.5,
+                            fontFamily:
+                              "var(--font-mono, ui-monospace, monospace)",
+                            background: "var(--color-codex-bg-tint)",
+                            color: "var(--color-codex-ink-soft)",
+                            borderRadius: "var(--codex-r-pill, 999px)",
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            textAlign: "center",
+                          }}
+                        >
+                          {cat.label}
+                        </span>
+                        <span
+                          className="font-mono"
+                          style={{
+                            fontSize: 12,
+                            color: "var(--color-codex-ink-mute)",
+                          }}
+                        >
+                          {skill.estimated_time || "—"}
+                        </span>
+                        <ArrowRight
+                          className="h-3 w-3"
+                          aria-hidden="true"
+                          style={{ color: "var(--color-codex-ink-faint)" }}
+                        />
+                      </button>
+                    ))
+                  )}
+                </section>
+              ))}
+              <CxPagination
+                page={currentSkillPage}
+                pageSize={skillPageSize}
+                totalItems={skillTotal}
+                onPageChange={setSkillPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setSkillPageSize(nextPageSize);
+                  setSkillPage(1);
+                }}
+                pageSizeOptions={[10, 20, 50]}
+                isZh={isZh}
+              />
+            </div>
+            {listLoading ? (
+              <div
+                className="pointer-events-none absolute inset-0 flex items-start justify-center"
+                style={{
+                  paddingTop: 28,
+                  background: "color-mix(in oklch, var(--color-codex-bg) 50%, transparent)",
+                  borderRadius: "var(--codex-r-md, 6px)",
+                }}
+              >
+                <div
+                  className="inline-flex items-center gap-2"
+                  style={{
+                    padding: "8px 12px",
+                    background: "var(--color-codex-bg-elev)",
+                    border: "1px solid var(--color-codex-line)",
+                    borderRadius: "var(--codex-r-sm, 3px)",
+                    color: "var(--color-codex-ink-soft)",
+                    fontSize: 12.5,
+                    boxShadow: "0 8px 22px color-mix(in oklch, var(--color-codex-ink) 8%, transparent)",
+                  }}
+                >
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {isZh ? "正在更新列表" : "Updating list"}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </>
