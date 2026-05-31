@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Users,
@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { CxPagination } from '../../components/codex'
 
 interface UserItem {
   id: number
@@ -82,6 +83,8 @@ const DANGER_BUTTON_STYLE: React.CSSProperties = {
   borderRadius: 'var(--codex-r-sm, 3px)',
 }
 
+const USERS_PAGE_SIZE = 10
+
 function DialogShell({ icon: Icon, iconTone, title, children }: {
   icon: typeof UserPlus
   iconTone: 'accent' | 'danger' | 'neutral'
@@ -134,12 +137,15 @@ function DialogShell({ icon: Icon, iconTone, title, children }: {
 }
 
 export function UsersSettings() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isZh = !i18n?.language || i18n.language.startsWith('zh')
   const [users, setUsers] = useState<UserItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [userPage, setUserPage] = useState(1)
+  const [userPageSize, setUserPageSize] = useState(USERS_PAGE_SIZE)
 
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
@@ -192,6 +198,7 @@ export function UsersSettings() {
 
       setSuccessMessage(t('users.userAdded') || 'User added successfully')
       setShowAddDialog(false)
+      setUserPage(1)
       resetForm()
       await loadUsers()
 
@@ -309,11 +316,29 @@ export function UsersSettings() {
     })
   }
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.display_name.toLowerCase().includes(searchQuery.toLowerCase()),
+  const filteredUsers = useMemo(
+    () =>
+      users.filter(
+        (user) =>
+          user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          user.display_name.toLowerCase().includes(searchQuery.toLowerCase()),
+      ),
+    [searchQuery, users],
   )
+  const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / userPageSize))
+  const currentUserPage = Math.min(userPage, userPageCount)
+  const paginatedUsers = useMemo(() => {
+    const start = (currentUserPage - 1) * userPageSize
+    return filteredUsers.slice(start, start + userPageSize)
+  }, [currentUserPage, filteredUsers, userPageSize])
+
+  useEffect(() => {
+    setUserPage(1)
+  }, [searchQuery])
+
+  useEffect(() => {
+    setUserPage((current) => Math.min(current, userPageCount))
+  }, [userPageCount])
 
   if (loading) {
     return (
@@ -452,7 +477,7 @@ export function UsersSettings() {
 
       {/* User list */}
       <div className="space-y-2">
-        {filteredUsers.map((user) => (
+        {paginatedUsers.map((user) => (
           <div
             key={user.id}
             className="flex items-center justify-between"
@@ -583,6 +608,21 @@ export function UsersSettings() {
           </div>
         ))}
       </div>
+
+      {filteredUsers.length > 0 ? (
+        <CxPagination
+          page={currentUserPage}
+          pageSize={userPageSize}
+          totalItems={filteredUsers.length}
+          onPageChange={setUserPage}
+          onPageSizeChange={(nextPageSize) => {
+            setUserPageSize(nextPageSize)
+            setUserPage(1)
+          }}
+          isZh={isZh}
+          style={{ marginTop: 10 }}
+        />
+      ) : null}
 
       {/* Empty state */}
       {filteredUsers.length === 0 && !loading && (

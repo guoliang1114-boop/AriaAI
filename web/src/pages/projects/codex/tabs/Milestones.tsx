@@ -1,12 +1,20 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { Milestone, ProjectDetail as ProjectDetailType } from '../../../../types/api'
+import { useToast } from '../../../../contexts/ToastContext'
+import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
 import { firstGlyph } from '../useProjectsApi'
+import {
+  CxMilestoneDeleteDialog,
+  CxMilestoneFormDialog,
+  toggleMilestoneDone,
+} from '../CxMilestoneActions'
 
 interface MilestonesProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
 function dueColor(due: string | null | undefined) {
@@ -23,8 +31,13 @@ function dueColor(due: string | null | undefined) {
   return 'var(--ink-mute)'
 }
 
-export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
+export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesProps) {
   const { project, milestones, todos } = detail
+  const toast = useToast()
+  const [editing, setEditing] = useState<Milestone | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<Milestone | null>(null)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
 
   const sortedMs = useMemo(() => {
     return [...milestones].sort((a, b) => {
@@ -39,6 +52,23 @@ export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
 
   const openTodos = todos.filter((t) => !t.is_done)
   const doneTodos = todos.filter((t) => t.is_done)
+
+  const toggle = async (m: Milestone) => {
+    if (togglingId === m.id) return
+    setTogglingId(m.id)
+    try {
+      await toggleMilestoneDone(projectId, m)
+      toast.success({ title: m.is_done ? '已标记为未完成' : '已标记完成' })
+      await refetch()
+    } catch (err) {
+      toast.error({
+        title: '更新失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setTogglingId(null)
+    }
+  }
 
   return (
     <CxProjectShell activeTab="milestones" projectId={projectId} project={project}>
@@ -69,21 +99,25 @@ export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
                 里程碑 · {done} / {total} 完成
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--ink-mute)' }}>
-                按计划日期排序 · 项目对话中可自动抽取
+                按计划日期排序
               </p>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 type="button"
+                onClick={() => setCreating(true)}
                 style={{
                   padding: '6px 12px',
                   fontSize: 12,
                   background: 'var(--ink)',
                   color: 'var(--bg-elev)',
                   borderRadius: 'var(--r-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
                 }}
               >
-                + 添加里程碑
+                <CxIcon name="plus" size={11} stroke={1.6} /> 添加里程碑
               </button>
             </div>
           </div>
@@ -98,7 +132,7 @@ export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
           >
             {sortedMs.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
-                还没有里程碑。点击右上「+ 添加里程碑」开始。
+                还没有里程碑。点击右上「添加里程碑」开始。
               </div>
             ) : (
               <div style={{ position: 'relative', paddingLeft: 22 }}>
@@ -113,7 +147,15 @@ export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
                   }}
                 />
                 {sortedMs.map((m, i) => (
-                  <MilestoneRow key={m.id} m={m} last={i === sortedMs.length - 1} />
+                  <MilestoneRow
+                    key={m.id}
+                    m={m}
+                    last={i === sortedMs.length - 1}
+                    busy={togglingId === m.id}
+                    onToggle={() => toggle(m)}
+                    onEdit={() => setEditing(m)}
+                    onDelete={() => setDeleting(m)}
+                  />
                 ))}
               </div>
             )}
@@ -227,26 +269,50 @@ export function CxProjectMilestones({ projectId, detail }: MilestonesProps) {
               </div>
             </div>
           </CxPanel>
-
-          <CxPanel title="风险预警">
-            <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
-              基于待办与里程碑自动生成 — 暂未启用。
-            </div>
-          </CxPanel>
         </aside>
       </div>
+
+      <CxMilestoneFormDialog
+        open={creating}
+        projectId={projectId}
+        onClose={() => setCreating(false)}
+        onSaved={refetch}
+      />
+      <CxMilestoneFormDialog
+        open={editing !== null}
+        projectId={projectId}
+        milestone={editing}
+        onClose={() => setEditing(null)}
+        onSaved={refetch}
+      />
+      <CxMilestoneDeleteDialog
+        open={deleting !== null}
+        projectId={projectId}
+        milestone={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={refetch}
+      />
     </CxProjectShell>
   )
 }
 
-function MilestoneRow({ m, last }: { m: Milestone; last: boolean }) {
+interface MilestoneRowProps {
+  m: Milestone
+  last: boolean
+  busy: boolean
+  onToggle: () => void
+  onEdit: () => void
+  onDelete: () => void
+}
+
+function MilestoneRow({ m, last, busy, onToggle, onEdit, onDelete }: MilestoneRowProps) {
   const color = m.is_done ? 'var(--good)' : 'var(--accent)'
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '90px 1fr auto',
-        gap: 18,
+        gridTemplateColumns: '20px 90px 1fr auto auto auto',
+        gap: 14,
         padding: '11px 0',
         borderBottom: last ? 'none' : '1px solid var(--line-soft)',
         alignItems: 'center',
@@ -265,6 +331,31 @@ function MilestoneRow({ m, last }: { m: Milestone; last: boolean }) {
           border: `1.5px solid ${color}`,
         }}
       />
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={busy}
+        title={m.is_done ? '标记为未完成' : '标记完成'}
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          border: `1.5px solid ${m.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
+          background: m.is_done ? 'var(--good)' : 'transparent',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: busy ? 'wait' : 'pointer',
+          opacity: busy ? 0.5 : 1,
+          flexShrink: 0,
+        }}
+      >
+        {m.is_done && (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        )}
+      </button>
       <span
         className="num"
         style={{
@@ -293,6 +384,34 @@ function MilestoneRow({ m, last }: { m: Milestone; last: boolean }) {
         </div>
       </div>
       {m.is_done ? <CxStatus tone="good">已完成</CxStatus> : <CxStatus tone="accent">进行中</CxStatus>}
+      <button
+        type="button"
+        onClick={onEdit}
+        title="编辑"
+        style={{
+          padding: 4,
+          color: 'var(--ink-mute)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CxIcon name="edit" size={13} />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        title="删除"
+        style={{
+          padding: 4,
+          color: 'var(--ink-faint)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CxIcon name="trash" size={13} />
+      </button>
     </div>
   )
 }

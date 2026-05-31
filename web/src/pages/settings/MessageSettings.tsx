@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bell, CheckCircle2, Loader2, Megaphone, RefreshCw, Send } from 'lucide-react'
 import { api } from '../../api/client'
+import { CxPagination } from '../../components/codex'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type { SystemMessageAdminItem } from '../../types/api'
 
@@ -21,6 +22,8 @@ const defaultFormData: MessageFormData = {
   is_published: true,
 }
 
+const MESSAGES_PAGE_SIZE = 10
+
 export function MessageSettings() {
   const { i18n } = useTranslation()
   const isZh = i18n.language.startsWith('zh')
@@ -30,6 +33,8 @@ export function MessageSettings() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [formData, setFormData] = useState<MessageFormData>(defaultFormData)
+  const [messagePage, setMessagePage] = useState(1)
+  const [messagePageSize, setMessagePageSize] = useState(MESSAGES_PAGE_SIZE)
 
   const loadMessages = async () => {
     try {
@@ -61,6 +66,7 @@ export function MessageSettings() {
       const created = await api.post<SystemMessageAdminItem>('/messages/admin', formData)
       setMessages((current) => [created, ...current])
       setFormData(defaultFormData)
+      setMessagePage(1)
       setSuccess(isZh ? '消息已发布。' : 'Message published.')
       window.dispatchEvent(new Event('messages:updated'))
     } catch (err: any) {
@@ -74,6 +80,16 @@ export function MessageSettings() {
     () => messages.reduce((sum, message) => sum + message.read_count, 0),
     [messages],
   )
+  const messagePageCount = Math.max(1, Math.ceil(messages.length / messagePageSize))
+  const currentMessagePage = Math.min(messagePage, messagePageCount)
+  const paginatedMessages = useMemo(() => {
+    const start = (currentMessagePage - 1) * messagePageSize
+    return messages.slice(start, start + messagePageSize)
+  }, [currentMessagePage, messagePageSize, messages])
+
+  useEffect(() => {
+    setMessagePage((current) => Math.min(current, messagePageCount))
+  }, [messagePageCount])
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -429,7 +445,7 @@ export function MessageSettings() {
               </div>
             ) : (
               <div className="space-y-3">
-                {messages.map((message) => (
+                {paginatedMessages.map((message) => (
                   <div
                     key={message.id}
                     style={{
@@ -520,6 +536,19 @@ export function MessageSettings() {
                     </div>
                   </div>
                 ))}
+                {messages.length > 0 ? (
+                  <CxPagination
+                    page={currentMessagePage}
+                    pageSize={messagePageSize}
+                    totalItems={messages.length}
+                    onPageChange={setMessagePage}
+                    onPageSizeChange={(nextPageSize) => {
+                      setMessagePageSize(nextPageSize)
+                      setMessagePage(1)
+                    }}
+                    isZh={isZh}
+                  />
+                ) : null}
                 {messages.length === 0 ? (
                   <div
                     className="text-center"

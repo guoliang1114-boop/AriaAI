@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import type {
   ClientStakeholder,
@@ -22,6 +22,7 @@ interface DetailState {
   data: ProjectDetailType | null
   loading: boolean
   error: string | null
+  refetch: () => Promise<void>
 }
 
 function readError(err: unknown): string {
@@ -57,31 +58,46 @@ export function useProjectsList(): ListState {
 }
 
 export function useProjectDetail(projectId: number | null): DetailState {
-  const [state, setState] = useState<DetailState>({ data: null, loading: true, error: null })
+  const [data, setData] = useState<ProjectDetailType | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const fetchOnce = useCallback(async () => {
     if (projectId == null || Number.isNaN(projectId)) {
-      setState({ data: null, loading: false, error: '项目 id 无效' })
+      setData(null)
+      setLoading(false)
+      setError('项目 id 无效')
       return
     }
-    let cancelled = false
-    setState({ data: null, loading: true, error: null })
-    api
-      .get<ProjectDetailType>(`/projects/${projectId}/detail`)
-      .then((data) => {
-        if (cancelled) return
-        setState({ data, loading: false, error: null })
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setState({ data: null, loading: false, error: readError(err) })
-      })
-    return () => {
-      cancelled = true
+    setLoading(true)
+    setError(null)
+    try {
+      const fresh = await api.get<ProjectDetailType>(`/projects/${projectId}/detail`)
+      setData(fresh)
+      setError(null)
+    } catch (err) {
+      setError(readError(err))
+    } finally {
+      setLoading(false)
     }
   }, [projectId])
 
-  return state
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (cancelled) return
+      await fetchOnce()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [fetchOnce])
+
+  const refetch = useCallback(async () => {
+    await fetchOnce()
+  }, [fetchOnce])
+
+  return { data, loading, error, refetch }
 }
 
 /** Friendly status label for top-bar chip. */

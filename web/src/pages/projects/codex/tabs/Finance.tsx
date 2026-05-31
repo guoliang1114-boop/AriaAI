@@ -1,14 +1,21 @@
+import { useState } from 'react'
 import type { ProjectDetail as ProjectDetailType, ProjectPayment } from '../../../../types/api'
+import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus, type CxTone } from '../CxPrimitives'
 import { formatAmountWan } from '../useProjectsApi'
+import {
+  CxPaymentDeleteDialog,
+  CxPaymentFormDialog,
+} from '../CxPaymentActions'
 
 interface FinanceProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
-const SCHED_GRID = '1.4fr 80px 110px 110px 90px'
+const SCHED_GRID = '1.4fr 80px 110px 110px 90px 22px'
 
 const PAYMENT_LABEL: Record<ProjectPayment['payment_type'], [string, CxTone]> = {
   received: ['已回款', 'good'],
@@ -17,8 +24,10 @@ const PAYMENT_LABEL: Record<ProjectPayment['payment_type'], [string, CxTone]> = 
   expense: ['支出', 'mute'],
 }
 
-export function CxProjectFinance({ projectId, detail }: FinanceProps) {
+export function CxProjectFinance({ projectId, detail, refetch }: FinanceProps) {
   const { project, financials } = detail
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<ProjectPayment | null>(null)
   const contract = financials.contract_amount || project.contract_amount || 0
   const received = financials.total_received || 0
   const uncollected = financials.uncollected || 0
@@ -122,8 +131,12 @@ export function CxProjectFinance({ projectId, detail }: FinanceProps) {
             title="收款记录"
             subtitle={`${incoming.length} 笔`}
             action={
-              <button type="button" style={{ fontSize: 12, color: 'var(--accent)' }}>
-                + 添加收款
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                style={{ fontSize: 12, color: 'var(--accent)' }}
+              >
+                + 添加记录
               </button>
             }
           >
@@ -143,6 +156,7 @@ export function CxProjectFinance({ projectId, detail }: FinanceProps) {
               <span>金额</span>
               <span>日期</span>
               <span>状态</span>
+              <span />
             </div>
             {incoming.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '14px 4px' }}>
@@ -185,6 +199,20 @@ export function CxProjectFinance({ projectId, detail }: FinanceProps) {
                       {r.payment_date}
                     </span>
                     <CxStatus tone={tone}>{label}</CxStatus>
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(r)}
+                      title="删除"
+                      style={{
+                        padding: 4,
+                        color: 'var(--ink-faint)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <CxIcon name="trash" size={12} />
+                    </button>
                   </div>
                 )
               })
@@ -255,6 +283,20 @@ export function CxProjectFinance({ projectId, detail }: FinanceProps) {
                     <span className="num" style={{ fontSize: 13, color: 'var(--ink)' }}>
                       {formatAmountWan(e.amount)}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(e)}
+                      title="删除"
+                      style={{
+                        padding: 4,
+                        color: 'var(--ink-faint)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <CxIcon name="trash" size={12} />
+                    </button>
                   </div>
                 ))
               )}
@@ -262,6 +304,20 @@ export function CxProjectFinance({ projectId, detail }: FinanceProps) {
           </aside>
         </div>
       </div>
+
+      <CxPaymentFormDialog
+        open={creating}
+        projectId={projectId}
+        onClose={() => setCreating(false)}
+        onSaved={refetch}
+      />
+      <CxPaymentDeleteDialog
+        open={deleting !== null}
+        projectId={projectId}
+        payment={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={refetch}
+      />
     </CxProjectShell>
   )
 }

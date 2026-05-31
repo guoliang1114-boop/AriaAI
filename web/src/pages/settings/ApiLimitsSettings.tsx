@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { api } from '../../api/client'
+import { CxPagination } from '../../components/codex'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
   ClientMemoryJob,
@@ -28,6 +29,8 @@ type BudgetInfo = {
 }
 
 type CombinedJob = ({ scope: 'project' } & ProjectMemoryJob) | ({ scope: 'client' } & ClientMemoryJob)
+
+const API_FAILURE_PAGE_SIZE = 6
 
 type FailureItem =
   | {
@@ -269,6 +272,8 @@ export function ApiLimitsSettings() {
   const [projectBudget, setProjectBudget] = useState<BudgetInfo | null>(null)
   const [clientBudget, setClientBudget] = useState<BudgetInfo | null>(null)
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
+  const [failurePage, setFailurePage] = useState(1)
+  const [failurePageSize, setFailurePageSize] = useState(API_FAILURE_PAGE_SIZE)
 
   const loadLimits = async (silent = false) => {
     try {
@@ -314,8 +319,18 @@ export function ApiLimitsSettings() {
   const retryingJobs = useMemo(() => jobs.filter((job) => (job.retry_count ?? 0) > 0).length, [jobs])
   const rateLimitFailures = useMemo(() => recentFailures.filter(isRateLimitFailure), [recentFailures])
   const modelPressureFailures = useMemo(() => recentFailures.filter(isModelPressureFailure), [recentFailures])
-  const latestFailures = rateLimitFailures.length > 0 ? rateLimitFailures : modelPressureFailures.slice(0, 6)
+  const latestFailures = rateLimitFailures.length > 0 ? rateLimitFailures : modelPressureFailures
+  const failurePageCount = Math.max(1, Math.ceil(latestFailures.length / failurePageSize))
+  const currentFailurePage = Math.min(failurePage, failurePageCount)
+  const paginatedFailures = useMemo(() => {
+    const start = (currentFailurePage - 1) * failurePageSize
+    return latestFailures.slice(start, start + failurePageSize)
+  }, [currentFailurePage, failurePageSize, latestFailures])
   const hasPressure = rateLimitFailures.length > 0 || retryingJobs > 0 || isBudgetTight(projectBudget) || isBudgetTight(clientBudget)
+
+  useEffect(() => {
+    setFailurePage((current) => Math.min(current, failurePageCount))
+  }, [failurePageCount])
 
   if (loading) {
     return (
@@ -555,7 +570,7 @@ export function ApiLimitsSettings() {
             </div>
           ) : (
             <div className="space-y-2">
-              {latestFailures.map((failure) => (
+              {paginatedFailures.map((failure) => (
                 <button
                   key={`${failure.scope}-${getFailureName(failure)}-${failure.stage}-${failure.failed_at}`}
                   type="button"
@@ -659,6 +674,18 @@ export function ApiLimitsSettings() {
                   </div>
                 </button>
               ))}
+              <CxPagination
+                page={currentFailurePage}
+                pageSize={failurePageSize}
+                totalItems={latestFailures.length}
+                onPageChange={setFailurePage}
+                onPageSizeChange={(nextPageSize) => {
+                  setFailurePageSize(nextPageSize)
+                  setFailurePage(1)
+                }}
+                pageSizeOptions={[6, 12, 24]}
+                isZh={isZh}
+              />
             </div>
           )}
         </div>

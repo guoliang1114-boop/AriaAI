@@ -1,7 +1,13 @@
+import { useState } from 'react'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel } from '../CxPrimitives'
+import {
+  CxArchiveProjectDialog,
+  CxDeleteProjectDialog,
+  CxEditProjectDialog,
+} from '../CxProjectActions'
 import {
   STATUS_LABEL,
   firstGlyph,
@@ -12,10 +18,16 @@ import {
 interface OverviewProps {
   projectId: number
   detail: ProjectDetailType
+  refetch: () => Promise<void>
 }
 
-export function CxProjectOverview({ projectId, detail }: OverviewProps) {
+type DialogKey = 'edit' | 'archive' | 'delete' | null
+
+export function CxProjectOverview({ detail, refetch }: OverviewProps) {
   const { project, members, todos, milestones, financials } = detail
+  const projectId = project.id
+  const [dialog, setDialog] = useState<DialogKey>(null)
+  const closeDialog = () => setDialog(null)
   const ownerName = members.find((m) => m.role === 'owner')?.user.display_name ?? '—'
   const milestoneDone = milestones.filter((m) => m.is_done).length
   const milestoneTotal = milestones.length
@@ -273,6 +285,7 @@ export function CxProjectOverview({ projectId, detail }: OverviewProps) {
             action={
               <button
                 type="button"
+                onClick={() => setDialog('edit')}
                 style={{
                   fontSize: 12,
                   color: 'var(--accent)',
@@ -387,14 +400,15 @@ export function CxProjectOverview({ projectId, detail }: OverviewProps) {
           <CxPanel title="项目管理">
             {(
               [
-                { l: '编辑项目信息', d: '名称、客户、金额、周期等', icon: 'edit', tone: 'soft' },
-                { l: '归档项目', d: '移入归档,保留全部记忆', icon: 'archive', tone: 'soft' },
-                { l: '删除项目', d: '不可恢复,谨慎操作', icon: 'trash', tone: 'bad' },
-              ] as Array<{ l: string; d: string; icon: string; tone: 'soft' | 'bad' }>
+                { l: '编辑项目信息', d: '名称、客户、状态、合同金额', icon: 'edit', tone: 'soft', key: 'edit' },
+                { l: '归档项目', d: '移入归档,保留全部记忆', icon: 'archive', tone: 'soft', key: 'archive' },
+                { l: '删除项目', d: '不可恢复,谨慎操作', icon: 'trash', tone: 'bad', key: 'delete' },
+              ] as Array<{ l: string; d: string; icon: string; tone: 'soft' | 'bad'; key: DialogKey }>
             ).map((a, i) => (
               <button
                 key={a.l}
                 type="button"
+                onClick={() => setDialog(a.key)}
                 className="row-hov"
                 style={{
                   width: '100%',
@@ -442,6 +456,24 @@ export function CxProjectOverview({ projectId, detail }: OverviewProps) {
           </CxPanel>
         </aside>
       </div>
+
+      <CxEditProjectDialog
+        open={dialog === 'edit'}
+        project={project}
+        onClose={closeDialog}
+        onSaved={refetch}
+      />
+      <CxArchiveProjectDialog
+        open={dialog === 'archive'}
+        project={project}
+        onClose={closeDialog}
+        onArchived={refetch}
+      />
+      <CxDeleteProjectDialog
+        open={dialog === 'delete'}
+        project={project}
+        onClose={closeDialog}
+      />
     </CxProjectShell>
   )
 }

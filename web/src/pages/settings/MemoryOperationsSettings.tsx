@@ -18,7 +18,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '../../api/client'
-import { CxConfirmDialog } from '../../components/codex'
+import { CxConfirmDialog, CxPagination } from '../../components/codex'
 import { useToast } from '../../contexts/ToastContext'
 import { formatDateTime, getResolvedAppTimeZone } from '../../utils/timezone'
 import type {
@@ -35,6 +35,10 @@ type JobTypeFilter = 'all' | 'rebuild' | 'summary_warm'
 type RetryFilter = 'all' | 'retrying' | 'clean'
 type FailureCategory = 'all' | 'budget' | 'rate_limit' | 'timeout' | 'database' | 'data' | 'scheduler' | 'llm' | 'unknown'
 type AttentionFilter = 'all' | 'manual'
+
+const MEMORY_JOBS_PAGE_SIZE = 10
+const MEMORY_SUCCESSES_PAGE_SIZE = 8
+const MEMORY_FAILURES_PAGE_SIZE = 8
 
 type BudgetInfo = {
   used: number
@@ -284,6 +288,12 @@ export function MemoryOperationsSettings() {
   const [recentFailures, setRecentFailures] = useState<FailureItem[]>([])
   const [recentSuccesses, setRecentSuccesses] = useState<SuccessItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [jobsPage, setJobsPage] = useState(1)
+  const [jobsPageSize, setJobsPageSize] = useState(MEMORY_JOBS_PAGE_SIZE)
+  const [successPage, setSuccessPage] = useState(1)
+  const [successPageSize, setSuccessPageSize] = useState(MEMORY_SUCCESSES_PAGE_SIZE)
+  const [failurePage, setFailurePage] = useState(1)
+  const [failurePageSize, setFailurePageSize] = useState(MEMORY_FAILURES_PAGE_SIZE)
   const [scopeFilter, setScopeFilter] = useState<JobScopeFilter>('all')
   const [jobTypeFilter, setJobTypeFilter] = useState<JobTypeFilter>('all')
   const [retryFilter, setRetryFilter] = useState<RetryFilter>('all')
@@ -549,6 +559,47 @@ export function MemoryOperationsSettings() {
     })
   }, [recentSuccesses, scopeFilter, searchQuery])
 
+  const visibleFailures = useMemo(
+    () => filteredFailures.filter((failure) => !dismissedKeys.has(getFailureKey(failure))),
+    [dismissedKeys, filteredFailures],
+  )
+  const jobsPageCount = Math.max(1, Math.ceil(filteredJobs.length / jobsPageSize))
+  const currentJobsPage = Math.min(jobsPage, jobsPageCount)
+  const paginatedJobs = useMemo(() => {
+    const start = (currentJobsPage - 1) * jobsPageSize
+    return filteredJobs.slice(start, start + jobsPageSize)
+  }, [currentJobsPage, filteredJobs, jobsPageSize])
+  const successPageCount = Math.max(1, Math.ceil(filteredSuccesses.length / successPageSize))
+  const currentSuccessPage = Math.min(successPage, successPageCount)
+  const paginatedSuccesses = useMemo(() => {
+    const start = (currentSuccessPage - 1) * successPageSize
+    return filteredSuccesses.slice(start, start + successPageSize)
+  }, [currentSuccessPage, filteredSuccesses, successPageSize])
+  const failurePageCount = Math.max(1, Math.ceil(visibleFailures.length / failurePageSize))
+  const currentFailurePage = Math.min(failurePage, failurePageCount)
+  const paginatedFailures = useMemo(() => {
+    const start = (currentFailurePage - 1) * failurePageSize
+    return visibleFailures.slice(start, start + failurePageSize)
+  }, [currentFailurePage, failurePageSize, visibleFailures])
+
+  useEffect(() => {
+    setJobsPage(1)
+    setSuccessPage(1)
+    setFailurePage(1)
+  }, [attentionFilter, failureCategoryFilter, jobTypeFilter, retryFilter, scopeFilter, searchQuery, showFailuresOnly])
+
+  useEffect(() => {
+    setJobsPage((current) => Math.min(current, jobsPageCount))
+  }, [jobsPageCount])
+
+  useEffect(() => {
+    setSuccessPage((current) => Math.min(current, successPageCount))
+  }, [successPageCount])
+
+  useEffect(() => {
+    setFailurePage((current) => Math.min(current, failurePageCount))
+  }, [failurePageCount])
+
   const selectedFailure = useMemo(
     () => (selectedFailureKey ? recentFailures.find((failure) => getFailureKey(failure) === selectedFailureKey) ?? null : null),
     [recentFailures, selectedFailureKey],
@@ -604,7 +655,7 @@ export function MemoryOperationsSettings() {
   }
 
   const toggleSelectAllVisible = () => {
-    const visibleKeys = filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).map(getFailureKey)
+    const visibleKeys = paginatedFailures.map(getFailureKey)
     const allSelected = visibleKeys.every((k) => selectedFailureKeys.has(k))
     if (allSelected) {
       setSelectedFailureKeys(new Set())
@@ -1530,7 +1581,25 @@ export function MemoryOperationsSettings() {
             </div>
           ) : null}
 
-          {!showFailuresOnly ? <div className="space-y-3">{filteredJobs.map(renderJobCard)}</div> : null}
+          {!showFailuresOnly ? (
+            <>
+              <div className="space-y-3">{paginatedJobs.map(renderJobCard)}</div>
+              {filteredJobs.length > 0 ? (
+                <CxPagination
+                  page={currentJobsPage}
+                  pageSize={jobsPageSize}
+                  totalItems={filteredJobs.length}
+                  onPageChange={setJobsPage}
+                  onPageSizeChange={(nextPageSize) => {
+                    setJobsPageSize(nextPageSize)
+                    setJobsPage(1)
+                  }}
+                  pageSizeOptions={[10, 20, 50]}
+                  isZh={isZh}
+                />
+              ) : null}
+            </>
+          ) : null}
 
           {!showFailuresOnly && filteredSuccesses.length > 0 ? (
             <div
@@ -1548,11 +1617,24 @@ export function MemoryOperationsSettings() {
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {isZh ? '最近成功记录' : 'Recent successes'}
               </div>
-              <div className="space-y-2">{filteredSuccesses.slice(0, 12).map(renderSuccessCard)}</div>
+              <div className="space-y-2">{paginatedSuccesses.map(renderSuccessCard)}</div>
+              <CxPagination
+                page={currentSuccessPage}
+                pageSize={successPageSize}
+                totalItems={filteredSuccesses.length}
+                onPageChange={setSuccessPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setSuccessPageSize(nextPageSize)
+                  setSuccessPage(1)
+                }}
+                pageSizeOptions={[8, 16, 32]}
+                isZh={isZh}
+                style={{ marginTop: 12 }}
+              />
             </div>
           ) : null}
 
-          {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length > 0 ? (
+          {visibleFailures.length > 0 ? (
             <div
               style={{
                 padding: 16,
@@ -1572,7 +1654,7 @@ export function MemoryOperationsSettings() {
                     className="font-mono"
                     style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-codex-ink-mute)' }}
                   >
-                    ({filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).length})
+                    ({visibleFailures.length})
                   </span>
                 </div>
                 <button
@@ -1638,7 +1720,7 @@ export function MemoryOperationsSettings() {
               )}
 
               <div className="space-y-2">
-                {filteredFailures.filter((f) => !dismissedKeys.has(getFailureKey(f))).slice(0, 12).map((failure, index) => {
+                {paginatedFailures.map((failure, index) => {
                   const busyRetry = actionKey === `${failure.scope}-failure-${failure.failed_at}`
                   const failureKey = getFailureKey(failure)
                   const isSelected = selectedFailureKeys.has(failureKey)
@@ -1797,6 +1879,19 @@ export function MemoryOperationsSettings() {
                   )
                 })}
               </div>
+              <CxPagination
+                page={currentFailurePage}
+                pageSize={failurePageSize}
+                totalItems={visibleFailures.length}
+                onPageChange={setFailurePage}
+                onPageSizeChange={(nextPageSize) => {
+                  setFailurePageSize(nextPageSize)
+                  setFailurePage(1)
+                }}
+                pageSizeOptions={[8, 16, 32]}
+                isZh={isZh}
+                style={{ marginTop: 12 }}
+              />
             </div>
           ) : null}
         </div>

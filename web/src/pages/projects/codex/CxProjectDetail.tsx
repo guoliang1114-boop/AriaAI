@@ -18,7 +18,7 @@ import { CxProjectDocs } from './tabs/Docs'
 export function CxProjectDetail() {
   const { id } = useParams<{ id: string }>()
   const projectIdNum = id ? Number(id) : NaN
-  const { data: detail, loading, error } = useProjectDetail(
+  const { data: detail, loading, error, refetch } = useProjectDetail(
     Number.isNaN(projectIdNum) ? null : projectIdNum,
   )
 
@@ -49,7 +49,7 @@ export function CxProjectDetail() {
     )
   }
 
-  const tabProps = { projectId: detail.project.id, detail }
+  const tabProps = { projectId: detail.project.id, detail, refetch }
 
   return (
     <div
