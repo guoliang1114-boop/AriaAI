@@ -12,7 +12,7 @@ export type CxIconName =
   | 'home' | 'chat' | 'wrench' | 'folder' | 'building' | 'user' | 'book'
   | 'settings' | 'bell' | 'search' | 'plus' | 'arrow-right' | 'arrow-up-right'
   | 'chevron-right' | 'chevron-down' | 'sparkle' | 'target' | 'zap' | 'clock'
-  | 'calendar' | 'send' | 'paperclip' | 'file' | 'check' | 'dot' | 'quote'
+  | 'calendar' | 'send' | 'paperclip' | 'file' | 'download' | 'check' | 'dot' | 'quote'
   | 'more' | 'filter' | 'grid' | 'list' | 'logout' | 'star' | 'tag' | 'lock'
   | 'mail' | 'moon' | 'sun' | 'edit' | 'archive' | 'trash' | 'truck'
   | 'trending'
@@ -136,6 +136,14 @@ export function CxIcon({ name, size = 16, stroke = 1.5, style }: CxIconProps): R
         <svg {...props}>
           <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" />
           <path d="M14 3v6h6" />
+        </svg>
+      )
+    case 'download':
+      return (
+        <svg {...props}>
+          <path d="M12 3v11" />
+          <path d="M7 10l5 5 5-5" />
+          <path d="M5 21h14" />
         </svg>
       )
     case 'check':

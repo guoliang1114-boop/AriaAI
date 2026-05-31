@@ -1,4 +1,7 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { api } from '../../../../api/client'
+import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
+import { getApiBaseUrl } from '../../../../config/api'
 import type {
   ProjectDetail as ProjectDetailType,
   ProjectFile,
@@ -65,9 +68,59 @@ function sizeText(bytes: number | null | undefined): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function fileSize(file: ProjectFile): number | undefined {
+  return file.size ?? (file as ProjectFile & { size_bytes?: number }).size_bytes
+}
+
 function dateText(iso: string | null | undefined): string {
   if (!iso) return '—'
   return iso.slice(0, 10)
+}
+
+function normalizeFileType(file: ProjectFile): string {
+  const explicit = (file.file_type || '').replace('.', '').toLowerCase()
+  if (explicit) return explicit
+  const idx = file.name.lastIndexOf('.')
+  return idx === -1 ? '' : file.name.slice(idx + 1).toLowerCase()
+}
+
+function getPreviewKind(file: ProjectFile): 'pdf' | 'image' | 'markdown' | 'text' | 'unsupported' {
+  const type = normalizeFileType(file)
+  if (type === 'pdf') return 'pdf'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(type)) return 'image'
+  if (['md', 'markdown'].includes(type)) return 'markdown'
+  if (['txt', 'csv', 'json', 'log'].includes(type)) return 'text'
+  return 'unsupported'
+}
+
+function projectFileDownloadUrl(projectId: number, fileId: number): string {
+  const base = getApiBaseUrl().replace(/\/$/, '')
+  return `${base}/projects/${projectId}/files/${fileId}/download`
+}
+
+async function fetchProjectFileBlob(projectId: number, file: ProjectFile, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(projectFileDownloadUrl(projectId, file.id), {
+    signal,
+    headers: {
+      'X-Auth-Token': localStorage.getItem('authToken') || '',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to load file (${response.status})`)
+  }
+  return response.blob()
+}
+
+async function downloadProjectFile(projectId: number, file: ProjectFile): Promise<void> {
+  const blob = await fetchProjectFileBlob(projectId, file)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = file.name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
@@ -91,6 +144,15 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
 
   const toggle = (id: number) => setExpanded((e) => ({ ...e, [id]: !e[id] }))
   const cur = groups.find((g) => g.id === sel.folder) ?? groups[0]
+  const selectedFile = sel.file >= 0 ? cur?.files[sel.file] ?? null : null
+
+  useEffect(() => {
+    if (sel.file < 0 || selectedFile || groups.length === 0) return
+    const firstGroupWithFile = groups.find((g) => g.files.length > 0)
+    if (firstGroupWithFile) {
+      setSel({ folder: firstGroupWithFile.id, file: 0 })
+    }
+  }, [groups, sel.file, selectedFile])
 
   return (
     <CxProjectShell activeTab="docs" projectId={projectId} project={project}>
@@ -161,7 +223,7 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                     active={sel.folder === g.id && sel.file === -1}
                     onClick={() => {
                       toggle(g.id)
-                      setSel({ folder: g.id, file: 0 })
+                      setSel({ folder: g.id, file: -1 })
                     }}
                   />
                   {expanded[g.id] &&
@@ -181,8 +243,16 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
           </div>
         </aside>
 
-        {/* RIGHT — folder contents */}
-        <div style={{ overflow: 'auto', padding: '20px 32px 32px', minWidth: 0 }}>
+        {/* RIGHT — file preview */}
+        <div
+          style={{
+            overflow: 'hidden',
+            padding: '20px 32px 32px',
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           <div
             style={{
               display: 'flex',
@@ -206,13 +276,27 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                 <>
                   <CxIcon name="chevron-right" size={11} style={{ color: 'var(--ink-faint)' }} />
                   <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{cur.name}</span>
-                  <span className="num" style={{ color: 'var(--ink-faint)', marginLeft: 4 }}>
-                    {cur.files.length}
-                  </span>
+                  {selectedFile && (
+                    <>
+                      <CxIcon name="chevron-right" size={11} style={{ color: 'var(--ink-faint)' }} />
+                      <span
+                        style={{
+                          color: 'var(--ink)',
+                          fontWeight: 500,
+                          maxWidth: 360,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {selectedFile.name}
+                      </span>
+                    </>
+                  )}
                 </>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={() => setCreatingFolder(true)}
@@ -226,7 +310,43 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
               >
                 新建文件夹
               </button>
-              {cur && cur.id !== UNFILED_ID && (
+              {selectedFile ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void downloadProjectFile(projectId, selectedFile)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      color: 'var(--ink-soft)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-sm)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <CxIcon name="download" size={12} />
+                    下载
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingFile(selectedFile)}
+                    title="删除当前文件"
+                    style={{
+                      padding: 6,
+                      color: 'var(--ink-faint)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--r-sm)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <CxIcon name="trash" size={12} />
+                  </button>
+                </>
+              ) : cur && cur.id !== UNFILED_ID ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -246,126 +366,11 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                 >
                   <CxIcon name="trash" size={12} />
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
 
-          {!cur || cur.files.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '40px 0',
-                fontSize: 13,
-                color: 'var(--ink-faint)',
-              }}
-            >
-              {cur ? `${cur.name} 中暂无文件` : '还没有上传任何文件。'}
-            </div>
-          ) : (
-            <div>
-              {cur.files.map((d, i) => (
-                <div
-                  key={d.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSel({ folder: cur.id, file: i })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') setSel({ folder: cur.id, file: i })
-                  }}
-                  className="row-hov"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '50px 1fr 100px 90px 22px',
-                    padding: '14px 8px',
-                    gap: 14,
-                    alignItems: 'flex-start',
-                    borderBottom: '1px solid var(--line-soft)',
-                    borderRadius: 'var(--r-sm)',
-                    cursor: 'pointer',
-                    background:
-                      sel.folder === cur.id && sel.file === i ? 'var(--bg-tint)' : 'transparent',
-                    textAlign: 'left',
-                    width: '100%',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: 'var(--ink-mute)',
-                      padding: '3px 8px',
-                      border: '1px solid var(--line)',
-                      borderRadius: 'var(--r-sm)',
-                      textAlign: 'center',
-                      letterSpacing: '0.04em',
-                      justifySelf: 'start',
-                    }}
-                  >
-                    {extOf(d)}
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="ui" style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
-                      {d.name}
-                    </div>
-                    {d.summary && (
-                      <p
-                        style={{
-                          margin: '3px 0 6px',
-                          fontSize: 12.5,
-                          color: 'var(--ink-soft)',
-                          lineHeight: 1.55,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical' as CSSProperties['WebkitBoxOrient'],
-                        }}
-                      >
-                        {d.summary}
-                      </p>
-                    )}
-                    {d.origin && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          fontSize: 11,
-                          color: 'var(--ink-mute)',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <span>{d.origin}</span>
-                      </div>
-                    )}
-                  </div>
-                  <span className="num" style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
-                    {sizeText(d.size)}
-                  </span>
-                  <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
-                    {dateText(d.uploaded_at)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setDeletingFile(d)
-                    }}
-                    title="删除"
-                    style={{
-                      padding: 4,
-                      color: 'var(--ink-faint)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      alignSelf: 'flex-start',
-                    }}
-                  >
-                    <CxIcon name="trash" size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <FilePreviewPane projectId={projectId} file={selectedFile} currentFolder={cur} />
         </div>
       </div>
 
@@ -398,6 +403,316 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
   )
 }
 
+interface ProjectMarkdownPayload {
+  content: string
+}
+
+interface PreviewState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  kind?: ReturnType<typeof getPreviewKind>
+  url?: string
+  text?: string
+  truncated?: boolean
+  message?: string
+}
+
+function FilePreviewPane({
+  projectId,
+  file,
+  currentFolder,
+}: {
+  projectId: number
+  file: ProjectFile | null
+  currentFolder?: FolderGroup
+}) {
+  const [preview, setPreview] = useState<PreviewState>({ status: 'idle' })
+
+  useEffect(() => {
+    if (!file) {
+      setPreview({ status: 'idle' })
+      return
+    }
+
+    const kind = getPreviewKind(file)
+    if (kind === 'unsupported') {
+      setPreview({ status: 'ready', kind })
+      return
+    }
+
+    let objectUrl: string | undefined
+    let disposed = false
+    const controller = new AbortController()
+
+    const load = async () => {
+      setPreview({ status: 'loading', kind })
+      try {
+        if (kind === 'markdown') {
+          const data = await api.get<ProjectMarkdownPayload>(`/projects/${projectId}/documents/${file.id}`)
+          if (!disposed) setPreview({ status: 'ready', kind, text: data.content || '' })
+          return
+        }
+
+        const blob = await fetchProjectFileBlob(projectId, file, controller.signal)
+        if (kind === 'text') {
+          const limit = 1024 * 1024
+          const text = await blob.slice(0, limit).text()
+          if (!disposed) {
+            setPreview({
+              status: 'ready',
+              kind,
+              text,
+              truncated: blob.size > limit,
+            })
+          }
+          return
+        }
+
+        const typedBlob =
+          kind === 'pdf'
+            ? new Blob([blob], { type: 'application/pdf' })
+            : new Blob([blob], { type: blob.type || `image/${normalizeFileType(file)}` })
+        objectUrl = URL.createObjectURL(typedBlob)
+        if (disposed) {
+          URL.revokeObjectURL(objectUrl)
+          return
+        }
+        setPreview({ status: 'ready', kind, url: objectUrl })
+      } catch (err) {
+        if (!disposed && !controller.signal.aborted) {
+          setPreview({
+            status: 'error',
+            kind,
+            message: err instanceof Error ? err.message : '文件预览失败',
+          })
+        }
+      }
+    }
+
+    void load()
+
+    return () => {
+      disposed = true
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [file, projectId])
+
+  if (!file) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-sm)',
+          background: 'var(--bg-elev)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--ink-faint)',
+          fontSize: 13,
+          textAlign: 'center',
+          padding: 24,
+        }}
+      >
+        {currentFolder
+          ? `「${currentFolder.name}」是文件夹。请在左侧选择一个文件查看内容。`
+          : '请选择左侧文件查看内容。'}
+      </div>
+    )
+  }
+
+  return (
+    <section
+      style={{
+        flex: 1,
+        minHeight: 0,
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-elev)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        style={{
+          padding: '16px 18px',
+          borderBottom: '1px solid var(--line-soft)',
+          display: 'grid',
+          gridTemplateColumns: '50px 1fr',
+          gap: 14,
+          alignItems: 'start',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10,
+            color: 'var(--ink-mute)',
+            padding: '3px 8px',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-sm)',
+            textAlign: 'center',
+            letterSpacing: '0.04em',
+            justifySelf: 'start',
+          }}
+        >
+          {extOf(file)}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <h2
+            className="ui"
+            style={{
+              margin: 0,
+              fontSize: 16,
+              color: 'var(--ink)',
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {file.name}
+          </h2>
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              marginTop: 6,
+              fontSize: 11.5,
+              color: 'var(--ink-faint)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span className="num">{sizeText(fileSize(file))}</span>
+            <span>{dateText(file.uploaded_at)}</span>
+            {file.origin && <span>{file.origin}</span>}
+          </div>
+          {file.summary && (
+            <p style={{ margin: '10px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-soft)' }}>
+              {file.summary}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--bg)' }}>
+        {preview.status === 'loading' && (
+          <PreviewNotice icon="file" title="正在加载预览…" />
+        )}
+        {preview.status === 'error' && (
+          <PreviewNotice
+            icon="file"
+            title="暂时无法预览"
+            description={preview.message || '可以下载原文件查看。'}
+          />
+        )}
+        {preview.status === 'ready' && preview.kind === 'pdf' && preview.url && (
+          <iframe
+            title={file.name}
+            src={preview.url}
+            style={{ width: '100%', height: '100%', border: 0, background: '#fff' }}
+          />
+        )}
+        {preview.status === 'ready' && preview.kind === 'image' && preview.url && (
+          <div
+            style={{
+              minHeight: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <img
+              src={preview.url}
+              alt={file.name}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+            />
+          </div>
+        )}
+        {preview.status === 'ready' && preview.kind === 'markdown' && (
+          <div className="project-chat-preview-md md-root" style={{ padding: '22px 26px' }}>
+            <MarkdownRenderer content={preview.text || ''} />
+          </div>
+        )}
+        {preview.status === 'ready' && preview.kind === 'text' && (
+          <div style={{ padding: 20 }}>
+            {preview.truncated && (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '8px 10px',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--ink-mute)',
+                  fontSize: 12,
+                  background: 'var(--bg-elev)',
+                }}
+              >
+                文件较大，仅展示前 1 MB 内容。
+              </div>
+            )}
+            <pre
+              className="mono"
+              style={{
+                margin: 0,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontSize: 12.5,
+                lineHeight: 1.7,
+                color: 'var(--ink-soft)',
+              }}
+            >
+              {preview.text}
+            </pre>
+          </div>
+        )}
+        {preview.status === 'ready' && preview.kind === 'unsupported' && (
+          <PreviewNotice
+            icon="file"
+            title="该类型暂不支持在线预览"
+            description="可以下载原文件查看；文件摘要仍会用于项目记忆和对话上下文。"
+          />
+        )}
+      </div>
+    </section>
+  )
+}
+
+function PreviewNotice({
+  icon,
+  title,
+  description,
+}: {
+  icon: string
+  title: string
+  description?: string
+}) {
+  return (
+    <div
+      style={{
+        minHeight: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: 32,
+        color: 'var(--ink-faint)',
+      }}
+    >
+      <CxIcon name={icon} size={28} style={{ marginBottom: 12 }} />
+      <div style={{ fontSize: 14, color: 'var(--ink-soft)', fontWeight: 500 }}>{title}</div>
+      {description && (
+        <p style={{ margin: '8px 0 0', maxWidth: 360, fontSize: 12.5, lineHeight: 1.6 }}>
+          {description}
+        </p>
+      )}
+    </div>
+  )
+}
+
 interface TreeRowProps {
   depth?: number
   icon?: string
@@ -413,9 +728,9 @@ interface TreeRowProps {
 function TreeRow({ depth = 0, icon, iconColor, expandable, isOpen, label, badge, onClick, active }: TreeRowProps) {
   return (
     <a
-      className="row-hov"
+      className={onClick ? 'row-hov' : ''}
       onClick={onClick}
-      role="button"
+      role={onClick ? 'button' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -424,7 +739,7 @@ function TreeRow({ depth = 0, icon, iconColor, expandable, isOpen, label, badge,
         paddingLeft: 6 + depth * 14,
         margin: '0 -6px',
         borderRadius: 'var(--r-sm)',
-        cursor: 'pointer',
+        cursor: onClick ? 'pointer' : 'default',
         background: active ? 'var(--bg-tint)' : 'transparent',
         position: 'relative',
       }}
