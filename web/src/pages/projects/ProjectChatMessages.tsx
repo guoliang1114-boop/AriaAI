@@ -185,6 +185,9 @@ type ProjectChatMessagesProps = {
   quickPrompts: ProjectQuickPrompt[];
   onQuickPrompt: (content: string) => void;
   onApplyStakeholders?: (message: Message) => void;
+  onRegenerate?: (message: Message) => void;
+  onPinAsAnchor?: (message: Message) => void;
+  onSinkToMemory?: (message: Message) => void;
   onSaveMessage: (messageId: number) => void;
   isStreamingTruncated?: boolean;
   onContinue?: () => void;
@@ -214,6 +217,9 @@ export function ProjectChatMessages({
   quickPrompts,
   onQuickPrompt,
   onApplyStakeholders,
+  onRegenerate,
+  onPinAsAnchor,
+  onSinkToMemory,
   onSaveMessage,
   isStreamingTruncated,
   onContinue,
@@ -289,6 +295,15 @@ export function ProjectChatMessages({
                     msg.role === "assistant"
                       ? () => onSaveMessage(msg.id)
                       : undefined
+                  }
+                  onRegenerate={
+                    msg.role === "assistant" && !isLoading ? onRegenerate : undefined
+                  }
+                  onPinAsAnchor={
+                    msg.role === "assistant" ? onPinAsAnchor : undefined
+                  }
+                  onSinkToMemory={
+                    msg.role === "assistant" ? onSinkToMemory : undefined
                   }
                 />
               );

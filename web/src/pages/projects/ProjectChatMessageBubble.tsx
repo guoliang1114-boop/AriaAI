@@ -4,12 +4,15 @@ import { Link } from "react-router-dom";
 import {
   Activity,
   BookOpen,
+  Brain,
   CheckCircle2,
   Copy,
   FileText,
   GitCompare,
   Loader2,
+  Pin,
   Play,
+  RefreshCw,
   Save,
   Sparkles,
   Users,
@@ -82,27 +85,39 @@ const MessageCopyButton = memo(
   },
 );
 
-const MessageSaveButton = memo(
-  ({ onClick, title }: { onClick: () => void; title: string }) => {
-    return (
-      <button
-        onClick={onClick}
-        title={title}
-        className="inline-flex items-center justify-center transition-colors"
-        style={{
-          width: 26,
-          height: 26,
-          borderRadius: "var(--codex-r-sm, 6px)",
-          background: "transparent",
-          border: "1px solid var(--color-codex-line)",
-          color: "var(--color-codex-ink-mute)",
-        }}
-      >
-        <Save className="h-3 w-3" />
-      </button>
-    );
-  },
-);
+/**
+ * Codex action chip — text + icon pill used in the under-message action
+ * row (重新生成 / 固定为锚点 / 加到笔记 / 沉淀到项目记忆).
+ */
+function ChipButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center transition-colors"
+      style={{
+        gap: 5,
+        padding: "3px 9px",
+        fontSize: 11.5,
+        color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+        background: "var(--color-codex-bg-elev)",
+        border: "1px solid var(--color-codex-line)",
+        borderRadius: 999,
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
 
 interface ProjectChatMessageBubbleProps {
   highlight?: boolean;
@@ -113,6 +128,14 @@ interface ProjectChatMessageBubbleProps {
   onApplyStakeholders?: (message: Message) => void;
   onSaveToNotes?: () => void;
   onContinue?: () => void;
+  /** "重新生成" — parent re-sends the previous user message. */
+  onRegenerate?: (message: Message) => void;
+  /** "固定为锚点" — parent pre-fills the composer asking Aria to
+   *  promote risks / questions / stakeholder notes into anchors. */
+  onPinAsAnchor?: (message: Message) => void;
+  /** "沉淀到项目记忆" — parent pre-fills the composer asking Aria to
+   *  fold the answer into structured project memory. */
+  onSinkToMemory?: (message: Message) => void;
   projectId: number;
 }
 
@@ -126,6 +149,9 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     onOpenTasks,
     onSaveToNotes,
     onContinue,
+    onRegenerate,
+    onPinAsAnchor,
+    onSinkToMemory,
     projectId,
   }) => {
     const { t, i18n } = useTranslation();
@@ -467,6 +493,45 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             </div>
           )}
 
+          {/* Codex action chips — only on assistant messages and only
+           * when at least one of the chip callbacks is wired. Hidden
+           * by default, fades in on row hover. */}
+          {!isUser && (onRegenerate || onPinAsAnchor || onSaveToNotes || onSinkToMemory) ? (
+            <div
+              className="mt-2 flex flex-wrap items-center opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ gap: 6 }}
+            >
+              {onRegenerate ? (
+                <ChipButton
+                  icon={<RefreshCw className="h-3 w-3" />}
+                  onClick={() => onRegenerate(msg)}
+                  label={isZh ? "重新生成" : "Regenerate"}
+                />
+              ) : null}
+              {onPinAsAnchor ? (
+                <ChipButton
+                  icon={<Pin className="h-3 w-3" />}
+                  onClick={() => onPinAsAnchor(msg)}
+                  label={isZh ? "固定为锚点" : "Pin as anchor"}
+                />
+              ) : null}
+              {onSaveToNotes ? (
+                <ChipButton
+                  icon={<Save className="h-3 w-3" />}
+                  onClick={onSaveToNotes}
+                  label={copy.saveToNotes}
+                />
+              ) : null}
+              {onSinkToMemory ? (
+                <ChipButton
+                  icon={<Brain className="h-3 w-3" />}
+                  onClick={() => onSinkToMemory(msg)}
+                  label={isZh ? "沉淀到项目记忆" : "Sink to memory"}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             className={`mt-1.5 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 ${isUser ? "flex-row-reverse" : ""}`}
           >
@@ -483,32 +548,42 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
             {!isUser && !traceUnavailable ? (
               <button
                 onClick={() => void loadTrace()}
-                className="p-1.5 rounded-lg bg-codex-bg-tint hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-ink-soft transition-colors"
                 title={isZh ? "查看执行依据" : "View execution trace"}
                 disabled={traceLoading}
+                className="inline-flex items-center justify-center transition-colors"
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "var(--codex-r-sm, 6px)",
+                  background: "transparent",
+                  border: "1px solid var(--color-codex-line)",
+                  color: "var(--color-codex-ink-mute)",
+                }}
               >
                 <Activity
-                  className={`w-3.5 h-3.5 ${traceLoading ? "animate-pulse" : ""}`}
+                  className={`h-3 w-3 ${traceLoading ? "animate-pulse" : ""}`}
                 />
               </button>
             ) : null}
-            {!isUser && onSaveToNotes && (
-              <MessageSaveButton
-                onClick={onSaveToNotes}
-                title={copy.saveToNotes}
-              />
-            )}
             {onApplyStakeholders ? (
               <button
                 onClick={() => onApplyStakeholders(msg)}
-                className="p-1.5 rounded-lg bg-codex-bg-tint hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-ink-soft transition-colors"
                 title={
                   isZh
                     ? "从这条消息加入客户干系人"
                     : "Add client stakeholders from this message"
                 }
+                className="inline-flex items-center justify-center transition-colors"
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "var(--codex-r-sm, 6px)",
+                  background: "transparent",
+                  border: "1px solid var(--color-codex-line)",
+                  color: "var(--color-codex-ink-mute)",
+                }}
               >
-                <Users className="w-3.5 h-3.5" />
+                <Users className="h-3 w-3" />
               </button>
             ) : null}
           </div>

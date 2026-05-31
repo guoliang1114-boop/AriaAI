@@ -65,6 +65,9 @@ interface ProjectChatMainPanelProps {
   onOpenConversationSaveModal: () => void;
   onQuickPrompt: (content: string) => void;
   onRebuildMemory: () => void;
+  onRegenerateMessage?: (message: Message) => void;
+  onPinAsAnchor?: (message: Message) => void;
+  onSinkToMemory?: (message: Message) => void;
   onSaveMessage: (messageId: number) => void;
   onSend: () => void;
   onStop?: () => void;
@@ -127,6 +130,9 @@ export function ProjectChatMainPanel({
   messagesContainerRef,
   onInputChange,
   onApplyStakeholders,
+  onRegenerateMessage,
+  onPinAsAnchor,
+  onSinkToMemory,
   onKnowledgeScopeChange,
   onOpenConversationSaveModal,
   onQuickPrompt,
@@ -304,6 +310,9 @@ export function ProjectChatMainPanel({
           quickPrompts={quickPrompts}
           onQuickPrompt={onQuickPrompt}
           onApplyStakeholders={onApplyStakeholders}
+          onRegenerate={onRegenerateMessage}
+          onPinAsAnchor={onPinAsAnchor}
+          onSinkToMemory={onSinkToMemory}
           onSaveMessage={onSaveMessage}
           isStreamingTruncated={isStreamingTruncated}
           onContinue={onContinue}

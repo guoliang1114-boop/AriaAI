@@ -1074,6 +1074,41 @@ export function ProjectChatTab({
             pendingToolActions={pendingToolActions}
             serverPendingAction={serverPendingAction}
             onApplyStakeholders={(message) => void handleApplyStakeholders(message)}
+            onRegenerateMessage={(message) => {
+              // Find the user turn that produced this assistant answer
+              // and re-send it. The reverse-find guards against tool
+              // calls or system messages in between.
+              const idx = messages.findIndex((m) => m.id === message.id);
+              if (idx <= 0) return;
+              for (let i = idx - 1; i >= 0; i--) {
+                if (messages[i].role === "user") {
+                  void handleSendMessage(messages[i].content);
+                  return;
+                }
+              }
+            }}
+            onPinAsAnchor={(message) => {
+              // Pre-fill the composer with a prompt to promote the
+              // answer's risks / questions / stakeholder notes into
+              // anchors. User can edit before sending.
+              const excerpt = message.content.slice(0, 220).trim();
+              panel.setInputValue(
+                isZh
+                  ? `请把这条回答中的关键风险 / 待确认问题 / 干系人提示固定为项目锚点:\n\n> ${excerpt}${message.content.length > 220 ? "…" : ""}`
+                  : `Please promote the key risks / open questions / stakeholder notes from this answer into pinned anchors:\n\n> ${excerpt}${message.content.length > 220 ? "…" : ""}`,
+              );
+            }}
+            onSinkToMemory={(message) => {
+              // Pre-fill the composer asking Aria to fold the answer
+              // into structured project memory (current_stage /
+              // next_actions / key_risks etc.).
+              const excerpt = message.content.slice(0, 220).trim();
+              panel.setInputValue(
+                isZh
+                  ? `请把这条回答的关键内容沉淀到项目记忆里 (阶段 / 目标 / 风险 / 下一步):\n\n> ${excerpt}${message.content.length > 220 ? "…" : ""}`
+                  : `Please fold this answer's key points into project memory (stage / objective / risks / next steps):\n\n> ${excerpt}${message.content.length > 220 ? "…" : ""}`,
+              );
+            }}
             onTaskRunUpdated={handleTaskRunUpdated}
             onInputChange={panel.setInputValue}
             onKnowledgeScopeChange={panel.setKnowledgeScope}
