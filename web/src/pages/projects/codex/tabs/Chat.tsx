@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
   Conversation,
+  Message,
   ProjectDetail as ProjectDetailType,
   ProjectFile,
 } from '../../../../types/api'
@@ -1094,4 +1095,3 @@ function FileEntry({
     </div>
   )
 }
-

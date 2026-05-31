@@ -237,6 +237,121 @@ export function CxFileDeleteDialog({
   )
 }
 
+interface FileMoveDialogProps {
+  open: boolean
+  projectId: number
+  file: ProjectFile | null
+  folders: ProjectFolder[]
+  onClose: () => void
+  onMoved: () => void | Promise<void>
+}
+
+export function CxFileMoveDialog({
+  open,
+  projectId,
+  file,
+  folders,
+  onClose,
+  onMoved,
+}: FileMoveDialogProps) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [folderId, setFolderId] = useState('unfiled')
+
+  useEffect(() => {
+    if (!open || !file) return
+    setFolderId(file.folder_id == null ? 'unfiled' : String(file.folder_id))
+  }, [file, open])
+
+  if (!file) return null
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.patch<ProjectFile>(`/projects/${projectId}/files/${file.id}/folder`, {
+        folder_id: folderId === 'unfiled' ? null : Number(folderId),
+      })
+      toast.success({ title: '文件已移动' })
+      onClose()
+      await onMoved()
+    } catch (err) {
+      toast.error({
+        title: '移动失败',
+        description: err instanceof Error ? err.message : '请稍后重试',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <CxDialog
+      open={open}
+      onClose={onClose}
+      title="移动文件"
+      description={`选择「${file.name}」的新位置。`}
+      size="sm"
+      busy={busy}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              padding: '6px 14px',
+              fontSize: 13,
+              border: '1px solid var(--color-codex-line)',
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              color: 'var(--color-codex-ink-soft)',
+              background: 'transparent',
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            form="cx-file-move-form"
+            disabled={busy}
+            style={{
+              padding: '6px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              borderRadius: 'var(--codex-r-sm, 3px)',
+              background: 'var(--color-codex-ink)',
+              color: 'var(--color-codex-bg-elev)',
+              cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.6 : 1,
+            }}
+          >
+            {busy ? '移动中…' : '移动'}
+          </button>
+        </>
+      }
+    >
+      <form id="cx-file-move-form" onSubmit={submit}>
+        <label style={LABEL_STYLE}>目标文件夹</label>
+        <select
+          value={folderId}
+          onChange={(e) => setFolderId(e.target.value)}
+          className="codex-input"
+          style={INPUT_STYLE}
+        >
+          <option value="unfiled">未分类</option>
+          {folders.map((folder) => (
+            <option key={folder.id} value={folder.id}>
+              {folder.name}
+            </option>
+          ))}
+        </select>
+      </form>
+    </CxDialog>
+  )
+}
+
 interface UploadDropzoneProps {
   projectId: number
   folderId?: number | null

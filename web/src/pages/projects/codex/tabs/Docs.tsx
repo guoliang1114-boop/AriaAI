@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../../api/client'
 import { MarkdownRenderer } from '../../../../components/MarkdownRenderer'
 import { getApiBaseUrl } from '../../../../config/api'
@@ -11,6 +11,7 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import {
   CxFileDeleteDialog,
+  CxFileMoveDialog,
   CxFolderCreateDialog,
   CxFolderDeleteDialog,
   CxUploadDropzone,
@@ -23,6 +24,12 @@ interface DocsProps {
 }
 
 const UNFILED_ID = -1
+const DEFAULT_FILE_SUMMARIES = new Set([
+  '',
+  'Project note document',
+  'Project note',
+  'Manual project document',
+])
 
 interface FolderGroup {
   id: number
@@ -75,6 +82,11 @@ function fileSize(file: ProjectFile): number | undefined {
 function dateText(iso: string | null | undefined): string {
   if (!iso) return '—'
   return iso.slice(0, 10)
+}
+
+function displaySummary(file: ProjectFile): string {
+  const summary = (file.summary || '').trim()
+  return DEFAULT_FILE_SUMMARIES.has(summary) ? '' : summary
 }
 
 function normalizeFileType(file: ProjectFile): string {
@@ -141,10 +153,15 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [deletingFolder, setDeletingFolder] = useState<ProjectFolder | null>(null)
   const [deletingFile, setDeletingFile] = useState<ProjectFile | null>(null)
+  const [movingFile, setMovingFile] = useState<ProjectFile | null>(null)
+  const [editingFileId, setEditingFileId] = useState<number | null>(null)
 
   const toggle = (id: number) => setExpanded((e) => ({ ...e, [id]: !e[id] }))
   const cur = groups.find((g) => g.id === sel.folder) ?? groups[0]
   const selectedFile = sel.file >= 0 ? cur?.files[sel.file] ?? null : null
+  const selectedPreviewKind = selectedFile ? getPreviewKind(selectedFile) : null
+  const isEditingMarkdown =
+    selectedFile != null && selectedPreviewKind === 'markdown' && editingFileId === selectedFile.id
 
   useEffect(() => {
     if (sel.file < 0 || selectedFile || groups.length === 0) return
@@ -153,6 +170,10 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
       setSel({ folder: firstGroupWithFile.id, file: 0 })
     }
   }, [groups, sel.file, selectedFile])
+
+  useEffect(() => {
+    setEditingFileId(null)
+  }, [selectedFile?.id])
 
   return (
     <CxProjectShell activeTab="docs" projectId={projectId} project={project}>
@@ -185,9 +206,29 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
             <h2 className="ui" style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
               项目文件
             </h2>
-            <span className="num" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
-              {groups.length} 夹 · {totalFiles} 份
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="num" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+                {groups.length} 夹 · {totalFiles} 份
+              </span>
+              <button
+                type="button"
+                onClick={() => setCreatingFolder(true)}
+                title="新建文件夹"
+                style={{
+                  width: 24,
+                  height: 24,
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--ink-mute)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--bg-elev)',
+                }}
+              >
+                <CxIcon name="plus" size={12} />
+              </button>
+            </div>
           </div>
           <div style={{ padding: '0 14px 8px' }}>
             <CxUploadDropzone
@@ -297,19 +338,6 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => setCreatingFolder(true)}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  color: 'var(--ink-soft)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 'var(--r-sm)',
-                }}
-              >
-                新建文件夹
-              </button>
               {selectedFile ? (
                 <>
                   <button
@@ -329,22 +357,13 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
                     <CxIcon name="download" size={12} />
                     下载
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeletingFile(selectedFile)}
-                    title="删除当前文件"
-                    style={{
-                      padding: 6,
-                      color: 'var(--ink-faint)',
-                      border: '1px solid var(--line)',
-                      borderRadius: 'var(--r-sm)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <CxIcon name="trash" size={12} />
-                  </button>
+                  <FileActionsMenu
+                    canEdit={selectedPreviewKind === 'markdown'}
+                    isEditing={isEditingMarkdown}
+                    onEdit={() => setEditingFileId(selectedFile.id)}
+                    onMove={() => setMovingFile(selectedFile)}
+                    onDelete={() => setDeletingFile(selectedFile)}
+                  />
                 </>
               ) : cur && cur.id !== UNFILED_ID ? (
                 <button
@@ -370,7 +389,17 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
             </div>
           </div>
 
-          <FilePreviewPane projectId={projectId} file={selectedFile} currentFolder={cur} />
+          <FilePreviewPane
+            projectId={projectId}
+            file={selectedFile}
+            currentFolder={cur}
+            editing={isEditingMarkdown}
+            onCancelEdit={() => setEditingFileId(null)}
+            onSaved={async () => {
+              setEditingFileId(null)
+              await refetch()
+            }}
+          />
         </div>
       </div>
 
@@ -399,6 +428,17 @@ export function CxProjectDocs({ projectId, detail, refetch }: DocsProps) {
         onClose={() => setDeletingFile(null)}
         onDeleted={refetch}
       />
+      <CxFileMoveDialog
+        open={movingFile !== null}
+        projectId={projectId}
+        file={movingFile}
+        folders={folders}
+        onClose={() => setMovingFile(null)}
+        onMoved={async () => {
+          setMovingFile(null)
+          await refetch()
+        }}
+      />
     </CxProjectShell>
   )
 }
@@ -420,16 +460,27 @@ function FilePreviewPane({
   projectId,
   file,
   currentFolder,
+  editing = false,
+  onCancelEdit,
+  onSaved,
 }: {
   projectId: number
   file: ProjectFile | null
   currentFolder?: FolderGroup
+  editing?: boolean
+  onCancelEdit?: () => void
+  onSaved?: () => void | Promise<void>
 }) {
   const [preview, setPreview] = useState<PreviewState>({ status: 'idle' })
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     if (!file) {
       setPreview({ status: 'idle' })
+      setDraft('')
+      setSaveError('')
       return
     }
 
@@ -497,6 +548,37 @@ function FilePreviewPane({
     }
   }, [file, projectId])
 
+  useEffect(() => {
+    if (preview.status === 'ready' && preview.kind === 'markdown' && !editing) {
+      setDraft(preview.text || '')
+      setSaveError('')
+    }
+  }, [editing, preview.kind, preview.status, preview.text])
+
+  useEffect(() => {
+    if (editing && preview.status === 'ready' && preview.kind === 'markdown') {
+      setDraft(preview.text || '')
+      setSaveError('')
+    }
+  }, [editing, file?.id, preview.kind, preview.status])
+
+  const handleSaveMarkdown = async () => {
+    if (!file || preview.kind !== 'markdown') return
+    setSaving(true)
+    setSaveError('')
+    try {
+      await api.patch<ProjectMarkdownPayload>(`/projects/${projectId}/documents/${file.id}`, {
+        content: draft,
+      })
+      setPreview({ status: 'ready', kind: 'markdown', text: draft })
+      await onSaved?.()
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : '保存失败，请稍后再试。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!file) {
     return (
       <div
@@ -521,6 +603,8 @@ function FilePreviewPane({
       </div>
     )
   }
+
+  const summary = displaySummary(file)
 
   return (
     <section
@@ -588,9 +672,9 @@ function FilePreviewPane({
             <span>{dateText(file.uploaded_at)}</span>
             {file.origin && <span>{file.origin}</span>}
           </div>
-          {file.summary && (
+          {summary && (
             <p style={{ margin: '10px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--ink-soft)' }}>
-              {file.summary}
+              {summary}
             </p>
           )}
         </div>
@@ -631,7 +715,17 @@ function FilePreviewPane({
             />
           </div>
         )}
-        {preview.status === 'ready' && preview.kind === 'markdown' && (
+        {preview.status === 'ready' && preview.kind === 'markdown' && editing && (
+          <MarkdownEditor
+            value={draft}
+            saving={saving}
+            error={saveError}
+            onChange={setDraft}
+            onCancel={onCancelEdit}
+            onSave={() => void handleSaveMarkdown()}
+          />
+        )}
+        {preview.status === 'ready' && preview.kind === 'markdown' && !editing && (
           <div className="project-chat-preview-md md-root" style={{ padding: '22px 26px' }}>
             <MarkdownRenderer content={preview.text || ''} />
           </div>
@@ -677,6 +771,233 @@ function FilePreviewPane({
         )}
       </div>
     </section>
+  )
+}
+
+function FileActionsMenu({
+  canEdit,
+  isEditing,
+  onEdit,
+  onMove,
+  onDelete,
+}: {
+  canEdit: boolean
+  isEditing: boolean
+  onEdit: () => void
+  onMove: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (ref.current?.contains(event.target as Node)) return
+      setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  const run = (action: () => void) => {
+    action()
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="更多文件操作"
+        style={{
+          width: 30,
+          height: 30,
+          color: 'var(--ink-soft)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-sm)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: open ? 'var(--bg-tint)' : 'transparent',
+        }}
+      >
+        <CxIcon name="more" size={14} />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 36,
+            right: 0,
+            zIndex: 20,
+            width: 150,
+            padding: 4,
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--bg-elev)',
+            boxShadow: '0 12px 28px rgba(0, 0, 0, 0.12)',
+          }}
+        >
+          {canEdit && (
+            <MenuButton
+              icon="edit"
+              label={isEditing ? '编辑中' : '编辑'}
+              disabled={isEditing}
+              onClick={() => run(onEdit)}
+            />
+          )}
+          <MenuButton icon="folder" label="移动" onClick={() => run(onMove)} />
+          <MenuButton icon="trash" label="删除" tone="danger" onClick={() => run(onDelete)} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuButton({
+  icon,
+  label,
+  tone,
+  disabled,
+  onClick,
+}: {
+  icon: string
+  label: string
+  tone?: 'danger'
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="row-hov"
+      style={{
+        width: '100%',
+        padding: '8px 9px',
+        border: 0,
+        borderRadius: 'var(--r-sm)',
+        background: 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        color: tone === 'danger' ? '#c2410c' : disabled ? 'var(--ink-faint)' : 'var(--ink-soft)',
+        fontSize: 12.5,
+        textAlign: 'left',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.65 : 1,
+      }}
+    >
+      <CxIcon name={icon} size={13} />
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function MarkdownEditor({
+  value,
+  saving,
+  error,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  value: string
+  saving: boolean
+  error: string
+  onChange: (value: string) => void
+  onCancel?: () => void
+  onSave: () => void
+}) {
+  return (
+    <div
+      style={{
+        minHeight: '100%',
+        padding: 18,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      {error && (
+        <div
+          style={{
+            border: '1px solid color-mix(in srgb, #dc2626 28%, var(--line))',
+            borderRadius: 'var(--r-sm)',
+            color: '#b91c1c',
+            background: 'color-mix(in srgb, #dc2626 8%, var(--bg-elev))',
+            fontSize: 12,
+            lineHeight: 1.5,
+            padding: '8px 10px',
+          }}
+        >
+          {error}
+        </div>
+      )}
+      <textarea
+        value={value}
+        disabled={saving}
+        onChange={(event) => onChange(event.target.value)}
+        spellCheck={false}
+        className="mono"
+        style={{
+          flex: 1,
+          minHeight: 360,
+          width: '100%',
+          resize: 'vertical',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-sm)',
+          background: 'var(--bg-elev)',
+          color: 'var(--ink)',
+          padding: '14px 16px',
+          fontSize: 13,
+          lineHeight: 1.7,
+          outline: 'none',
+        }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          style={{
+            padding: '8px 14px',
+            fontSize: 12.5,
+            color: 'var(--ink-soft)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          style={{
+            padding: '8px 16px',
+            fontSize: 12.5,
+            color: 'var(--bg)',
+            border: '1px solid var(--ink)',
+            borderRadius: 'var(--r-sm)',
+            background: 'var(--ink)',
+          }}
+        >
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
+    </div>
   )
 }
 

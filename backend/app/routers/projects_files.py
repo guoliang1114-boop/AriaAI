@@ -82,6 +82,10 @@ class ProjectFileListResponse(BaseModel):
     recent: list[ProjectFile]
 
 
+class ProjectFileMoveRequest(BaseModel):
+    folder_id: Optional[int] = None
+
+
 def _project_file_origin(file: ProjectFile) -> str:
     origin = (file.origin or "").lower()
     if "knowledge" in origin or "kb" in origin:
@@ -473,6 +477,31 @@ def list_file_versions(project_id: int, file_id: int, session: Session = Depends
             for version in versions
         ],
     }
+
+
+@router.patch("/{project_id}/files/{file_id}/folder")
+def move_project_file(
+    project_id: int,
+    file_id: int,
+    data: ProjectFileMoveRequest,
+    session: Session = Depends(get_session),
+):
+    project_file = get_uploaded_project_file_or_404(session, project_id, file_id)
+    if data.folder_id is None:
+        project_file.folder_id = None
+    else:
+        folder = resolve_project_folder(
+            session,
+            project_id,
+            init_default_folders=init_default_project_folders,
+            preferred_folder_id=data.folder_id,
+        )
+        project_file.folder_id = folder.id if folder else None
+    session.add(project_file)
+    session.commit()
+    _mark_project_memory_stale(session, project_id)
+    _bust_project(project_id)
+    return _refresh_instance(session, project_file)
 
 
 @router.post("/{project_id}/files/{file_id}/versions/{version_id}/restore")
