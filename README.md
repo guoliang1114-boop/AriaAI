@@ -101,6 +101,7 @@ Recommended reading path:
 12. [Memory System Optimization](docs/12-记忆系统优化方案.md)
 13. [Knowledge Base Development Plan](docs/14-V0.0.5知识库开发方案.md)
 14. [Agentic Workspace Upgrade Design](docs/18-Agentic%20Workspace升级功能设计说明书.md)
+15. [OSS Roadmap](docs/20-OSS-Roadmap.md)
 
 ## Project Status
 
@@ -125,6 +126,13 @@ Contributions, issues, and design discussions are welcome. Good first areas:
 - backend reliability, migration, and task governance.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide.
+
+## Community and Security
+
+- [OSS Roadmap](docs/20-OSS-Roadmap.md)
+- [Security Policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Pull Request Template](.github/pull_request_template.md)
 
 ## License
 

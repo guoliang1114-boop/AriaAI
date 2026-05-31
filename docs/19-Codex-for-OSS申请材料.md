@@ -40,6 +40,8 @@ Most AI products are still optimized for single-turn chat. AriaAI explores the n
 - Public GitHub repository.
 - Active development with frequent commits.
 - Current repository signal: 40+ stars and multiple forks.
+- Ongoing pull request activity with dozens of merged PRs.
+- Public preview release and roadmap issues are used to show active maintenance direction.
 - Includes frontend, backend, memory, knowledge, Skill, approval, and deployment-governance layers.
 - Detailed product and architecture documentation in `docs/`.
 
@@ -53,5 +55,7 @@ Codex would help accelerate implementation and maintenance across a broad full-s
 - License 已补齐。
 - README 已有英文项目定位。
 - Issue templates 已补齐。
+- PR template、Security Policy、Code of Conduct 已补齐。
+- Release / milestone / roadmap issues 已补齐。
 - 申请时不要把 AriaAI 写成 SaaS。
 - 重点强调 open-source agentic workspace、memory、skills、knowledge workflows、auditable runs。

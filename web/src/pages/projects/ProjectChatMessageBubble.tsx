@@ -59,13 +59,23 @@ const MessageCopyButton = memo(
     return (
       <button
         onClick={handleCopy}
-        className="p-1.5 rounded-lg bg-codex-bg-tint hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-ink-soft transition-colors"
         title={title}
+        className="inline-flex items-center justify-center transition-colors"
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: "var(--codex-r-sm, 6px)",
+          background: "transparent",
+          border: "1px solid var(--color-codex-line)",
+          color: copied
+            ? "var(--color-codex-good)"
+            : "var(--color-codex-ink-mute)",
+        }}
       >
         {copied ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-codex-good" />
+          <CheckCircle2 className="h-3 w-3" />
         ) : (
-          <Copy className="w-3.5 h-3.5" />
+          <Copy className="h-3 w-3" />
         )}
       </button>
     );
@@ -77,10 +87,18 @@ const MessageSaveButton = memo(
     return (
       <button
         onClick={onClick}
-        className="p-1.5 rounded-lg bg-codex-bg-tint hover:bg-codex-bg-tint text-codex-ink-faint hover:text-codex-ink-soft transition-colors"
         title={title}
+        className="inline-flex items-center justify-center transition-colors"
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: "var(--codex-r-sm, 6px)",
+          background: "transparent",
+          border: "1px solid var(--color-codex-line)",
+          color: "var(--color-codex-ink-mute)",
+        }}
       >
-        <Save className="w-3.5 h-3.5" />
+        <Save className="h-3 w-3" />
       </button>
     );
   },
@@ -188,37 +206,82 @@ export const ProjectChatMessageBubble = memo<ProjectChatMessageBubbleProps>(
     return (
       <div
         id={`message-${msg.id}`}
-        className={`project-chat-message mx-auto flex max-w-4xl items-start gap-3 transition ${
-          highlight ? "rounded-xl bg-codex-bg-tint p-2 ring-1 ring-amber-300" : ""
-        } group ${isUser ? "flex-row-reverse" : ""}`}
+        className={`project-chat-message mx-auto flex max-w-4xl items-start gap-3 transition group ${isUser ? "flex-row-reverse" : ""}`}
+        style={
+          highlight
+            ? {
+                padding: 8,
+                borderRadius: "var(--codex-r-md, 8px)",
+                background: "var(--color-codex-accent-bg)",
+                border:
+                  "1px solid color-mix(in oklch, var(--color-codex-accent) 28%, transparent)",
+              }
+            : undefined
+        }
       >
         <div
-          className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${
-            isUser ? "bg-codex-bg-tint" : "bg-codex-ink shadow-sm"
-          }`}
+          className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center"
+          style={{
+            borderRadius: "var(--codex-r-sm, 6px)",
+            background: isUser
+              ? "var(--color-codex-bg-tint)"
+              : "var(--color-codex-accent-bg)",
+            color: isUser
+              ? "var(--color-codex-ink-mute)"
+              : "var(--color-codex-accent)",
+            border: isUser
+              ? "1px solid var(--color-codex-line)"
+              : "1px solid color-mix(in oklch, var(--color-codex-accent) 22%, transparent)",
+          }}
         >
           {isUser ? (
-            <span className="text-xs font-semibold text-codex-ink-mute">
+            <span style={{ fontSize: 11, fontWeight: 500 }}>
               {t("chat.you", "You")}
             </span>
           ) : (
-            <Sparkles className="w-3.5 h-3.5 text-white" />
+            <Sparkles className="h-3.5 w-3.5" />
           )}
         </div>
 
         <div
           className={`flex-1 min-w-0 flex flex-col ${isUser ? "items-end" : "items-stretch"}`}
         >
-          <p className="mb-1 px-0.5 text-xs font-medium text-codex-ink-faint">
+          <p
+            style={{
+              margin: "0 0 4px",
+              padding: "0 2px",
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: "0.02em",
+              color: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
+            }}
+          >
             {isUser ? t("chat.you", "You") : "Aria"}
           </p>
 
           <div
             className={`${
               isUser
-                ? "max-w-[78%] rounded-xl rounded-tr-md bg-codex-ink px-3.5 py-2 text-[13px] leading-6 text-white shadow-sm"
-                : "w-full max-w-none text-[14px] leading-6 text-codex-ink-soft"
+                ? "max-w-[78%] whitespace-pre-wrap"
+                : "w-full max-w-none"
             }`}
+            style={
+              isUser
+                ? {
+                    padding: "8px 14px",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    color: "var(--color-codex-bg-elev)",
+                    background: "var(--color-codex-ink)",
+                    borderRadius: "var(--codex-r-md, 8px)",
+                    borderTopRightRadius: 4,
+                  }
+                : {
+                    fontSize: 14,
+                    lineHeight: 1.75,
+                    color: "var(--color-codex-ink)",
+                  }
+            }
           >
             {isUser ? (
               <>
