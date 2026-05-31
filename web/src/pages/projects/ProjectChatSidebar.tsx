@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Edit3,
   Expand,
+  FileText,
   FolderOpen,
   Loader2,
   MessageSquare,
@@ -20,6 +21,7 @@ import { Link } from "react-router-dom";
 
 import type {
   Conversation,
+  GeneratedArtifact,
   ProjectFile,
   ProjectFolder,
   ProjectMemory,
@@ -126,6 +128,11 @@ type ProjectChatSidebarProps = {
   onSelectFile?: (file: ProjectFile) => void;
   onUploadFiles?: (files: FileList, folderId?: number | null) => void;
   onToggleFullscreen?: () => void;
+  /** Artifacts produced by the in-flight assistant turn. Drives the
+   *  Space view's "本会话产出" pinned row. Empty/undefined → row
+   *  hidden. */
+  sessionArtifacts?: GeneratedArtifact[];
+  onOpenSessionArtifact?: (artifact: GeneratedArtifact) => void;
 };
 
 export function ProjectChatSidebar({
@@ -155,6 +162,8 @@ export function ProjectChatSidebar({
   onSelectFile,
   onUploadFiles,
   onToggleFullscreen,
+  sessionArtifacts = [],
+  onOpenSessionArtifact,
 }: ProjectChatSidebarProps) {
   const { i18n } = useTranslation();
   const { resolvedTimeZone } = useAppTimeZone();
@@ -710,6 +719,93 @@ export function ProjectChatSidebar({
                   PDF / DOC / MD / TXT · ≤ 50 MB
                 </span>
               </button>
+            ) : null}
+
+            {/* 本会话产出 — the design pins the currently-streaming
+             * artifact at the top of the Space view with an accent
+             * background, so the user can see what the assistant is
+             * authoring without scrolling. Only rendered while the
+             * turn produces artifacts. */}
+            {sessionArtifacts.length > 0 ? (
+              <div className="mb-3">
+                <div
+                  className="flex items-center"
+                  style={{
+                    gap: 6,
+                    padding: "2px 4px 6px",
+                    fontSize: 11,
+                    color: "var(--color-codex-ink-mute)",
+                    fontWeight: 500,
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  <span>
+                    {isZh
+                      ? `本会话产出 · ${sessionArtifacts.length}`
+                      : `Session output · ${sessionArtifacts.length}`}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {sessionArtifacts.slice(0, 5).map((artifact, i) => (
+                    <button
+                      key={`${artifact.path || artifact.name}-${i}`}
+                      type="button"
+                      onClick={() => onOpenSessionArtifact?.(artifact)}
+                      className="flex w-full items-center transition-colors"
+                      style={{
+                        gap: 8,
+                        padding: "8px 10px",
+                        fontSize: 12.5,
+                        color: "var(--color-codex-accent-ink)",
+                        background: "var(--color-codex-accent-bg)",
+                        border: "1px solid color-mix(in oklch, var(--color-codex-accent) 28%, transparent)",
+                        borderRadius: "var(--codex-r-sm, 6px)",
+                        textAlign: "left",
+                      }}
+                    >
+                      <FileText
+                        className="h-3.5 w-3.5 flex-shrink-0"
+                        style={{ color: "var(--color-codex-accent)" }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          className="truncate"
+                          style={{ fontWeight: 500 }}
+                        >
+                          {artifact.name}
+                        </div>
+                        {artifact.description ? (
+                          <div
+                            className="truncate"
+                            style={{
+                              fontSize: 10.5,
+                              color: "var(--color-codex-ink-mute)",
+                              marginTop: 1,
+                            }}
+                          >
+                            {artifact.description}
+                          </div>
+                        ) : null}
+                      </div>
+                      <span
+                        className="flex-shrink-0"
+                        style={{
+                          fontSize: 10,
+                          color: "var(--color-codex-accent)",
+                          padding: "1px 6px",
+                          background: "color-mix(in oklch, var(--color-codex-accent) 12%, transparent)",
+                          borderRadius: 999,
+                          fontFamily:
+                            'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {(artifact.file_type || "DOC").toUpperCase().slice(0, 4)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
 
             {/* 项目记忆 + 锚点 tree branches — per

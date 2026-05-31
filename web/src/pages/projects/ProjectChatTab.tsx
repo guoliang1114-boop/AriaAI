@@ -1000,6 +1000,8 @@ export function ProjectChatTab({
           void handleUploadProjectFiles(fileList, folderId);
         }}
         onToggleFullscreen={() => setIsFullscreen((current) => !current)}
+        sessionArtifacts={streamingArtifacts}
+        onOpenSessionArtifact={(artifact) => void handleOpenArtifact(artifact)}
       />
 
       <div
