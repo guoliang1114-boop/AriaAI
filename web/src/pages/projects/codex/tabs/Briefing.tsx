@@ -269,14 +269,39 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
                   <div
                     style={{
                       fontSize: 13,
-                      color: 'var(--ink-faint)',
+                      color: 'var(--accent-ink)',
                       padding: '14px 16px',
-                      background: 'var(--bg-tint)',
+                      background:
+                        'color-mix(in oklch, var(--accent-bg) 60%, var(--bg-elev))',
+                      border:
+                        '1px dashed color-mix(in oklch, var(--accent) 35%, transparent)',
                       borderRadius: 'var(--r-sm)',
                       lineHeight: 1.7,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
                     }}
                   >
-                    点击右上「生成话术」,AI 会综合四张卡片 + 客户记忆 + 干系人偏好,产出一段可直接用于会议开场的脚本。
+                    <span
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 'var(--r-sm)',
+                        background: 'var(--accent-bg)',
+                        color: 'var(--accent)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        marginTop: 1,
+                      }}
+                    >
+                      <CxIcon name="sparkle" size={12} />
+                    </span>
+                    <span>
+                      点击右上「生成话术」,AI
+                      会综合四张卡片 + 客户记忆 + 干系人偏好,产出一段可直接用于会议开场的脚本。
+                    </span>
                   </div>
                 ) : (
                   <div
