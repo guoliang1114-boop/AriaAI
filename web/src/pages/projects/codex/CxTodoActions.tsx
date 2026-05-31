@@ -35,6 +35,11 @@ interface TodoFormDialogProps {
   onSaved: () => void | Promise<void>
 }
 
+interface SimpleUser {
+  id: number
+  display_name: string
+}
+
 export function CxTodoFormDialog({
   open,
   projectId,
@@ -44,9 +49,11 @@ export function CxTodoFormDialog({
 }: TodoFormDialogProps) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [users, setUsers] = useState<SimpleUser[]>([])
   const [form, setForm] = useState({
     content: todo?.content ?? '',
     due_date: todo?.due_date ?? '',
+    assigned_to_user_id: todo?.assigned_to_user_id ?? null,
   })
 
   useEffect(() => {
@@ -54,13 +61,29 @@ export function CxTodoFormDialog({
       setForm({
         content: todo?.content ?? '',
         due_date: todo?.due_date ?? '',
+        assigned_to_user_id: todo?.assigned_to_user_id ?? null,
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // Lazy-load the user picker options the first time the dialog opens
+  // (so closing-with-no-load doesn't burn a request, and reopening
+  // doesn't re-fetch). Uses /auth/users/simple — the same lightweight
+  // endpoint the member invite dialog hits.
+  useEffect(() => {
+    if (!open) return
+    if (users.length > 0) return
+    void api
+      .get<SimpleUser[]>('/auth/users/simple')
+      .then((rows) => setUsers(rows))
+      .catch(() => {
+        // Silently fall back — the field just stays as "未指派".
+      })
+  }, [open, users.length])
+
   const update =
-    (k: keyof typeof form) =>
+    (k: 'content' | 'due_date') =>
     (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((s) => ({ ...s, [k]: e.target.value }))
 
@@ -76,6 +99,7 @@ export function CxTodoFormDialog({
       const payload = {
         content: form.content.trim(),
         due_date: form.due_date || null,
+        assigned_to_user_id: form.assigned_to_user_id ?? null,
       }
       if (todo) {
         await api.patch<ProjectTodo>(`/projects/${projectId}/todos/${todo.id}`, payload)
@@ -101,7 +125,7 @@ export function CxTodoFormDialog({
       open={open}
       onClose={onClose}
       title={todo ? '编辑待办' : '添加待办'}
-      description="内容 · 截止日期(可选)"
+      description="内容 · 指派 · 截止日期"
       size="md"
       busy={busy}
       footer={
@@ -157,15 +181,38 @@ export function CxTodoFormDialog({
               style={{ ...INPUT_STYLE, resize: 'vertical' }}
             />
           </div>
-          <div>
-            <label style={LABEL_STYLE}>截止日期(可选)</label>
-            <input
-              type="date"
-              value={form.due_date ?? ''}
-              onChange={update('due_date')}
-              className="codex-input"
-              style={INPUT_STYLE}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={LABEL_STYLE}>指派给</label>
+              <select
+                value={form.assigned_to_user_id ?? ''}
+                onChange={(e) =>
+                  setForm((s) => ({
+                    ...s,
+                    assigned_to_user_id: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="codex-input"
+                style={INPUT_STYLE}
+              >
+                <option value="">未指派</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.display_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={LABEL_STYLE}>截止日期(可选)</label>
+              <input
+                type="date"
+                value={form.due_date ?? ''}
+                onChange={update('due_date')}
+                className="codex-input"
+                style={INPUT_STYLE}
+              />
+            </div>
           </div>
         </div>
       </form>

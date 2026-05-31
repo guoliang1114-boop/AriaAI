@@ -133,7 +133,12 @@ export function CxProjectMilestones({ projectId, detail, refetch }: MilestonesPr
           overflow: 'auto',
           padding: '24px 40px 32px',
           display: 'grid',
-          gridTemplateColumns: '1fr 380px',
+          // 60/40 split. The right column hosts milestones + todos +
+          // metrics — todos in particular have long titles + assignee
+          // chip that need real horizontal room. minmax(420, 2fr) so a
+          // narrow viewport doesn't collapse the right panel into a
+          // 200px sliver.
+          gridTemplateColumns: 'minmax(0, 3fr) minmax(420px, 2fr)',
           gap: 28,
           minWidth: 0,
         }}
@@ -370,63 +375,92 @@ interface TodoRowProps {
 }
 
 function TodoRow({ t, last, busy, onToggle, onEdit, onDelete }: TodoRowProps) {
+  // Stacked layout so long titles never collide with the meta row.
+  // Row 1: checkbox + title (wraps freely)
+  // Row 2: due chip · assignee chip · edit · delete   (small, neutral)
+  // This scales from a 380px panel up to a wide deck without
+  // truncating in either direction.
   return (
     <div
       className="row-hov"
       style={{
-        display: 'grid',
-        gridTemplateColumns: '20px 1fr 90px 110px auto auto',
-        gap: 10,
         padding: '10px 8px',
         margin: '0 -8px',
         borderRadius: 'var(--r-sm)',
-        alignItems: 'center',
         borderBottom: last ? 'none' : '1px solid var(--line-soft)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
       }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={busy}
-        title={t.is_done ? '标记为未完成' : '标记完成'}
-        style={{
-          width: 14,
-          height: 14,
-          borderRadius: 3,
-          border: `1.5px solid ${t.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
-          background: t.is_done ? 'var(--good)' : 'transparent',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: busy ? 'wait' : 'pointer',
-          opacity: busy ? 0.5 : 1,
-          flexShrink: 0,
-        }}
-      >
-        {t.is_done && (
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
-          </svg>
-        )}
-      </button>
-      <div
-        className="ui"
-        style={{
-          fontSize: 13,
-          color: t.is_done ? 'var(--ink-mute)' : 'var(--ink)',
-          lineHeight: 1.5,
-          textDecoration: t.is_done ? 'line-through' : 'none',
-          textDecorationColor: 'var(--ink-faint)',
-        }}
-      >
-        {t.content}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={busy}
+          title={t.is_done ? '标记为未完成' : '标记完成'}
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: 3,
+            border: `1.5px solid ${t.is_done ? 'var(--good)' : 'var(--line-strong)'}`,
+            background: t.is_done ? 'var(--good)' : 'transparent',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: busy ? 'wait' : 'pointer',
+            opacity: busy ? 0.5 : 1,
+            flexShrink: 0,
+            marginTop: 4,
+          }}
+        >
+          {t.is_done && (
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          )}
+        </button>
+        <div
+          className="ui"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 13.5,
+            color: t.is_done ? 'var(--ink-mute)' : 'var(--ink)',
+            lineHeight: 1.55,
+            textDecoration: t.is_done ? 'line-through' : 'none',
+            textDecorationColor: 'var(--ink-faint)',
+            wordBreak: 'break-word',
+          }}
+        >
+          {t.content}
+        </div>
       </div>
-      <span style={{ fontSize: 11.5, color: dueColor(t.due_date) }}>
-        {t.due_date ?? '—'}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          paddingLeft: 24,
+          fontSize: 11.5,
+          color: 'var(--ink-mute)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            color: dueColor(t.due_date),
+          }}
+        >
+          <CxIcon name="calendar" size={11} />
+          {t.due_date ?? '—'}
+        </span>
+        <span style={{ color: 'var(--ink-faint)' }}>·</span>
         {t.assigned_user ? (
-          <>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <span
               style={{
                 width: 18,
@@ -443,50 +477,41 @@ function TodoRow({ t, last, busy, onToggle, onEdit, onDelete }: TodoRowProps) {
             >
               {firstGlyph(t.assigned_user.display_name)}
             </span>
-            <span
-              style={{
-                fontSize: 11.5,
-                color: 'var(--ink-mute)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t.assigned_user.display_name}
-            </span>
-          </>
+            <span style={{ color: 'var(--ink-soft)' }}>{t.assigned_user.display_name}</span>
+          </span>
         ) : (
-          <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>未指派</span>
+          <span style={{ color: 'var(--ink-faint)' }}>未指派</span>
         )}
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          onClick={onEdit}
+          title="编辑"
+          style={{
+            padding: 4,
+            color: 'var(--ink-mute)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <CxIcon name="edit" size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          title="删除"
+          style={{
+            padding: 4,
+            color: 'var(--ink-faint)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <CxIcon name="trash" size={12} />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onEdit}
-        title="编辑"
-        style={{
-          padding: 4,
-          color: 'var(--ink-mute)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <CxIcon name="edit" size={12} />
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        title="删除"
-        style={{
-          padding: 4,
-          color: 'var(--ink-faint)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <CxIcon name="trash" size={12} />
-      </button>
     </div>
   )
 }
