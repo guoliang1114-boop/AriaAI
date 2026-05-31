@@ -203,6 +203,22 @@ function getProviderForModel(modelId: string): ProviderKey {
   return getModel(modelId).provider
 }
 
+function formatRelativeTime(timestamp: number | null, isZh: boolean): string {
+  if (!timestamp) return isZh ? '暂无记录' : 'No recent test'
+  const elapsedMs = Date.now() - timestamp
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedMs / 60000))
+  if (elapsedMinutes < 1) return isZh ? '刚刚' : 'just now'
+  if (elapsedMinutes < 60) {
+    return isZh ? `${elapsedMinutes} 分钟前` : `${elapsedMinutes} min ago`
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) {
+    return isZh ? `${elapsedHours} 小时前` : `${elapsedHours} hr ago`
+  }
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  return isZh ? `${elapsedDays} 天前` : `${elapsedDays} days ago`
+}
+
 function getStatusCopy(
   provider: ProviderConfig,
   configured: boolean,
@@ -348,11 +364,14 @@ export function AISettings() {
     openai: false,
     mimo: false,
   })
-  const [expandedProvider, setExpandedProvider] = useState<ProviderKey>('openai')
+  const [expandedProvider, setExpandedProvider] = useState<ProviderKey | null>(null)
   const [smartRouting, setSmartRouting] = useState(true)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [testingProvider, setTestingProvider] = useState<ProviderKey | null>(null)
+  const [lastSuccessfulTestAt, setLastSuccessfulTestAt] = useState<number | null>(null)
+  const [testMessage, setTestMessage] = useState('')
+  const [isTestingModel, setIsTestingModel] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -364,6 +383,8 @@ export function AISettings() {
   )
   const selectedModelData = getModel(selectedModel)
   const selectedProvider = getProviderForModel(selectedModel)
+  const selectedProviderName = PROVIDERS.find((provider) => provider.provider === selectedProvider)?.name || selectedProvider
+  const lastSuccessfulTestCopy = formatRelativeTime(lastSuccessfulTestAt, isZh)
 
   const clearTransient = () => {
     setSaved(false)
@@ -451,6 +472,7 @@ export function AISettings() {
       })
       if (result.success) {
         setApiKeyStatus((current) => ({ ...current, [provider]: true }))
+        setLastSuccessfulTestAt(Date.now())
         setSuccessMessage(
           isZh
             ? `${config?.name || provider} 连接成功`
@@ -502,6 +524,43 @@ export function AISettings() {
       setError(err.response?.data?.detail || err.message || (isZh ? '保存设置失败' : 'Failed to save settings'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleTestModel = async () => {
+    if (!testMessage.trim()) return
+
+    setIsTestingModel(true)
+    setError('')
+    setSuccessMessage('')
+
+    try {
+      const fixedParams = selectedModelData.fixedParams
+      const result = await api.post<{ success: boolean; message?: string; response?: string }>('/chat/test-model', {
+        message: testMessage,
+        model: selectedModel,
+        temperature: fixedParams?.temperature ?? temperature,
+        max_tokens: Math.min(maxTokens, selectedModelData.maxTokens),
+      })
+
+      if (result.success) {
+        setLastSuccessfulTestAt(Date.now())
+        setSuccessMessage(
+          result.response
+            ? isZh
+              ? `模型测试成功：${result.response}`
+              : `Model test succeeded: ${result.response}`
+            : isZh
+              ? '模型测试成功'
+              : 'Model test successful',
+        )
+      } else {
+        setError(result.message || (isZh ? '模型测试失败' : 'Model test failed'))
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || (isZh ? '模型测试失败' : 'Model test failed'))
+    } finally {
+      setIsTestingModel(false)
     }
   }
 
@@ -638,8 +697,12 @@ export function AISettings() {
             </div>
             <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--color-codex-ink-soft)' }}>
               {isZh
-                ? `${connectedCount} 个服务已接入 · 智能调度 ${smartRouting ? '已开启' : '已关闭'} · 最近测试成功 2 分钟前`
-                : `${connectedCount} providers connected · Smart routing ${smartRouting ? 'on' : 'off'} · Last test succeeded 2 min ago`}
+                ? `${connectedCount} 个服务已接入 · 智能调度 ${smartRouting ? '已开启' : '已关闭'} · ${
+                    lastSuccessfulTestAt ? `最近测试成功 ${lastSuccessfulTestCopy}` : '尚未测试'
+                  }`
+                : `${connectedCount} providers connected · Smart routing ${smartRouting ? 'on' : 'off'} · ${
+                    lastSuccessfulTestAt ? `Last test succeeded ${lastSuccessfulTestCopy}` : 'Not tested yet'
+                  }`}
             </div>
           </div>
         </div>
@@ -681,7 +744,7 @@ export function AISettings() {
               >
                 <button
                   type="button"
-                  onClick={() => setExpandedProvider(expanded ? 'openai' : provider.provider)}
+                  onClick={() => setExpandedProvider(expanded ? null : provider.provider)}
                   className="flex w-full items-center gap-3 px-4 py-4 text-left"
                   style={{ background: 'transparent' }}
                 >
@@ -786,7 +849,7 @@ export function AISettings() {
         </div>
       </section>
 
-      <section>
+      <section className="mb-8">
         <SectionHeader
           title={isZh ? '模型策略' : 'Model strategy'}
           hint={isZh ? 'Aria 已为每类任务推荐默认模型, 可随时调整' : 'Aria recommends defaults for each task type; adjust anytime'}
@@ -857,6 +920,57 @@ export function AISettings() {
             recommendedLabel={isZh ? 'Aria 推荐' : 'Aria recommended'}
             last
           />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader
+          title={isZh ? '测试模型' : 'Test model'}
+          hint={isZh ? '发送一条真实请求验证当前调用链' : 'Send one real request to verify the current call path'}
+        />
+        <div style={{ ...CARD_STYLE, padding: 20 }}>
+          <div className="flex flex-col gap-2 md:flex-row">
+            <input
+              type="text"
+              value={testMessage}
+              onChange={(event) => setTestMessage(event.target.value)}
+              placeholder={isZh ? '输入一条测试消息...' : 'Enter a test message...'}
+              style={{ ...INPUT_STYLE, flex: 1 }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void handleTestModel()
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void handleTestModel()}
+              disabled={isTestingModel || !testMessage.trim()}
+              className="inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+              style={PRIMARY_BUTTON_STYLE}
+            >
+              {isTestingModel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              {isZh ? '发送测试' : 'Run test'}
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2" style={{ fontSize: 12, color: 'var(--color-codex-ink-mute)' }}>
+            <Zap className="h-3.5 w-3.5" />
+            <span>
+              {isZh
+                ? `当前测试模型：${getModelLabel(selectedModel)} · ${selectedProviderName}`
+                : `Testing: ${getModelLabel(selectedModel)} · ${selectedProviderName}`}
+            </span>
+            <span
+              className="font-mono"
+              style={{
+                padding: '2px 7px',
+                borderRadius: 'var(--codex-r-pill, 999px)',
+                background: 'var(--color-codex-bg-tint)',
+                color: 'var(--color-codex-ink-soft)',
+                fontSize: 11,
+              }}
+            >
+              {selectedModel}
+            </span>
+          </div>
         </div>
       </section>
     </div>
