@@ -19,28 +19,90 @@ export function ProjectChatArtifactCard({
   const isTextArtifact = artifact.file_type === "text";
 
   return (
-    <div className={`rounded-xl border px-3.5 py-3 ${isTextArtifact ? "border-codex-line bg-codex-accent-bg/60" : "border-codex-line bg-codex-accent-bg/60"}`}>
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm ${isTextArtifact ? "text-codex-accent" : "text-codex-good"}`}>
+    <div
+      style={{
+        padding: "12px 14px",
+        background:
+          "color-mix(in oklch, var(--color-codex-accent-bg) 70%, var(--color-codex-bg-elev))",
+        border:
+          "1px solid color-mix(in oklch, var(--color-codex-accent) 22%, transparent)",
+        borderRadius: "var(--codex-r-md, 8px)",
+      }}
+    >
+      <div className="flex items-start" style={{ gap: 12 }}>
+        <span
+          className="mt-0.5 inline-flex flex-shrink-0 items-center justify-center"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: "var(--codex-r-sm, 6px)",
+            background: "var(--color-codex-bg-elev)",
+            color: "var(--color-codex-accent)",
+            border: "1px solid var(--color-codex-line)",
+          }}
+        >
           <FileText className="h-4 w-4" />
-        </div>
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-codex-ink truncate">{artifact.name}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-codex-ink-mute">
-            <span className={`rounded-full bg-white px-2 py-0.5 border ${isTextArtifact ? "border-codex-line-soft" : "border-codex-line-soft"}`}>
-              {isTextArtifact ? (isZh ? "文本" : "TEXT") : artifact.file_type.toUpperCase()}
+          <p
+            className="truncate"
+            style={{
+              margin: 0,
+              fontSize: 13.5,
+              fontWeight: 500,
+              color: "var(--color-codex-ink)",
+              lineHeight: 1.4,
+            }}
+          >
+            {artifact.name}
+          </p>
+          <div
+            className="flex flex-wrap items-center"
+            style={{
+              gap: 6,
+              marginTop: 4,
+              fontSize: 11,
+              color: "var(--color-codex-ink-mute)",
+            }}
+          >
+            <span
+              style={{
+                fontFamily:
+                  'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                padding: "1px 6px",
+                background: "var(--color-codex-bg-elev)",
+                border: "1px solid var(--color-codex-line-soft)",
+                borderRadius: 999,
+                color: "var(--color-codex-accent-ink)",
+                letterSpacing: "0.04em",
+                fontSize: 10.5,
+              }}
+            >
+              {isTextArtifact ? "TEXT" : artifact.file_type.toUpperCase()}
             </span>
-            {artifact.description ? <span className="truncate">{artifact.description}</span> : null}
+            {artifact.description ? (
+              <span className="truncate">{artifact.description}</span>
+            ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex flex-shrink-0 items-center" style={{ gap: 6 }}>
           {canOpenInSpace ? (
             <button
               type="button"
               onClick={() => onOpen?.(artifact)}
-              className="inline-flex items-center gap-1 rounded-lg border border-codex-line bg-white px-2.5 py-1.5 text-xs font-medium text-codex-good hover:bg-codex-accent-bg"
+              className="inline-flex items-center transition-colors"
+              style={{
+                gap: 5,
+                padding: "5px 10px",
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "var(--color-codex-accent-ink)",
+                background: "var(--color-codex-bg-elev)",
+                border: "1px solid var(--color-codex-line)",
+                borderRadius: "var(--codex-r-sm, 6px)",
+              }}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <ExternalLink className="h-3 w-3" />
               {isZh ? "打开" : "Open"}
             </button>
           ) : null}
@@ -48,16 +110,39 @@ export function ProjectChatArtifactCard({
             <button
               type="button"
               onClick={() => onDownload(artifact)}
-              className="inline-flex items-center gap-1 rounded-lg border border-codex-line bg-white px-2.5 py-1.5 text-xs font-medium text-codex-good hover:bg-codex-accent-bg"
+              className="inline-flex items-center transition-colors"
+              style={{
+                gap: 5,
+                padding: "5px 10px",
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: "var(--color-codex-accent-ink)",
+                background: "var(--color-codex-bg-elev)",
+                border: "1px solid var(--color-codex-line)",
+                borderRadius: "var(--codex-r-sm, 6px)",
+              }}
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="h-3 w-3" />
               {isZh ? "下载" : "Download"}
             </button>
           ) : null}
         </div>
       </div>
       {isTextArtifact && artifact.description ? (
-        <div className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-codex-line-soft bg-white/80 p-3 text-xs leading-5 text-codex-ink-soft">
+        <div
+          className="overflow-y-auto whitespace-pre-wrap"
+          style={{
+            marginTop: 10,
+            maxHeight: 224,
+            padding: 12,
+            fontSize: 11.5,
+            lineHeight: 1.55,
+            color: "var(--color-codex-ink-soft, var(--color-codex-ink))",
+            background: "var(--color-codex-bg-elev)",
+            border: "1px solid var(--color-codex-line-soft)",
+            borderRadius: "var(--codex-r-sm, 6px)",
+          }}
+        >
           {artifact.description}
         </div>
       ) : null}
