@@ -865,7 +865,10 @@ const SCRIPT_SECTION_DEFS: Array<{
   key: string
   /** Match these Chinese (and English just in case) ## headers. */
   match: string[]
-  emoji: string
+  /** Flat line-icon name from CxIcons — keeping the line-icon set
+   * consistent across the page (no emoji to avoid the OS-rendered
+   * "color glyph" look). */
+  icon: string
   zh: string
   en: string
   tone: 'accent' | 'good' | 'warn' | 'neutral'
@@ -876,7 +879,7 @@ const SCRIPT_SECTION_DEFS: Array<{
   {
     key: 'focus',
     match: ['唯一聚焦点', '聚焦点', 'Focus'],
-    emoji: '🎯',
+    icon: 'target',
     zh: '唯一聚焦点',
     en: 'Focus',
     tone: 'accent',
@@ -884,7 +887,7 @@ const SCRIPT_SECTION_DEFS: Array<{
   {
     key: 'themes',
     match: ['主打什么', '主打', '重点讲', 'Themes'],
-    emoji: '💬',
+    icon: 'chat',
     zh: '主打什么',
     en: 'Themes',
     tone: 'good',
@@ -892,7 +895,7 @@ const SCRIPT_SECTION_DEFS: Array<{
   {
     key: 'cautions',
     match: ['谨慎表达', '需要谨慎', '红线', 'Cautions'],
-    emoji: '⚠️',
+    icon: 'sparkle',
     zh: '谨慎表达',
     en: 'Cautions',
     tone: 'warn',
@@ -900,7 +903,7 @@ const SCRIPT_SECTION_DEFS: Array<{
   {
     key: 'script',
     match: ['开场脚本', '开场话术', 'Script', '可直接念'],
-    emoji: '🗣️',
+    icon: 'quote',
     zh: '开场脚本',
     en: 'Opening Script',
     tone: 'accent',
@@ -910,7 +913,7 @@ const SCRIPT_SECTION_DEFS: Array<{
 
 interface ParsedSection {
   defKey: string
-  emoji: string
+  icon: string
   zh: string
   en: string
   tone: 'accent' | 'good' | 'warn' | 'neutral'
@@ -963,7 +966,7 @@ function parseScriptSections(markdown: string): { ordered: ParsedSection[]; tail
     const body = bodyLines.join('\n').trim()
     ordered.push({
       defKey: def.key,
-      emoji: def.emoji,
+      icon: def.icon,
       zh: def.zh,
       en: def.en,
       tone: def.tone,
@@ -1082,7 +1085,26 @@ function ScriptSectionBlock({
           marginBottom: 8,
         }}
       >
-        <span style={{ fontSize: 14 }}>{section.emoji}</span>
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 'var(--r-sm)',
+            background:
+              section.tone === 'warn'
+                ? 'color-mix(in oklch, var(--warn) 14%, var(--bg-elev))'
+                : section.tone === 'good'
+                  ? 'color-mix(in oklch, var(--good) 14%, var(--bg-elev))'
+                  : 'var(--accent-bg)',
+            color: accent,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <CxIcon name={section.icon} size={12} stroke={1.6} />
+        </span>
         <h4
           className="ui"
           style={{

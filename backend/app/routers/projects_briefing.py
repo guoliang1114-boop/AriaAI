@@ -216,6 +216,29 @@ async def refine_project_meeting_briefing_stream(
         #    content so we can persist it to the cache at the end and
         #    send a final "done" event with the full content for callers
         #    that prefer atomic rendering.
+        #
+        #    Some providers' streams (openai_compat for Kimi / DeepSeek)
+        #    inline metadata chunks shaped like {"type": "reasoning_content"...}
+        #    or {"type": "tool_use"...} alongside the real text content.
+        #    Those are meant for the chat pipeline to parse and attach
+        #    as assistant-message metadata; we just want the markdown,
+        #    so skip any chunk whose first char is "{" and parses as a
+        #    metadata wrapper.
+        def _is_metadata_chunk(text: str) -> bool:
+            stripped = text.lstrip()
+            if not stripped.startswith("{"):
+                return False
+            try:
+                obj = json.loads(stripped)
+            except (json.JSONDecodeError, ValueError):
+                return False
+            return isinstance(obj, dict) and obj.get("type") in {
+                "reasoning_content",
+                "tool_use",
+                "tool_result",
+                "thinking",
+            }
+
         buffer: list[str] = []
         try:
             async for chunk in stream_with_selected_model(
@@ -223,6 +246,8 @@ async def refine_project_meeting_briefing_stream(
                 max_tokens=1800,
             ):
                 if not chunk:
+                    continue
+                if _is_metadata_chunk(chunk):
                     continue
                 buffer.append(chunk)
                 yield sse({"type": "delta", "text": chunk})
