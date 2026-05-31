@@ -10,7 +10,7 @@ import {
   CxMemoryRebuildButton,
   EDITABLE_SLOT_KEYS,
 } from '../CxMemoryActions'
-import { formatUpdatedRelative } from '../useProjectsApi'
+import { formatUpdatedRelative, useProjectConversations } from '../useProjectsApi'
 
 interface MemoryProps {
   projectId: number
@@ -134,6 +134,20 @@ function parseIsoMillis(iso: string | null | undefined): number {
   return Number.isFinite(t) ? t : 0
 }
 
+/** Light-weight "what fed this rebuild" snapshot. We can't (cheaply)
+ * map individual slot items back to specific source docs / messages —
+ * that needs LLM-side citations and a schema change. Instead we
+ * surface the **pool** the LLM saw at the time of memory_updated_at:
+ * file names and conversation titles that existed on or before that
+ * timestamp. Click-to-expand on each slot reveals the same pool so
+ * the user can sanity-check "AI didn't make this up". */
+interface MemorySnapshot {
+  fileCount: number
+  conversationCount: number
+  fileNames: string[]
+  conversationTitles: string[]
+}
+
 const PINNED_BLOCKS: Array<{ key: PinnedBlock['key']; title: string; tone: PinnedBlock['tone'] }> = [
   { key: 'key_risks', title: '风险锚点', tone: 'bad' },
   { key: 'open_questions', title: '待确认问题', tone: 'warn' },
@@ -214,11 +228,32 @@ function computeHealth(
 export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
   const { project, files, milestones } = detail
   const stale = !!project.memory_stale
+  const { data: conversations } = useProjectConversations(projectId)
 
   const memory = useMemo(
     () => readMemoryDict(project.context_memory_json),
     [project.context_memory_json],
   )
+
+  // Pool of source material that existed at the time of the last
+  // rebuild — used for the per-slot "依据" footer. We snapshot to
+  // memory_updated_at so that newly added files / conversations don't
+  // get falsely attributed to an older rebuild.
+  const snapshot = useMemo<MemorySnapshot>(() => {
+    const memoryTs = parseIsoMillis(project.memory_updated_at)
+    const eligibleFiles = files.filter(
+      (f) => !f.deleted_at && (memoryTs === 0 || parseIsoMillis(f.uploaded_at) <= memoryTs),
+    )
+    const eligibleConvs = conversations.filter(
+      (c) => memoryTs === 0 || parseIsoMillis(c.created_at) <= memoryTs,
+    )
+    return {
+      fileCount: eligibleFiles.length,
+      conversationCount: eligibleConvs.length,
+      fileNames: eligibleFiles.map((f) => f.name),
+      conversationTitles: eligibleConvs.map((c) => c.title || '未命名对话'),
+    }
+  }, [files, conversations, project.memory_updated_at])
 
   const slots = useMemo(() => {
     if (!memory) return [] as Array<{ meta: SlotMeta; data: SlotData }>
@@ -540,6 +575,7 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
                 key={s.meta.key}
                 meta={s.meta}
                 data={s.data}
+                snapshot={snapshot}
                 onOpenAnchors={() => setActiveAnchorSlot(s.meta)}
               />
             ))
@@ -748,12 +784,20 @@ export function CxProjectMemory({ projectId, detail, refetch }: MemoryProps) {
 interface SlotSectionProps {
   meta: SlotMeta
   data: SlotData
+  snapshot: MemorySnapshot
   onOpenAnchors: () => void
 }
 
-function SlotSection({ meta, data, onOpenAnchors }: SlotSectionProps) {
+function SlotSection({ meta, data, snapshot, onOpenAnchors }: SlotSectionProps) {
   const empty = data.ai.length + data.pinned.length === 0
   const isAnchorable = EDITABLE_SLOT_KEYS.has(meta.key)
+  const [sourcesOpen, setSourcesOpen] = useState(false)
+  // Footer only renders when there's an AI-written part (pinned-only
+  // slots don't have an AI rebuild backing them) and at least one
+  // source existed at the time of the rebuild.
+  const showSources =
+    data.ai.length > 0 &&
+    (snapshot.fileCount > 0 || snapshot.conversationCount > 0)
 
   return (
     <section
@@ -928,6 +972,127 @@ function SlotSection({ meta, data, onOpenAnchors }: SlotSectionProps) {
             </ul>
           )}
         </>
+      )}
+
+      {showSources && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: '1px dashed var(--line-soft)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setSourcesOpen((v) => !v)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: 0,
+              fontSize: 11.5,
+              color: 'var(--ink-mute)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+            title="AI 重新汇总时读取的文档与对话池 · 点击展开查看清单"
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                transform: sourcesOpen ? 'rotate(90deg)' : 'none',
+                transition: 'transform 120ms',
+                fontSize: 9,
+              }}
+            >
+              ▶
+            </span>
+            <span>
+              依据 · {snapshot.fileCount} 篇文档 · {snapshot.conversationCount} 次对话
+            </span>
+          </button>
+          {sourcesOpen && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px 10px',
+                background: 'var(--bg-tint)',
+                borderRadius: 'var(--r-sm)',
+                fontSize: 12,
+                color: 'var(--ink-soft)',
+                lineHeight: 1.7,
+              }}
+            >
+              {snapshot.fileCount > 0 && (
+                <div style={{ marginBottom: snapshot.conversationCount > 0 ? 8 : 0 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ink-mute)',
+                      marginBottom: 3,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                    }}
+                  >
+                    文档
+                  </div>
+                  {snapshot.fileNames.map((n, i) => (
+                    <div
+                      key={`f-${i}`}
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        padding: '2px 0',
+                      }}
+                    >
+                      <span style={{ color: 'var(--ink-faint)' }}>·</span>
+                      <span style={{ wordBreak: 'break-word' }}>{n}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {snapshot.conversationCount > 0 && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ink-mute)',
+                      marginBottom: 3,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                    }}
+                  >
+                    对话
+                  </div>
+                  {snapshot.conversationTitles.map((t, i) => (
+                    <div
+                      key={`c-${i}`}
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        padding: '2px 0',
+                      }}
+                    >
+                      <span style={{ color: 'var(--ink-faint)' }}>·</span>
+                      <span style={{ wordBreak: 'break-word' }}>{t}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 11,
+                  color: 'var(--ink-faint)',
+                  lineHeight: 1.55,
+                }}
+              >
+                这是 AI 上次重建时可见的全部素材池 · 不代表每条都被引用
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </section>
   )
