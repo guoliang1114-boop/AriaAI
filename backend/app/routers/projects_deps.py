@@ -970,6 +970,10 @@ def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, lan
     }[_normalize_briefing_meeting_type(meeting_type)]
     compact_briefing = dict(briefing)
     compact_briefing.pop("generated_at", None)
+    # Strict section structure — the frontend splits on these "## "
+    # headers to render each block separately (focus / themes / cautions
+    # / script). Use these exact 4 headers in this exact order, no
+    # others, no extra preamble before the first header.
     return (
         "你是资深项目负责人。请基于下面的确定性会前简报，生成一份可直接用于客户会议前准备的 AI 精炼版。\n"
         f"输出语言：{output_language}\n"
@@ -978,14 +982,19 @@ def _build_project_briefing_refine_prompt(briefing: dict, meeting_type: str, lan
         "1. 不要编造未提供的事实。\n"
         "2. 优先突出客户侧干系人、风险、确认事项和下一步推进动作。\n"
         "3. 如果某部分输入不足，要明确写「暂无足够信息」，不要空泛发挥。\n"
-        "4. 使用清晰短标题，控制在 600-900 字以内。\n\n"
-        "建议结构：\n"
-        "- 30 秒会议判断\n"
-        "- 这次应该主打什么\n"
-        "- 需要谨慎表达的点\n"
-        "- 关键客户干系人策略\n"
-        "- 必问问题\n"
-        "- 会后行动清单\n\n"
+        "4. 短句优先，每条要点 ≤ 1 行，长论述放在「开场脚本」里。\n"
+        "5. 整体控制在 500-900 字以内。\n\n"
+        "严格按以下 4 个二级标题顺序输出，不要加其他标题、不要在第一个标题前写任何文字：\n\n"
+        "## 唯一聚焦点\n"
+        "（一句话，明确本次会议想要达成的最关键目标，越具体越好）\n\n"
+        "## 主打什么\n"
+        "- 2-4 条短句要点，每条 ≤ 1 行\n"
+        "- 突出会议中最希望客户接收到的信息\n\n"
+        "## 谨慎表达\n"
+        "- 2-4 条短句要点，每条 ≤ 1 行\n"
+        "- 列出需要避开 / 谨慎说的话题与红线\n\n"
+        "## 开场脚本\n"
+        "一段可直接照念的开场话术（150-300 字），口语化、自然，可包含称呼和具体数字。\n\n"
         "确定性简报 JSON：\n"
         f"{json.dumps(compact_briefing, ensure_ascii=False, indent=2, default=str)}"
     )

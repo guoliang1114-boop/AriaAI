@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -47,7 +48,7 @@ from app.services.client_contexts import (
     mark_client_memory_stale_by_name,
 )
 from app.services.project_core import get_project_or_404
-from app.services.project_llm import complete_with_selected_model
+from app.services.project_llm import complete_with_selected_model, stream_with_selected_model
 from app.services.cache import clients_cache, projects_cache
 from app.services.time_utils import utc_now_naive
 
@@ -145,6 +146,128 @@ async def refine_project_meeting_briefing(
             "generated_at": cached.updated_at.isoformat(),
             "cached": False,
         }
+
+
+@router.post("/{project_id}/briefing/refine/stream")
+async def refine_project_meeting_briefing_stream(
+    project_id: int,
+    body: ProjectBriefingRefineRequest,
+    session: Session = Depends(get_session),
+):
+    """Streaming variant of /briefing/refine — yields SSE events as
+    the LLM produces tokens, so the frontend can render the script
+    progressively instead of waiting 30-90s for the full payload.
+
+    Events:
+        - data: {"type": "meta", "memory_version": N, "cached": false}
+        - data: {"type": "delta", "text": "<chunk>"}     (many)
+        - data: {"type": "done",  "content": "<full content>"}
+        - data: {"type": "error", "message": "<reason>"}
+
+    On hit-cache the whole content arrives in a single "done" event
+    with cached=true in the meta — frontend can switch from
+    progressive rendering to instant rendering without a code split.
+    """
+    project = get_project_or_404(session, project_id)
+    meeting_type = _normalize_briefing_meeting_type(body.meeting_type)
+    normalized_language = normalize_summary_language(body.language)
+    briefing = _build_project_briefing(session, project_id)
+    cache_type = _briefing_cache_type(meeting_type)
+    source_version = _briefing_source_version(briefing, meeting_type)
+    prompt = _build_project_briefing_refine_prompt(briefing, meeting_type, normalized_language)
+
+    async def event_stream():
+        def sse(payload: dict) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        # 1. Try cache first unless force_refresh is set. If hit, send
+        #    meta + done in two events so the UI gets the same shape.
+        if not body.force_refresh:
+            cached = get_project_memory_summary_cache(
+                session,
+                project_id=project_id,
+                summary_type=cache_type,
+                language=normalized_language,
+                memory_version=source_version,
+            )
+            if cached:
+                yield sse({
+                    "type": "meta",
+                    "memory_version": source_version,
+                    "cached": True,
+                    "meeting_type": meeting_type,
+                })
+                yield sse({
+                    "type": "done",
+                    "content": cached.content,
+                    "generated_at": cached.updated_at.isoformat(),
+                    "cached": True,
+                })
+                return
+
+        yield sse({
+            "type": "meta",
+            "memory_version": source_version,
+            "cached": False,
+            "meeting_type": meeting_type,
+        })
+
+        # 2. Otherwise stream tokens from the LLM. Buffer the accumulated
+        #    content so we can persist it to the cache at the end and
+        #    send a final "done" event with the full content for callers
+        #    that prefer atomic rendering.
+        buffer: list[str] = []
+        try:
+            async for chunk in stream_with_selected_model(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1800,
+            ):
+                if not chunk:
+                    continue
+                buffer.append(chunk)
+                yield sse({"type": "delta", "text": chunk})
+                # Cooperative yield so other requests can run.
+                await asyncio.sleep(0)
+        except Exception as exc:  # noqa: BLE001
+            _set_project_memory_failure(
+                session,
+                project,
+                stage=f"briefing_refine_stream:{meeting_type}",
+                message=str(exc),
+            )
+            yield sse({"type": "error", "message": str(exc)})
+            return
+
+        full_content = "".join(buffer).strip()
+        if not full_content:
+            yield sse({"type": "error", "message": "Empty LLM response"})
+            return
+
+        cached = save_project_memory_summary_cache(
+            session,
+            project_id=project_id,
+            summary_type=cache_type,
+            language=normalized_language,
+            memory_version=source_version,
+            content=full_content,
+        )
+        yield sse({
+            "type": "done",
+            "content": cached.content,
+            "generated_at": cached.updated_at.isoformat(),
+            "cached": False,
+        })
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        # Disable proxy buffering so chunks reach the browser as they
+        # come — nginx in front of FastAPI will otherwise hold them.
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{project_id}/stakeholder-candidates")

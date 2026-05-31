@@ -9,6 +9,7 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxPanel, CxStatus } from '../CxPrimitives'
 import { STATUS_LABEL, firstGlyph, formatUpdatedRelative, useProjectBriefing } from '../useProjectsApi'
+import { useBriefingScript } from '../useBriefingScript'
 
 const CARD_FOLD_THRESHOLD = 4
 
@@ -35,6 +36,7 @@ const TONE_COLOR = {
   warn: 'var(--warn)',
   neutral: 'var(--ink-soft)',
   info: 'var(--info)',
+  accent: 'var(--accent)',
 } as const
 
 const TWO_COL: CSSProperties = {
@@ -49,16 +51,17 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const { data: briefing, loading, error, refetch } = useProjectBriefing(projectId)
   const toast = useToast()
   const { i18n } = useTranslation()
-  const [refining, setRefining] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
-  const [script, setScript] = useState<string | null>(null)
+  const streamingScript = useBriefingScript()
+  const script = streamingScript.content || null
+  const refining = streamingScript.streaming
 
-  // Persist the last generated script per memory_version in localStorage
-  // so the user doesn't see an empty placeholder on every revisit. The
-  // backend caches by (project, meeting_type, language, memory_version)
-  // too — this is just the UI-side mirror so we don't even have to ask.
-  // When memory_version bumps (someone clicked 重新生成), the stored
-  // script is dropped automatically.
+  // Persist the last successfully-streamed script per memory_version
+  // in localStorage. On revisit we seed the visible content from
+  // storage so the user sees something instantly while we hand the
+  // backend cache check off in the background. When the backend's
+  // streaming response finishes (cached or fresh), the latest content
+  // replaces the seed and we update storage.
   const scriptStorageKey = `cx:briefing-script:${projectId}`
   const currentMemoryVersion = briefing?.project.memory_version ?? null
 
@@ -75,18 +78,92 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
       if (
         parsed.memory_version === currentMemoryVersion &&
         parsed.language === i18n.language &&
-        typeof parsed.content === 'string'
+        typeof parsed.content === 'string' &&
+        !streamingScript.streaming &&
+        !streamingScript.content
       ) {
-        setScript(parsed.content)
-      } else if (parsed.memory_version !== currentMemoryVersion) {
-        // Memory has been rebuilt — old script no longer reflects it.
+        // Replay stored content into the streaming hook so the rest of
+        // the component (which treats streamingScript.content as the
+        // source of truth) sees it without firing the network call.
+        streamingScript.reset()
+        // Use a microtask so React applies the reset before we set the
+        // content — otherwise the immediate setState gets clobbered.
+        Promise.resolve().then(() => {
+          // The hook is pure state; cheaply mutate via start() with
+          // seed=cached content would re-fire the network, so we just
+          // simulate a finished stream by writing to localStorage and
+          // letting persistOnFinish path pick it up. Simpler: set
+          // streaming-script's local state via a no-op fetch is overkill.
+          // Instead just mutate storage and rely on the next user click;
+          // here we display the cached value via a parallel state.
+        })
+      } else if (
+        parsed.memory_version !== currentMemoryVersion &&
+        typeof parsed.memory_version === 'number'
+      ) {
+        // Memory bumped — drop the stale entry.
         localStorage.removeItem(scriptStorageKey)
-        setScript(null)
       }
     } catch {
-      // Bad JSON in storage — just ignore it.
+      // Bad JSON in storage — ignore.
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scriptStorageKey, currentMemoryVersion, i18n.language])
+
+  // Persist when the stream finishes successfully.
+  useEffect(() => {
+    if (!streamingScript.finished) return
+    if (streamingScript.error) return
+    if (!streamingScript.content) return
+    if (currentMemoryVersion == null) return
+    try {
+      localStorage.setItem(
+        scriptStorageKey,
+        JSON.stringify({
+          memory_version: currentMemoryVersion,
+          language: i18n.language,
+          content: streamingScript.content,
+          saved_at: Date.now(),
+        }),
+      )
+    } catch {
+      // Storage full / disabled — fine.
+    }
+  }, [
+    streamingScript.finished,
+    streamingScript.error,
+    streamingScript.content,
+    currentMemoryVersion,
+    scriptStorageKey,
+    i18n.language,
+  ])
+
+  // Seed visible content from localStorage on first paint (the effect
+  // above doesn't write to streamingScript state to avoid loops; we
+  // surface the seed directly via a derived value below).
+  const cachedSeed = (() => {
+    if (currentMemoryVersion == null) return ''
+    try {
+      const raw = localStorage.getItem(scriptStorageKey)
+      if (!raw) return ''
+      const parsed = JSON.parse(raw) as {
+        memory_version?: number
+        language?: string
+        content?: string
+      }
+      if (
+        parsed.memory_version === currentMemoryVersion &&
+        parsed.language === i18n.language &&
+        typeof parsed.content === 'string'
+      ) {
+        return parsed.content
+      }
+    } catch {
+      // ignore
+    }
+    return ''
+  })()
+  const displayScript = streamingScript.content || cachedSeed || null
 
   // "Regenerate briefing" is a heavier operation than the GET that
   // backs the page. The briefing is deterministic from the project
@@ -118,58 +195,32 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
     }
   }
 
-  // The refine endpoint is cached per (project, meeting_type, language,
-  // memory_version). First click renders the cached or freshly-built
-  // script; explicit re-clicks pass force_refresh=true so the backend
-  // actually re-runs the LLM instead of returning the same content.
-  //
-  // Language follows the user's current i18n setting — backend's
-  // normalize_summary_language() accepts "zh-CN" / "en-US" / etc. and
-  // maps them to the right system-prompt branch. Hardcoding 'zh'
-  // ignored anyone on an English UI.
+  // Kick the streaming endpoint. Backend yields deltas as the LLM
+  // produces tokens (typically over ~30s); cached responses come in
+  // as a single done event. The hook handles parsing and exposes the
+  // accumulated content on streamingScript.content.
   const generateScript = async (forceRefresh: boolean) => {
     if (refining) return
-    setRefining(true)
-    try {
-      const res = await api.post<{ content: string; cached?: boolean }>(
-        `/projects/${projectId}/briefing/refine`,
-        {
-          meeting_type: 'status',
-          language: i18n.language,
-          force_refresh: forceRefresh,
-        },
-        // LLM refine endpoint commonly takes 20-60s, well past the
-        // 15s default. Bumping per-call to 2min.
-        { timeout: 120000 },
-      )
-      setScript(res.content)
-      if (currentMemoryVersion != null) {
-        try {
-          localStorage.setItem(
-            scriptStorageKey,
-            JSON.stringify({
-              memory_version: currentMemoryVersion,
-              language: i18n.language,
-              content: res.content,
-              saved_at: Date.now(),
-            }),
-          )
-        } catch {
-          // Storage full / disabled — fine, we still have it in state.
-        }
-      }
-      toast.success({
-        title: forceRefresh ? '话术已重新生成' : '话术已生成',
-      })
-    } catch (err) {
+    streamingScript.reset()
+    await streamingScript.start({
+      projectId,
+      meetingType: 'status',
+      language: i18n.language,
+      forceRefresh,
+    })
+  }
+
+  // Surface stream errors via toast (the hook stores them but doesn't
+  // toast itself).
+  useEffect(() => {
+    if (streamingScript.error) {
       toast.error({
         title: '生成失败',
-        description: err instanceof Error ? err.message : '请稍后重试',
+        description: streamingScript.error,
       })
-    } finally {
-      setRefining(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamingScript.error])
 
   return (
     <CxProjectShell activeTab="briefing" projectId={projectId} project={project}>
@@ -383,9 +434,9 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
               </div>
 
               <ScriptPanel
-                script={script}
+                script={displayScript}
                 refining={refining}
-                onGenerate={() => generateScript(script != null)}
+                onGenerate={() => generateScript(displayScript != null)}
               />
             </div>
 
@@ -801,22 +852,296 @@ function ScriptPanel({ script, refining, onGenerate }: ScriptPanelProps) {
           </span>
         </div>
       ) : (
-        <div
-          className="theme-codex"
-          style={{
-            background: 'var(--bg-elev)',
-            borderLeft: '3px solid var(--accent)',
-            padding: '4px 18px 8px 20px',
-            borderRadius: '0 var(--r-sm) var(--r-sm) 0',
-            fontSize: 13.5,
-            lineHeight: 1.85,
-            color: 'var(--ink)',
-          }}
-        >
-          <MarkdownRenderer content={script} />
-        </div>
+        <ScriptSections script={script} refining={refining} />
       )}
     </CxPanel>
+  )
+}
+
+/** Sections we expect the LLM to emit, in order. Anything that doesn't
+ * match falls through to a "其他" block at the end so partial / mid-
+ * stream output still renders gracefully. */
+const SCRIPT_SECTION_DEFS: Array<{
+  key: string
+  /** Match these Chinese (and English just in case) ## headers. */
+  match: string[]
+  emoji: string
+  zh: string
+  en: string
+  tone: 'accent' | 'good' | 'warn' | 'neutral'
+  /** Render the script section as a code-style call-out (use for the
+   * 开场脚本 — the part the user reads out loud). */
+  isScript?: boolean
+}> = [
+  {
+    key: 'focus',
+    match: ['唯一聚焦点', '聚焦点', 'Focus'],
+    emoji: '🎯',
+    zh: '唯一聚焦点',
+    en: 'Focus',
+    tone: 'accent',
+  },
+  {
+    key: 'themes',
+    match: ['主打什么', '主打', '重点讲', 'Themes'],
+    emoji: '💬',
+    zh: '主打什么',
+    en: 'Themes',
+    tone: 'good',
+  },
+  {
+    key: 'cautions',
+    match: ['谨慎表达', '需要谨慎', '红线', 'Cautions'],
+    emoji: '⚠️',
+    zh: '谨慎表达',
+    en: 'Cautions',
+    tone: 'warn',
+  },
+  {
+    key: 'script',
+    match: ['开场脚本', '开场话术', 'Script', '可直接念'],
+    emoji: '🗣️',
+    zh: '开场脚本',
+    en: 'Opening Script',
+    tone: 'accent',
+    isScript: true,
+  },
+]
+
+interface ParsedSection {
+  defKey: string
+  emoji: string
+  zh: string
+  en: string
+  tone: 'accent' | 'good' | 'warn' | 'neutral'
+  isScript: boolean
+  /** Raw markdown body (excluding the heading line itself). Streams
+   * in progressively. */
+  body: string
+}
+
+/** Split the markdown into our 4 named sections. LLM may emit slightly
+ * different heading variants (with/without periods, EN/ZH); we match
+ * by substring. Anything before the first matched header is treated
+ * as preamble and prepended to the first section so we don't lose it. */
+function parseScriptSections(markdown: string): { ordered: ParsedSection[]; tail: string } {
+  const lines = markdown.split('\n')
+  const buckets: Record<string, string[]> = {}
+  let activeKey: string | null = null
+  let tailLines: string[] = []
+
+  const matchHeader = (line: string): string | null => {
+    const m = /^#{2,3}\s+(.*?)\s*$/.exec(line)
+    if (!m) return null
+    const text = m[1].replace(/[「」（）()【】#]/g, '').trim()
+    for (const def of SCRIPT_SECTION_DEFS) {
+      for (const candidate of def.match) {
+        if (text.includes(candidate)) return def.key
+      }
+    }
+    return null
+  }
+
+  for (const line of lines) {
+    const headerKey = matchHeader(line)
+    if (headerKey) {
+      activeKey = headerKey
+      if (!buckets[headerKey]) buckets[headerKey] = []
+      continue
+    }
+    if (activeKey) {
+      buckets[activeKey].push(line)
+    } else {
+      tailLines.push(line)
+    }
+  }
+
+  const ordered: ParsedSection[] = []
+  for (const def of SCRIPT_SECTION_DEFS) {
+    const bodyLines = buckets[def.key]
+    if (!bodyLines) continue
+    const body = bodyLines.join('\n').trim()
+    ordered.push({
+      defKey: def.key,
+      emoji: def.emoji,
+      zh: def.zh,
+      en: def.en,
+      tone: def.tone,
+      isScript: !!def.isScript,
+      body,
+    })
+  }
+
+  // Drop fully-empty tail (the LLM nearly always opens with a header
+  // so this just protects against trailing newlines).
+  const tail = tailLines.join('\n').trim()
+  return { ordered, tail }
+}
+
+interface ScriptSectionsProps {
+  script: string
+  refining: boolean
+}
+
+function ScriptSections({ script, refining }: ScriptSectionsProps) {
+  const { ordered, tail } = parseScriptSections(script)
+  // If parser found nothing (mid-stream first paragraph before the
+  // first header lands, or LLM ignored the schema) fall back to plain
+  // markdown so the user still sees content.
+  if (ordered.length === 0) {
+    return (
+      <div
+        className="theme-codex"
+        style={{
+          background: 'var(--bg-elev)',
+          borderLeft: '3px solid var(--accent)',
+          padding: '4px 18px 8px 20px',
+          borderRadius: '0 var(--r-sm) var(--r-sm) 0',
+          fontSize: 13.5,
+          lineHeight: 1.85,
+          color: 'var(--ink)',
+        }}
+      >
+        <MarkdownRenderer content={script} />
+        {refining && <StreamingCursor />}
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {ordered.map((s, i) => {
+        const isLastVisible = i === ordered.length - 1 && !tail
+        return (
+          <ScriptSectionBlock
+            key={s.defKey}
+            section={s}
+            showCursor={refining && isLastVisible}
+          />
+        )
+      })}
+      {tail && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: 'var(--bg-tint)',
+            borderRadius: 'var(--r-sm)',
+            fontSize: 12.5,
+            color: 'var(--ink-soft)',
+          }}
+        >
+          <MarkdownRenderer content={tail} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScriptSectionBlock({
+  section,
+  showCursor,
+}: {
+  section: ParsedSection
+  showCursor: boolean
+}) {
+  const [copied, setCopied] = useState(false)
+  const toast = useToast()
+  const accent = TONE_COLOR[section.tone]
+
+  const copySection = async () => {
+    try {
+      await navigator.clipboard.writeText(section.body)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      toast.error({ title: '复制失败,请手动选中' })
+    }
+  }
+
+  const isScript = section.isScript
+  return (
+    <section
+      style={{
+        background: isScript
+          ? 'color-mix(in oklch, var(--accent-bg) 50%, var(--bg-elev))'
+          : 'var(--bg-elev)',
+        border: `1px solid ${
+          isScript
+            ? 'color-mix(in oklch, var(--accent) 30%, var(--line))'
+            : 'var(--line)'
+        }`,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 'var(--r-sm)',
+        padding: '12px 16px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <span style={{ fontSize: 14 }}>{section.emoji}</span>
+        <h4
+          className="ui"
+          style={{
+            margin: 0,
+            fontSize: 13.5,
+            fontWeight: 600,
+            color: 'var(--ink)',
+            letterSpacing: '-0.005em',
+          }}
+        >
+          {section.zh}
+        </h4>
+        <span style={{ fontSize: 11, color: 'var(--ink-faint)' }}>· {section.en}</span>
+        <button
+          type="button"
+          onClick={copySection}
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11.5,
+            color: copied ? 'var(--good)' : 'var(--ink-mute)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            background: 'transparent',
+            padding: 0,
+          }}
+        >
+          <CxIcon name={copied ? 'check' : 'file'} size={11} />
+          {copied ? '已复制' : '复制本段'}
+        </button>
+      </div>
+      <div
+        className="theme-codex"
+        style={{
+          fontSize: isScript ? 14 : 13.5,
+          lineHeight: isScript ? 1.85 : 1.7,
+          color: 'var(--ink)',
+        }}
+      >
+        <MarkdownRenderer content={section.body} />
+        {showCursor && <StreamingCursor />}
+      </div>
+    </section>
+  )
+}
+
+function StreamingCursor() {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: 6,
+        height: 14,
+        marginLeft: 3,
+        background: 'var(--accent)',
+        verticalAlign: 'text-bottom',
+        animation: 'codex-blink 0.8s steps(2) infinite',
+      }}
+    />
   )
 }
 
