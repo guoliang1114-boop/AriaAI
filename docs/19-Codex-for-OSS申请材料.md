@@ -90,6 +90,22 @@ Codex Security
 API credits for my project
 ```
 
+### Why does your project need Codex Security?
+
+Character limit: 500.
+
+Recommended answer:
+
+```text
+AriaAI handles AI workflows that combine project/client memory, uploaded documents, knowledge retrieval, tool execution, generated artifacts, and human approvals. Codex Security would help review risks such as prompt injection, cross-project context leakage, unsafe tool actions, memory pollution, insecure file handling, and authorization gaps in an OSS agentic workspace.
+```
+
+Shorter alternative:
+
+```text
+AriaAI needs Codex Security because it explores agentic workflows with memory, documents, retrieval, tools, approvals, and generated artifacts. Security review can help catch prompt injection, context leakage, unsafe tool execution, memory pollution, file-handling issues, and authorization gaps.
+```
+
 ### OpenAI Organization ID
 
 ```text
@@ -169,6 +185,7 @@ AriaAI explores how AI applications can move beyond one-off chat into durable, c
 - OpenAI Organization ID is ready.
 - Email matches the ChatGPT account.
 - 500-character fields are within the limit.
+- Conditional Codex Security question is answered.
 
 ## 5. Useful Links
 
