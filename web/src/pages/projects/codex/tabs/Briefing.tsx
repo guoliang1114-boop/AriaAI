@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ProjectDetail as ProjectDetailType } from '../../../../types/api'
 import { api } from '../../../../api/client'
 import { useToast } from '../../../../contexts/ToastContext'
@@ -39,6 +40,7 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   const { project } = detail
   const { data: briefing, loading, error, refetch } = useProjectBriefing(projectId)
   const toast = useToast()
+  const { i18n } = useTranslation()
   const [refining, setRefining] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [script, setScript] = useState<string | null>(null)
@@ -81,9 +83,11 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
   // memory_version). First click renders the cached or freshly-built
   // script; explicit re-clicks pass force_refresh=true so the backend
   // actually re-runs the LLM instead of returning the same content.
-  // language: 'zh' tells backend's normalize_summary_language to map
-  // to 中文 in the system prompt — without it the LLM defaults to
-  // English.
+  //
+  // Language follows the user's current i18n setting — backend's
+  // normalize_summary_language() accepts "zh-CN" / "en-US" / etc. and
+  // maps them to the right system-prompt branch. Hardcoding 'zh'
+  // ignored anyone on an English UI.
   const generateScript = async (forceRefresh: boolean) => {
     if (refining) return
     setRefining(true)
@@ -92,7 +96,7 @@ export function CxProjectBriefing({ projectId, detail }: BriefingProps) {
         `/projects/${projectId}/briefing/refine`,
         {
           meeting_type: 'status',
-          language: 'zh',
+          language: i18n.language,
           force_refresh: forceRefresh,
         },
       )
