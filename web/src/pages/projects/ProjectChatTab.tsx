@@ -89,7 +89,7 @@ export function ProjectChatTab({
   const quickPrompts = getProjectQuickPrompts(isZh);
   const toast = useToast();
   const [memoryStatus, setMemoryStatus] = useState<ProjectMemoryStatusResponse | null>(null);
-  const [, setProjectMemory] = useState<ProjectMemory | null>(null);
+  const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(null);
   const [isLoadingMemoryStatus, setIsLoadingMemoryStatus] = useState(false);
   const [isRebuildingMemory, setIsRebuildingMemory] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -982,6 +982,10 @@ export function ProjectChatTab({
         isUploadingFile={isUploadingProjectFile}
         isLoadingConversations={isLoadingConversations}
         isOpen={panel.isSidebarOpen}
+        memory={projectMemory}
+        memoryStale={Boolean(memoryStatus?.memory_stale ?? project.memory_stale)}
+        memoryVersion={memoryStatus?.memory_version ?? project.memory_version ?? 0}
+        onOpenMemoryTab={() => navigate(`/projects/${project.id}/memory`)}
         selectedFileId={previewFile?.id ?? null}
         onBeginRename={beginRenameConversation}
         onCancelRename={() => setEditingConvId(null)}

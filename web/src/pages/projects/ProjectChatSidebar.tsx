@@ -1,4 +1,5 @@
 import {
+  Brain,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -8,6 +9,7 @@ import {
   MessageSquare,
   Search,
   Shrink,
+  Star,
   Trash2,
   X,
   FolderKanban,
@@ -16,7 +18,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
-import type { Conversation, ProjectFile, ProjectFolder } from "../../types/api";
+import type {
+  Conversation,
+  ProjectFile,
+  ProjectFolder,
+  ProjectMemory,
+} from "../../types/api";
 import {
   formatDateOnly,
   formatDatePartsKey,
@@ -98,6 +105,16 @@ type ProjectChatSidebarProps = {
   isLoadingConversations: boolean;
   editingConvId: number | null;
   editTitle: string;
+  /** Project memory snapshot for the Space tree's 项目记忆 / 锚点
+   *  branches. Optional so the sidebar still renders when memory hasn't
+   *  loaded yet (Space view shows only the files tree in that case). */
+  memory?: ProjectMemory | null;
+  memoryStale?: boolean;
+  memoryVersion?: number;
+  /** Click target for the Space tree branches that link into the
+   *  project memory tab. Sidebar doesn't know the project id, so the
+   *  caller wires this up. */
+  onOpenMemoryTab?: () => void;
   onStartNewChat: () => void;
   onSelectConversation: (conversationId: number) => void;
   getConversationHref?: (conversationId: number) => string;
@@ -123,6 +140,10 @@ export function ProjectChatSidebar({
   isLoadingConversations,
   editingConvId,
   editTitle,
+  memory = null,
+  memoryStale = false,
+  memoryVersion = 0,
+  onOpenMemoryTab,
   onStartNewChat,
   onSelectConversation,
   getConversationHref,
@@ -688,6 +709,211 @@ export function ProjectChatSidebar({
                   PDF / DOC / MD / TXT · ≤ 50 MB
                 </span>
               </button>
+            ) : null}
+
+            {/* 项目记忆 + 锚点 tree branches — per
+             * direction-codex-project-chat.jsx "空间" view. Wired to
+             * the project memory data so counts and version stay
+             * live; clicking any item opens the memory tab. */}
+            {memory || memoryVersion > 0 ? (
+              <div className="mb-1 space-y-0.5">
+                {/* 项目记忆 */}
+                <div className="rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => toggleFolder("memory")}
+                    className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-codex-ink-soft hover:bg-codex-bg-tint"
+                  >
+                    {openFolders.memory ?? true ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-codex-ink-faint" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-codex-ink-faint" />
+                    )}
+                    <Brain
+                      className="h-3.5 w-3.5"
+                      style={{ color: "var(--color-codex-accent)" }}
+                    />
+                    <span className="truncate">
+                      {isZh ? "项目记忆" : "Memory"}
+                    </span>
+                    <span
+                      className="ml-auto"
+                      style={{
+                        fontFamily:
+                          'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                        fontSize: 10.5,
+                        color: memoryStale
+                          ? "var(--color-codex-warn)"
+                          : "var(--color-codex-ink-faint)",
+                      }}
+                    >
+                      v{memoryVersion}
+                    </span>
+                  </button>
+                  {(openFolders.memory ?? true) ? (
+                    <div className="ml-6 space-y-0.5 pb-1">
+                      <button
+                        type="button"
+                        onClick={() => onOpenMemoryTab?.()}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 text-codex-ink-soft transition-colors hover:bg-codex-bg-tint hover:text-codex-ink"
+                      >
+                        <span
+                          style={{
+                            width: 5,
+                            height: 5,
+                            borderRadius: 99,
+                            background: memoryStale
+                              ? "var(--color-codex-warn)"
+                              : "var(--color-codex-good)",
+                          }}
+                        />
+                        <span className="truncate">
+                          {memoryStale
+                            ? isZh
+                              ? "记忆待更新"
+                              : "Memory stale"
+                            : isZh
+                              ? "当前已同步"
+                              : "Currently synced"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenMemoryTab?.()}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 text-codex-ink-soft transition-colors hover:bg-codex-bg-tint hover:text-codex-ink"
+                      >
+                        <span
+                          style={{
+                            width: 5,
+                            height: 5,
+                            borderRadius: 99,
+                            background: "var(--color-codex-ink-faint, var(--color-codex-ink-mute))",
+                          }}
+                        />
+                        <span className="truncate">
+                          {isZh ? "历史版本" : "Version history"}
+                        </span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* 锚点 */}
+                {(() => {
+                  const riskCount = (memory?.key_risks_detail?.pinned || []).filter(Boolean).length;
+                  const questionCount = (memory?.open_questions_detail?.pinned || []).filter(Boolean).length;
+                  const stakeholderCount = (memory?.stakeholder_notes_detail?.pinned || []).filter(Boolean).length;
+                  const total = riskCount + questionCount + stakeholderCount;
+                  return (
+                    <div className="rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => toggleFolder("anchors")}
+                        className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-[12.5px] font-medium leading-5 text-codex-ink-soft hover:bg-codex-bg-tint"
+                      >
+                        {openFolders.anchors ?? false ? (
+                          <ChevronDown className="h-3.5 w-3.5 text-codex-ink-faint" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 text-codex-ink-faint" />
+                        )}
+                        <Star
+                          className="h-3.5 w-3.5 fill-current"
+                          style={{ color: "var(--color-codex-accent)" }}
+                        />
+                        <span className="truncate">{isZh ? "锚点" : "Anchors"}</span>
+                        <span
+                          className="ml-auto"
+                          style={{
+                            fontFamily:
+                              'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                            fontSize: 10.5,
+                            color: "var(--color-codex-ink-faint)",
+                          }}
+                        >
+                          {total}
+                        </span>
+                      </button>
+                      {(openFolders.anchors ?? false) ? (
+                        <div className="ml-6 space-y-0.5 pb-1">
+                          {[
+                            {
+                              key: "risks",
+                              label: isZh ? "风险锚点" : "Risk anchors",
+                              count: riskCount,
+                              color: "var(--color-codex-bad)",
+                            },
+                            {
+                              key: "questions",
+                              label: isZh ? "待确认问题" : "Open questions",
+                              count: questionCount,
+                              color: "var(--color-codex-warn)",
+                            },
+                            {
+                              key: "stakeholders",
+                              label: isZh ? "干系人提示" : "Stakeholder notes",
+                              count: stakeholderCount,
+                              color: "var(--color-codex-info, var(--color-codex-accent))",
+                            },
+                          ].map((row) => (
+                            <button
+                              key={row.key}
+                              type="button"
+                              onClick={() => onOpenMemoryTab?.()}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] leading-5 text-codex-ink-soft transition-colors hover:bg-codex-bg-tint hover:text-codex-ink"
+                            >
+                              <span
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: 99,
+                                  background: row.color,
+                                }}
+                              />
+                              <span className="truncate flex-1">{row.label}</span>
+                              <span
+                                style={{
+                                  fontFamily:
+                                    'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                                  fontSize: 10,
+                                  color: "var(--color-codex-ink-faint)",
+                                }}
+                              >
+                                {row.count}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+
+                {/* divider between memory/anchors and files */}
+                <div
+                  style={{
+                    height: 1,
+                    margin: "8px 0 4px",
+                    background: "var(--color-codex-line-soft)",
+                  }}
+                />
+
+                {/* 文档 header */}
+                <div className="flex items-center gap-1.5 px-1.5 py-1 text-[11.5px] font-medium leading-4 text-codex-ink-mute">
+                  <FolderKanban className="h-3 w-3 text-codex-ink-faint" />
+                  <span>{isZh ? "文档" : "Documents"}</span>
+                  <span
+                    className="ml-auto"
+                    style={{
+                      fontFamily:
+                        'var(--codex-mono, "JetBrains Mono", ui-monospace, monospace)',
+                      fontSize: 10.5,
+                      color: "var(--color-codex-ink-faint)",
+                    }}
+                  >
+                    {files.length}
+                  </span>
+                </div>
+              </div>
             ) : null}
 
             <div className="space-y-1">
