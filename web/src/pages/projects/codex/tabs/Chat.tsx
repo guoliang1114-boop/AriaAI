@@ -12,6 +12,7 @@ import { CxIcon } from '../CxIcons'
 import { CxProjectShell } from '../CxProjectShell'
 import { CxStatus } from '../CxPrimitives'
 import { CxConversationRenameDialog } from '../CxConversationActions'
+import { ProjectChatMessage } from '../ChatMessage'
 import {
   formatUpdatedRelative,
   useConversationMessages,
@@ -531,7 +532,11 @@ function ThreadView({ projectId, conversationId, conversation, onDeleted, onChan
           </div>
         )}
 
-        {!loading && !error && messages.map((m) => <MessageBubble key={m.id} m={m} />)}
+        {!loading &&
+          !error &&
+          messages.map((m) => (
+            <ProjectChatMessage key={m.id} message={m} projectId={projectId} />
+          ))}
       </div>
 
       {/* Composer placeholder */}
@@ -825,57 +830,3 @@ function FileEntry({
   )
 }
 
-function MessageBubble({ m }: { m: { role: string; content: string; created_at: string } }) {
-  const isUser = m.role === 'user'
-  const time = formatUpdatedRelative(m.created_at)
-  return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      <span
-        style={{
-          width: 30,
-          height: 30,
-          borderRadius: 99,
-          background: isUser ? 'var(--bg-tint)' : 'var(--accent-bg)',
-          color: isUser ? 'var(--ink-soft)' : 'var(--accent)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 13,
-          fontWeight: 500,
-          flexShrink: 0,
-        }}
-      >
-        {isUser ? '你' : <CxIcon name="sparkle" size={14} />}
-      </span>
-      <div style={{ flex: 1, paddingTop: 4, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 12,
-            color: 'var(--ink-mute)',
-            marginBottom: 6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <span style={{ color: isUser ? 'var(--ink-soft)' : 'var(--accent-ink)', fontWeight: 500 }}>
-            {isUser ? '我' : 'Aria'}
-          </span>
-          <span>{time}</span>
-        </div>
-        <p
-          style={{
-            margin: 0,
-            fontSize: 14,
-            lineHeight: 1.75,
-            color: 'var(--ink)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {m.content}
-        </p>
-      </div>
-    </div>
-  )
-}
