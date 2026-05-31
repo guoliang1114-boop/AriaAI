@@ -15,7 +15,7 @@ import {
   Palette,
   HelpCircle,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../api/client'
 import type { User } from '../types/api'
 import { primaryRouteLoaders } from '../routeLoaders'
@@ -47,6 +47,12 @@ function hasSeenOnboarding(preferences: Record<string, unknown> | null): boolean
   const personal = (preferences as { personal_info?: unknown }).personal_info
   if (!personal || typeof personal !== 'object') return false
   return (personal as { onboarding_seen?: unknown }).onboarding_seen === true
+}
+
+function getHttpStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const response = (error as { response?: { status?: unknown } }).response
+  return typeof response?.status === 'number' ? response.status : undefined
 }
 
 function getStoredUser(): User | null {
@@ -95,6 +101,7 @@ export function Layout() {
   // ``null`` = haven't checked yet (don't redirect). Once loaded we know
   // whether the user has been through the post-login onboarding flow.
   const [userMemoryPrefs, setUserMemoryPrefs] = useState<Record<string, unknown> | null>(null)
+  const onboardingGatePathRef = useRef(location.pathname)
   const isProjectDetailRoute = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname)
 
   const navItems = [
@@ -125,8 +132,10 @@ export function Layout() {
   }, [])
 
   // First-run gate: fetch /user-memory once so we can decide whether to mount
-  // the 称呼 modal. On fetch failure we fail open (empty prefs) — locking the
-  // entire app out because of an API hiccup is worse than skipping onboarding.
+  // the 称呼 modal. Only a successful response is allowed to send users into
+  // onboarding. During deployment the backend can briefly fail this request;
+  // treating that as "empty prefs" would incorrectly bounce existing users to
+  // /onboarding, so failures go to the explicit 403 page instead.
   //
   // Side-effect: if the prefs carry a saved ``appearance`` block, apply it +
   // cache to localStorage so cross-device sync works at app boot (otherwise
@@ -145,10 +154,14 @@ export function Layout() {
           writeSavedAppearance(normalized)
         }
       })
-      .catch(() => {
-        setUserMemoryPrefs({})
+      .catch((error) => {
+        if (getHttpStatus(error) === 401) return
+        navigate('/403', {
+          replace: true,
+          state: { from: onboardingGatePathRef.current, reason: 'user-memory-unavailable' },
+        })
       })
-  }, [])
+  }, [navigate])
 
   // Per-route bundles are preloaded on nav-link hover/focus via
   // ``primaryRouteLoaders[item.path]`` below, so the most-likely-next

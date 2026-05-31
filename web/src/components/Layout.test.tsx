@@ -45,6 +45,7 @@ function renderLayout(path = '/') {
     <I18nextProvider i18n={i18n}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
+          <Route path="/403" element={<div data-testid="forbidden-stub">403</div>} />
           <Route path="/onboarding" element={<div data-testid="onboarding-stub">onboarding</div>} />
           <Route path="*" element={<Layout />} />
         </Routes>
@@ -144,5 +145,25 @@ describe('Layout', () => {
     })
     // The Layout header should NOT render once the redirect lands.
     expect(screen.queryByTestId('cx-logo')).not.toBeInTheDocument()
+  })
+
+  it('redirects to /403 instead of /onboarding when /user-memory is unavailable', async () => {
+    const { api } = await import('../api/client')
+    const getMock = api.get as unknown as ReturnType<typeof vi.fn>
+    getMock.mockImplementation((url: string) => {
+      if (url === '/auth/me')
+        return Promise.resolve({ display_name: 'John Doe', email: 'john@example.com' })
+      if (url === '/settings/') return Promise.resolve({ timezone: 'UTC' })
+      if (url === '/messages/unread-count') return Promise.resolve({ unread_count: 0 })
+      if (url === '/user-memory')
+        return Promise.reject({ response: { status: 503 } })
+      return Promise.resolve({})
+    })
+
+    renderLayout()
+    await waitFor(() => {
+      expect(screen.getByTestId('forbidden-stub')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('onboarding-stub')).not.toBeInTheDocument()
   })
 })
